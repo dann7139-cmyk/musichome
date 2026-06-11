@@ -1,0 +1,80 @@
+{
+  "expo": {
+    "name": "Daricefy",
+    "slug": "daricefy",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "daricefy",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.daricefy.app",
+      "config": {
+        "googleMapsApiKey": "AIzaSyDFdU_w3aQ30HKv05MpJHYCx072myJpeAw"
+      },
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Daricefy necesita tu ubicación para mostrarte grupos cerca de donde estás.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Daricefy necesita tu ubicación en todo momento para actualizar tu posición en el mapa aunque la app esté en segundo plano.",
+        "NSLocationAlwaysUsageDescription": "Daricefy necesita tu ubicación en segundo plano para compartir tu posición con el mapa del admin.",
+        "UIBackgroundModes": ["location", "fetch"]
+      }
+    },
+    "android": {
+      "edgeToEdgeEnabled": true,
+      "package": "com.daricefy.app",
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyDFdU_w3aQ30HKv05MpJHYCx072myJpeAw"
+        }
+      },
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION"
+      ]
+    },
+    "web": {
+      "output": "static"
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Daricefy necesita tu ubicación para mostrarte grupos cerca y aparecer en el mapa del admin.",
+          "locationAlwaysPermission": "Daricefy necesita tu ubicación en todo momento para actualizar tu posición en el mapa aunque la app esté en segundo plano.",
+          "locationWhenInUsePermission": "Daricefy necesita tu ubicación para mostrarte grupos cerca de donde estás.",
+          "isIosBackgroundLocationEnabled": true,
+          "isAndroidBackgroundLocationEnabled": true
+        }
+      ],
+      [
+        "expo-task-manager"
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#000000"
+        }
+      ],
+      [
+        "@stripe/stripe-react-native",
+        {
+          "merchantIdentifier": "merchant.com.daricefy",
+          "enableGooglePay": false
+        }
+      ],
+      "expo-video",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/icon.png",
+          "color": "#00E676",
+          "defaultChannel": "default"
+        }
+      ]
+    ]
+  }
+}

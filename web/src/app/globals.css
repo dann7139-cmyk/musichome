@@ -1,0 +1,86 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg:     #040404;
+  --card:   #0e0e0e;
+  --card2:  #151515;
+  --border: #1f1f1f;
+  --green:  #00E676;
+  --green2: #00C853;
+  --muted:  #6b6b6b;
+  --text:   #e5e5e5;
+}
+
+* { box-sizing: border-box; padding: 0; margin: 0; }
+
+html, body {
+  max-width: 100vw;
+  overflow-x: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Inter", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #3a3a3a; }
+:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+::selection { background: rgba(0,230,118,0.2); color: #fff; }
+
+/* ── Rising beam animation ──────────────────────────────────────────────── */
+@keyframes beamRise {
+  0%   { transform: scaleY(0);    opacity: 0;   }
+  15%  { transform: scaleY(0.3);  opacity: 1;   }
+  60%  { transform: scaleY(1);    opacity: 0.8; }
+  85%  { transform: scaleY(1.05); opacity: 0.3; }
+  100% { transform: scaleY(0);    opacity: 0;   }
+}
+
+/* ── Logo gradient animation ────────────────────────────────────────────── */
+@keyframes logoShimmer {
+  0%   { background-position: 0%   50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0%   50%; }
+}
+
+/* ── Equalizer bar bounce ───────────────────────────────────────────────── */
+@keyframes eqBar1 {
+  0%,100% { transform: scaleY(0.3); }
+  25%      { transform: scaleY(1.0); }
+  50%      { transform: scaleY(0.5); }
+  75%      { transform: scaleY(0.8); }
+}
+@keyframes eqBar2 {
+  0%,100% { transform: scaleY(0.6); }
+  20%      { transform: scaleY(0.2); }
+  50%      { transform: scaleY(1.0); }
+  80%      { transform: scaleY(0.4); }
+}
+@keyframes eqBar3 {
+  0%,100% { transform: scaleY(0.8); }
+  30%      { transform: scaleY(0.3); }
+  60%      { transform: scaleY(1.0); }
+  90%      { transform: scaleY(0.5); }
+}
+
+/* ── Pulse glow on logo ─────────────────────────────────────────────────── */
+@keyframes logoPulse {
+  0%,100% { text-shadow: 0 0 20px rgba(0,230,118,0.3), 0 0 40px rgba(0,230,118,0.1); }
+  50%      { text-shadow: 0 0 30px rgba(0,230,118,0.6), 0 0 60px rgba(0,230,118,0.2), 0 0 100px rgba(0,230,118,0.1); }
+}
+
+/* ── Utility ────────────────────────────────────────────────────────────── */
+@layer utilities {
+  .text-balance { text-wrap: balance; }
+  .animate-fade-up { animation: fadeUp 0.6s ease forwards; }
+}
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
