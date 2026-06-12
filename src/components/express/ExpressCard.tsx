@@ -15,6 +15,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import { Clock, Users, Zap } from 'lucide-react-native';
 import { COLORS, FONTS, RADIUS } from '../../config/theme';
+import { EARTH_STYLE } from '../../constants/mapStyle';
 import type { ExpressDispatch } from '../../context/ExpressContext';
 import { useMotionPrefs } from '../../hooks/useMotionPrefs';
 import { playCriticalTick } from '../../utils/expressSound';
@@ -75,18 +76,8 @@ function cityCoords(city: string) {
   return CITY_COORDS[key] ?? CITY_COORDS['default'];
 }
 
-// ── Dark map style ────────────────────────────────────────────────────────────
-const MAP_STYLE = [
-  { elementType: 'geometry',           stylers: [{ color: '#060c06' }] },
-  { elementType: 'labels.text.fill',   stylers: [{ color: '#282828' }] },
-  { elementType: 'labels.text.stroke', stylers: [{ color: '#060c06' }] },
-  { featureType: 'road',           elementType: 'geometry',        stylers: [{ color: '#111811' }] },
-  { featureType: 'road.highway',   elementType: 'geometry',        stylers: [{ color: '#1c2a1c' }] },
-  { featureType: 'water',          elementType: 'geometry',        stylers: [{ color: '#030903' }] },
-  { featureType: 'poi',            stylers: [{ visibility: 'off' }] },
-  { featureType: 'transit',        stylers: [{ visibility: 'off' }] },
-  { featureType: 'administrative', elementType: 'geometry.stroke', stylers: [{ color: '#182018' }] },
-];
+// ── Dark map style — unificado en src/constants/mapStyle.ts ───────────────────
+const MAP_STYLE = EARTH_STYLE;
 
 const EVENT_LABELS: Record<string, string> = {
   fiesta_privada: 'Fiesta privada',

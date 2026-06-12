@@ -1,6 +1,6 @@
 import { ArrowLeft, CheckCircle, Clock, Coffee, ExternalLink, MapPin, MessageCircle, Music2, Navigation } from 'lucide-react-native';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import MapView, { Marker } from 'react-native-maps';
+import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import Svg, { Circle } from 'react-native-svg';
 import {
   Alert,
@@ -18,6 +18,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
+import { EARTH_STYLE } from '../../constants/mapStyle';
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
 import Particles from '../../components/ui/Particles';
@@ -1643,6 +1644,9 @@ export default function EventTimerScreen({ route, navigation }: any) {
                 <Text style={st.exactMapLabel}>📍 Ubicación exacta del cliente</Text>
                 <MapView
                   style={st.exactMap}
+                  provider={PROVIDER_GOOGLE}
+                  customMapStyle={EARTH_STYLE}
+                  userInterfaceStyle="dark"
                   initialRegion={{
                     latitude:      eventLatLng.lat,
                     longitude:     eventLatLng.lng,

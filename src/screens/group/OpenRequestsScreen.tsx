@@ -38,6 +38,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
+import { EARTH_STYLE } from '../../constants/mapStyle';
 
 const { height: SH } = Dimensions.get('window');
 
@@ -124,19 +125,8 @@ function getCityCoords(city: string, id: string, municipio?: string | null): { l
   };
 }
 
-// ─── Estilo oscuro del mapa ───────────────────────────────────────────────────
-const DARK_MAP_STYLE = [
-  { elementType: 'geometry',               stylers: [{ color: '#212121' }] },
-  { elementType: 'labels.icon',            stylers: [{ visibility: 'off' }] },
-  { elementType: 'labels.text.fill',       stylers: [{ color: '#757575' }] },
-  { elementType: 'labels.text.stroke',     stylers: [{ color: '#212121' }] },
-  { featureType: 'road',                   elementType: 'geometry.fill',  stylers: [{ color: '#2c2c2c' }] },
-  { featureType: 'road',                   elementType: 'labels.text.fill', stylers: [{ color: '#8a8a8a' }] },
-  { featureType: 'road.arterial',          elementType: 'geometry',       stylers: [{ color: '#373737' }] },
-  { featureType: 'road.highway',           elementType: 'geometry',       stylers: [{ color: '#3c3c3c' }] },
-  { featureType: 'water',                  elementType: 'geometry',       stylers: [{ color: '#000000' }] },
-  { featureType: 'administrative.locality',elementType: 'labels.text.fill', stylers: [{ color: '#bdbdbd' }] },
-];
+// ─── Estilo oscuro del mapa — unificado en src/constants/mapStyle.ts ──────────
+const DARK_MAP_STYLE = EARTH_STYLE;
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 interface EventRequest {

@@ -23,6 +23,7 @@ import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
+import { EARTH_STYLE } from '../../constants/mapStyle';
 
 const { height: SH, width: SW } = Dimensions.get('window');
 
@@ -135,22 +136,8 @@ function approxCoord(id: string, city: string): { latitude: number; longitude: n
   };
 }
 
-const DARK_MAP_STYLE = [
-  { elementType: 'geometry',               stylers: [{ color: COLORS.border }] },
-  { elementType: 'labels.icon',            stylers: [{ visibility: 'off' }] },
-  { elementType: 'labels.text.fill',       stylers: [{ color: '#6b6b6b' }] },
-  { elementType: 'labels.text.stroke',     stylers: [{ color: COLORS.border }] },
-  { featureType: 'road',                   elementType: 'geometry.fill',    stylers: [{ color: '#2a2a2a' }] },
-  { featureType: 'road',                   elementType: 'labels.text.fill', stylers: [{ color: '#777' }] },
-  { featureType: 'road.arterial',          elementType: 'geometry',         stylers: [{ color: '#333' }] },
-  { featureType: 'road.highway',           elementType: 'geometry',         stylers: [{ color: '#3a3a3a' }] },
-  { featureType: 'road.highway',           elementType: 'geometry.stroke',  stylers: [{ color: '#222' }] },
-  { featureType: 'water',                  elementType: 'geometry',         stylers: [{ color: '#050505' }] },
-  { featureType: 'poi',                    stylers: [{ visibility: 'off' }] },
-  { featureType: 'transit',               stylers: [{ visibility: 'off' }] },
-  { featureType: 'administrative.locality',elementType: 'labels.text.fill', stylers: [{ color: '#aaa' }] },
-  { featureType: 'administrative.country', elementType: 'labels.text.fill', stylers: [{ color: '#888' }] },
-];
+// Estilo unificado en src/constants/mapStyle.ts
+const DARK_MAP_STYLE = EARTH_STYLE;
 
 interface GroupPin {
   id: string;

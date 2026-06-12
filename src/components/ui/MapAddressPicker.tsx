@@ -12,9 +12,10 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import MapView, { Region } from 'react-native-maps';
+import MapView, { PROVIDER_GOOGLE, Region } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS, FONTS, RADIUS } from '../../config/theme';
+import { EARTH_STYLE } from '../../constants/mapStyle';
 
 export interface AddressResult {
   address: string;
@@ -183,6 +184,9 @@ export default function MapAddressPicker({
         <MapView
           ref={mapRef}
           style={StyleSheet.absoluteFillObject}
+          provider={PROVIDER_GOOGLE}
+          customMapStyle={EARTH_STYLE}
+          userInterfaceStyle="dark"
           initialRegion={DEFAULT_REGION}
           onRegionChangeComplete={onRegionChangeComplete}
           showsUserLocation
@@ -190,9 +194,9 @@ export default function MapAddressPicker({
           showsCompass={false}
         />
 
-        {/* ── Fixed center pin ── */}
+        {/* ── Fixed center pin — contorno blanco para contrastar sobre el mapa oscuro ── */}
         <View style={s.pinWrapper} pointerEvents="none">
-          <MapPin size={44} color="#E53935" fill="#E53935" strokeWidth={1.5} />
+          <MapPin size={44} color="#ffffff" fill="#E53935" strokeWidth={1.5} />
           <View style={s.pinDot} />
         </View>
 
@@ -243,7 +247,7 @@ export default function MapAddressPicker({
 
         {/* ── My location button ── */}
         <Pressable style={[s.myLocBtn, { bottom: 196 }]} onPress={goToUserLocation}>
-          <Navigation size={20} color="#1565C0" />
+          <Navigation size={20} color={COLORS.green} />
         </Pressable>
 
         {/* ── Bottom card ── */}
@@ -356,12 +360,13 @@ const s = StyleSheet.create({
     fontFamily: FONTS.body, fontSize: 13, color: COLORS.text, lineHeight: 18,
   },
 
-  // My location button
+  // My location button — oscuro, consistente con el tema
   myLocBtn: {
     position: 'absolute',
     right: 16,
     width: 46, height: 46, borderRadius: 23,
-    backgroundColor: '#fff',
+    backgroundColor: COLORS.card,
+    borderWidth: 1, borderColor: COLORS.border,
     alignItems: 'center', justifyContent: 'center',
     shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25, shadowRadius: 4,

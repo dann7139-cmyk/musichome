@@ -16,23 +16,11 @@ import { ArrowLeft, Calendar, Clock, MapPin, Music, Users, Zap } from 'lucide-re
 import { LinearGradient } from 'expo-linear-gradient';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
+import { EARTH_STYLE } from '../../constants/mapStyle';
 import { playQuotedSound, playTakenSound, playCriticalTick } from '../../utils/expressSound';
 
-// ── Dark map style ────────────────────────────────────────────────────────────
-const DARK_MAP_STYLE = [
-  { elementType: 'geometry',                stylers: [{ color: '#0d0d0d' }] },
-  { elementType: 'labels.icon',             stylers: [{ visibility: 'off' }] },
-  { elementType: 'labels.text.fill',        stylers: [{ color: '#555' }] },
-  { elementType: 'labels.text.stroke',      stylers: [{ color: '#0d0d0d' }] },
-  { featureType: 'road',        elementType: 'geometry.fill',    stylers: [{ color: '#1a1a1a' }] },
-  { featureType: 'road',        elementType: 'labels.text.fill', stylers: [{ color: '#666' }] },
-  { featureType: 'road.arterial',           elementType: 'geometry', stylers: [{ color: '#242424' }] },
-  { featureType: 'road.highway',            elementType: 'geometry', stylers: [{ color: '#2a2a2a' }] },
-  { featureType: 'water',                   elementType: 'geometry', stylers: [{ color: '#000' }] },
-  { featureType: 'poi',                     stylers: [{ visibility: 'off' }] },
-  { featureType: 'transit',                 stylers: [{ visibility: 'off' }] },
-  { featureType: 'administrative.locality', elementType: 'labels.text.fill', stylers: [{ color: '#444' }] },
-];
+// ── Dark map style — unificado en src/constants/mapStyle.ts ───────────────────
+const DARK_MAP_STYLE = EARTH_STYLE;
 
 // ── City coords ───────────────────────────────────────────────────────────────
 const CITY_COORDS: Record<string, { lat: number; lng: number }> = {

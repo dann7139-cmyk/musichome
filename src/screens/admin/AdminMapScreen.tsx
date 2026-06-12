@@ -1,8 +1,10 @@
+import { LinearGradient } from 'expo-linear-gradient';
 import {
-  ArrowLeft, Crosshair, Music, Radio, RefreshCw, SlidersHorizontal,
+  ArrowLeft, Crosshair, List, Music, Radio, RefreshCw, SlidersHorizontal,
   Users, Wifi, WifiOff, X, Zap,
 } from 'lucide-react-native';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import Svg, { Defs, RadialGradient as SvgRadialGradient, Rect, Stop } from 'react-native-svg';
 import {
   Animated,
   Dimensions,
@@ -22,12 +24,16 @@ import MapView, { Callout, Marker, Polyline, PROVIDER_GOOGLE, Region } from 'rea
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
+import { EARTH_STYLE } from '../../constants/mapStyle';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type MapMode = 'groups' | 'talents' | 'clients';
 type GroupStatus = 'offline' | 'active' | 'in_event';
 type StatusFilter = 'in_event' | 'active' | 'offline' | 'gps' | null;
+// Nivel de detalle del marcador según zoom:
+// dot (lejos) → mid (media distancia, círculo chico) → full (cerca, foto + etiquetas)
+type MarkerTier = 'dot' | 'mid' | 'full';
 
 interface GroupRow {
   group_id: string; group_name: string; profile_image: string | null;
@@ -56,6 +62,12 @@ interface ConnectionRow {
   client: { id: string; name: string; avatar: string | null; lat: number; lng: number };
 }
 
+// Ruta histórica visible en el mapa (un grupo a la vez)
+interface RouteState {
+  groupId: string; name: string; color: string;
+  points: { latitude: number; longitude: number }[];
+}
+
 // Fila normalizada para el bottom sheet (cualquier modo)
 interface SheetRow {
   id: string; name: string; image: string | null;
@@ -71,32 +83,28 @@ const STATUS: Record<GroupStatus, { color: string; label: string }> = {
 
 const GPS_BLUE = '#1A77F2';
 
-// ─── Map style — land visible green, ocean deep blue ─────────────────────────
+// "Ver ruta" solo en grupos con GPS real y reserva activa (o in_event).
+// Poner en false únicamente para pruebas sin reserva.
+const ROUTE_REQUIRES_ACTIVE_BOOKING = true;
 
-// Dark map style — shows streets, labels, roads, everything like real Google Maps
-const EARTH_STYLE = [
-  { elementType: 'geometry',                              stylers: [{ color: '#1a1a2e' }] },
-  { elementType: 'labels.text.fill',                     stylers: [{ color: '#b0b8c8' }] },
-  { elementType: 'labels.text.stroke',                   stylers: [{ color: '#1a1a2e' }] },
-  { elementType: 'labels.icon',                          stylers: [{ visibility: 'off' }] },
-  { featureType: 'water',        elementType: 'geometry', stylers: [{ color: '#0d1e3a' }] },
-  { featureType: 'water',        elementType: 'labels.text.fill', stylers: [{ color: '#4a6fa5' }] },
-  { featureType: 'landscape',    elementType: 'geometry', stylers: [{ color: '#1e2d3d' }] },
-  { featureType: 'landscape.natural', elementType: 'geometry', stylers: [{ color: '#1a2b1e' }] },
-  { featureType: 'poi.park',     elementType: 'geometry', stylers: [{ color: '#1a2e1a' }] },
-  { featureType: 'poi',          elementType: 'labels.text.fill', stylers: [{ color: '#6a8a6a' }] },
-  { featureType: 'road',         elementType: 'geometry.fill',   stylers: [{ color: '#2a3550' }] },
-  { featureType: 'road',         elementType: 'geometry.stroke', stylers: [{ color: '#1a2540' }] },
-  { featureType: 'road',         elementType: 'labels.text.fill', stylers: [{ color: '#8899bb' }] },
-  { featureType: 'road.highway', elementType: 'geometry.fill',   stylers: [{ color: '#2e4a7a' }] },
-  { featureType: 'road.highway', elementType: 'geometry.stroke', stylers: [{ color: '#1a2e55' }] },
-  { featureType: 'road.arterial',elementType: 'geometry',        stylers: [{ color: '#253045' }] },
-  { featureType: 'transit',      elementType: 'geometry',        stylers: [{ color: '#1e2d45' }] },
-  { featureType: 'transit.station', elementType: 'labels.text.fill', stylers: [{ color: '#5577aa' }] },
-  { featureType: 'administrative', elementType: 'geometry.stroke', stylers: [{ color: '#3a5070' }] },
-  { featureType: 'administrative.locality', elementType: 'labels.text.fill', stylers: [{ color: '#c0c8d8' }] },
-  { featureType: 'administrative.country',  elementType: 'labels.text.fill', stylers: [{ color: '#8899bb' }] },
-];
+// ─── Viñeta — profundidad tipo globo: centro limpio, bordes oscurecidos ───────
+
+function MapVignette() {
+  return (
+    <View style={StyleSheet.absoluteFillObject} pointerEvents="none">
+      <Svg width="100%" height="100%">
+        <Defs>
+          <SvgRadialGradient id="vig" cx="50%" cy="44%" r="78%">
+            <Stop offset="58%" stopColor="#000000" stopOpacity="0" />
+            <Stop offset="86%" stopColor="#02060f" stopOpacity="0.28" />
+            <Stop offset="100%" stopColor="#02060f" stopOpacity="0.6" />
+          </SvgRadialGradient>
+        </Defs>
+        <Rect x="0" y="0" width="100%" height="100%" fill="url(#vig)" />
+      </Svg>
+    </View>
+  );
+}
 
 // ─── Land fallback coords — never ocean ───────────────────────────────────────
 
@@ -256,7 +264,14 @@ function ClusterBubble({ count, color }: { count: number; color: string }) {
 
 const { height: H } = Dimensions.get('window');
 const SHEET_H = Math.round(H * 0.52);
-const PEEK    = 80;
+
+const MEXICO_REGION: Region = {
+  latitude: 23.5, longitude: -102.5, latitudeDelta: 26, longitudeDelta: 26,
+};
+
+// Cámara de la sesión: persiste mientras la app viva. La intro cinematográfica
+// solo corre la primera vez; al volver a entrar se restaura la última posición.
+let sessionCamera: Region | null = null;
 
 // ─── Live pulse dot ───────────────────────────────────────────────────────────
 
@@ -318,8 +333,8 @@ function PulseRing({ size, color }: { size: number; color: string }) {
 
 // ─── Group marker ─────────────────────────────────────────────────────────────
 
-function GroupMarker({ status, profileImage, name, hasGps, compact, eventStatus, bookingType }: {
-  status: GroupStatus; profileImage: string | null; name: string; hasGps: boolean; compact: boolean;
+function GroupMarker({ status, profileImage, name, hasGps, tier, eventStatus, bookingType }: {
+  status: GroupStatus; profileImage: string | null; name: string; hasGps: boolean; tier: MarkerTier;
   eventStatus?: 'en_route' | 'arrived' | 'playing' | null;
   bookingType?: 'express' | 'scheduled' | null;
 }) {
@@ -334,7 +349,8 @@ function GroupMarker({ status, profileImage, name, hasGps, compact, eventStatus,
     : bookingType  === 'express' ? '#FF6D00'
     : '#7C4DFF';
 
-  if (compact) {
+  // Lejos: punto pequeño — el detalle vive en mid/full
+  if (tier === 'dot') {
     return (
       <View style={{
         width: 12, height: 12, borderRadius: 6,
@@ -344,8 +360,10 @@ function GroupMarker({ status, profileImage, name, hasGps, compact, eventStatus,
     );
   }
 
-  const sz    = hasGps ? 52 : 42;
-  const outer = sz + 20;
+  const full  = tier === 'full';
+  // Tamaños 52/42 solo de cerca; a media distancia círculo compacto
+  const sz    = full ? (hasGps ? 52 : 42) : (hasGps ? 30 : 24);
+  const outer = sz + (full ? 20 : 10);
   const init  = name.trim()[0]?.toUpperCase() ?? '?';
   return (
     <View style={{ alignItems: 'center' }}>
@@ -355,13 +373,13 @@ function GroupMarker({ status, profileImage, name, hasGps, compact, eventStatus,
         {isLive && (
           <View style={{
             position: 'absolute',
-            width: sz + 12, height: sz + 12,
-            borderRadius: (sz + 12) / 2,
+            width: sz + (full ? 12 : 6), height: sz + (full ? 12 : 6),
+            borderRadius: (sz + (full ? 12 : 6)) / 2,
             backgroundColor: `${ringColor}30`,
           }} />
         )}
-        {/* Anillo pulsante — solo tocando */}
-        {status === 'in_event' && <PulseRing size={sz + 10} color={ringColor} />}
+        {/* Anillo pulsante — solo tocando y de cerca */}
+        {full && status === 'in_event' && <PulseRing size={sz + 10} color={ringColor} />}
         <View style={{
           width: sz, height: sz, borderRadius: sz / 2,
           borderWidth: 2,
@@ -372,13 +390,14 @@ function GroupMarker({ status, profileImage, name, hasGps, compact, eventStatus,
             ? <Image source={{ uri: profileImage }} style={{ width: sz, height: sz }} resizeMode="cover" />
             : (
               <View style={{ width: sz, height: sz, alignItems: 'center', justifyContent: 'center', backgroundColor: '#13151c' }}>
-                <Text style={{ color: isLive ? ringColor : '#888', fontFamily: FONTS.title, fontSize: sz > 46 ? 17 : 14 }}>{init}</Text>
+                <Text style={{ color: isLive ? ringColor : '#888', fontFamily: FONTS.title, fontSize: full ? (sz > 46 ? 17 : 14) : 11 }}>{init}</Text>
               </View>
             )
           }
         </View>
       </View>
-      {hasEvent && (
+      {/* Etiqueta de evento — solo de cerca, a media distancia satura el mapa */}
+      {full && hasEvent && (
         <View style={{
           marginTop: 2, backgroundColor: 'rgba(10,16,30,0.9)',
           borderRadius: 6, borderWidth: 1, borderColor: `${ringColor}66`,
@@ -397,31 +416,34 @@ function GroupMarker({ status, profileImage, name, hasGps, compact, eventStatus,
 
 const TALENT_COLOR = '#9C27B0';
 
-function TalentMarker({ avatarUrl, name, availability, hasGps, compact }: {
-  avatarUrl: string | null; name: string; availability: string; hasGps: boolean; compact: boolean;
+function TalentMarker({ avatarUrl, name, availability, hasGps, tier }: {
+  avatarUrl: string | null; name: string; availability: string; hasGps: boolean; tier: MarkerTier;
 }) {
   const isAvail = availability === 'available';
   const color   = isAvail ? TALENT_COLOR : '#777';
   const init    = name.trim()[0]?.toUpperCase() ?? '?';
 
-  if (compact) {
+  if (tier === 'dot') {
     return (
       <View style={{ width: 12, height: 12, borderRadius: 6, backgroundColor: color, borderWidth: 2, borderColor: '#fff' }} />
     );
   }
 
+  const full = tier === 'full';
+  const sz   = full ? 52 : 28;
+  const box  = full ? 68 : 38;
   return (
-    <View style={{ width: 68, height: 68, alignItems: 'center', justifyContent: 'center' }}>
+    <View style={{ width: box, height: box, alignItems: 'center', justifyContent: 'center' }}>
       {/* Glow sutil — solo disponibles */}
       {isAvail && (
         <View style={{
-          position: 'absolute', width: 64, height: 64, borderRadius: 32,
+          position: 'absolute', width: sz + 12, height: sz + 12, borderRadius: (sz + 12) / 2,
           backgroundColor: `${TALENT_COLOR}28`,
         }} />
       )}
       {/* Photo circle */}
       <View style={{
-        width: 52, height: 52, borderRadius: 26,
+        width: sz, height: sz, borderRadius: sz / 2,
         borderWidth: 2, borderColor: color,
         overflow: 'hidden', backgroundColor: '#1a0030',
       }}>
@@ -429,21 +451,23 @@ function TalentMarker({ avatarUrl, name, availability, hasGps, compact }: {
           ? <Image source={{ uri: avatarUrl }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
           : (
             <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: `${color}30` }}>
-              <Text style={{ color, fontFamily: FONTS.title, fontSize: 18 }}>{init}</Text>
+              <Text style={{ color, fontFamily: FONTS.title, fontSize: full ? 18 : 11 }}>{init}</Text>
             </View>
           )
         }
       </View>
-      {/* GPS badge — purple dot if live GPS, gray if approximate */}
-      <View style={{
-        position: 'absolute', bottom: 2, right: 2,
-        width: 16, height: 16, borderRadius: 8,
-        backgroundColor: hasGps ? TALENT_COLOR : '#555',
-        alignItems: 'center', justifyContent: 'center',
-        borderWidth: 1.5, borderColor: '#fff',
-      }}>
-        <Text style={{ fontSize: 9, color: '#fff' }}>♪</Text>
-      </View>
+      {/* GPS badge — solo de cerca */}
+      {full && (
+        <View style={{
+          position: 'absolute', bottom: 2, right: 2,
+          width: 16, height: 16, borderRadius: 8,
+          backgroundColor: hasGps ? TALENT_COLOR : '#555',
+          alignItems: 'center', justifyContent: 'center',
+          borderWidth: 1.5, borderColor: '#fff',
+        }}>
+          <Text style={{ fontSize: 9, color: '#fff' }}>♪</Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -452,13 +476,13 @@ function TalentMarker({ avatarUrl, name, availability, hasGps, compact }: {
 
 const CLIENT_COLOR = '#FF6D00';
 
-function ClientMarker({ avatarUrl, name, status, compact }: {
-  avatarUrl: string | null; name: string; status: string; compact: boolean;
+function ClientMarker({ avatarUrl, name, status, tier }: {
+  avatarUrl: string | null; name: string; status: string; tier: MarkerTier;
 }) {
   const isActive = status === 'active';
   const init     = name.trim()[0]?.toUpperCase() ?? '?';
 
-  if (compact) {
+  if (tier === 'dot') {
     return (
       <View style={{
         width: 12, height: 12, borderRadius: 6,
@@ -468,18 +492,20 @@ function ClientMarker({ avatarUrl, name, status, compact }: {
     );
   }
 
+  const full = tier === 'full';
+  const sz   = full ? 48 : 26;
   return (
     <View style={{ alignItems: 'center' }}>
       {isActive && (
         <View style={{
           position: 'absolute',
-          width: 60, height: 60, borderRadius: 30,
+          width: sz + 12, height: sz + 12, borderRadius: (sz + 12) / 2,
           backgroundColor: `${CLIENT_COLOR}30`,
           top: -6, left: -6,
         }} />
       )}
       <View style={{
-        width: 48, height: 48, borderRadius: 24,
+        width: sz, height: sz, borderRadius: sz / 2,
         borderWidth: 2, borderColor: isActive ? CLIENT_COLOR : '#666',
         overflow: 'hidden', backgroundColor: '#2a1800',
       }}>
@@ -487,20 +513,22 @@ function ClientMarker({ avatarUrl, name, status, compact }: {
           ? <Image source={{ uri: avatarUrl }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
           : (
             <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: `${CLIENT_COLOR}30` }}>
-              <Text style={{ color: CLIENT_COLOR, fontFamily: FONTS.title, fontSize: 16 }}>{init}</Text>
+              <Text style={{ color: CLIENT_COLOR, fontFamily: FONTS.title, fontSize: full ? 16 : 11 }}>{init}</Text>
             </View>
           )
         }
       </View>
-      {/* Person badge */}
-      <View style={{
-        position: 'absolute', bottom: -4, right: -4,
-        width: 16, height: 16, borderRadius: 8,
-        backgroundColor: CLIENT_COLOR, alignItems: 'center', justifyContent: 'center',
-        borderWidth: 1.5, borderColor: '#fff',
-      }}>
-        <Text style={{ fontSize: 8, color: '#fff' }}>♟</Text>
-      </View>
+      {/* Person badge — solo de cerca */}
+      {full && (
+        <View style={{
+          position: 'absolute', bottom: -4, right: -4,
+          width: 16, height: 16, borderRadius: 8,
+          backgroundColor: CLIENT_COLOR, alignItems: 'center', justifyContent: 'center',
+          borderWidth: 1.5, borderColor: '#fff',
+        }}>
+          <Text style={{ fontSize: 8, color: '#fff' }}>♟</Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -558,14 +586,14 @@ function ConnectionParticle({
   );
 }
 
-function ClientConnectionMarker({ avatarUrl, name, eventStatus, bookingType, compact }: {
+function ClientConnectionMarker({ avatarUrl, name, eventStatus, bookingType, tier }: {
   avatarUrl: string | null; name: string;
-  eventStatus: string; bookingType: string; compact: boolean;
+  eventStatus: string; bookingType: string; tier: MarkerTier;
 }) {
   const color = bookingType === 'express' ? '#FF6D00' : '#7C4DFF';
   const init  = name.trim()[0]?.toUpperCase() ?? '?';
 
-  if (compact) {
+  if (tier === 'dot') {
     return (
       <View style={{
         width: 10, height: 10, borderRadius: 5,
@@ -574,35 +602,39 @@ function ClientConnectionMarker({ avatarUrl, name, eventStatus, bookingType, com
     );
   }
 
+  const full = tier === 'full';
+  const sz   = full ? 48 : 26;
   return (
     <View style={{ alignItems: 'center' }}>
       <View style={{
-        position: 'absolute', width: 62, height: 62, borderRadius: 31,
+        position: 'absolute', width: sz + 14, height: sz + 14, borderRadius: (sz + 14) / 2,
         backgroundColor: `${color}25`, top: -7, left: -7,
       }} />
       <View style={{
-        width: 48, height: 48, borderRadius: 24,
-        borderWidth: 2.5, borderColor: color,
+        width: sz, height: sz, borderRadius: sz / 2,
+        borderWidth: full ? 2.5 : 2, borderColor: color,
         overflow: 'hidden', backgroundColor: '#1a0010',
       }}>
         {avatarUrl
           ? <Image source={{ uri: avatarUrl }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
           : (
             <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: `${color}30` }}>
-              <Text style={{ color, fontFamily: FONTS.title, fontSize: 16 }}>{init}</Text>
+              <Text style={{ color, fontFamily: FONTS.title, fontSize: full ? 16 : 11 }}>{init}</Text>
             </View>
           )
         }
       </View>
-      <View style={{
-        marginTop: 2, backgroundColor: `${color}22`,
-        borderRadius: 6, borderWidth: 1, borderColor: `${color}55`,
-        paddingHorizontal: 4, paddingVertical: 1,
-      }}>
-        <Text style={{ fontSize: 8, color, fontFamily: FONTS.bodySemiBold }}>
-          {eventStatus === 'playing' ? '🎵 En evento' : '📍 Destino'}
-        </Text>
-      </View>
+      {full && (
+        <View style={{
+          marginTop: 2, backgroundColor: `${color}22`,
+          borderRadius: 6, borderWidth: 1, borderColor: `${color}55`,
+          paddingHorizontal: 4, paddingVertical: 1,
+        }}>
+          <Text style={{ fontSize: 8, color, fontFamily: FONTS.bodySemiBold }}>
+            {eventStatus === 'playing' ? '🎵 En evento' : '📍 Destino'}
+          </Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -674,16 +706,20 @@ function StatChip({ icon, label, count, color, active, prominent, onPress }: {
   return (
     <Pressable
       onPress={onPress}
+      // hitSlop lleva el target a ≥44px sin agrandar lo visual
+      hitSlop={{ top: 10, bottom: 10, left: 4, right: 4 }}
       style={[
         s.chip,
         prominent && s.chipProminent,
-        { borderColor: active ? color : `${color}45` },
-        active && { backgroundColor: `${color}26` },
+        { borderColor: active ? color : prominent ? `${color}66` : `${color}45` },
+        // El chip prominente lleva tinte permanente; activo lo intensifica
+        prominent && { backgroundColor: `${color}1C` },
+        active && { backgroundColor: `${color}30` },
       ]}
     >
       {icon}
-      <Text style={[s.chipN, { color }, prominent && { fontSize: 15 }]}>{count}</Text>
-      <Text style={[s.chipL, active && { color }]}>{label}</Text>
+      <Text style={[s.chipN, { color }, prominent && { fontSize: 18 }]}>{count}</Text>
+      <Text style={[s.chipL, prominent && { fontSize: 11.5, color: `${color}CC` }, active && { color }]}>{label}</Text>
     </Pressable>
   );
 }
@@ -705,6 +741,9 @@ export default function AdminMapScreen({ navigation }: any) {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>(null);
   const [cityFilter,   setCityFilter]   = useState<string | null>(null);
   const [filterOpen,   setFilterOpen]   = useState(false);
+  // Ruta histórica — ref espejo para leerla desde handlers Realtime sin closure stale
+  const [route, setRoute] = useState<RouteState | null>(null);
+  const routeRef = useRef<RouteState | null>(null);
   const mapRef              = useRef<MapView>(null);
   const channelRef          = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const connRefreshRef      = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -713,14 +752,15 @@ export default function AdminMapScreen({ navigation }: any) {
   // afectado no está en ninguna conexión activa.
   const connectionsRef      = useRef<ConnectionRow[]>([]);
 
-  // compact = small dots when zoomed out
-  // latDelta > 12 → muy alejado (puntos); 4-12 → medio; < 4 → cerca (foto completa)
+  // Nivel de detalle por zoom:
+  // latDelta > 8 → puntos; 2.8-8 → círculos chicos; < 2.8 → foto completa + etiquetas
   const latDelta = region.latitudeDelta;
-  const compact = latDelta > 12;
-  const sizeKey = compact ? 'sm' : 'lg'; // key suffix to force marker remount on zoom change
+  const tier: MarkerTier = latDelta > 8 ? 'dot' : latDelta > 2.8 ? 'mid' : 'full';
+  const sizeKey = tier; // key suffix to force marker remount on zoom tier change
 
   // ── Bottom sheet (Animated + PanResponder, sin deps nuevas) ──
-  const sheetClosed = SHEET_H - PEEK - insets.bottom;
+  // Cerrado queda fuera de pantalla por completo — se abre con el FAB de lista
+  const sheetClosed = SHEET_H + 24;
   const sheetY      = useRef(new Animated.Value(sheetClosed)).current;
   const sheetOpenRef = useRef(false);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -754,20 +794,37 @@ export default function AdminMapScreen({ navigation }: any) {
     })
   ).current;
 
-  // Camera intro: start wide then fly in to Mexico
+  // Intro de cámara: solo en la primera apertura de la sesión, saltable con tap.
+  // Reentradas: directo a la última cámara guardada.
+  const firstOpenRef = useRef(sessionCamera === null);
+  const [introActive, setIntroActive] = useState(sessionCamera === null);
+  const introTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
+
   useEffect(() => {
+    if (!firstOpenRef.current) {
+      const t = setTimeout(() => {
+        if (sessionCamera) mapRef.current?.animateToRegion(sessionCamera, 0);
+      }, 80);
+      return () => clearTimeout(t);
+    }
     const t1 = setTimeout(() => {
       mapRef.current?.animateToRegion(
         { latitude: 10, longitude: -50, latitudeDelta: 140, longitudeDelta: 140 }, 0
       );
     }, 350);
     const t2 = setTimeout(() => {
-      mapRef.current?.animateToRegion(
-        { latitude: 23.5, longitude: -102.5, latitudeDelta: 26, longitudeDelta: 26 }, 2200
-      );
+      mapRef.current?.animateToRegion(MEXICO_REGION, 2200);
     }, 850);
-    return () => { clearTimeout(t1); clearTimeout(t2); };
+    const t3 = setTimeout(() => setIntroActive(false), 3200);
+    introTimers.current = [t1, t2, t3];
+    return () => introTimers.current.forEach(clearTimeout);
   }, []);
+
+  const skipIntro = () => {
+    introTimers.current.forEach(clearTimeout);
+    setIntroActive(false);
+    mapRef.current?.animateToRegion(MEXICO_REGION, 350);
+  };
 
   const fetchAll = async () => {
     const [{ data: allGroups }, { data: locs }, { data: activeRes }] = await Promise.all([
@@ -904,10 +961,13 @@ export default function AdminMapScreen({ navigation }: any) {
 
   const handleRegionChange = (r: Region) => {
     setRegion(r);
+    sessionCamera = r; // recordar la cámara para reentradas en la misma sesión
   };
 
   const handleModeSwitch = (m: MapMode) => {
     setMode(m);
+    routeRef.current = null;
+    setRoute(null); // la ruta es de grupos — no tiene sentido en otros tabs
     if (m === 'talents') fetchTalents();
     else if (m === 'clients') fetchClients();
     else fetchAll();
@@ -951,6 +1011,16 @@ export default function AdminMapScreen({ navigation }: any) {
             connectionsRef.current = next;
             return next;
           });
+        }
+        // Si la ruta de este grupo está visible, extenderla en vivo
+        const curRoute = routeRef.current;
+        if (hasGps && curRoute && curRoute.groupId === row.group_id) {
+          const next: RouteState = {
+            ...curRoute,
+            points: [...curRoute.points, { latitude: row.lat as number, longitude: row.lng as number }],
+          };
+          routeRef.current = next;
+          setRoute(next);
         }
       })
 
@@ -1014,6 +1084,8 @@ export default function AdminMapScreen({ navigation }: any) {
   }, []);
 
   useEffect(() => {
+    // Auto-fit solo en la primera apertura — en reentradas respeta la cámara guardada
+    if (!firstOpenRef.current) return;
     if (mode !== 'groups' || !groups.length || !mapRef.current) return;
     const coords = groups.map(g => ({ latitude: g.mapLat, longitude: g.mapLng }));
     const t = setTimeout(() => {
@@ -1045,6 +1117,64 @@ export default function AdminMapScreen({ navigation }: any) {
       );
     }
   };
+
+  // ── Historial de ruta ──
+  const clearRoute = () => { routeRef.current = null; setRoute(null); };
+
+  const toggleRoute = async (grp: GroupRow) => {
+    if (routeRef.current?.groupId === grp.group_id) { clearRoute(); return; }
+    const { data, error } = await supabase.rpc('get_group_route', {
+      p_group_id: grp.group_id, p_hours: 12,
+    });
+    if (error) { console.warn('[AdminMap] get_group_route:', error.message); return; }
+    const pts = ((data as any[]) ?? [])
+      .filter(r => typeof r.lat === 'number' && typeof r.lng === 'number')
+      .map(r => ({ latitude: r.lat as number, longitude: r.lng as number }));
+    if (pts.length < 2) {
+      console.warn(`[AdminMap] get_group_route(${grp.group_name}): solo ${pts.length} puntos — sin recorrido suficiente`);
+      return;
+    }
+    // Conectar la cabeza de la ruta con el marcador en vivo: el último punto del
+    // historial puede tener hasta 5 min — sin esto la polyline termina "atrás"
+    // del grupo hasta el siguiente update Realtime.
+    const last = pts[pts.length - 1];
+    if (Math.abs(last.latitude - grp.mapLat) > 1e-6 || Math.abs(last.longitude - grp.mapLng) > 1e-6) {
+      pts.push({ latitude: grp.mapLat, longitude: grp.mapLng });
+    }
+    const next: RouteState = {
+      groupId: grp.group_id, name: grp.group_name,
+      color: STATUS[grp.status].color, points: pts,
+    };
+    routeRef.current = next;
+    setRoute(next);
+    mapRef.current?.fitToCoordinates(pts, {
+      edgePadding: { top: 200, right: 70, bottom: 160, left: 70 }, animated: true,
+    });
+  };
+
+  // Segmentos con degradado de opacidad: cola tenue (origen) → cabeza sólida (actual)
+  const routeSegments = useMemo(() => {
+    if (!route || route.points.length < 2) return [];
+    const SEGS = Math.min(12, route.points.length - 1);
+    const per  = (route.points.length - 1) / SEGS;
+    const out: { pts: { latitude: number; longitude: number }[]; color: string }[] = [];
+    for (let i = 0; i < SEGS; i++) {
+      const a = Math.round(i * per);
+      const b = Math.round((i + 1) * per);
+      const alpha = 0.15 + 0.80 * (i / Math.max(SEGS - 1, 1));
+      const hex = Math.round(alpha * 255).toString(16).padStart(2, '0');
+      out.push({ pts: route.points.slice(a, b + 1), color: `${route.color}${hex}` });
+    }
+    return out;
+  }, [route]);
+
+  // Puntos de dirección: crecen y se opacan hacia la posición actual
+  const routeDots = useMemo(() => {
+    if (!route) return [];
+    const step = Math.max(1, Math.floor(route.points.length / 14));
+    const sampled = route.points.filter((_, i) => i % step === 0);
+    return sampled.map((p, i) => ({ ...p, t: i / Math.max(sampled.length - 1, 1) }));
+  }, [route]);
 
   // Connections derived
   const connectionMap = useMemo(() => {
@@ -1203,11 +1333,17 @@ export default function AdminMapScreen({ navigation }: any) {
 
   const renderGroupMarker = (grp: GroupRow) => {
     const conn = connectionMap.get(grp.group_id);
+    // Ruta solo con GPS real + reserva activa — los aproximados por ciudad no tienen recorrido.
+    // in_event cuenta como reserva activa aunque la conexión no exista (p.ej. el
+    // cliente cerró la app y su GPS quedó stale — la tocada sigue en curso).
+    const canRoute     = grp.hasGps &&
+      (ROUTE_REQUIRES_ACTIVE_BOOKING ? (!!conn || grp.status === 'in_event') : true);
+    const routeVisible = route?.groupId === grp.group_id;
     return (
       <Marker
         key={`${grp.group_id}-${sizeKey}`}
         coordinate={{ latitude: grp.mapLat, longitude: grp.mapLng }}
-        tracksViewChanges={grp.status === 'in_event' && !compact}
+        tracksViewChanges={grp.status === 'in_event' && tier === 'full'}
         anchor={{ x: 0.5, y: 0.5 }}
       >
         <GroupMarker
@@ -1215,18 +1351,31 @@ export default function AdminMapScreen({ navigation }: any) {
           profileImage={grp.profile_image}
           name={grp.group_name}
           hasGps={grp.hasGps}
-          compact={compact}
+          tier={tier}
           eventStatus={conn?.eventStatus ?? null}
           bookingType={conn?.bookingType ?? null}
         />
-        {!compact && (
-          <Callout tooltip>
+        {tier !== 'dot' && (
+          // onPress del Callout — los botones internos no reciben touches en Android
+          <Callout tooltip onPress={() => { if (canRoute) toggleRoute(grp); }}>
             <View style={s.callout}>
               <Text style={s.calloutName}>{grp.group_name}</Text>
               <Text style={[s.calloutSub, { color: STATUS[grp.status].color }]}>
                 {STATUS[grp.status].label}{grp.city ? ` · ${grp.city}` : ''}
               </Text>
               {grp.last_seen && <Text style={s.calloutTime}>{timeAgo(grp.last_seen)}</Text>}
+              {canRoute ? (
+                <View style={[s.calloutRouteBtn, { borderColor: `${STATUS[grp.status].color}55` }]}>
+                  <Text style={[s.calloutRouteTxt, { color: STATUS[grp.status].color }]}>
+                    {routeVisible ? '✕ Ocultar ruta' : '⤳ Ver ruta'}
+                  </Text>
+                </View>
+              ) : (
+                // Sin GPS real no hay recorrido que mostrar — decirlo evita confusión
+                <Text style={[s.calloutTime, { marginTop: 4 }]}>
+                  {!grp.hasGps ? '≈ ubicación aproximada' : 'sin reserva activa'}
+                </Text>
+              )}
             </View>
           </Callout>
         )}
@@ -1246,9 +1395,9 @@ export default function AdminMapScreen({ navigation }: any) {
         name={t.full_name}
         availability={t.availability}
         hasGps={t.hasGps}
-        compact={compact}
+        tier={tier}
       />
-      {!compact && (
+      {tier !== 'dot' && (
         <Callout tooltip>
           <View style={s.callout}>
             <Text style={s.calloutName}>{t.full_name}</Text>
@@ -1275,9 +1424,9 @@ export default function AdminMapScreen({ navigation }: any) {
         avatarUrl={c.avatar_url}
         name={c.full_name}
         status={c.status}
-        compact={compact}
+        tier={tier}
       />
-      {!compact && (
+      {tier !== 'dot' && (
         <Callout tooltip>
           <View style={s.callout}>
             <Text style={s.calloutName}>{c.full_name}</Text>
@@ -1304,7 +1453,7 @@ export default function AdminMapScreen({ navigation }: any) {
         customMapStyle={EARTH_STYLE}
         userInterfaceStyle="dark"
         initialRegion={{ latitude: 23.5, longitude: -102.5, latitudeDelta: 26, longitudeDelta: 26 }}
-        mapPadding={{ top: insets.top + 150, right: 0, bottom: PEEK + insets.bottom, left: 0 }}
+        mapPadding={{ top: insets.top + 150, right: 0, bottom: insets.bottom + 16, left: 0 }}
         scrollEnabled={true}
         zoomEnabled={true}
         rotateEnabled={true}
@@ -1339,13 +1488,44 @@ export default function AdminMapScreen({ navigation }: any) {
                     name={conn.client.name}
                     eventStatus={conn.eventStatus}
                     bookingType={conn.bookingType}
-                    compact={compact}
+                    tier={tier}
                   />
                 </Marker>
               )}
             </React.Fragment>
           );
         })}
+
+        {/* Historial de ruta — degradado de opacidad: origen tenue → posición actual sólida */}
+        {mode === 'groups' && route && (
+          <>
+            {routeSegments.map((seg, i) => (
+              <Polyline
+                key={`rt-${route.groupId}-${i}`}
+                coordinates={seg.pts}
+                strokeWidth={3.5}
+                strokeColor={seg.color}
+              />
+            ))}
+            {routeDots.map((d, i) => (
+              <Marker
+                key={`rtd-${route.groupId}-${i}`}
+                coordinate={{ latitude: d.latitude, longitude: d.longitude }}
+                anchor={{ x: 0.5, y: 0.5 }}
+                tracksViewChanges={false}
+              >
+                <View style={{
+                  width: 5 + 5 * d.t, height: 5 + 5 * d.t,
+                  borderRadius: (5 + 5 * d.t) / 2,
+                  backgroundColor: route.color,
+                  opacity: 0.3 + 0.65 * d.t,
+                  // El origen lleva borde blanco para distinguir "de dónde viene"
+                  borderWidth: i === 0 ? 1.5 : 0, borderColor: '#fff',
+                }} />
+              </Marker>
+            ))}
+          </>
+        )}
 
         {/* Marcadores con clustering: ≥2 en la misma celda → burbuja con número */}
         {mode === 'groups' && groupClusters.map(cl => {
@@ -1402,6 +1582,19 @@ export default function AdminMapScreen({ navigation }: any) {
           return c ? renderClientMarker(c) : null;
         })}
       </MapView>
+
+      {/* ── PROFUNDIDAD: viñeta radial + scrims para legibilidad ── */}
+      <MapVignette />
+      <LinearGradient
+        colors={['rgba(2,7,16,0.94)', 'rgba(2,7,16,0.5)', 'transparent']}
+        style={[s.topScrim, { height: insets.top + 165 }]}
+        pointerEvents="none"
+      />
+      <LinearGradient
+        colors={['transparent', 'rgba(2,7,16,0.5)']}
+        style={s.bottomScrim}
+        pointerEvents="none"
+      />
 
       {/* ── HEADER FLOTANTE ── */}
       <View style={[s.header, { top: insets.top + 6 }]}>
@@ -1549,16 +1742,54 @@ export default function AdminMapScreen({ navigation }: any) {
         </View>
       )}
 
-      {/* ── FAB "Ir al activo" — sobre el bottom sheet, esquina inferior derecha ── */}
+      {/* ── INTRO SALTABLE — tap en cualquier parte salta el vuelo de cámara ── */}
+      {introActive && (
+        <Pressable style={s.introSkip} onPress={skipIntro}>
+          <View style={s.introSkipHint}>
+            <Text style={s.introSkipTxt}>Toca para saltar</Text>
+          </View>
+        </Pressable>
+      )}
+
+      {/* ── FABs — esquina inferior derecha: lista de grupos en vista + ir al activo ── */}
+      <Pressable
+        style={[s.fab, { bottom: insets.bottom + 16 + 64, borderColor: COLORS.border }]}
+        onPress={() => snapSheet(true)}
+      >
+        <List size={20} color={COLORS.muted2} />
+        {/* Badge de conteo — se actualiza con el viewport */}
+        {sheetRows.length > 0 && (
+          <View style={[s.fabBadge, { backgroundColor: modeAccent }]}>
+            <Text style={s.fabBadgeTxt}>{sheetRows.length > 99 ? '99+' : sheetRows.length}</Text>
+          </View>
+        )}
+      </Pressable>
       {((mode === 'groups' && groups.some(g => g.status !== 'offline')) ||
         (mode === 'talents' && talents.length > 0) ||
         (mode === 'clients' && clients.length > 0)) && (
         <Pressable
-          style={[s.fab, { bottom: PEEK + insets.bottom + 16, borderColor: `${modeAccent}66` }]}
+          style={[s.fab, { bottom: insets.bottom + 16, borderColor: `${modeAccent}66` }]}
           onPress={flyToActive}
         >
           <Crosshair size={22} color={modeAccent} />
         </Pressable>
+      )}
+
+      {/* ── PÍLDORA "OCULTAR RUTA" — visible mientras hay ruta dibujada ── */}
+      {mode === 'groups' && route && (
+        <View
+          style={[s.routePillWrap, { bottom: insets.bottom + 24 }]}
+          pointerEvents="box-none"
+        >
+          <Pressable
+            style={[s.routePill, { borderColor: `${route.color}66` }]}
+            onPress={clearRoute}
+          >
+            <View style={[s.sheetStatusDot, { backgroundColor: route.color }]} />
+            <Text style={s.routePillTxt} numberOfLines={1}>Ruta · {route.name}</Text>
+            <X size={14} color={COLORS.muted2} />
+          </Pressable>
+        </View>
       )}
 
       {/* ── BOTTOM SHEET DESLIZABLE ── */}
@@ -1567,7 +1798,7 @@ export default function AdminMapScreen({ navigation }: any) {
         { height: SHEET_H, paddingBottom: insets.bottom, transform: [{ translateY: sheetY }] },
       ]}>
         {/* Zona de agarre — el PanResponder vive aquí para no pelear con el scroll de la lista */}
-        <Pressable onPress={() => snapSheet(!sheetOpenRef.current)} {...panResponder.panHandlers}>
+        <View {...panResponder.panHandlers}>
           <View style={s.sheetHandle} />
           <View style={s.sheetPeekRow}>
             <Text style={s.sheetPeekTxt}>
@@ -1580,8 +1811,15 @@ export default function AdminMapScreen({ navigation }: any) {
                 </Text>
               </View>
             )}
+            <Pressable
+              style={s.sheetClose}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              onPress={() => snapSheet(false)}
+            >
+              <X size={16} color={COLORS.muted2} />
+            </Pressable>
           </View>
-        </Pressable>
+        </View>
 
         <FlatList
           data={sheetRows}
@@ -1699,7 +1937,16 @@ export default function AdminMapScreen({ navigation }: any) {
 const OVERLAY_BG = 'rgba(8,12,24,0.88)';
 
 const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#0d1e3a' },
+  root: { flex: 1, backgroundColor: '#020812' },
+
+  topScrim: {
+    position: 'absolute', top: 0, left: 0, right: 0,
+    zIndex: 5,
+  },
+  bottomScrim: {
+    position: 'absolute', bottom: 0, left: 0, right: 0,
+    height: 110, zIndex: 5,
+  },
 
   header: {
     position: 'absolute', left: SPACING.xl, right: SPACING.xl,
@@ -1748,7 +1995,7 @@ const s = StyleSheet.create({
 
   chipsRow: {
     position: 'absolute', left: 0, right: 0,
-    maxHeight: 44, zIndex: 10,
+    maxHeight: 52, zIndex: 10,
   },
   chipsContent: {
     paddingHorizontal: SPACING.xl, gap: 8, alignItems: 'center',
@@ -1760,7 +2007,7 @@ const s = StyleSheet.create({
     paddingHorizontal: 12, paddingVertical: 7,
   },
   chipProminent: {
-    paddingHorizontal: 14, paddingVertical: 8,
+    paddingHorizontal: 16, paddingVertical: 10,
   },
   chipN: { fontFamily: FONTS.title, fontSize: 13 },
   chipL: { fontFamily: FONTS.body, fontSize: 10, color: COLORS.muted2, letterSpacing: 0.3 },
@@ -1774,6 +2021,27 @@ const s = StyleSheet.create({
     shadowColor: '#000', shadowOpacity: 0.4, shadowRadius: 8, shadowOffset: { width: 0, height: 3 },
     elevation: 6,
   },
+  fabBadge: {
+    position: 'absolute', top: -5, right: -5,
+    minWidth: 21, height: 21, borderRadius: 10.5,
+    paddingHorizontal: 5,
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 2, borderColor: '#020812',
+  },
+  fabBadgeTxt: { fontFamily: FONTS.bodySemiBold, fontSize: 10, color: '#041007' },
+
+  introSkip: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 20,
+    justifyContent: 'flex-end', alignItems: 'center',
+  },
+  introSkipHint: {
+    marginBottom: 120,
+    backgroundColor: OVERLAY_BG, borderRadius: RADIUS.full,
+    borderWidth: 1, borderColor: COLORS.border,
+    paddingHorizontal: 14, paddingVertical: 7,
+  },
+  introSkipTxt: { fontFamily: FONTS.bodyMedium, fontSize: 11, color: COLORS.muted2 },
 
   sheet: {
     position: 'absolute', left: 0, right: 0, bottom: 0,
@@ -1783,15 +2051,21 @@ const s = StyleSheet.create({
     zIndex: 12,
   },
   sheetHandle: {
-    alignSelf: 'center', marginTop: 10,
+    alignSelf: 'center', marginTop: 7,
     width: 40, height: 4, borderRadius: 2,
     backgroundColor: 'rgba(255,255,255,0.25)',
   },
   sheetPeekRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 10, paddingVertical: 14,
+    gap: 10, paddingVertical: 8,
   },
-  sheetPeekTxt: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.text },
+  sheetPeekTxt: { fontFamily: FONTS.bodySemiBold, fontSize: 12, color: COLORS.text },
+  sheetClose: {
+    position: 'absolute', right: 14, top: 2,
+    width: 30, height: 30, borderRadius: 15,
+    backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border,
+    alignItems: 'center', justifyContent: 'center',
+  },
   sheetEventBadge: {
     backgroundColor: `${COLORS.green}18`, borderRadius: RADIUS.full,
     borderWidth: 1, borderColor: `${COLORS.green}40`,
@@ -1827,12 +2101,30 @@ const s = StyleSheet.create({
   },
   emptyHintTxt: { fontFamily: FONTS.bodyMedium, fontSize: 12, color: COLORS.muted2, textAlign: 'center' },
 
+  routePillWrap: {
+    position: 'absolute', left: 0, right: 0,
+    alignItems: 'center', zIndex: 11,
+  },
+  routePill: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: OVERLAY_BG,
+    borderRadius: RADIUS.full, borderWidth: 1,
+    paddingHorizontal: 14, paddingVertical: 8,
+    maxWidth: '78%',
+  },
+  routePillTxt: { fontFamily: FONTS.bodyMedium, fontSize: 12, color: COLORS.text, flexShrink: 1 },
+
   callout: {
     backgroundColor: '#0d0d0d', borderRadius: 10,
     borderWidth: 1, borderColor: COLORS.border,
     paddingHorizontal: 12, paddingVertical: 8,
     alignItems: 'center', minWidth: 120,
   },
+  calloutRouteBtn: {
+    marginTop: 6, borderRadius: RADIUS.full, borderWidth: 1,
+    paddingHorizontal: 10, paddingVertical: 4,
+  },
+  calloutRouteTxt: { fontFamily: FONTS.bodySemiBold, fontSize: 11 },
   calloutName: { color: COLORS.text, fontFamily: FONTS.bodySemiBold, fontSize: 13 },
   calloutSub:  { fontFamily: FONTS.bodyMedium, fontSize: 11, marginTop: 2 },
   calloutTime: { fontFamily: FONTS.body, fontSize: 10, color: COLORS.muted2, marginTop: 2 },
