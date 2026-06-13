@@ -156,6 +156,7 @@ export default function GroupConfirmBookingScreen({ route, navigation }: any) {
       role: 'member',
       amount: parseFloat(distAmounts[m.user_id] ?? '0') || 0,
       payout_status: 'pending',
+      is_informational: true,
     }));
     const { error } = await supabase
       .from('event_payouts')
