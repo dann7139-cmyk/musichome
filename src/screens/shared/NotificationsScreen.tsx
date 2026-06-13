@@ -394,9 +394,25 @@ export default function NotificationsScreen({ navigation }: any) {
         await goToReservation(role === 'group');
         break;
 
-      case 'system':
-        // No navigate, just mark as read
+      case 'system': {
+        // Nombres de pantalla legacy usados en SQL → nombres reales del navegador.
+        // 'Dashboard'  → pantalla principal del rol actual
+        // 'Home'/'Explore' → explorador (clientes) o dashboard (grupos)
+        const SCREEN_REMAP: Record<string, string> = {
+          Dashboard:      role === 'group' ? 'GroupHome' : role === 'admin' ? 'AdminHome' : 'Explorar',
+          Home:           role === 'group' ? 'GroupHome' : 'Explorar',
+          Explore:        'Explorar',
+          AdminDashboard: 'AdminHome',
+        };
+        const rawSysScreen = notif.data?.screen as string | undefined;
+        const sysScreen = rawSysScreen
+          ? (SCREEN_REMAP[rawSysScreen] ?? rawSysScreen)
+          : undefined;
+        if (sysScreen) {
+          try { navigation.navigate(sysScreen as any); } catch { /* pantalla inválida */ }
+        }
         break;
+      }
 
       default: {
         // Fallback genérico: si la notificación tiene data.screen, navegar ahí
