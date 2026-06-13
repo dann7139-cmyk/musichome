@@ -2038,65 +2038,38 @@ export default function EventTimerScreen({ route, navigation }: any) {
                       </Text>
                     </View>
 
-                    {/* Por integrante */}
-                    {payouts.length > 0 ? (
-                      <>
-                        <Text style={st.commMemberTitle}>Por integrante</Text>
-                        {payouts.map(p => {
-                          const roleLabel =
-                            p.role === 'owner'  ? 'Dueño del grupo' :
-                            p.role === 'member' ? 'Integrante' : 'Invitado';
-                          const statusColor = p.payout_status === 'paid' ? COLORS.green : p.payout_status === 'failed' ? '#FF5252' : COLORS.gold;
-                          return (
-                            <View key={p.id} style={st.memberDistRow}>
-                              <View style={{ flex: 1 }}>
-                                <Text style={st.memberDistName} numberOfLines={1}>
-                                  {(p.profile as any)?.full_name ?? 'Usuario'}
+                    {/* Reparto sugerido equitativo */}
+                    {payouts.length > 0 && (() => {
+                      const groupNetAmt = reservation.group_earnings
+                        ?? (reservation.total_price != null ? reservation.total_price - (reservation.commission_amount ?? Math.round(reservation.total_price * 0.10)) : 0);
+                      const perPerson   = Math.round((groupNetAmt / payouts.length) * 100) / 100;
+                      return (
+                        <>
+                          <Text style={st.commMemberTitle}>💡 Reparto sugerido equitativo</Text>
+                          {payouts.map(p => {
+                            const roleLabel =
+                              p.role === 'owner'  ? 'Dueño del grupo' :
+                              p.role === 'member' ? 'Integrante' : 'Invitado';
+                            return (
+                              <View key={p.id} style={st.memberDistRow}>
+                                <View style={{ flex: 1 }}>
+                                  <Text style={st.memberDistName} numberOfLines={1}>
+                                    {(p.profile as any)?.full_name ?? 'Usuario'}
+                                  </Text>
+                                  <Text style={st.memberDistRole}>{roleLabel}</Text>
+                                </View>
+                                <Text style={[st.memberDistAmount, { color: COLORS.green }]}>
+                                  ${perPerson.toLocaleString()}
                                 </Text>
-                                <Text style={st.memberDistRole}>{roleLabel}</Text>
                               </View>
-                              <View style={{ alignItems: 'flex-end' }}>
-                                <Text style={[st.memberDistAmount, { color: statusColor }]}>
-                                  ${p.amount.toLocaleString()}
-                                </Text>
-                                <Text style={[st.memberDistStatus, { color: statusColor }]}>
-                                  {p.payout_status === 'paid' ? 'Pagado' : p.payout_status === 'failed' ? 'Fallido' : 'Pendiente'}
-                                </Text>
-                              </View>
-                            </View>
-                          );
-                        })}
-                      </>
-                    ) : invitedTalents.filter(t => t.status === 'accepted').length > 0 ? (
-                      <>
-                        <Text style={st.commMemberTitle}>Por integrante (estimado)</Text>
-                        <View style={st.memberDistRow}>
-                          <View style={{ flex: 1 }}>
-                            <Text style={st.memberDistName}>Dueño del grupo</Text>
-                          </View>
-                          <Text style={[st.memberDistAmount, { color: COLORS.gold }]}>
-                            {(() => {
-                              const base = reservation.group_earnings ?? reservation.total_price ?? 0;
-                              const paid = invitedTalents.filter(t => t.status === 'accepted').reduce((s, t) => s + (t.proposed_payment_amount ?? 0), 0);
-                              return `$${Math.max(0, base - paid).toLocaleString()}`;
-                            })()}
+                            );
+                          })}
+                          <Text style={[st.memberDistRole, { marginTop: 6, fontSize: 11, color: COLORS.muted2 }]}>
+                            El dueño del grupo gestiona la distribución por fuera de la plataforma.
                           </Text>
-                        </View>
-                        {invitedTalents.filter(t => t.status === 'accepted' && t.proposed_payment_amount != null).map(t => (
-                          <View key={t.id} style={st.memberDistRow}>
-                            <View style={{ flex: 1 }}>
-                              <Text style={st.memberDistName} numberOfLines={1}>
-                                {(t.profile as any)?.full_name ?? 'Talento'}
-                              </Text>
-                              <Text style={st.memberDistRole}>Invitado</Text>
-                            </View>
-                            <Text style={[st.memberDistAmount, { color: COLORS.gold }]}>
-                              ${t.proposed_payment_amount!.toLocaleString()}
-                            </Text>
-                          </View>
-                        ))}
-                      </>
-                    ) : null}
+                        </>
+                      );
+                    })()}
                   </View>
 
                   {/* ── Estado de pago y cartera ── */}
