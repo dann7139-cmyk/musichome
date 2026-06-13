@@ -207,9 +207,8 @@ export default function AdminFinancialScreen({ navigation }: any) {
     const from = dateFrom(filter);
     let q = supabase
       .from('wallet_transactions')
-      .select('type, amount, description, created_at, reference_id')
+      .select('type, amount, description, created_at')
       .in('type', ['ad_income', 'bid_income', 'recommendation_income'])
-      .eq('status', 'completed')
       .order('created_at', { ascending: false })
       .limit(100);
     if (from) q = q.gte('created_at', from);
@@ -217,15 +216,14 @@ export default function AdminFinancialScreen({ navigation }: any) {
     setAdIncome(data ?? []);
   };
 
-  // ── Historial de transfers ────────────────────────────────────────────────
+  // ── Historial de retiros (payout_requests) ───────────────────────────────
   const fetchPayouts = async () => {
     const from = dateFrom(filter);
     let q = supabase
-      .from('connected_payouts')
+      .from('payout_requests')
       .select(`
-        id, user_id, reservation_id, stripe_transfer_id,
-        amount, payout_type, status, created_at,
-        profile:profiles(full_name)
+        id, group_id, status, amount, clabe, notes, created_at, reviewed_at,
+        group:groups(name)
       `)
       .order('created_at', { ascending: false })
       .limit(60);
@@ -458,8 +456,11 @@ export default function AdminFinancialScreen({ navigation }: any) {
                 </View>
               )}
               {payouts.map(p => {
-                const isOk   = p.status === 'completed';
-                const isFail = p.status === 'failed';
+                const isOk   = p.status === 'processed' || p.status === 'approved';
+                const isFail = p.status === 'rejected';
+                const clabeMasked = p.clabe
+                  ? `CLABE ···${String(p.clabe).slice(-4)}`
+                  : (p.notes?.slice(0, 24) ?? 'Retiro');
                 return (
                   <View key={p.id} style={s.payoutRow}>
                     <View style={[s.payoutIconWrap, isOk ? s.payoutIconOk : isFail ? s.payoutIconFail : s.payoutIconPending]}>
@@ -469,9 +470,9 @@ export default function AdminFinancialScreen({ navigation }: any) {
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={s.payoutName} numberOfLines={1}>
-                        {(p.profile as any)?.full_name ?? p.user_id?.slice(0, 8) ?? '—'}
+                        {(p.group as any)?.name ?? p.group_id?.slice(0, 8) ?? '—'}
                       </Text>
-                      <Text style={s.payoutType}>{payoutTypeLabel(p.payout_type)}</Text>
+                      <Text style={s.payoutType}>{clabeMasked}</Text>
                     </View>
                     <View style={{ alignItems: 'flex-end' }}>
                       <Text style={[s.payoutAmount, isFail && s.payoutAmountFail]}>
