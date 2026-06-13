@@ -308,10 +308,10 @@ function SplashLoader() {
       {/* ── DARICEFY logo + taglines ── */}
       <Animated.View style={{ alignItems: 'center', opacity: fadeAnim, transform: [{ scale: scaleAnim }] }}>
         <Text style={splash.logoText} adjustsFontSizeToFit numberOfLines={1}>
-          SONE<Text style={splash.logoX}>X</Text>US
+          Darice<Text style={splash.logoX}>fy</Text>
         </Text>
-        <Text style={splash.tagline}>Infraestructura Musical en Vivo</Text>
-        <Text style={splash.subtitle}>"La red que conecta talento, eventos y trabajo musical."</Text>
+        <Text style={splash.tagline}>Conecta talento y eventos</Text>
+        <Text style={splash.subtitle}>La plataforma de música en vivo que te lleva más lejos.</Text>
         <View style={splash.dotsRow}>
           <PulsingDot delay={0} />
           <PulsingDot delay={180} />
@@ -899,7 +899,7 @@ const splash = StyleSheet.create({
   // Logo
   logoText: {
     fontFamily: FONTS.title, fontSize: 52, color: COLORS.text,
-    letterSpacing: 3, textAlign: 'center',
+    letterSpacing: -0.5, textAlign: 'center',
   },
   logoX: {
     color: COLORS.green,

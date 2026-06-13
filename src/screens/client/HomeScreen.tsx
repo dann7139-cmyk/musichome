@@ -41,6 +41,8 @@ interface Promotion {
   media_url: string | null;
   media_type: 'none' | 'image' | 'video';
   media_offset: number | null;
+  duration_seconds: number | null;
+  video_start_seconds: number | null;
 }
 
 const { width } = Dimensions.get('window');
@@ -95,9 +97,12 @@ export default function HomeScreen({ navigation }: any) {
   const [topRecs,          setTopRecs]          = useState<any[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [msiVisible, setMsiVisible] = useState(true);
+  const [demandVisible, setDemandVisible] = useState(true);
+  const demandShown     = useRef(false);
   const headerOpacity   = useRef(new Animated.Value(0)).current;
   const adFade          = useRef(new Animated.Value(1)).current;
   const msiFade         = useRef(new Animated.Value(1)).current;
+  const demandFade      = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     fetchData();
@@ -126,20 +131,35 @@ export default function HomeScreen({ navigation }: any) {
     if (ad?.id) supabase.rpc('track_ad_impression', { p_ad_id: ad.id }).then(() => {});
   }, [currentAdIndex, bannerAds.length]);
 
-  // Carousel automático de anuncios (cada 5 segundos)
+  // Carousel automático — duración por anuncio:
+  // imagen 5s · video 25s (que alcance a verse/escucharse) · o duration_seconds del anuncio
   useEffect(() => {
-    const total = bannerAds.length > 0 ? bannerAds.length : promotions.length;
+    const list: any[] = bannerAds.length > 0 ? bannerAds : promotions;
+    const total = list.length;
     if (total <= 1) return;
-    const timer = setInterval(() => {
+    const current = list[currentAdIndex % total];
+    const secs = current?.duration_seconds
+      ?? (current?.media_type === 'video' ? 25 : 5);
+    const timer = setTimeout(() => {
       Animated.timing(adFade, { toValue: 0, duration: 280, useNativeDriver: true }).start(() => {
         setCurrentAdIndex(prev => (prev + 1) % total);
         setBannerImgError(false);
         Animated.timing(adFade, { toValue: 1, duration: 280, useNativeDriver: true }).start();
       });
-    }, 5000);
-    return () => clearInterval(timer);
-  }, [bannerAds.length, promotions.length]);
+    }, secs * 1000);
+    return () => clearTimeout(timer);
+  }, [bannerAds.length, promotions.length, currentAdIndex]);
 
+
+  // Banner de demanda: se muestra una sola vez por sesión (5 s) y desaparece
+  useEffect(() => {
+    if (!cityDemand || demandShown.current) return;
+    demandShown.current = true;
+    const t = setTimeout(() => {
+      Animated.timing(demandFade, { toValue: 0, duration: 600, useNativeDriver: true }).start(() => setDemandVisible(false));
+    }, 5000);
+    return () => clearTimeout(t);
+  }, [cityDemand]);
 
   // Realtime: cuando el evento pasa a completed, quitar el banner del home
   useEffect(() => {
@@ -288,6 +308,7 @@ export default function HomeScreen({ navigation }: any) {
     // p_state solo se pasa si está disponible (requiere SQL 175 en DB)
     const bannerParams: Record<string, any> = { p_city: userCity };
     if (detectedState) bannerParams.p_state = detectedState;
+    if (safeCountry)   bannerParams.p_country = safeCountry.toLowerCase();
     const { data: adsData, error: adsErr } = await supabase.rpc('get_active_banner_ads', bannerParams);
     console.log('BANNER ADS:', JSON.stringify(adsData)?.slice(0, 300), 'error:', adsErr?.message);
     if (adsData && (adsData as any[]).length > 0) {
@@ -402,7 +423,7 @@ export default function HomeScreen({ navigation }: any) {
     const now = new Date().toISOString();
     const { data } = await supabase
       .from('promotions')
-      .select('id, title, subtitle, tag, button_text, link_type, link_id, media_url, media_type, media_offset')
+      .select('id, title, subtitle, tag, button_text, link_type, link_id, media_url, media_type, media_offset, duration_seconds, video_start_seconds')
       .eq('is_active', true)
       .or(`starts_at.is.null,starts_at.lte.${now}`)
       .or(`ends_at.is.null,ends_at.gte.${now}`)
@@ -432,6 +453,14 @@ export default function HomeScreen({ navigation }: any) {
     }
     if (ad.link_type === 'video' && ad.youtube_url) {
       WebBrowser.openBrowserAsync(ad.youtube_url, {
+        dismissButtonStyle: 'close',
+        presentationStyle: WebBrowser.WebBrowserPresentationStyle.PAGE_SHEET,
+      });
+      return;
+    }
+    // Enlace externo del botón (anuncios gratis del admin y futuros con link_url)
+    if (ad.link_type === 'url' && ad.link_url) {
+      WebBrowser.openBrowserAsync(ad.link_url, {
         dismissButtonStyle: 'close',
         presentationStyle: WebBrowser.WebBrowserPresentationStyle.PAGE_SHEET,
       });
@@ -761,30 +790,32 @@ export default function HomeScreen({ navigation }: any) {
             </View>
           )}
 
-          {/* DEMANDA CIUDAD */}
-          {cityDemand && (cityDemand.demand_level === 'very_high' || cityDemand.demand_level === 'high') && (
-            <View style={[
-              styles.demandBanner,
-              cityDemand.demand_level === 'very_high' && styles.demandBannerHot,
-            ]}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.demandBannerTitle}>
-                  {cityDemand.demand_level === 'very_high'
-                    ? `🔥 Alta demanda en ${cityDemand.city}`
-                    : `⚡ Buen momento en ${cityDemand.city}`}
-                </Text>
-                <Text style={styles.demandBannerSub}>
-                  {profile?.role === 'group'
-                    ? 'Alta demanda, promociónate ahora y consigue más eventos'
-                    : profile?.role === 'talent'
-                    ? 'Alta demanda en tu zona · Más oportunidades de trabajo'
-                    : cityDemand.demand_level === 'very_high'
-                    ? 'Pocos espacios disponibles · Agenda antes de que se llenen'
-                    : 'Alta competencia entre grupos · Mejores precios ahora'}
-                </Text>
+          {/* DEMANDA CIUDAD — aparece 5 s y se desvanece */}
+          {demandVisible && cityDemand && (cityDemand.demand_level === 'very_high' || cityDemand.demand_level === 'high') && (
+            <Animated.View style={{ opacity: demandFade }}>
+              <View style={[
+                styles.demandBanner,
+                cityDemand.demand_level === 'very_high' && styles.demandBannerHot,
+              ]}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.demandBannerTitle}>
+                    {cityDemand.demand_level === 'very_high'
+                      ? `🔥 Alta demanda en ${cityDemand.city}`
+                      : `⚡ Buen momento en ${cityDemand.city}`}
+                  </Text>
+                  <Text style={styles.demandBannerSub}>
+                    {profile?.role === 'group'
+                      ? 'Alta demanda, promociónate ahora y consigue más eventos'
+                      : profile?.role === 'talent'
+                      ? 'Alta demanda en tu zona · Más oportunidades de trabajo'
+                      : cityDemand.demand_level === 'very_high'
+                      ? 'Pocos espacios disponibles · Agenda antes de que se llenen'
+                      : 'Alta competencia entre grupos · Mejores precios ahora'}
+                  </Text>
+                </View>
+                <Zap size={18} color={cityDemand.demand_level === 'very_high' ? '#FF6D00' : COLORS.green} />
               </View>
-              <Zap size={18} color={cityDemand.demand_level === 'very_high' ? '#FF6D00' : COLORS.green} />
-            </View>
+            </Animated.View>
           )}
 
           {/* RECOMENDADOS + DESTACADOS — solo grupos del estado del cliente */}
@@ -867,7 +898,7 @@ export default function HomeScreen({ navigation }: any) {
               <View style={{ marginBottom: 20 }}>
                 <Animated.View style={{ opacity: adFade }}>
                   <Pressable
-                    style={[styles.promoBanner, item.is_free && { opacity: 0.82 }]}
+                    style={styles.promoBanner}
                     onPress={() => isNewAds ? handleAdPress(item) : handlePromoBannerPress(item)}
                   >
                     <View style={styles.promoBannerInner}>
@@ -877,7 +908,8 @@ export default function HomeScreen({ navigation }: any) {
                           uri={item.media_url}
                           style={styles.promoBannerBg}
                           contentFit="cover"
-                          autoPlay muted loop
+                          startTime={item.video_start_seconds ?? 0}
+                          autoPlay loop
                         />
                       ) : item.media_url && !bannerImgError ? (
                         <Image
@@ -892,17 +924,17 @@ export default function HomeScreen({ navigation }: any) {
                           style={styles.promoBannerBg}
                         />
                       )}
-                      {/* Gradiente oscuro desde el centro hacia abajo */}
+                      {/* Gradiente solo en la franja inferior para legibilidad del texto */}
                       <LinearGradient
-                        colors={['transparent', 'rgba(0,0,0,0.72)', 'rgba(0,0,0,0.93)']}
-                        locations={[0.25, 0.65, 1]}
+                        colors={['transparent', 'rgba(0,0,0,0.48)', 'rgba(0,0,0,0.78)']}
+                        locations={[0.48, 0.76, 1]}
                         style={styles.promoBannerGrad}
                       />
-                      {/* Chip "PUBLICIDAD" en la esquina superior izquierda */}
+                      {/* Chip "ANUNCIO" en la esquina superior izquierda */}
                       <View style={styles.promoBannerTagChip}>
-                        <Text style={styles.promoBannerTagText}>{item.tag ?? 'PUBLICIDAD'}</Text>
+                        <Text style={styles.promoBannerTagText}>ANUNCIO</Text>
                       </View>
-                      {/* Texto y botón sobrepuestos en la parte inferior */}
+                      {/* Título, subtítulo y botón (opcional) en la parte inferior */}
                       <View style={styles.promoBannerOverlay}>
                         <View style={{ flex: 1 }}>
                           <Text style={styles.promoBannerTitle} numberOfLines={1}>{item.title}</Text>
@@ -910,12 +942,14 @@ export default function HomeScreen({ navigation }: any) {
                             <Text style={styles.promoBannerSub} numberOfLines={1}>{item.subtitle}</Text>
                           ) : null}
                         </View>
-                        <Pressable
-                          style={styles.promoBannerBtn}
-                          onPress={() => isNewAds ? handleAdCtaPress(item) : navigation.navigate('AdvertisingPackages')}
-                        >
-                          <Text style={styles.promoBannerBtnText}>{item.button_text ?? 'Ver más'} →</Text>
-                        </Pressable>
+                        {!!item.button_text && (
+                          <Pressable
+                            style={styles.promoBannerBtn}
+                            onPress={() => isNewAds ? handleAdCtaPress(item) : navigation.navigate('AdvertisingPackages')}
+                          >
+                            <Text style={styles.promoBannerBtnText}>{item.button_text} →</Text>
+                          </Pressable>
+                        )}
                       </View>
                     </View>
                   </Pressable>
@@ -1557,14 +1591,14 @@ const styles = StyleSheet.create({
     position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
   },
   promoBannerTagChip: {
-    position: 'absolute', top: 10, left: 10,
-    backgroundColor: 'rgba(0,0,0,0.52)',
-    borderRadius: RADIUS.full, paddingHorizontal: 9, paddingVertical: 4,
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.16)',
+    position: 'absolute', top: 8, left: 8,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    borderRadius: RADIUS.full, paddingHorizontal: 7, paddingVertical: 3,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)',
   },
   promoBannerTagText: {
-    fontFamily: FONTS.bodyMedium, fontSize: 9,
-    color: 'rgba(255,255,255,0.82)', letterSpacing: 1.2,
+    fontFamily: FONTS.bodyMedium, fontSize: 7,
+    color: 'rgba(255,255,255,0.70)', letterSpacing: 1.0,
   },
   promoBannerOverlay: {
     position: 'absolute', bottom: 0, left: 0, right: 0,
@@ -1580,10 +1614,10 @@ const styles = StyleSheet.create({
     textShadowColor: 'rgba(0,0,0,0.5)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3,
   },
   promoBannerBtn: {
-    paddingHorizontal: 12, paddingVertical: 8,
+    paddingHorizontal: 10, paddingVertical: 6,
     borderRadius: RADIUS.md, backgroundColor: COLORS.green, flexShrink: 0,
   },
-  promoBannerBtnText: { fontFamily: FONTS.bodySemiBold, fontSize: 12, color: '#000' },
+  promoBannerBtnText: { fontFamily: FONTS.bodySemiBold, fontSize: 11, color: '#000' },
 
   // Sections
   sectionRow: {
