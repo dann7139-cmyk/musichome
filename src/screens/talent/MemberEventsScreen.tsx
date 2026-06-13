@@ -1,4 +1,4 @@
-import { BarChart2, Bell, ChevronRight, Clock, ExternalLink, MapPin, Navigation, PlayCircle, TrendingUp } from 'lucide-react-native';
+import { BarChart2, Bell, ChevronRight, Clock, ExternalLink, MapPin, Navigation, PlayCircle } from 'lucide-react-native';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -82,34 +82,16 @@ export default function MemberEventsScreen({ navigation }: any) {
   const [noGroup,         setNoGroup]         = useState(false);
   const [unreadCount,     setUnreadCount]     = useState(0);
   const [activeTab,       setActiveTab]       = useState<'proximos' | 'pendientes'>('proximos');
-  const [walletBalance,   setWalletBalance]   = useState(0);
 
-  useEffect(() => { fetchEvents(); fetchWallet(); }, []);
+  useEffect(() => { fetchEvents(); }, []);
 
   useEffect(() => {
     const unsub = navigation.addListener('focus', () => {
       fetchEvents();
       fetchUnread();
-      fetchWallet();
     });
     return unsub;
   }, [navigation]);
-
-  // Realtime: actualizar saldo de billetera cuando llega un pago
-  useEffect(() => {
-    let userId: string | null = null;
-    supabase.auth.getUser().then(({ data }) => { userId = data.user?.id ?? null; });
-    const sub = supabase
-      .channel('member-wallet-balance')
-      .on('postgres_changes', {
-        event: 'UPDATE', schema: 'public', table: 'wallets',
-      }, (payload: any) => {
-        if (!userId || payload.new?.user_id !== userId) return;
-        setWalletBalance(payload.new.available_balance ?? 0);
-      })
-      .subscribe();
-    return () => { supabase.removeChannel(sub); };
-  }, []);
 
   // Realtime: actualizar estado de reserva en la lista sin recargar manualmente
   useEffect(() => {
@@ -128,17 +110,6 @@ export default function MemberEventsScreen({ navigation }: any) {
       .subscribe();
     return () => { supabase.removeChannel(sub); };
   }, []);
-
-  const fetchWallet = async () => {
-    const { data: sd } = await supabase.auth.getSession();
-    if (!sd.session) return;
-    const { data } = await supabase
-      .from('wallets')
-      .select('available_balance')
-      .eq('user_id', sd.session.user.id)
-      .maybeSingle();
-    if (data) setWalletBalance(data.available_balance ?? 0);
-  };
 
   const fetchUnread = async () => {
     const { data: sd } = await supabase.auth.getSession();
@@ -172,7 +143,7 @@ export default function MemberEventsScreen({ navigation }: any) {
       // ── Reservas del grupo (join directo a profiles para evitar bloqueos RLS) ──
       const { data: resData, error: resErr } = await supabase
         .from('reservations')
-        .select('id,client_id,group_id,event_date,event_time,address,status,payment_status,total_price,group_earnings,quote_id,package_id,event_started_at,break_type,group_arrived_at,notes,created_at,event_request_id,hours_count,client:profiles!client_id(full_name)')
+        .select('id,client_id,group_id,event_date,event_time,address,status,payment_status,total_price,quote_id,package_id,event_started_at,break_type,group_arrived_at,notes,created_at,event_request_id,hours_count,client:profiles!client_id(full_name)')
         .eq('group_id', grp.id)
         .order('event_date', { ascending: true });
 
@@ -308,18 +279,6 @@ export default function MemberEventsScreen({ navigation }: any) {
           </Pressable>
         </View>
 
-        {/* ── Wallet widget ── */}
-        <Pressable style={styles.walletWidget} onPress={() => navigation.navigate('Wallet')}>
-          <Text style={styles.walletEmoji}>💰</Text>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.walletLabel}>Mi billetera</Text>
-            <Text style={styles.walletAmount}>
-              ${walletBalance.toLocaleString('es-MX', { minimumFractionDigits: 0 })} MXN
-            </Text>
-          </View>
-          <Text style={styles.walletAction}>Ver →</Text>
-        </Pressable>
-
         {/* ── Tabs ── */}
         <View style={styles.tabs}>
           <Pressable
@@ -345,6 +304,13 @@ export default function MemberEventsScreen({ navigation }: any) {
           contentContainerStyle={styles.list}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.green} />}
         >
+          {/* ── Nota de pagos externos ── */}
+          <View style={styles.paymentNote}>
+            <Text style={styles.paymentNoteText}>
+              💡 Los pagos de cada evento los acuerdas y recibes directamente con el dueño del grupo, fuera de la plataforma.
+            </Text>
+          </View>
+
           {/* ── Tab: Próximos eventos ── */}
           {activeTab === 'proximos' && (
             reservations.length === 0 ? (
@@ -467,7 +433,6 @@ function EventCard({ reservation: r, navigation, isPast }: any) {
   const showCountdown = isPaid && !isLive;
   const countdown = useCountdown(showCountdown ? r.event_date : null, r.event_time);
   const isExpress = !!r.event_request_id;
-  const earnings = r.group_earnings ?? r.total_price ?? null;
 
   const handlePress = async () => {
     if (r._isQuote) {
@@ -555,11 +520,6 @@ function EventCard({ reservation: r, navigation, isPast }: any) {
             </View>
           )}
         </View>
-        {earnings != null && earnings > 0 && (
-          <Text style={styles.earningsRow}>
-            💰 El grupo gana: ${Number(earnings).toLocaleString()} MXN
-          </Text>
-        )}
         {isLive && (
           <View style={styles.liveBtn}>
             <PlayCircle size={14} color={COLORS.green} />
@@ -584,18 +544,6 @@ function EventCard({ reservation: r, navigation, isPast }: any) {
             <ExternalLink size={10} color={COLORS.green} />
           </Pressable>
         ) : null}
-        {r.status === 'completed' && (
-          <Pressable
-            style={styles.earningsBtn}
-            onPress={(e) => {
-              e.stopPropagation?.();
-              navigation.navigate('EventPayouts', { reservationId: r.id, reservation: r });
-            }}
-          >
-            <TrendingUp size={13} color={COLORS.green} />
-            <Text style={styles.earningsBtnText}>Ver detalles de ganancias</Text>
-          </Pressable>
-        )}
       </View>
 
       <ChevronRight size={16} color={COLORS.muted} />
@@ -761,11 +709,6 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: 'rgba(255,179,0,0.40)',
   },
   expressBadgeText: { fontFamily: FONTS.bodyMedium, fontSize: 10, color: '#FFB300' },
-  earningsRow: {
-    fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.green,
-    marginTop: 4, backgroundColor: 'rgba(0,230,118,0.07)',
-    paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, alignSelf: 'flex-start' as const,
-  },
   navBtn: {
     flexDirection: 'row' as const, alignItems: 'center' as const, gap: 5,
     backgroundColor: 'rgba(0,230,118,0.08)', borderRadius: RADIUS.md,
@@ -773,16 +716,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8, paddingVertical: 5, marginTop: 4,
   },
   navBtnText: { fontFamily: FONTS.bodyMedium, fontSize: 11, color: COLORS.green, flex: 1 },
-  earningsBtn: {
-    flexDirection: 'row' as const, alignItems: 'center' as const, justifyContent: 'center' as const, gap: 6,
-    marginTop: 10, backgroundColor: 'rgba(0,230,118,0.06)',
-    borderTopWidth: 1, borderTopColor: '#1c1c1c',
-    paddingVertical: 11, paddingHorizontal: 14,
-    marginHorizontal: -14, marginBottom: -14,
-    borderBottomLeftRadius: 20, borderBottomRightRadius: 20,
-  },
-  earningsBtnText: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.green },
-
   // ── Tabs ──────────────────────────────────────────────────
   tabs: {
     flexDirection: 'row',
@@ -816,16 +749,12 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.green, marginTop: 4,
   },
 
-  // Wallet widget
-  walletWidget: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    marginHorizontal: SPACING.xl, marginBottom: 14,
-    backgroundColor: COLORS.greenMuted, borderRadius: RADIUS.lg,
-    borderWidth: 1, borderColor: `${COLORS.green}40`,
-    paddingHorizontal: SPACING.lg, paddingVertical: 12,
+  // Nota de pagos externos
+  paymentNote: {
+    marginHorizontal: 0, marginBottom: 14,
+    backgroundColor: 'rgba(0,230,118,0.06)', borderRadius: RADIUS.lg,
+    borderWidth: 1, borderColor: 'rgba(0,230,118,0.2)',
+    paddingHorizontal: SPACING.lg, paddingVertical: 10,
   },
-  walletEmoji:  { fontSize: 16 },
-  walletLabel:  { fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted2, marginBottom: 1 },
-  walletAmount: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.green },
-  walletAction: { fontFamily: FONTS.bodyMedium, fontSize: 12, color: COLORS.green },
+  paymentNoteText: { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2, lineHeight: 17 },
 });
