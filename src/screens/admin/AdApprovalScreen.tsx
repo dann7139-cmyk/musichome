@@ -1,10 +1,14 @@
+import { Audio } from 'expo-av';
+import * as ImagePicker from 'expo-image-picker';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import VideoPlayer from '../../components/ui/VideoPlayer';
 import { LinearGradient } from 'expo-linear-gradient';
-import { AlertCircle, Check, Clock, Eye, Pause, Play, Trash2, X } from 'lucide-react-native';
+import { AlertCircle, Check, Clock, Eye, Image as ImageIcon, Pause, Play, Trash2, Video as VideoIcon, X } from 'lucide-react-native';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  GestureResponderEvent,
   Image,
   Modal,
   Pressable,
@@ -18,6 +22,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
+import { checkMediaSize, uploadMediaToStorage } from '../../utils/uploadMediaToStorage';
+import { COUNTRY_LIST, STATES_BY_COUNTRY } from '../../utils/locationUtils';
 
 const STATUS_TABS = [
   { key: 'all',            label: 'Todos',      color: '#94A3B8' },
@@ -65,13 +71,6 @@ const GROUP_PROMO_TYPES = [
   { key: 'bidding'        as const, label: 'Bidding',      icon: '⬆️', color: '#A78BFA' },
 ];
 
-// Colores por tipo para los botones de la pestaña Grupos
-const GROUP_ACT_COLORS: Record<string, string> = {
-  sponsored:      '#C9A84C',
-  recommendation: '#FF6D00',
-  bidding:        '#A78BFA',
-};
-
 const FREE_DURATIONS = [
   { days: 7,  label: '7 días' },
   { days: 30, label: '30 días' },
@@ -118,22 +117,30 @@ export default function AdApprovalScreen({ navigation }: any) {
   const [preview, setPreview]       = useState<any | null>(null);
   const [walletIncome, setWalletIncome] = useState({ ad: 0, bid: 0, rec: 0, total: 0 });
 
-  // ── Vista "Grupos" ──────────────────────────────────────────────────────────
-  const [viewMode, setViewMode]         = useState<'ads' | 'groups'>('ads');
+  // ── Grupos (para el picker del modal "+Gratis") ─────────────────────────────
   const [groups, setGroups]             = useState<any[]>([]);
   const [groupsLoading, setGroupsLoading] = useState(false);
-  const [activating, setActivating]     = useState<string | null>(null);
 
   // ── Modal "Crear anuncio gratis" ────────────────────────────────────────────
   const [createModal, setCreateModal]   = useState(false);
   const [freeSegment, setFreeSegment]   = useState<0 | 1>(0); // 0=imagen, 1=grupo
-  // Campos imagen
+  // Campos imagen — media subida al bucket 'advertisements' (no URL manual)
   const [freeType, setFreeType]         = useState('banner_home');
   const [freeTitle, setFreeTitle]       = useState('');
   const [freeSub, setFreeSub]           = useState('');
+  const [freeShowBtn, setFreeShowBtn]   = useState(true);
   const [freeBtnText, setFreeBtnText]   = useState('Ver más');
+  const [freeLinkUrl, setFreeLinkUrl]   = useState(''); // enlace que abre el botón
   const [freeImageUrl, setFreeImageUrl] = useState('');
-  const [freeState, setFreeState]       = useState('');
+  const [freeMediaType, setFreeMediaType] = useState<'image' | 'video'>('image');
+  const [freeMediaUploading, setFreeMediaUploading] = useState(false);
+  const [freeUploadPct, setFreeUploadPct] = useState(0);
+  const [freeVideoStartSecs, setFreeVideoStartSecs]       = useState(0);
+  const [freeVideoDurationSecs, setFreeVideoDurationSecs] = useState(0);
+  const [freeVideoTotalSecs, setFreeVideoTotalSecs]       = useState(0);
+  const [freeTargetScope, setFreeTargetScope]     = useState<'all' | 'country' | 'state'>('all');
+  const [freeTargetCountry, setFreeTargetCountry] = useState('');
+  const [freeState, setFreeState]                 = useState('');
   // Campos grupo
   const [freeGroupPromoType, setFreeGroupPromoType] = useState<'sponsored' | 'recommendation' | 'bidding'>('sponsored');
   const [freeGroupId, setFreeGroupId]   = useState<string | null>(null);
@@ -141,27 +148,38 @@ export default function AdApprovalScreen({ navigation }: any) {
   const [freeGroupSearchDisplay, setFreeGroupSearchDisplay] = useState('');
   const [searchLoading, setSearchLoading] = useState(false);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Refs del trimmer de video (evitan closure stale en gestos)
+  const vsRef   = useRef(0);   // videoStart en segundos
+  const vdRef   = useRef(0);   // videoDuration en segundos
+  const vtRef   = useRef(0);   // videoTotal en segundos
+  const bwRef   = useRef(0);   // ancho de la barra del trimmer en px
+  const dragRef = useRef<'left' | 'right' | null>(null);
+  // Player dedicado al preview/trim del video (controla play, seek, audio)
+  const trimPlayer = useVideoPlayer(null, (p) => { p.muted = false; p.loop = false; });
+  const [previewPlaying, setPreviewPlaying] = useState(false);
+  const playTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [freeBidAmount, setFreeBidAmount] = useState(100);
   // Duración compartida
   const [freeDays, setFreeDays]         = useState(30);
   const [freeCreating, setFreeCreating] = useState(false);
-
-  // ── Mini-modal de activación desde pestaña Grupos ──────────────────────────
-  const [activateModal, setActivateModal] = useState<{
-    groupId: string;
-    groupName: string;
-    type: 'sponsored' | 'recommendation' | 'bidding';
-  } | null>(null);
-  const [activateDays, setActivateDays]         = useState(30);
-  const [activateBidAmount, setActivateBidAmount] = useState(100);
-  const [activateLoading, setActivateLoading]   = useState(false);
 
   useEffect(() => { fetchAds(); }, []);
   useEffect(() => {
     const unsub = navigation.addListener('focus', fetchAds);
     return unsub;
   }, [navigation]);
-  useEffect(() => { if (viewMode === 'groups') fetchGroups(); }, [viewMode]);
+
+  // Mantener refs del trimmer en sync con estado
+  useEffect(() => { vsRef.current = freeVideoStartSecs; },    [freeVideoStartSecs]);
+  useEffect(() => { vdRef.current = freeVideoDurationSecs; }, [freeVideoDurationSecs]);
+  useEffect(() => { vtRef.current = freeVideoTotalSecs; },    [freeVideoTotalSecs]);
+
+  // Cargar video en trimPlayer cuando se sube
+  useEffect(() => {
+    if (freeMediaType === 'video' && freeImageUrl) {
+      trimPlayer.replace({ uri: freeImageUrl, useCaching: true });
+    }
+  }, [freeImageUrl, freeMediaType]);
 
   const fetchAds = async () => {
     setLoading(true);
@@ -349,13 +367,98 @@ export default function AdApprovalScreen({ navigation }: any) {
 
   // ── Crear anuncio gratis ───────────────────────────────────────────────────
   const resetCreateForm = () => {
-    setFreeTitle(''); setFreeSub(''); setFreeBtnText('Ver más');
-    setFreeImageUrl(''); setFreeState(''); setFreeDays(30);
+    setFreeTitle(''); setFreeSub(''); setFreeShowBtn(true); setFreeBtnText('Ver más'); setFreeLinkUrl('');
+    setFreeImageUrl(''); setFreeMediaType('image');
+    setFreeVideoStartSecs(0); setFreeVideoDurationSecs(0); setFreeVideoTotalSecs(0);
+    if (playTimerRef.current) clearTimeout(playTimerRef.current);
+    trimPlayer.pause(); setPreviewPlaying(false);
+    setFreeTargetScope('all'); setFreeTargetCountry('');
+    setFreeState(''); setFreeDays(30);
     setFreeType('banner_home'); setFreeSegment(0);
     setFreeGroupId(null); setFreeGroupSearch(''); setFreeGroupSearchDisplay('');
     setFreeGroupPromoType('sponsored'); setFreeBidAmount(100);
     setSearchLoading(false);
     if (searchTimer.current) clearTimeout(searchTimer.current);
+  };
+
+  // ── Subir imagen/video al bucket de anuncios (streaming, no memoria) ────────
+  const pickFreeMedia = async (kind: 'images' | 'videos') => {
+    const isVideo = kind === 'videos';
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: kind,
+      allowsEditing: false,
+      quality: 0.85,
+      // Videos de banner deben ser cortos — también limita el peso
+      videoMaxDuration: 60,
+    });
+    if (result.canceled || !result.assets[0]) return;
+
+    const asset = result.assets[0];
+
+    // Validar tamaño ANTES de subir — error claro en vez de timeout
+    const sizeError = checkMediaSize(asset.fileSize, isVideo);
+    if (sizeError) { Alert.alert('Archivo muy pesado', sizeError); return; }
+
+    // Usar el MIME y extensión REALES del archivo — un .mov de iPhone subido
+    // como "video/mp4" puede no reproducirse en el banner.
+    const mime = asset.mimeType
+      ?? (isVideo ? 'video/mp4' : 'image/jpeg');
+    const uriExt = asset.uri.split('.').pop()?.toLowerCase() ?? '';
+    const ext = isVideo
+      ? (mime.includes('quicktime') || uriExt === 'mov' ? 'mov' : 'mp4')
+      : (mime.includes('png') ? 'png' : mime.includes('webp') ? 'webp' : 'jpg');
+    const contentType = mime;
+    // Carpeta del uid — mismo patrón que CreateAdvertisementScreen, compatible
+    // con policies de storage restringidas por carpeta del usuario.
+    const { data: sd } = await supabase.auth.getSession();
+    const uid  = sd.session?.user.id ?? 'admin';
+    const path = `${uid}/free_${Date.now()}.${ext}`;
+
+    setFreeUploadPct(0);
+    setFreeMediaUploading(true);
+    // Ceder el hilo al event loop para que React renderice el spinner
+    // antes de que empiece la subida (evita la sensación de freeze).
+    await new Promise<void>(r => setTimeout(r, 60));
+    try {
+      const publicUrl = await uploadMediaToStorage({
+        bucket: 'advertisements', path, uri: asset.uri, contentType,
+        onProgress: setFreeUploadPct,
+      });
+      setFreeImageUrl(publicUrl);
+      setFreeMediaType(isVideo ? 'video' : 'image');
+      if (isVideo && asset.duration) {
+        // expo-image-picker v17 siempre devuelve ms en ambas plataformas
+        const total = Math.max(1, Math.round(asset.duration / 1000));
+        setFreeVideoTotalSecs(total);
+        setFreeVideoDurationSecs(total);
+        setFreeVideoStartSecs(0);
+        vsRef.current = 0; vdRef.current = total; vtRef.current = total;
+      }
+    } catch (e: any) {
+      Alert.alert('Error', e?.message ?? 'No se pudo subir el archivo.');
+    }
+    setFreeMediaUploading(false);
+  };
+
+  // ── Play/pause del preview de trim ─────────────────────────────────────────
+  const handlePreviewPlay = () => {
+    if (playTimerRef.current) clearTimeout(playTimerRef.current);
+    Audio.setAudioModeAsync({ playsInSilentModeIOS: true, staysActiveInBackground: false }).catch(() => {});
+    trimPlayer.currentTime = vsRef.current;
+    trimPlayer.play();
+    setPreviewPlaying(true);
+    const durMs = Math.max(1, vdRef.current) * 1000;
+    playTimerRef.current = setTimeout(() => {
+      trimPlayer.pause();
+      trimPlayer.currentTime = vsRef.current;
+      setPreviewPlaying(false);
+    }, durMs);
+  };
+
+  const handlePreviewPause = () => {
+    if (playTimerRef.current) clearTimeout(playTimerRef.current);
+    trimPlayer.pause();
+    setPreviewPlaying(false);
   };
 
   // Buscador con debounce 300ms para no filtrar en cada tecla
@@ -374,6 +477,14 @@ export default function AdApprovalScreen({ navigation }: any) {
     if (groups.length === 0) fetchGroups();
   };
 
+  // ¿El grupo seleccionado ya tiene activa la promoción elegida?
+  const selectedGroup    = groups.find(g => g.id === freeGroupId) ?? null;
+  const groupPromoActive = !!selectedGroup && (
+    freeGroupPromoType === 'sponsored'      ? selectedGroup.sponsored :
+    freeGroupPromoType === 'recommendation' ? selectedGroup.recommended :
+                                              selectedGroup.bidding
+  );
+
   const handleCreateFreeAd = async () => {
     setFreeCreating(true);
     try {
@@ -387,11 +498,15 @@ export default function AdApprovalScreen({ navigation }: any) {
           p_type:          freeType,
           p_title:         freeTitle.trim(),
           p_subtitle:      freeSub.trim() || null,
-          p_button_text:   freeBtnText.trim() || 'Ver más',
+          p_button_text:   freeShowBtn ? (freeBtnText.trim() || 'Ver más') : null,
           p_media_url:     freeImageUrl.trim() || null,
-          p_media_type:    freeImageUrl.trim() ? 'image' : null,
-          p_target_state:  freeState.trim() || null,
-          p_duration_days: freeDays > 0 ? freeDays : null,
+          p_media_type:    freeImageUrl.trim() ? freeMediaType : null,
+          p_target_state:       freeTargetScope === 'state' ? (freeState.trim() || null) : null,
+          p_target_country:     freeTargetScope !== 'all' ? (freeTargetCountry.trim().toLowerCase() || null) : null,
+          p_duration_days:      freeDays > 0 ? freeDays : null,
+          p_link_url:           freeLinkUrl.trim() || null,
+          p_duration_seconds:   freeMediaType === 'video' && freeVideoDurationSecs > 0 ? freeVideoDurationSecs : null,
+          p_video_start_seconds: freeMediaType === 'video' ? freeVideoStartSecs : 0,
         });
         if (error || data?.ok === false) {
           Alert.alert('Error', error?.message ?? data?.error ?? 'No se pudo crear');
@@ -403,21 +518,32 @@ export default function AdApprovalScreen({ navigation }: any) {
           Alert.alert('Grupo requerido', 'Selecciona un grupo para promocionar.');
           return;
         }
-        const rpc = freeGroupPromoType === 'sponsored'      ? 'admin_activate_sponsored'
-                  : freeGroupPromoType === 'recommendation' ? 'admin_activate_recommendation'
-                  :                                           'admin_activate_bidding';
-        const params: any = { p_group_id: freeGroupId, p_days: freeDays > 0 ? freeDays : 30 };
-        if (freeGroupPromoType === 'bidding') params.p_bid_amount = freeBidAmount;
-        const { data, error } = await supabase.rpc(rpc, params);
-        if (error || data?.ok === false) {
-          Alert.alert('Error', error?.message ?? data?.error ?? 'No se pudo activar');
-          return;
+        if (groupPromoActive) {
+          // Ya activa → desactivar
+          const { data, error } = await supabase.rpc('admin_deactivate_group', {
+            p_group_id: freeGroupId, p_type: freeGroupPromoType,
+          });
+          if (error || data?.ok === false) {
+            Alert.alert('Error', error?.message ?? data?.error ?? 'No se pudo desactivar');
+            return;
+          }
+        } else {
+          const rpc = freeGroupPromoType === 'sponsored'      ? 'admin_activate_sponsored'
+                    : freeGroupPromoType === 'recommendation' ? 'admin_activate_recommendation'
+                    :                                           'admin_activate_bidding';
+          const params: any = { p_group_id: freeGroupId, p_days: freeDays > 0 ? freeDays : 30 };
+          if (freeGroupPromoType === 'bidding') params.p_bid_amount = freeBidAmount;
+          const { data, error } = await supabase.rpc(rpc, params);
+          if (error || data?.ok === false) {
+            Alert.alert('Error', error?.message ?? data?.error ?? 'No se pudo activar');
+            return;
+          }
         }
       }
       setCreateModal(false);
       resetCreateForm();
       fetchAds();
-      if (viewMode === 'groups') fetchGroups();
+      fetchGroups();
     } finally {
       setFreeCreating(false);
     }
@@ -443,78 +569,6 @@ export default function AdApprovalScreen({ navigation }: any) {
       bidding: bidMap.has(g.id),      biddingEndsAt: bidMap.get(g.id) ?? null,
     })));
     setGroupsLoading(false);
-  };
-
-  // ── Activar/desactivar grupo (desde pestaña Grupos) ───────────────────────
-  const handleActivate = (
-    groupId: string, groupName: string,
-    type: 'sponsored' | 'recommendation' | 'bidding',
-    isActive: boolean,
-  ) => {
-    if (isActive) {
-      const typeLabel = type === 'sponsored' ? 'Destacado' : type === 'recommendation' ? 'Recomendado' : 'Bidding';
-      Alert.alert(`Desactivar ${typeLabel}`, `¿Desactivar para "${groupName}"?`, [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Desactivar', style: 'destructive',
-          onPress: async () => {
-            setActivating(`${groupId}_${type}`);
-            try {
-              const { data, error } = await supabase.rpc('admin_deactivate_group', {
-                p_group_id: groupId, p_type: type,
-              });
-              if (error || data?.ok === false) {
-                Alert.alert('Error', error?.message ?? data?.error ?? 'No se pudo desactivar');
-                return;
-              }
-              await fetchGroups();
-            } finally {
-              setActivating(null);
-            }
-          },
-        },
-      ]);
-    } else {
-      setActivateModal({ groupId, groupName, type });
-      setActivateDays(30);
-      setActivateBidAmount(100);
-    }
-  };
-
-  const handleActivateConfirm = async () => {
-    if (!activateModal) return;
-    const { groupId, type } = activateModal;
-    setActivateLoading(true);
-    try {
-      const rpc = type === 'sponsored'      ? 'admin_activate_sponsored'
-                : type === 'recommendation' ? 'admin_activate_recommendation'
-                :                             'admin_activate_bidding';
-      const params: any = { p_group_id: groupId, p_days: activateDays };
-      if (type === 'bidding') params.p_bid_amount = activateBidAmount;
-      const { data, error } = await supabase.rpc(rpc, params);
-      if (error || data?.ok === false) {
-        Alert.alert('Error', error?.message ?? data?.error ?? 'No se pudo activar');
-        return;
-      }
-
-      // Optimistic update: enciende el botón inmediatamente sin esperar fetchGroups
-      const optimisticEndsAt = activateDays > 0
-        ? new Date(Date.now() + activateDays * 86_400_000).toISOString()
-        : null;
-      setGroups(prev => prev.map(g => {
-        if (g.id !== groupId) return g;
-        if (type === 'sponsored')      return { ...g, sponsored: true,   sponsoredEndsAt:   optimisticEndsAt };
-        if (type === 'recommendation') return { ...g, recommended: true, recommendedEndsAt: optimisticEndsAt };
-        return                                { ...g, bidding: true,     biddingEndsAt:     optimisticEndsAt };
-      }));
-
-      setActivateModal(null);
-      // Fetch real en background para sincronizar con la BD
-      fetchGroups();
-    } finally {
-      setActivateLoading(false);
-      setActivating(null);
-    }
   };
 
   // ── Helpers ────────────────────────────────────────────────────────────────
@@ -548,27 +602,14 @@ export default function AdApprovalScreen({ navigation }: any) {
         <Pressable style={s.backBtn} onPress={() => navigation.goBack()}>
           <Text style={s.backBtnText}>← Volver</Text>
         </Pressable>
-        <View style={s.viewToggle}>
-          <Pressable
-            style={[s.viewToggleBtn, viewMode === 'ads' && s.viewToggleBtnActive]}
-            onPress={() => setViewMode('ads')}
-          >
-            <Text style={[s.viewToggleBtnText, viewMode === 'ads' && s.viewToggleBtnTextActive]}>Anuncios</Text>
-          </Pressable>
-          <Pressable
-            style={[s.viewToggleBtn, viewMode === 'groups' && s.viewToggleBtnActive]}
-            onPress={() => setViewMode('groups')}
-          >
-            <Text style={[s.viewToggleBtnText, viewMode === 'groups' && s.viewToggleBtnTextActive]}>Grupos</Text>
-          </Pressable>
-        </View>
+        <Text style={s.title}>Anuncios</Text>
         <Pressable style={s.createFreeBtn} onPress={openCreateModal}>
           <Text style={s.createFreeBtnText}>+ Gratis</Text>
         </Pressable>
       </View>
 
       {/* ── VISTA: ANUNCIOS ─────────────────────────────────────────────────── */}
-      {viewMode === 'ads' && (<>
+      <>
         <View style={s.statsRow}>
           <View style={[s.statCard, s.statCardGreen]}>
             <Text style={s.statVal}>{stats.activeCount}</Text>
@@ -827,69 +868,7 @@ export default function AdApprovalScreen({ navigation }: any) {
             })
           )}
         </ScrollView>
-      </>)}
-
-      {/* ── VISTA: GRUPOS ───────────────────────────────────────────────────── */}
-      {viewMode === 'groups' && (
-        <ScrollView
-          style={{ flex: 1 }}
-          contentContainerStyle={{ padding: SPACING.xl, paddingBottom: 40 }}
-          refreshControl={<RefreshControl refreshing={groupsLoading} onRefresh={fetchGroups} tintColor={COLORS.green} />}
-        >
-          {groupsLoading && groups.length === 0 ? (
-            <ActivityIndicator color={COLORS.green} style={{ marginTop: 60 }} />
-          ) : groups.length === 0 ? (
-            <View style={s.empty}><Text style={s.emptyText}>Sin grupos activos</Text></View>
-          ) : (
-            groups.map((g: any) => {
-              const ACTS = [
-                { key: 'sponsored'      as const, label: 'Destacado',   icon: '⭐', isActive: g.sponsored,   endsAt: g.sponsoredEndsAt,   color: GROUP_ACT_COLORS.sponsored },
-                { key: 'recommendation' as const, label: 'Recomendado', icon: '🔥', isActive: g.recommended, endsAt: g.recommendedEndsAt, color: GROUP_ACT_COLORS.recommendation },
-                { key: 'bidding'        as const, label: 'Bidding',      icon: '⬆️', isActive: g.bidding,     endsAt: g.biddingEndsAt,     color: GROUP_ACT_COLORS.bidding },
-              ];
-              return (
-                <View key={g.id} style={s.groupCard}>
-                  <View style={s.groupCardHeader}>
-                    <Text style={s.groupCardName}>{g.name}</Text>
-                    <Text style={s.groupCardCity}>{[g.city, g.state].filter(Boolean).join(', ')}</Text>
-                  </View>
-                  <View style={s.groupCardActions}>
-                    {ACTS.map(t => {
-                      const busy = activating === `${g.id}_${t.key}`;
-                      const days = t.endsAt ? daysLeft(t.endsAt) : null;
-                      return (
-                        <Pressable
-                          key={t.key}
-                          style={[
-                            s.groupActBtn,
-                            t.isActive
-                              ? { backgroundColor: t.color + '22', borderColor: t.color }
-                              : { borderColor: t.color + '55' },
-                          ]}
-                          onPress={() => handleActivate(g.id, g.name, t.key, t.isActive)}
-                          disabled={!!activating}
-                        >
-                          {busy && <ActivityIndicator size={10} color={t.color} style={{ marginRight: 4 }} />}
-                          <Text style={[s.groupActBtnText, { color: t.isActive ? t.color : t.color + 'AA' }]}>
-                            {t.icon} {t.label}
-                          </Text>
-                          {t.isActive && days !== null && (
-                            <View style={[s.groupActBtnDaysPill, { backgroundColor: t.color + '33' }]}>
-                              <Text style={[s.groupActBtnDaysText, { color: t.color }]}>
-                                {days <= 0 ? 'exp' : `${days}d`}
-                              </Text>
-                            </View>
-                          )}
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-                </View>
-              );
-            })
-          )}
-        </ScrollView>
-      )}
+      </>
 
       {/* ════════════════════════════════════════════════════════════════════
           MODAL: Crear anuncio gratis — con SegmentedControl
@@ -961,31 +940,245 @@ export default function AdApprovalScreen({ navigation }: any) {
                   placeholderTextColor={COLORS.muted}
                 />
 
-                <Text style={s.sheetLabel}>Texto del botón</Text>
-                <TextInput
-                  style={s.sheetInput}
-                  value={freeBtnText} onChangeText={setFreeBtnText}
-                  placeholder="Ver más"
-                  placeholderTextColor={COLORS.muted}
-                />
+                <Text style={s.sheetLabel}>Botón de acción</Text>
+                <View style={[s.chipRow, { marginBottom: 12 }]}>
+                  <Pressable
+                    style={[s.freeTypePill, freeShowBtn && s.freeTypePillActive]}
+                    onPress={() => setFreeShowBtn(true)}
+                  >
+                    <Text style={[s.freeTypePillText, freeShowBtn && s.freeTypePillTextActive]}>
+                      Con botón
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    style={[s.freeTypePill, !freeShowBtn && s.freeTypePillActive]}
+                    onPress={() => setFreeShowBtn(false)}
+                  >
+                    <Text style={[s.freeTypePillText, !freeShowBtn && s.freeTypePillTextActive]}>
+                      Sin botón
+                    </Text>
+                  </Pressable>
+                </View>
 
-                <Text style={s.sheetLabel}>URL de imagen (opcional)</Text>
-                <TextInput
-                  style={s.sheetInput}
-                  value={freeImageUrl} onChangeText={setFreeImageUrl}
-                  placeholder="https://..."
-                  placeholderTextColor={COLORS.muted}
-                  autoCapitalize="none" keyboardType="url"
-                />
+                {freeShowBtn && (
+                  <>
+                    <Text style={s.sheetLabel}>Texto del botón</Text>
+                    <TextInput
+                      style={s.sheetInput}
+                      value={freeBtnText} onChangeText={setFreeBtnText}
+                      placeholder="Ver más"
+                      placeholderTextColor={COLORS.muted}
+                    />
+                    <Text style={s.sheetLabel}>Enlace del botón (opcional)</Text>
+                    <TextInput
+                      style={s.sheetInput}
+                      value={freeLinkUrl} onChangeText={setFreeLinkUrl}
+                      placeholder="https://ejemplo.com — se abre al tocar el botón"
+                      placeholderTextColor={COLORS.muted}
+                      autoCapitalize="none" keyboardType="url"
+                    />
+                  </>
+                )}
 
-                <Text style={s.sheetLabel}>Estado (opcional, ej: jalisco)</Text>
-                <TextInput
-                  style={s.sheetInput}
-                  value={freeState} onChangeText={setFreeState}
-                  placeholder="Dejar vacío = nacional"
-                  placeholderTextColor={COLORS.muted}
-                  autoCapitalize="none"
-                />
+                <Text style={s.sheetLabel}>Imagen o video (opcional)</Text>
+                {freeImageUrl ? (
+                  <View style={s.freeMediaPreview}>
+                    {freeMediaType === 'video' ? (
+                      <>
+                        <VideoView
+                          player={trimPlayer}
+                          style={s.freeMediaImg}
+                          contentFit="cover"
+                          nativeControls={false}
+                        />
+                        <Pressable
+                          style={s.previewPlayBtn}
+                          onPress={previewPlaying ? handlePreviewPause : handlePreviewPlay}
+                        >
+                          {previewPlaying
+                            ? <Pause size={28} color="#fff" />
+                            : <Play  size={28} color="#fff" fill="#fff" />
+                          }
+                        </Pressable>
+                      </>
+                    ) : (
+                      <Image source={{ uri: freeImageUrl }} style={s.freeMediaImg} resizeMode="cover" />
+                    )}
+                    <Pressable
+                      style={s.freeMediaRemove}
+                      onPress={() => {
+                        setFreeImageUrl(''); setFreeMediaType('image');
+                        if (playTimerRef.current) clearTimeout(playTimerRef.current);
+                        trimPlayer.pause(); setPreviewPlaying(false);
+                      }}
+                    >
+                      <X size={15} color={COLORS.text} />
+                    </Pressable>
+                  </View>
+                ) : freeMediaUploading ? (
+                  <View style={[s.freeMediaPickBtn, { marginBottom: 12, flexDirection: 'column', gap: 8 }]}>
+                    <ActivityIndicator color={COLORS.green} />
+                    <Text style={[s.freeMediaPickText, { color: COLORS.green }]}>
+                      Subiendo… {freeUploadPct}%
+                    </Text>
+                    <View style={s.uploadBarTrack}>
+                      <View style={[s.uploadBarFill, { width: `${freeUploadPct}%` as any }]} />
+                    </View>
+                  </View>
+                ) : (
+                  <View style={s.freeMediaPickRow}>
+                    <Pressable style={[s.freeMediaPickBtn, { flex: 1 }]} onPress={() => pickFreeMedia('images')}>
+                      <ImageIcon size={17} color={COLORS.muted2} />
+                      <Text style={s.freeMediaPickText}>Subir imagen</Text>
+                    </Pressable>
+                    <Pressable style={[s.freeMediaPickBtn, { flex: 1 }]} onPress={() => pickFreeMedia('videos')}>
+                      <VideoIcon size={17} color={COLORS.muted2} />
+                      <Text style={s.freeMediaPickText}>Subir video</Text>
+                    </Pressable>
+                  </View>
+                )}
+
+                {/* ── Recorte de video — barra draggable estilo CapCut ──── */}
+                {freeMediaType === 'video' && freeImageUrl && freeVideoTotalSecs > 0 ? (() => {
+                  const total   = freeVideoTotalSecs;
+                  const startPct = freeVideoStartSecs / total;
+                  const endPct   = (freeVideoStartSecs + freeVideoDurationSecs) / total;
+                  const fmt = (secs: number) =>
+                    `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+
+                  const onGrant = (e: GestureResponderEvent) => {
+                    const x = e.nativeEvent.locationX;
+                    const w = bwRef.current;
+                    const ls = vsRef.current / vtRef.current * w;
+                    const rs = (vsRef.current + vdRef.current) / vtRef.current * w;
+                    dragRef.current = Math.abs(x - ls) <= Math.abs(x - rs) ? 'left' : 'right';
+                  };
+
+                  const onMove = (e: GestureResponderEvent) => {
+                    if (!dragRef.current) return;
+                    const w = bwRef.current; const tot = vtRef.current;
+                    if (!w || !tot) return;
+                    const secs = Math.round(Math.max(0, Math.min(w, e.nativeEvent.locationX)) / w * tot);
+                    if (dragRef.current === 'left') {
+                      const maxStart = vsRef.current + vdRef.current - 1;
+                      const newStart = Math.min(secs, maxStart);
+                      const delta = vsRef.current - newStart;
+                      vsRef.current = newStart;
+                      vdRef.current = Math.max(1, vdRef.current + delta);
+                      setFreeVideoStartSecs(newStart);
+                      setFreeVideoDurationSecs(vdRef.current);
+                    } else {
+                      const newEnd = Math.max(vsRef.current + 1, Math.min(tot, secs));
+                      vdRef.current = newEnd - vsRef.current;
+                      setFreeVideoDurationSecs(vdRef.current);
+                    }
+                  };
+
+                  return (
+                    <View style={s.trimBox}>
+                      <Text style={s.sheetLabel}>
+                        Recortar video — arrastra los bordes
+                      </Text>
+                      <View
+                        style={s.trimTrack}
+                        onLayout={e => { bwRef.current = e.nativeEvent.layout.width; }}
+                        onStartShouldSetResponder={() => true}
+                        onResponderGrant={onGrant}
+                        onResponderMove={onMove}
+                        onResponderRelease={() => { dragRef.current = null; }}
+                      >
+                        {/* Zona fuera de selección — oscura */}
+                        <View style={[s.trimOutside, { left: 0, width: `${startPct * 100}%` as any }]} />
+                        <View style={[s.trimOutside, { right: 0, width: `${(1 - endPct) * 100}%` as any }]} />
+                        {/* Zona seleccionada — borde verde */}
+                        <View style={[s.trimSelection, {
+                          left: `${startPct * 100}%` as any,
+                          width: `${(endPct - startPct) * 100}%` as any,
+                        }]} />
+                        {/* Handle izquierdo */}
+                        <View style={[s.trimHandleWrap, { left: `${startPct * 100}%` as any }]}>
+                          <View style={s.trimHandle} />
+                        </View>
+                        {/* Handle derecho */}
+                        <View style={[s.trimHandleWrap, s.trimHandleRight, { left: `${endPct * 100}%` as any }]}>
+                          <View style={s.trimHandle} />
+                        </View>
+                      </View>
+
+                      {/* Etiquetas de tiempo */}
+                      <View style={s.trimTimeRow}>
+                        <Text style={s.trimTimeLabel}>▶ {fmt(freeVideoStartSecs)}</Text>
+                        <Text style={s.trimTimeMid}>{freeVideoDurationSecs}s seleccionados</Text>
+                        <Text style={s.trimTimeLabel}>{fmt(freeVideoStartSecs + freeVideoDurationSecs)} ■</Text>
+                      </View>
+                    </View>
+                  );
+                })() : null}
+
+                <Text style={s.sheetLabel}>¿Dónde aparece?</Text>
+                <View style={[s.chipRow, { marginBottom: 12 }]}>
+                  {([
+                    { key: 'all',     label: '🌐 Todos' },
+                    { key: 'country', label: '🏳️ País' },
+                    { key: 'state',   label: '📍 Estado' },
+                  ] as const).map(opt => (
+                    <Pressable
+                      key={opt.key}
+                      style={[s.freeTypePill, freeTargetScope === opt.key && s.freeTypePillActive]}
+                      onPress={() => setFreeTargetScope(opt.key)}
+                    >
+                      <Text style={[s.freeTypePillText, freeTargetScope === opt.key && s.freeTypePillTextActive]}>
+                        {opt.label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+
+                {freeTargetScope !== 'all' && (
+                  <>
+                    <Text style={s.sheetLabel}>País</Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false}
+                      style={{ marginBottom: 12 }} contentContainerStyle={{ gap: 8, paddingHorizontal: 2 }}>
+                      {COUNTRY_LIST.map(c => (
+                        <Pressable key={c}
+                          style={[s.freeTypePill, freeTargetCountry === c && s.freeTypePillActive]}
+                          onPress={() => { setFreeTargetCountry(c); setFreeState(''); }}>
+                          <Text style={[s.freeTypePillText, freeTargetCountry === c && s.freeTypePillTextActive]}>
+                            {c}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </ScrollView>
+                  </>
+                )}
+
+                {freeTargetScope === 'state' && freeTargetCountry !== '' && (
+                  <>
+                    <Text style={s.sheetLabel}>Estado / Región</Text>
+                    {STATES_BY_COUNTRY[freeTargetCountry] ? (
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false}
+                        style={{ marginBottom: 12 }} contentContainerStyle={{ gap: 8, paddingHorizontal: 2 }}>
+                        {STATES_BY_COUNTRY[freeTargetCountry].map(st => (
+                          <Pressable key={st}
+                            style={[s.freeTypePill, freeState === st && s.freeTypePillActive]}
+                            onPress={() => setFreeState(st)}>
+                            <Text style={[s.freeTypePillText, freeState === st && s.freeTypePillTextActive]}>
+                              {st}
+                            </Text>
+                          </Pressable>
+                        ))}
+                      </ScrollView>
+                    ) : (
+                      <TextInput
+                        style={s.sheetInput}
+                        value={freeState} onChangeText={setFreeState}
+                        placeholder="Ej: Bogotá D.C., Barcelona"
+                        placeholderTextColor={COLORS.muted}
+                        autoCapitalize="words"
+                      />
+                    )}
+                  </>
+                )}
               </>)}
 
               {/* ── SEGMENTO 1: Promociones de grupo ─────────────────────── */}
@@ -1036,16 +1229,22 @@ export default function AdApprovalScreen({ navigation }: any) {
                         ]}
                         onPress={() => setFreeGroupId(g.id)}
                       >
-                        <Text style={[s.groupPickerItemText, freeGroupId === g.id && { color: COLORS.green }]}>
-                          {g.name}
-                        </Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <Text style={[s.groupPickerItemText, { flex: 1 }, freeGroupId === g.id && { color: COLORS.green }]} numberOfLines={1}>
+                            {g.name}
+                          </Text>
+                          {/* Promos ya activas de este grupo */}
+                          {g.sponsored   && <Text style={{ fontSize: 12 }}>⭐</Text>}
+                          {g.recommended && <Text style={{ fontSize: 12 }}>🔥</Text>}
+                          {g.bidding     && <Text style={{ fontSize: 12 }}>⬆️</Text>}
+                        </View>
                         <Text style={s.groupPickerItemSub}>{[g.city, g.state].filter(Boolean).join(', ')}</Text>
                       </Pressable>
                     ))}
                   </View>
                 )}
 
-                {freeGroupPromoType === 'bidding' && (
+                {freeGroupPromoType === 'bidding' && !groupPromoActive && (
                   <>
                     <Text style={s.sheetLabel}>Monto ficticio para ranking ($)</Text>
                     <TextInput
@@ -1058,23 +1257,47 @@ export default function AdApprovalScreen({ navigation }: any) {
                     />
                   </>
                 )}
+
+                {/* Targeting automático: la promo solo aparece en el estado del grupo */}
+                {selectedGroup && !groupPromoActive && (
+                  <View style={s.targetingNote}>
+                    <Text style={s.targetingNoteText}>
+                      📍 Solo aparecerá en <Text style={{ color: COLORS.green }}>
+                        {selectedGroup.state ?? 'el estado del grupo'}
+                      </Text> — automático según la ubicación del grupo.
+                    </Text>
+                  </View>
+                )}
+
+                {/* Aviso cuando la promo elegida ya está activa para ese grupo */}
+                {groupPromoActive && (
+                  <View style={s.activePromoNote}>
+                    <Text style={s.activePromoNoteText}>
+                      Este grupo ya tiene esta promoción activa — el botón la desactivará.
+                    </Text>
+                  </View>
+                )}
               </>)}
 
-              {/* ── Duración (compartida) ────────────────────────────────── */}
-              <Text style={[s.sheetLabel, { marginTop: 4 }]}>Duración</Text>
-              <View style={s.chipRow}>
-                {FREE_DURATIONS.map(d => (
-                  <Pressable
-                    key={d.days}
-                    style={[s.freeTypePill, freeDays === d.days && s.freeTypePillActive]}
-                    onPress={() => setFreeDays(d.days)}
-                  >
-                    <Text style={[s.freeTypePillText, freeDays === d.days && s.freeTypePillTextActive]}>
-                      {d.label}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
+              {/* ── Duración (compartida; oculta si se va a desactivar) ──── */}
+              {!(freeSegment === 1 && groupPromoActive) && (
+                <>
+                  <Text style={[s.sheetLabel, { marginTop: 4 }]}>Duración</Text>
+                  <View style={s.chipRow}>
+                    {FREE_DURATIONS.map(d => (
+                      <Pressable
+                        key={d.days}
+                        style={[s.freeTypePill, freeDays === d.days && s.freeTypePillActive]}
+                        onPress={() => setFreeDays(d.days)}
+                      >
+                        <Text style={[s.freeTypePillText, freeDays === d.days && s.freeTypePillTextActive]}>
+                          {d.label}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </>
+              )}
 
               <View style={{ flexDirection: 'row', gap: 12, marginTop: 8 }}>
                 <Pressable
@@ -1084,91 +1307,27 @@ export default function AdApprovalScreen({ navigation }: any) {
                   <Text style={[s.sheetBtnText, { color: COLORS.muted2 }]}>Cancelar</Text>
                 </Pressable>
                 <Pressable
-                  style={[s.sheetBtn, { flex: 2, backgroundColor: COLORS.green, opacity: freeCreating ? 0.6 : 1 }]}
+                  style={[
+                    s.sheetBtn,
+                    {
+                      flex: 2,
+                      backgroundColor: freeSegment === 1 && groupPromoActive ? '#EF4444' : COLORS.green,
+                      opacity: freeCreating || freeMediaUploading ? 0.6 : 1,
+                    },
+                  ]}
                   onPress={handleCreateFreeAd}
-                  disabled={freeCreating}
+                  disabled={freeCreating || freeMediaUploading}
                 >
-                  <Text style={[s.sheetBtnText, { color: '#000' }]}>
-                    {freeCreating ? 'Creando...' : '✓ Crear gratis'}
+                  <Text style={[s.sheetBtnText, { color: freeSegment === 1 && groupPromoActive ? '#fff' : '#000' }]}>
+                    {freeCreating
+                      ? 'Procesando...'
+                      : freeSegment === 1 && groupPromoActive
+                        ? '✕ Desactivar promoción'
+                        : '✓ Crear gratis'}
                   </Text>
                 </Pressable>
               </View>
             </ScrollView>
-          </Pressable>
-        </Pressable>
-      </Modal>
-
-      {/* ════════════════════════════════════════════════════════════════════
-          MINI-MODAL: Confirmar activación de grupo
-          ════════════════════════════════════════════════════════════════════ */}
-      <Modal visible={!!activateModal} transparent animationType="slide" onRequestClose={() => setActivateModal(null)}>
-        <Pressable style={s.overlay} onPress={() => setActivateModal(null)}>
-          <Pressable style={s.sheet} onPress={() => {}}>
-            <View style={s.sheetHandle} />
-            {activateModal && (() => {
-              const promoColor = GROUP_ACT_COLORS[activateModal.type];
-              const promoLabel = activateModal.type === 'sponsored' ? '⭐ Destacado'
-                               : activateModal.type === 'recommendation' ? '🔥 Recomendado'
-                               : '⬆️ Bidding';
-              return (<>
-                <Text style={s.sheetTitle}>Activar {promoLabel}</Text>
-                <Text style={s.sheetSub} numberOfLines={1}>
-                  ¿Cuántos días para "{activateModal.groupName}"?
-                </Text>
-
-                <View style={[s.chipRow, { marginBottom: 20 }]}>
-                  {FREE_DURATIONS.filter(d => d.days > 0).map(d => (
-                    <Pressable
-                      key={d.days}
-                      style={[
-                        s.freeTypePill,
-                        activateDays === d.days && { backgroundColor: promoColor + '22', borderColor: promoColor },
-                      ]}
-                      onPress={() => setActivateDays(d.days)}
-                    >
-                      <Text style={[
-                        s.freeTypePillText,
-                        activateDays === d.days && { color: promoColor },
-                      ]}>
-                        {d.label}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </View>
-
-                {activateModal.type === 'bidding' && (
-                  <>
-                    <Text style={s.sheetLabel}>Monto ficticio para ranking ($)</Text>
-                    <TextInput
-                      style={[s.sheetInput, { minHeight: 44, marginBottom: 20 }]}
-                      value={String(activateBidAmount)}
-                      onChangeText={v => setActivateBidAmount(Number(v.replace(/[^0-9]/g, '')) || 0)}
-                      placeholder="Ej: 100"
-                      placeholderTextColor={COLORS.muted}
-                      keyboardType="numeric"
-                    />
-                  </>
-                )}
-
-                <View style={{ flexDirection: 'row', gap: 12 }}>
-                  <Pressable
-                    style={[s.sheetBtn, { flex: 1, backgroundColor: COLORS.card }]}
-                    onPress={() => setActivateModal(null)}
-                  >
-                    <Text style={[s.sheetBtnText, { color: COLORS.muted2 }]}>Cancelar</Text>
-                  </Pressable>
-                  <Pressable
-                    style={[s.sheetBtn, { flex: 2, backgroundColor: promoColor, opacity: activateLoading ? 0.6 : 1 }]}
-                    onPress={handleActivateConfirm}
-                    disabled={activateLoading}
-                  >
-                    <Text style={[s.sheetBtnText, { color: activateModal.type === 'sponsored' ? '#000' : '#fff' }]}>
-                      {activateLoading ? 'Activando...' : `✓ Activar ${activateDays}d`}
-                    </Text>
-                  </Pressable>
-                </View>
-              </>);
-            })()}
           </Pressable>
         </Pressable>
       </Modal>
@@ -1518,4 +1677,101 @@ const s = StyleSheet.create({
   freeTypePillActive:     { backgroundColor: 'rgba(0,230,118,0.15)', borderColor: COLORS.green },
   freeTypePillText:       { fontFamily: FONTS.bodyMedium, fontSize: 12, color: COLORS.muted2 },
   freeTypePillTextActive: { color: COLORS.green },
+
+  // ── Media del anuncio gratis (subida, no URL) ──────────────────────────────
+  freeMediaPickRow: { flexDirection: 'row', gap: 10, marginBottom: 12 },
+  freeMediaPickBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: COLORS.card, borderRadius: RADIUS.md,
+    borderWidth: 1, borderColor: COLORS.border, paddingVertical: 14,
+  },
+  freeMediaPickText: { fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.muted2 },
+  freeMediaPreview: {
+    height: 140, borderRadius: RADIUS.md, overflow: 'hidden',
+    backgroundColor: COLORS.card, marginBottom: 12, position: 'relative',
+  },
+  freeMediaImg: { width: '100%', height: '100%' },
+  freeMediaVideoBox: {
+    flex: 1, backgroundColor: '#111',
+    alignItems: 'center', justifyContent: 'center', gap: 6,
+  },
+  freeMediaVideoLabel: { fontFamily: FONTS.bodyMedium, fontSize: 11, color: COLORS.muted2, letterSpacing: 1 },
+  freeMediaRemove: {
+    position: 'absolute', top: 8, right: 8,
+    width: 28, height: 28, borderRadius: 14,
+    backgroundColor: 'rgba(0,0,0,0.65)', alignItems: 'center', justifyContent: 'center',
+  },
+  previewPlayBtn: {
+    position: 'absolute',
+    top: '50%' as any, left: '50%' as any,
+    marginTop: -26, marginLeft: -26,
+    width: 52, height: 52, borderRadius: 26,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  uploadBarTrack: {
+    width: '80%', height: 4, borderRadius: 2,
+    backgroundColor: COLORS.border, overflow: 'hidden',
+  },
+  uploadBarFill: { height: 4, borderRadius: 2, backgroundColor: COLORS.green },
+
+  // ── Trim de video (barra draggable estilo CapCut) ─────────────────────────
+  trimBox: {
+    backgroundColor: COLORS.bg, borderRadius: RADIUS.md,
+    borderWidth: 1, borderColor: COLORS.border,
+    padding: 14, marginBottom: 16, gap: 10,
+  },
+  // Barra principal — toda la duración del video
+  trimTrack: {
+    height: 52, borderRadius: 8, overflow: 'hidden',
+    backgroundColor: '#0a0a0a', position: 'relative',
+  },
+  // Zonas oscuras fuera de la selección
+  trimOutside: {
+    position: 'absolute', top: 0, bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.68)',
+  },
+  // Zona verde seleccionada
+  trimSelection: {
+    position: 'absolute', top: 0, bottom: 0,
+    borderTopWidth: 3, borderBottomWidth: 3,
+    borderColor: COLORS.green,
+    backgroundColor: 'rgba(0,230,118,0.12)',
+  },
+  // Contenedor posicionador del handle
+  trimHandleWrap: {
+    position: 'absolute', top: 0, bottom: 0,
+    width: 20, marginLeft: -10,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  // Handle derecho — se alinea al otro lado
+  trimHandleRight: { marginLeft: -10 },
+  // El handle visual (barra vertical verde)
+  trimHandle: {
+    width: 4, height: 36,
+    backgroundColor: COLORS.green,
+    borderRadius: 3,
+  },
+  // Etiquetas de tiempo bajo la barra
+  trimTimeRow: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+  },
+  trimTimeLabel: { fontFamily: FONTS.bodyMedium, fontSize: 12, color: COLORS.green },
+  trimTimeMid:   { fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted2 },
+
+  // Nota de targeting automático (grupo → estado)
+  targetingNote: {
+    backgroundColor: 'rgba(0,230,118,0.07)', borderRadius: RADIUS.md,
+    borderWidth: 1, borderColor: 'rgba(0,230,118,0.25)',
+    padding: 10, marginBottom: 12,
+  },
+  targetingNoteText: { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2 },
+
+  // Aviso de promo ya activa en el modal
+  activePromoNote: {
+    backgroundColor: 'rgba(239,68,68,0.08)', borderRadius: RADIUS.md,
+    borderWidth: 1, borderColor: 'rgba(239,68,68,0.3)',
+    padding: 10, marginBottom: 12,
+  },
+  activePromoNoteText: { fontFamily: FONTS.body, fontSize: 12, color: '#EF4444' },
 });

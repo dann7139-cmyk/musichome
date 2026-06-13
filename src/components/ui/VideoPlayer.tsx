@@ -1,5 +1,6 @@
-import React from 'react';
-import { StyleProp, ViewStyle } from 'react-native';
+import { Audio } from 'expo-av';
+import React, { useEffect, useState } from 'react';
+import { ActivityIndicator, StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
 import { VideoView, useVideoPlayer } from 'expo-video';
 
 interface Props {
@@ -10,12 +11,9 @@ interface Props {
   autoPlay?: boolean;
   muted?: boolean;
   loop?: boolean;
+  startTime?: number;   // segundos — el player busca este punto al arrancar
 }
 
-/**
- * Wrapper de expo-video que reemplaza <Video> de expo-av (deprecado en SDK 54).
- * Usa useVideoPlayer internamente para simplificar el uso.
- */
 export default function VideoPlayer({
   uri,
   style,
@@ -24,19 +22,56 @@ export default function VideoPlayer({
   autoPlay = false,
   muted = false,
   loop = false,
+  startTime = 0,
 }: Props) {
-  const player = useVideoPlayer(uri, (p) => {
+  const [loading, setLoading] = useState(true);
+
+  // Activa el modo de audio para que el video suene aunque el teléfono
+  // esté en silencio (iOS) o el canal de audio esté en media (Android).
+  useEffect(() => {
+    if (!muted) {
+      Audio.setAudioModeAsync({
+        playsInSilentModeIOS: true,
+        staysActiveInBackground: false,
+      }).catch(() => {});
+    }
+  }, [muted]);
+
+  const player = useVideoPlayer({ uri, useCaching: true }, (p) => {
     p.muted = muted;
     p.loop  = loop;
+    if (startTime > 0) p.currentTime = startTime;
     if (autoPlay) p.play();
   });
 
+  useEffect(() => {
+    const sub = player.addListener('statusChange', ({ status }) => {
+      if (status !== 'loading') setLoading(false);
+    });
+    return () => sub.remove();
+  }, [player]);
+
   return (
-    <VideoView
-      player={player}
-      style={style}
-      contentFit={contentFit}
-      nativeControls={nativeControls}
-    />
+    <View style={[{ backgroundColor: '#000' }, style]}>
+      <VideoView
+        player={player}
+        style={StyleSheet.absoluteFillObject}
+        contentFit={contentFit}
+        nativeControls={nativeControls}
+      />
+      {loading && (
+        <View style={st.loader} pointerEvents="none">
+          <ActivityIndicator size="large" color="#00E676" />
+        </View>
+      )}
+    </View>
   );
 }
+
+const st = StyleSheet.create({
+  loader: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.55)',
+  },
+});

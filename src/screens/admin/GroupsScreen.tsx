@@ -22,6 +22,7 @@ import {
   Search,
   Shield,
   ShieldCheck,
+  Sparkles,
   Star,
   X,
 } from 'lucide-react-native';
@@ -84,7 +85,7 @@ export default function AdminGroupsScreen({ navigation }: any) {
       .select(`
         id, name, city, state, genre, description,
         is_verified, admin_verified, is_active,
-        is_plus_active,
+        is_plus_active, plus_expires_at, plus_subscription_id,
         rating, total_reviews, created_at,
         profile_image, owner_id,
         verification_status, strike_count,
@@ -274,6 +275,90 @@ export default function AdminGroupsScreen({ navigation }: any) {
           },
         },
       ]
+    );
+  };
+
+  // ── Plus: activar/revocar manualmente (cortesía, embajadores, alianzas) ────
+  // RPCs de sql/327 — admin_grant_plus bloquea si hay suscripción Stripe real.
+
+  const isStripePlus = (g: any) =>
+    !!g?.is_plus_active &&
+    !!g?.plus_subscription_id &&
+    !String(g.plus_subscription_id).startsWith('admin_grant_');
+
+  const handleGrantPlus = () => {
+    if (!selected || actionLoading) return;
+    Alert.alert(
+      '✨ Activar Plus (cortesía)',
+      `${selected.name} tendrá Plus gratis por 1 año, sin pasar por Stripe. ¿Confirmas?`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Activar Plus',
+          onPress: async () => {
+            setActionLoading(true);
+            const { data, error } = await supabase.rpc('admin_grant_plus', {
+              p_group_id: selected.id,
+              p_notes:    moderateNote.trim() || null,
+            });
+            setActionLoading(false);
+            if (error || !data?.ok) {
+              Alert.alert('Error', error?.message ?? data?.error ?? 'No se pudo activar Plus.');
+              return;
+            }
+            const updated = {
+              ...selected,
+              is_plus_active: true,
+              plus_expires_at: data.expires_at,
+              plus_subscription_id: data.sub_id,
+            };
+            setSelected(updated);
+            setGroups(prev => prev.map(g => (g.id === selected.id ? { ...g, ...updated } : g)));
+            setModerateNote('');
+            Alert.alert('✨ Plus activado', `${selected.name} tiene Plus hasta ${new Date(data.expires_at).toLocaleDateString('es-MX')}.`);
+          },
+        },
+      ],
+    );
+  };
+
+  const handleRevokePlus = () => {
+    if (!selected || actionLoading) return;
+    const stripeWarning = isStripePlus(selected)
+      ? '\n\n⚠️ Este grupo tiene una suscripción Stripe DE PAGO. Revocar aquí solo lo desactiva en la app — cancela también la suscripción en Stripe para que no se le siga cobrando.'
+      : '';
+    Alert.alert(
+      'Quitar Plus',
+      `${selected.name} perderá los beneficios Plus.${stripeWarning}`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Quitar Plus',
+          style: 'destructive',
+          onPress: async () => {
+            setActionLoading(true);
+            const { data, error } = await supabase.rpc('admin_revoke_plus', {
+              p_group_id: selected.id,
+              p_notes:    moderateNote.trim() || null,
+            });
+            setActionLoading(false);
+            if (error || !data?.ok) {
+              Alert.alert('Error', error?.message ?? data?.error ?? 'No se pudo revocar Plus.');
+              return;
+            }
+            const updated = {
+              ...selected,
+              is_plus_active: false,
+              plus_expires_at: null,
+              plus_subscription_id: null,
+            };
+            setSelected(updated);
+            setGroups(prev => prev.map(g => (g.id === selected.id ? { ...g, ...updated } : g)));
+            setModerateNote('');
+            Alert.alert('✓ Listo', 'Plus revocado correctamente.');
+          },
+        },
+      ],
     );
   };
 
@@ -655,6 +740,14 @@ export default function AdminGroupsScreen({ navigation }: any) {
                     <Text style={[s.statusChipText, { color: COLORS.green }]}>Admin ✓</Text>
                   </View>
                 )}
+                {selected.is_plus_active && (
+                  <View style={[s.statusChip, s.chipPlus]}>
+                    <Sparkles size={11} color={COLORS.gold} />
+                    <Text style={[s.statusChipText, { color: COLORS.gold }]}>
+                      Plus{isStripePlus(selected) ? ' · Stripe' : ' · Cortesía'}
+                    </Text>
+                  </View>
+                )}
               </View>
             </View>
 
@@ -731,6 +824,50 @@ export default function AdminGroupsScreen({ navigation }: any) {
                   </Text>
                 </Pressable>
               </View>
+            </View>
+
+            {/* Daricefy Plus — activar/revocar cortesía */}
+            <View style={s.moderateCard}>
+              <Text style={s.moderateCardTitle}>Daricefy Plus</Text>
+              {selected.is_plus_active ? (
+                <>
+                  <Text style={s.moderateCardHint}>
+                    {isStripePlus(selected)
+                      ? '💳 Suscripción Stripe de pago activa.'
+                      : `✨ Cortesía activa${selected.plus_expires_at
+                          ? ` — vence el ${new Date(selected.plus_expires_at).toLocaleDateString('es-MX')}`
+                          : ''}.`}
+                  </Text>
+                  <Pressable
+                    style={[s.modActionBtn, s.modActionBtnOutlineRed, actionLoading && { opacity: 0.6 }]}
+                    onPress={handleRevokePlus}
+                    disabled={actionLoading}
+                  >
+                    <Text style={[s.modActionBtnText, { color: '#EF5350' }]}>Quitar Plus</Text>
+                  </Pressable>
+                </>
+              ) : (
+                <>
+                  <Text style={s.moderateCardHint}>
+                    Activa Plus gratis (1 año) para patrocinios, embajadores o alianzas — sin pasar por Stripe.
+                    La nota interna de arriba se guarda como motivo.
+                  </Text>
+                  <Pressable
+                    style={[s.modActionBtn, s.modActionBtnGold, actionLoading && { opacity: 0.6 }]}
+                    onPress={handleGrantPlus}
+                    disabled={actionLoading}
+                  >
+                    {actionLoading
+                      ? <ActivityIndicator size="small" color={COLORS.bg} />
+                      : <>
+                          <Sparkles size={16} color={COLORS.bg} />
+                          <Text style={[s.modActionBtnText, { color: COLORS.bg }]}>
+                            Activar Plus (cortesía 1 año)
+                          </Text>
+                        </>}
+                  </Pressable>
+                </>
+              )}
             </View>
 
             {/* Historial */}
@@ -941,6 +1078,7 @@ const s = StyleSheet.create({
   chipActive:        { backgroundColor: COLORS.greenMuted,       borderColor: `${COLORS.green}50` },
   chipInactive:      { backgroundColor: 'rgba(239,83,80,0.08)',  borderColor: 'rgba(239,83,80,0.35)' },
   chipAdminVerified: { backgroundColor: COLORS.greenMuted,       borderColor: COLORS.green },
+  chipPlus:          { backgroundColor: 'rgba(255,215,0,0.10)',  borderColor: 'rgba(255,215,0,0.40)' },
 
   // Profile photo
   profilePhotoWrap: { alignSelf: 'center', position: 'relative', marginBottom: 8 },
@@ -1032,6 +1170,7 @@ const s = StyleSheet.create({
   },
   modActionBtnText:         { fontFamily: FONTS.bodySemiBold, fontSize: 14 },
   modActionBtnGreen:        { backgroundColor: COLORS.green },
+  modActionBtnGold:         { backgroundColor: COLORS.gold },
   modActionBtnRed:          { backgroundColor: '#EF5350' },
   modActionBtnOutlineGreen: { borderWidth: 1, borderColor: COLORS.green },
   modActionBtnOutlineRed:   { borderWidth: 1, borderColor: '#EF5350' },

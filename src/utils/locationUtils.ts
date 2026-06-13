@@ -1,4 +1,4 @@
-const MX_STATES = new Set([
+export const MX_STATES = new Set([
   'Aguascalientes', 'Baja California', 'Baja California Sur', 'Campeche',
   'Chiapas', 'Chihuahua', 'Ciudad de México', 'CDMX', 'Coahuila', 'Colima',
   'Durango', 'Guanajuato', 'Guerrero', 'Hidalgo', 'Jalisco',
@@ -8,7 +8,7 @@ const MX_STATES = new Set([
   'Tlaxcala', 'Veracruz', 'Yucatán', 'Zacatecas',
 ]);
 
-const US_STATES = new Set([
+export const US_STATES = new Set([
   'Alabama', 'Alaska', 'Arizona', 'Arkansas', 'California', 'Colorado',
   'Connecticut', 'Delaware', 'Florida', 'Georgia', 'Hawaii', 'Idaho',
   'Illinois', 'Indiana', 'Iowa', 'Kansas', 'Kentucky', 'Louisiana',
@@ -50,3 +50,20 @@ export function isoToCountryName(code: string | null | undefined): string {
   };
   return map[code.toUpperCase()] ?? code;
 }
+
+// Lista de países que la app puede detectar vía GPS (mismo orden que isoToCountryName).
+// Usada en el picker del admin para garantizar que el nombre guardado coincide
+// exactamente con lo que devuelve el GPS del cliente.
+export const COUNTRY_LIST: string[] = [
+  'México', 'Colombia', 'Argentina', 'Chile', 'Perú', 'España', 'Estados Unidos',
+  'Venezuela', 'Ecuador', 'Guatemala', 'Honduras', 'El Salvador', 'Costa Rica',
+  'Panamá', 'República Dominicana', 'Cuba', 'Puerto Rico', 'Bolivia', 'Paraguay',
+  'Uruguay', 'Brasil', 'Nicaragua', 'Jamaica', 'Trinidad y Tobago',
+  'Canadá', 'Reino Unido', 'Alemania', 'Francia', 'Italia',
+];
+
+// Estados predefinidos por país (para el picker del admin).
+export const STATES_BY_COUNTRY: Record<string, string[]> = {
+  'México':         [...MX_STATES].sort(),
+  'Estados Unidos': [...US_STATES].sort(),
+};

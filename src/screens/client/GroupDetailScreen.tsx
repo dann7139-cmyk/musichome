@@ -560,7 +560,7 @@ export default function GroupDetailScreen({ route, navigation }: any) {
             const ad = profileAds[profileAdIdx % profileAds.length];
             return (
               <Animated.View style={{ opacity: profileAdFade }}>
-                <View style={[styles.profileAdCard, ad.is_free && { opacity: 0.70 }]}>
+                <View style={styles.profileAdCard}>
                   <View style={styles.profileAdTag}>
                     <Text style={styles.profileAdTagText}>PUBLICIDAD</Text>
                     {profileAds.length > 1 && (
@@ -598,6 +598,14 @@ export default function GroupDetailScreen({ route, navigation }: any) {
                         }
                         if (ad.link_type === 'video' && ad.youtube_url) {
                           WebBrowser.openBrowserAsync(ad.youtube_url, {
+                            dismissButtonStyle: 'close',
+                            presentationStyle: WebBrowser.WebBrowserPresentationStyle.PAGE_SHEET,
+                          });
+                          return;
+                        }
+                        // Enlace externo del botón (anuncios gratis del admin)
+                        if (ad.link_type === 'url' && ad.link_url) {
+                          WebBrowser.openBrowserAsync(ad.link_url, {
                             dismissButtonStyle: 'close',
                             presentationStyle: WebBrowser.WebBrowserPresentationStyle.PAGE_SHEET,
                           });
@@ -870,29 +878,27 @@ const styles = StyleSheet.create({
   profileAdCard: {
     backgroundColor: COLORS.card2,
     borderRadius: RADIUS.lg,
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.09)',
     overflow: 'hidden', marginBottom: 24,
-    opacity: 0.92,   // pagados: 0.92 — gratis: 0.70 (override inline)
   },
   profileAdTag: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    paddingHorizontal: 12, paddingVertical: 5,
+    paddingHorizontal: 12, paddingVertical: 6,
     borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.06)',
   },
-  profileAdTagText: { fontFamily: FONTS.bodyMedium, fontSize: 9, color: COLORS.muted, letterSpacing: 1.4 },
-  profileAdImage: { width: '100%', height: 90 },
-  profileAdBody: { padding: 12 },
-  profileAdTitle: { fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.muted2, marginBottom: 3 },
-  profileAdSub: { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted, marginBottom: 10 },
+  profileAdTagText: { fontFamily: FONTS.bodyMedium, fontSize: 9, color: COLORS.muted2, letterSpacing: 1.4 },
+  profileAdImage: { width: '100%', height: 170 },
+  profileAdBody: { padding: 14 },
+  profileAdTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: COLORS.text, marginBottom: 4 },
+  profileAdSub: { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2, marginBottom: 12 },
   profileAdBtn: {
     alignSelf: 'flex-start',
-    backgroundColor: 'transparent',
+    backgroundColor: 'rgba(0,230,118,0.12)',
     borderRadius: RADIUS.full,
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)',
-    paddingHorizontal: 14, paddingVertical: 6,
+    borderWidth: 1, borderColor: COLORS.green,
+    paddingHorizontal: 16, paddingVertical: 7,
   },
-  profileAdBtnText: { fontFamily: FONTS.bodyMedium, fontSize: 11, color: COLORS.muted2 },
+  profileAdBtnText: { fontFamily: FONTS.bodySemiBold, fontSize: 12, color: COLORS.green },
 
   // ── Trust / Garantía ──
   trustCard: {

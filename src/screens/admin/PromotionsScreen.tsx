@@ -54,6 +54,8 @@ interface Promotion {
   media_url: string | null;
   media_type: 'none' | 'image' | 'video';
   media_offset: number;
+  duration_seconds: number | null;
+  video_start_seconds: number | null;
 }
 
 interface AdMessage {
@@ -83,6 +85,9 @@ const EMPTY_FORM = {
   media_url: '',
   media_type: 'none' as 'none' | 'image' | 'video',
   media_offset: 50,
+  duration_seconds:    0,   // duración del clip (0 = default)
+  video_start_seconds: 0,   // segundo de inicio dentro del video
+  video_total_seconds: 0,   // duración total del video (solo en memoria, no se guarda)
 };
 
 const fmtDate = (iso: string | null): string => {
@@ -106,6 +111,7 @@ export default function AdminPromotionsScreen() {
   const [saving, setSaving]         = useState(false);
   const [form, setForm]             = useState(EMPTY_FORM);
   const [mediaUploading, setMediaUploading] = useState(false);
+  const [uploadProgress, setUploadProgress]  = useState(0); // 0-100
 
   // Inline calendar (no nested modal)
   const [calendarFor, setCalendarFor] = useState<'starts' | 'ends' | null>(null);
@@ -174,9 +180,12 @@ export default function AdminPromotionsScreen() {
       order_index:  String(p.order_index),
       starts_date:  p.starts_at ? p.starts_at.split('T')[0] : '',
       ends_date:    p.ends_at   ? p.ends_at.split('T')[0]   : '',
-      media_url:    p.media_url ?? '',
-      media_type:   p.media_type ?? 'none',
-      media_offset: p.media_offset ?? 50,
+      media_url:           p.media_url ?? '',
+      media_type:          p.media_type ?? 'none',
+      media_offset:        p.media_offset ?? 50,
+      duration_seconds:    p.duration_seconds ?? 0,
+      video_start_seconds: p.video_start_seconds ?? 0,
+      video_total_seconds: 0,
     });
     setShowModal(true);
   };
@@ -196,9 +205,11 @@ export default function AdminPromotionsScreen() {
       order_index:  parseInt(form.order_index) || 0,
       starts_at:    form.starts_date ? `${form.starts_date}T00:00:00.000Z` : null,
       ends_at:      form.ends_date   ? `${form.ends_date}T23:59:59.999Z`   : null,
-      media_url:    form.media_url || null,
-      media_type:   form.media_url ? form.media_type : 'none',
-      media_offset: form.media_offset,
+      media_url:           form.media_url || null,
+      media_type:          form.media_url ? form.media_type : 'none',
+      media_offset:        form.media_offset,
+      duration_seconds:    form.duration_seconds > 0 ? form.duration_seconds : null,
+      video_start_seconds: form.video_start_seconds > 0 ? form.video_start_seconds : 0,
     };
     if (editPromo) {
       await supabase.from('promotions').update(payload).eq('id', editPromo.id);
@@ -230,29 +241,72 @@ export default function AdminPromotionsScreen() {
   // ── Media ────────────────────────────────────────────────────────────────────
 
   const pickMedia = async (type: 'images' | 'videos') => {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: type, allowsEditing: false, quality: 0.85,
+    const isVideo = type === 'videos';
+    const result  = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes:       type,
+      allowsEditing:    false,   // el recortador lo hace la UI de la app
+      quality:          isVideo ? 1 : 0.85,
     });
     if (result.canceled || !result.assets[0]) return;
 
-    const asset     = result.assets[0];
-    const isVideo   = type === 'videos';
-    const ext       = isVideo ? 'mp4' : 'jpg';
+    const asset       = result.assets[0];
+    const ext         = isVideo ? 'mp4' : 'jpg';
     const contentType = isVideo ? 'video/mp4' : 'image/jpeg';
-    const filename  = `promo_${Date.now()}.${ext}`;
+    const filename    = `promo_${Date.now()}.${ext}`;
+
+    // Duración total del video en segundos (asset.duration está en ms)
+    const totalSeconds = isVideo && asset.duration
+      ? Math.round(asset.duration / 1000)
+      : 0;
 
     setMediaUploading(true);
+    setUploadProgress(0);
+
     try {
-      const ab = await fetch(asset.uri).then(r => r.arrayBuffer());
-      const { error } = await supabase.storage
-        .from('promotions-media')
-        .upload(filename, ab, { contentType, upsert: true });
-      if (error) throw error;
-      const { data } = supabase.storage.from('promotions-media').getPublicUrl(filename);
-      setForm(f => ({ ...f, media_url: data.publicUrl, media_type: isVideo ? 'video' : 'image', media_offset: 50 }));
-    } catch {
-      Alert.alert('Error', 'No se pudo subir el archivo.');
+      // XHR en lugar de ArrayBuffer: React Native envía el archivo desde disco
+      // sin cargarlo entero en memoria, y expone progreso real de subida.
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token ?? '';
+
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', `https://sqgzyipqpewzbnfrtdqk.supabase.co/storage/v1/object/promotions-media/${filename}`);
+        xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+        xhr.setRequestHeader('apikey', 'sb_publishable_hVxM5hR57omduY44QPKbZQ_q6mBgeIX');
+        xhr.setRequestHeader('Content-Type', contentType);
+        xhr.setRequestHeader('x-upsert', 'true');
+
+        xhr.upload.addEventListener('progress', (e) => {
+          if (e.lengthComputable) setUploadProgress(Math.round(e.loaded / e.total * 100));
+        });
+        xhr.addEventListener('load', () => {
+          xhr.status >= 200 && xhr.status < 400 ? resolve() : reject(new Error(`HTTP ${xhr.status}`));
+        });
+        xhr.addEventListener('error', () => reject(new Error('Error de red')));
+
+        // FormData con URI: RN lee el archivo desde disco de forma streaming
+        const fd = new FormData();
+        fd.append('', { uri: asset.uri, name: filename, type: contentType } as any);
+        xhr.send(fd);
+      });
+
+      const publicUrl = `https://sqgzyipqpewzbnfrtdqk.supabase.co/storage/v1/object/public/promotions-media/${filename}`;
+      setForm(f => ({
+        ...f,
+        media_url:           publicUrl,
+        media_type:          isVideo ? 'video' : 'image',
+        media_offset:        50,
+        // Video: iniciar con clip completo (inicio=0, duración=total)
+        // El admin puede ajustar después con el recortador de la UI
+        video_start_seconds: 0,
+        duration_seconds:    totalSeconds > 0 ? totalSeconds : 0,
+        video_total_seconds: totalSeconds,
+      }));
+    } catch (err: any) {
+      Alert.alert('Error', err?.message ?? 'No se pudo subir el archivo.');
     }
+
+    setUploadProgress(0);
     setMediaUploading(false);
   };
 
@@ -443,6 +497,8 @@ export default function AdminPromotionsScreen() {
                         uri={form.media_url}
                         style={[s.mediaContent, { transform: [{ translateY: offsetTranslate(form.media_offset) }] }]}
                         contentFit="cover"
+                        startTime={form.video_start_seconds}
+                        autoPlay
                         muted
                         loop
                       />
@@ -456,6 +512,96 @@ export default function AdminPromotionsScreen() {
                       <X size={16} color={COLORS.text} />
                     </Pressable>
                   </View>
+
+                  {/* ── Recortador de video (siempre visible para videos) ── */}
+                  {form.media_type === 'video' && (
+                    <View style={s.trimBox}>
+                      <Text style={s.trimTitle}>Recortar clip</Text>
+
+                      {/* Inicio */}
+                      <View style={s.trimRow}>
+                        <Text style={s.trimLabel}>Inicio</Text>
+                        <View style={s.trimSteppers}>
+                          {([-5, -1] as const).map(d => (
+                            <Pressable
+                              key={d}
+                              style={s.trimStep}
+                              onPress={() => setForm(f => ({
+                                ...f,
+                                video_start_seconds: Math.max(0, f.video_start_seconds + d),
+                              }))}
+                            >
+                              <Text style={s.trimStepTxt}>{d}s</Text>
+                            </Pressable>
+                          ))}
+                          <View style={s.trimValue}>
+                            <Text style={s.trimValueTxt}>{form.video_start_seconds}s</Text>
+                          </View>
+                          {([1, 5] as const).map(d => (
+                            <Pressable
+                              key={d}
+                              style={s.trimStep}
+                              onPress={() => setForm(f => {
+                                const maxStart = f.video_total_seconds > 0
+                                  ? Math.max(0, f.video_total_seconds - 1)
+                                  : 999;
+                                return { ...f, video_start_seconds: Math.min(f.video_start_seconds + d, maxStart) };
+                              })}
+                            >
+                              <Text style={s.trimStepTxt}>+{d}s</Text>
+                            </Pressable>
+                          ))}
+                        </View>
+                      </View>
+
+                      {/* Duración del clip */}
+                      <View style={s.trimRow}>
+                        <Text style={s.trimLabel}>Duración</Text>
+                        <View style={s.trimSteppers}>
+                          {([-5, -1] as const).map(d => (
+                            <Pressable
+                              key={d}
+                              style={s.trimStep}
+                              onPress={() => setForm(f => ({
+                                ...f,
+                                duration_seconds: Math.max(1, f.duration_seconds + d),
+                              }))}
+                            >
+                              <Text style={s.trimStepTxt}>{d}s</Text>
+                            </Pressable>
+                          ))}
+                          <View style={s.trimValue}>
+                            <Text style={s.trimValueTxt}>
+                              {form.duration_seconds > 0 ? `${form.duration_seconds}s` : '—'}
+                            </Text>
+                          </View>
+                          {([1, 5] as const).map(d => (
+                            <Pressable
+                              key={d}
+                              style={s.trimStep}
+                              onPress={() => setForm(f => {
+                                const maxDur = f.video_total_seconds > 0
+                                  ? f.video_total_seconds - f.video_start_seconds
+                                  : 999;
+                                return { ...f, duration_seconds: Math.min(f.duration_seconds + d, maxDur) };
+                              })}
+                            >
+                              <Text style={s.trimStepTxt}>+{d}s</Text>
+                            </Pressable>
+                          ))}
+                        </View>
+                      </View>
+
+                      {/* Resumen */}
+                      <View style={s.trimSummary}>
+                        <Text style={s.trimSummaryTxt}>
+                          {form.duration_seconds > 0
+                            ? `⏱ Seg. ${form.video_start_seconds} → ${form.video_start_seconds + form.duration_seconds} · ${form.duration_seconds}s en el explorador`
+                            : '⏱ Ajusta la duración para controlar cuánto tiempo aparece el anuncio'}
+                        </Text>
+                      </View>
+                    </View>
+                  )}
 
                   {/* Controles de posición */}
                   <View style={s.offsetSection}>
@@ -492,9 +638,16 @@ export default function AdminPromotionsScreen() {
                   </View>
                 </View>
               ) : mediaUploading ? (
-                <View style={s.mediaPickerBtn}>
+                <View style={s.uploadProgressWrap}>
                   <ActivityIndicator color={COLORS.green} />
-                  <Text style={s.mediaPickerText}>Subiendo...</Text>
+                  <Text style={s.mediaPickerText}>
+                    {uploadProgress > 0 ? `Subiendo ${uploadProgress}%` : 'Preparando...'}
+                  </Text>
+                  {uploadProgress > 0 && (
+                    <View style={s.progressBarBg}>
+                      <View style={[s.progressBarFill, { width: `${uploadProgress}%` as any }]} />
+                    </View>
+                  )}
                 </View>
               ) : (
                 <View style={s.mediaPickerRow}>
@@ -786,6 +939,51 @@ const s = StyleSheet.create({
     width: 28, height: 28, borderRadius: 14,
     backgroundColor: 'rgba(0,0,0,0.65)', alignItems: 'center', justifyContent: 'center',
   },
+
+  // Upload progress
+  uploadProgressWrap: {
+    alignItems: 'center', gap: 8,
+    backgroundColor: COLORS.card, borderRadius: RADIUS.md,
+    borderWidth: 1, borderColor: COLORS.border,
+    paddingVertical: 18, paddingHorizontal: 14, marginBottom: 4,
+  },
+  progressBarBg: {
+    width: '100%', height: 4, borderRadius: 2,
+    backgroundColor: COLORS.border, overflow: 'hidden',
+  },
+  progressBarFill: {
+    height: 4, borderRadius: 2, backgroundColor: COLORS.green,
+  },
+
+  // Trim box
+  trimBox: {
+    backgroundColor: COLORS.card, borderRadius: RADIUS.md,
+    borderWidth: 1, borderColor: COLORS.border,
+    padding: SPACING.md, marginTop: 6, marginBottom: 2, gap: 10,
+  },
+  trimTitle: {
+    fontFamily: FONTS.bodySemiBold, fontSize: 12, color: COLORS.muted2,
+    letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 2,
+  },
+  trimRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  trimLabel: { fontFamily: FONTS.bodyMedium, fontSize: 12, color: COLORS.muted2, width: 58 },
+  trimSteppers: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 5 },
+  trimStep: {
+    paddingHorizontal: 9, paddingVertical: 6, borderRadius: RADIUS.md,
+    backgroundColor: COLORS.bg, borderWidth: 1, borderColor: COLORS.border,
+  },
+  trimStepTxt: { fontFamily: FONTS.bodyMedium, fontSize: 11, color: COLORS.muted2 },
+  trimValue: {
+    flex: 1, alignItems: 'center', paddingVertical: 6,
+    backgroundColor: `${COLORS.green}14`, borderRadius: RADIUS.md,
+    borderWidth: 1, borderColor: `${COLORS.green}40`,
+  },
+  trimValueTxt: { fontFamily: FONTS.title, fontSize: 14, color: COLORS.green },
+  trimSummary: {
+    backgroundColor: `${COLORS.green}0e`, borderRadius: RADIUS.sm,
+    paddingHorizontal: 10, paddingVertical: 6,
+  },
+  trimSummaryTxt: { fontFamily: FONTS.bodyMedium, fontSize: 11, color: COLORS.green },
 
   // Offset controls
   offsetSection: {

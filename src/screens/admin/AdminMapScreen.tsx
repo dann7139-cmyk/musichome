@@ -238,21 +238,28 @@ function clusterize(points: ClusterPoint[], latDelta: number): Cluster[] {
   return out;
 }
 
-function ClusterBubble({ count, color }: { count: number; color: string }) {
-  const sz = count > 20 ? 52 : count > 8 ? 46 : 40;
+function ClusterBubble({ count, color, tier }: { count: number; color: string; tier: MarkerTier }) {
+  // Tamaño del círculo escala con el zoom: lejos → pequeño, cerca → grande
+  const sz =
+    tier === 'dot'
+      ? (count > 20 ? 30 : count > 8 ? 26 : 22)
+      : tier === 'mid'
+      ? (count > 20 ? 40 : count > 8 ? 36 : 30)
+      : (count > 20 ? 52 : count > 8 ? 46 : 40);
+  const fontSize = tier === 'dot' ? (count > 99 ? 9 : 11) : (count > 99 ? 11 : 14);
   return (
-    <View style={{ width: sz + 12, height: sz + 12, alignItems: 'center', justifyContent: 'center' }}>
+    <View style={{ width: sz + 10, height: sz + 10, alignItems: 'center', justifyContent: 'center' }}>
       <View style={{
-        position: 'absolute', width: sz + 12, height: sz + 12, borderRadius: (sz + 12) / 2,
-        backgroundColor: `${color}22`,
+        position: 'absolute', width: sz + 10, height: sz + 10, borderRadius: (sz + 10) / 2,
+        backgroundColor: `${color}1e`,
       }} />
       <View style={{
         width: sz, height: sz, borderRadius: sz / 2,
         backgroundColor: 'rgba(10,16,30,0.92)',
-        borderWidth: 2, borderColor: color,
+        borderWidth: tier === 'dot' ? 1.5 : 2, borderColor: color,
         alignItems: 'center', justifyContent: 'center',
       }}>
-        <Text style={{ color, fontFamily: FONTS.title, fontSize: count > 99 ? 13 : 16 }}>
+        <Text style={{ color, fontFamily: FONTS.title, fontSize }}>
           {count > 99 ? '99+' : count}
         </Text>
       </View>
@@ -1538,7 +1545,7 @@ export default function AdminMapScreen({ navigation }: any) {
                 anchor={{ x: 0.5, y: 0.5 }}
                 onPress={() => expandCluster(cl)}
               >
-                <ClusterBubble count={cl.ids.length} color={cl.color} />
+                <ClusterBubble count={cl.ids.length} color={cl.color} tier={tier} />
               </Marker>
             );
           }
@@ -1556,7 +1563,7 @@ export default function AdminMapScreen({ navigation }: any) {
                 anchor={{ x: 0.5, y: 0.5 }}
                 onPress={() => expandCluster(cl)}
               >
-                <ClusterBubble count={cl.ids.length} color={cl.color} />
+                <ClusterBubble count={cl.ids.length} color={cl.color} tier={tier} />
               </Marker>
             );
           }
@@ -1574,7 +1581,7 @@ export default function AdminMapScreen({ navigation }: any) {
                 anchor={{ x: 0.5, y: 0.5 }}
                 onPress={() => expandCluster(cl)}
               >
-                <ClusterBubble count={cl.ids.length} color={cl.color} />
+                <ClusterBubble count={cl.ids.length} color={cl.color} tier={tier} />
               </Marker>
             );
           }
