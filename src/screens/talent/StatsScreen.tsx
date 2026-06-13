@@ -80,7 +80,6 @@ export default function TalentStatsScreen({ navigation }: any) {
   const [profile,         setProfile]         = useState<any>(null);
   const [artistProfile,   setArtistProfile]   = useState<any>(null);
   const [groups,          setGroups]          = useState<any[]>([]);
-  const [myPayouts,       setMyPayouts]       = useState<any[]>([]);
 
   useEffect(() => { loadAll(); }, []);
 
@@ -91,7 +90,7 @@ export default function TalentStatsScreen({ navigation }: any) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setLoading(false); return; }
 
-    const [profileRes, artistRes, invRes, payoutsRes] = await Promise.all([
+    const [profileRes, artistRes, invRes] = await Promise.all([
       supabase.from('profiles')
         .select('full_name, rating, reputation_level, reputation_points, city, state, created_at')
         .eq('id', user.id)
@@ -103,14 +102,10 @@ export default function TalentStatsScreen({ navigation }: any) {
       supabase.from('job_invitations')
         .select('id, status, group_id, created_at, groups(name, city, genre)')
         .eq('invited_user_id', user.id),
-      supabase.from('event_payouts')
-        .select('amount, payout_status, created_at')
-        .eq('user_id', user.id),
     ]);
 
     setProfile(profileRes.data);
     setArtistProfile(artistRes.data);
-    setMyPayouts(payoutsRes.data ?? []);
 
     const allInvitations = invRes.data ?? [];
     setInvitations(allInvitations);
@@ -122,7 +117,7 @@ export default function TalentStatsScreen({ navigation }: any) {
 
     if (groupIds.length > 0) {
       const { data: resData } = await supabase.from('reservations')
-        .select('status, total_price, group_earnings, event_date, event_time, package_id, created_at')
+        .select('status, event_date, event_time, package_id, created_at')
         .in('group_id', groupIds);
       setGroupReservations(resData ?? []);
     }
@@ -140,14 +135,6 @@ export default function TalentStatsScreen({ navigation }: any) {
   const now             = new Date();
   const monthStart      = new Date(now.getFullYear(), now.getMonth(), 1);
   const eventsThisMonth = completedEvents.filter(r => new Date(r.event_date) >= monthStart);
-
-  // Ganancias personales desde event_payouts
-  const paidPayouts     = myPayouts.filter(p => p.payout_status === 'paid');
-  const totalEarnings   = paidPayouts.reduce((s, p) => s + Number(p.amount), 0);
-  const pendingPayouts  = myPayouts.filter(p => p.payout_status === 'pending');
-  const pendingEarnings = pendingPayouts.reduce((s, p) => s + Number(p.amount), 0);
-  const monthPayouts    = paidPayouts.filter(p => new Date(p.created_at) >= monthStart);
-  const earningsThisMonth = monthPayouts.reduce((s, p) => s + Number(p.amount), 0);
 
   // Groups worked with (unique)
   const uniqueGroups = groups.reduce((acc: any[], g: any) => {
