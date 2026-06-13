@@ -1107,9 +1107,12 @@ function InvitationCard({ inv, onAccept, onReject }: { inv: Invitation; onAccept
 
       {/* Payment */}
       {inv.proposed_payment_amount != null && (
-        <View style={ic.payRow}>
-          <DollarSign size={13} color={COLORS.green} />
-          <Text style={ic.payText}>Pago propuesto: ${inv.proposed_payment_amount.toLocaleString()}</Text>
+        <View style={ic.payBlock}>
+          <View style={ic.payRow}>
+            <DollarSign size={13} color={COLORS.green} />
+            <Text style={ic.payText}>Lo que te paga el grupo: ${inv.proposed_payment_amount.toLocaleString()}</Text>
+          </View>
+          <Text style={ic.payNote}>Pago directo del grupo. Acordado fuera de la plataforma.</Text>
         </View>
       )}
 
@@ -1441,8 +1444,10 @@ const ic = StyleSheet.create({
   eventRow:  { flexDirection: 'row', alignItems: 'center', gap: 6 },
   eventText: { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2 },
 
-  payRow:  { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 6 },
-  payText: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.green },
+  payBlock: { marginBottom: 6 },
+  payRow:   { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 2 },
+  payText:  { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.green },
+  payNote:  { fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted2, marginLeft: 18 },
 
   messageText: { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted, fontStyle: 'italic', marginBottom: 8 },
 
