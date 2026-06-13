@@ -291,7 +291,7 @@ export default function GroupQuoteDetailScreen({ route, navigation }: any) {
                 await supabase.from('notifications').insert(
                   members.map((m: any) => ({
                     user_id: m.invited_user_id,
-                    type:    'new_quote_request',
+                    type:    'quote_sent_to_client',
                     title:   '📋 Cotización enviada al cliente',
                     body:    `El dueño envió la cotización. Tu ganancia neta: $${total.toLocaleString()} MXN. Toca para ver tu distribución.`,
                     data:    { quote_id: quote.id },

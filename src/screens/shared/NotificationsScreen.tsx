@@ -39,7 +39,11 @@ interface Notification {
         // Anuncios
         'ad_approved' | 'ad_rejected' | 'ad_payment_confirmed' | 'ad_expiring_soon' | 'ad_expired' |
         // Zona / demanda express
-        'zone_demand';
+        'zone_demand' |
+        // Admin / pagos / KYC
+        'payout' | 'wallet' | 'fraud_alert' |
+        // Cotización enviada a integrantes del grupo (dueño mandó precio al cliente)
+        'quote_sent_to_client';
   title: string;
   message?: string;
   body?: string;
@@ -285,6 +289,26 @@ export default function NotificationsScreen({ navigation }: any) {
             .from('quotes')
             .select('*, client:profiles!client_id(full_name, avatar_url)')
             .eq('id', qId)
+            .single();
+          if (qData) {
+            navigation.navigate('GroupQuoteDetail', { quote: qData });
+          } else {
+            navigation.navigate('GroupQuotes');
+          }
+        } else {
+          navigation.navigate('GroupQuotes');
+        }
+        break;
+      }
+
+      case 'quote_sent_to_client': {
+        // Integrante del grupo: el dueño envió el precio al cliente — ver detalle
+        const qStcId = notif.data?.quote_id as string | undefined;
+        if (qStcId) {
+          const { data: qData } = await supabase
+            .from('quotes')
+            .select('*, client:profiles!client_id(full_name, avatar_url)')
+            .eq('id', qStcId)
             .single();
           if (qData) {
             navigation.navigate('GroupQuoteDetail', { quote: qData });
