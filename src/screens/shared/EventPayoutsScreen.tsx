@@ -57,9 +57,11 @@ export default function EventPayoutsScreen({ navigation, route }: any) {
     setLoading(false);
   };
 
-  const totalPrice = Number(reservation?.total_price ?? 0);
-  const commission = Math.round(totalPrice * 0.08 * 100) / 100;
-  const groupNet   = Math.round((totalPrice - commission) * 100) / 100;
+  const totalPrice        = Number(reservation?.total_price ?? 0);
+  const commission        = Math.round(totalPrice * 0.10 * 100) / 100;
+  const groupNet          = Math.round((totalPrice - commission) * 100) / 100;
+  const participantCount  = payouts.length > 0 ? payouts.length : 1;
+  const suggestedPerPerson = Math.round((groupNet / participantCount) * 100) / 100;
 
   const parts    = reservation?.event_date?.split('-') ?? [];
   const day      = parts[2] ?? '—';
@@ -97,7 +99,7 @@ export default function EventPayoutsScreen({ navigation, route }: any) {
               </Text>
             </View>
             <View style={[st.summaryCard, { borderColor: `${COLORS.orange}50` }]}>
-              <Text style={st.summaryLabel}>Comisión 8%</Text>
+              <Text style={st.summaryLabel}>Tarifa de servicio 10%</Text>
               <Text style={[st.summaryValue, { color: COLORS.orange }]}>
                 -${commission.toLocaleString('es-MX', { minimumFractionDigits: 0 })}
               </Text>
@@ -110,21 +112,20 @@ export default function EventPayoutsScreen({ navigation, route }: any) {
             </View>
           </View>
 
-          {/* ── Distribución ── */}
-          <Text style={st.sectionTitle}>Distribución de pagos</Text>
+          {/* ── Reparto sugerido ── */}
+          <Text style={st.sectionTitle}>Reparto sugerido equitativo</Text>
 
           {loading ? (
             <ActivityIndicator color={COLORS.green} style={{ marginTop: 40 }} />
           ) : payouts.length === 0 ? (
             <View style={st.empty}>
               <Text style={st.emptyIcon}>📭</Text>
-              <Text style={st.emptyTitle}>Sin datos de distribución</Text>
-              <Text style={st.emptyText}>No se encontraron registros de pago para este evento.</Text>
+              <Text style={st.emptyTitle}>Sin participantes registrados</Text>
+              <Text style={st.emptyText}>No se encontraron participantes para este evento.</Text>
             </View>
           ) : (
             payouts.map((p, i) => {
               const roleColor = ROLE_COLOR[p.role] ?? COLORS.muted2;
-              const isPaid    = p.payout_status === 'paid';
               return (
                 <View key={i} style={st.payoutRow}>
                   <View style={[st.roleIcon, { backgroundColor: `${roleColor}18`, borderColor: `${roleColor}40` }]}>
@@ -138,29 +139,19 @@ export default function EventPayoutsScreen({ navigation, route }: any) {
                       {ROLE_LABEL[p.role] ?? p.role}
                     </Text>
                   </View>
-                  <View style={{ alignItems: 'flex-end', gap: 4 }}>
-                    <Text style={st.payoutAmount}>
-                      ${Number(p.amount).toLocaleString('es-MX', { minimumFractionDigits: 0 })} MXN
-                    </Text>
-                    <View style={[st.statusPill, {
-                      backgroundColor: isPaid ? `${COLORS.green}15` : `${COLORS.orange}15`,
-                      borderColor:     isPaid ? `${COLORS.green}40` : `${COLORS.orange}40`,
-                    }]}>
-                      <Text style={[st.statusText, { color: isPaid ? COLORS.green : COLORS.orange }]}>
-                        {isPaid ? '✓ Pagado' : '⏳ Pendiente'}
-                      </Text>
-                    </View>
-                  </View>
+                  <Text style={st.payoutAmount}>
+                    ${suggestedPerPerson.toLocaleString('es-MX', { minimumFractionDigits: 0 })} MXN
+                  </Text>
                 </View>
               );
             })
           )}
 
-          {/* ── Nota plataforma ── */}
+          {/* ── Nota ── */}
           {!loading && payouts.length > 0 && (
             <View style={st.note}>
               <Text style={st.noteText}>
-                💡 La comisión del 8% es retenida por la plataforma. El resto se distribuye entre los participantes del evento.
+                💡 Reparto sugerido equitativo entre {participantCount} participante{participantCount !== 1 ? 's' : ''}. El dueño del grupo gestiona la distribución por fuera de la plataforma.
               </Text>
             </View>
           )}
