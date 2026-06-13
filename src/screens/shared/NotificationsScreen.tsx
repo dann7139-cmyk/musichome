@@ -265,7 +265,9 @@ export default function NotificationsScreen({ navigation }: any) {
         break;
 
       case 'verification':
-        if (role === 'group') {
+        if (role === 'admin') {
+          navigation.navigate('AdminVerifications');
+        } else if (role === 'group') {
           navigation.navigate('GroupVerification');
         }
         break;
@@ -406,7 +408,11 @@ export default function NotificationsScreen({ navigation }: any) {
       // ── Disputas / operativo ──────────────────────────────────────────────
       case 'dispute_opened':
       case 'dispute_received':
-        await goToReservation(role === 'group');
+        if (role === 'admin') {
+          navigation.navigate('AdminDisputes');
+        } else {
+          await goToReservation(role === 'group');
+        }
         break;
 
       case 'event_started':
@@ -416,6 +422,23 @@ export default function NotificationsScreen({ navigation }: any) {
 
       case 'booking_cancelled':
         await goToReservation(role === 'group');
+        break;
+
+      // ── Admin: retiros ────────────────────────────────────────────────────
+      case 'payout':
+      case 'wallet':
+        if (role === 'admin') {
+          navigation.navigate('AdminWithdrawals');
+        } else if (role === 'group') {
+          navigation.navigate('Wallet');
+        }
+        break;
+
+      // ── Admin: fraude — sin pantalla dedicada, usa AdminDisputes como proxy
+      case 'fraud_alert':
+        if (role === 'admin') {
+          navigation.navigate('AdminDisputes');
+        }
         break;
 
       case 'system': {
