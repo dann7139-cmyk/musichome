@@ -268,18 +268,20 @@ export default function TalentStatsScreen({ navigation }: any) {
           {/* ══ TAB 1: RENDIMIENTO ══ */}
           {activeTab === 1 && (
             <View>
-              {/* Ganancias */}
+              {/* Eventos participados */}
               <View style={[c.card, { gap: 0 }]}>
-                <SectionTitle title="Mis ganancias" />
+                <SectionTitle title="Participación en eventos" />
                 <View style={c.earningsHero}>
-                  <Text style={c.earningsAmount}>${fmt(totalEarnings)}</Text>
-                  <Text style={c.earningsLabel}>Total cobrado</Text>
+                  <Text style={c.earningsAmount}>{completedEvents.length}</Text>
+                  <Text style={c.earningsLabel}>Eventos completados</Text>
                 </View>
-                <Row2 label="Este mes" value={`$${fmt(earningsThisMonth)}`} color={COLORS.green} />
-                <Row2 label="Pagos realizados" value={String(paidPayouts.length)} color={COLORS.green} />
-                {pendingEarnings > 0 && (
-                  <Row2 label="Pendiente de cobro" value={`$${fmt(pendingEarnings)}`} color={COLORS.orange} />
-                )}
+                <Row2 label="Este mes" value={String(eventsThisMonth.length)} color={COLORS.green} />
+                <Row2 label="Invitaciones aceptadas" value={String(accepted.length)} color={COLORS.green} />
+                <View style={{ paddingHorizontal: 4, paddingTop: 10, paddingBottom: 4 }}>
+                  <Text style={{ fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted2, lineHeight: 16 }}>
+                    💡 Los pagos los gestiona el dueño del grupo fuera de la plataforma.
+                  </Text>
+                </View>
               </View>
 
               <View style={c.card}>
