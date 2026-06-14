@@ -137,7 +137,7 @@ function PaymentPendingOverlay({ reason, onClose }: { reason: string; onClose: (
     <View style={pp.overlay}>
       <Animated.View style={[pp.card, { transform: [{ scale: scaleAnim }], opacity: opacityAnim }]}>
         <Text style={pp.icon}>⚠️</Text>
-        <Text style={pp.title}>Pago no procesado</Text>
+        <Text style={pp.title}>Esperando confirmación de pago</Text>
         <Text style={pp.body}>{reason}</Text>
 
         <View style={pp.infoBox}>
@@ -158,10 +158,15 @@ function PaymentPendingOverlay({ reason, onClose }: { reason: string; onClose: (
 
 const pp = StyleSheet.create({
   overlay: {
-    flex: 1, backgroundColor: COLORS.bg,
+    flex: 1, backgroundColor: 'rgba(4,4,4,0.92)',
     alignItems: 'center', justifyContent: 'center', padding: 28,
   },
-  card: { width: '100%', alignItems: 'center' },
+  card: {
+    width: '100%', alignItems: 'center',
+    backgroundColor: COLORS.card, borderRadius: RADIUS.xl,
+    borderWidth: 1, borderColor: COLORS.border,
+    padding: 28,
+  },
   icon: { fontSize: 64, marginBottom: 12 },
   title: {
     fontFamily: FONTS.title, fontSize: 26, color: COLORS.text,
@@ -179,11 +184,10 @@ const pp = StyleSheet.create({
   infoTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.orange, marginBottom: 4 },
   infoLine:  { fontFamily: FONTS.body, fontSize: 13, color: COLORS.muted2, lineHeight: 20 },
   btn: {
-    width: '100%', backgroundColor: COLORS.card, borderRadius: RADIUS.lg,
-    borderWidth: 1, borderColor: COLORS.border,
+    width: '100%', backgroundColor: COLORS.green, borderRadius: RADIUS.lg,
     paddingVertical: 16, alignItems: 'center',
   },
-  btnText: { fontFamily: FONTS.bodyMedium, fontSize: 15, color: COLORS.muted2 },
+  btnText: { fontFamily: FONTS.bodyMedium, fontSize: 15, color: COLORS.bg },
 });
 
 // ── Celebration overlay ───────────────────────────────────────────────────────
