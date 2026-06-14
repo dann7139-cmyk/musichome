@@ -12,26 +12,14 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../../config/supabase';
 import { isPaid } from '../../utils/calculations';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
-import Badge from '../../components/ui/Badge';
 import Particles from '../../components/ui/Particles';
 
-const STATUS_MAP: Record<string, { label: string; variant: any; color: string }> = {
-  pending:                    { label: 'Pendiente',      variant: 'orange', color: COLORS.orange },
-  pending_payment:            { label: 'Pago pendiente', variant: 'orange', color: COLORS.orange },
-  pending_group_confirmation: { label: 'Por confirmar',  variant: 'orange', color: COLORS.orange },
-  accepted:                   { label: 'Aceptada',       variant: 'blue',   color: COLORS.blue   },
-  confirmed:                  { label: 'Confirmada',     variant: 'green',  color: COLORS.green  },
-  in_progress:                { label: 'En curso',       variant: 'blue',   color: COLORS.blue   },
-  completed:                  { label: 'Completada',     variant: 'muted',  color: COLORS.muted  },
-  cancelled:                  { label: 'Cancelada',      variant: 'red',    color: COLORS.red    },
-  rejected:                   { label: 'Rechazada',      variant: 'red',    color: COLORS.red    },
-  expired:                    { label: 'Expirada',       variant: 'red',    color: COLORS.red    },
-};
+// ─── Constants ────────────────────────────────────────────────────────────────
 
-const MONTH_SHORT = ['ENE','FEB','MAR','ABR','MAY','JUN','JUL','AGO','SEP','OCT','NOV','DIC'];
+const MONTH_SHORT = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+const DAY_SHORT   = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
 
-const TODAY = new Date().toISOString().split('T')[0]; // 'YYYY-MM-DD'
-
+const TODAY = new Date().toISOString().split('T')[0];
 
 const MAIN_TABS = [
   { label: 'Activas',    key: 'activas'   },
@@ -51,17 +39,98 @@ const STATUS_FILTERS = [
   { label: 'En curso',      key: 'in_progress' },
 ];
 
+// ─── Payment chip ─────────────────────────────────────────────────────────────
+
+type ChipData = { label: string; color: string; bgColor: string; borderColor: string };
+
+function mkChip(label: string, color: string, bgColor: string, borderColor: string): ChipData {
+  return { label, color, bgColor, borderColor };
+}
+
+function getPaymentChip(r: any, isHistory: boolean): ChipData {
+  // Disputa — prioridad máxima
+  if (r.payout_status === 'blocked') {
+    return mkChip('⚠  En disputa · pago retenido', COLORS.red, 'rgba(239,83,80,0.10)', 'rgba(239,83,80,0.35)');
+  }
+
+  const paid = isPaid(r.payment_status);
+
+  if (paid) {
+    const payout = r.payout_status as string | undefined;
+
+    if (payout === 'released' || payout === 'refunded') {
+      if (isHistory) {
+        return mkChip('✓  Cobrado', COLORS.green2, 'rgba(0,200,83,0.07)', 'rgba(0,200,83,0.25)');
+      }
+      return mkChip('✓  Disponible para retiro', COLORS.green, COLORS.greenMuted, 'rgba(0,230,118,0.35)');
+    }
+
+    if (payout === 'half_released') {
+      return mkChip('✓  50% disponible · resto pendiente', COLORS.green2, 'rgba(0,200,83,0.07)', 'rgba(0,200,83,0.25)');
+    }
+
+    if (payout === 'held') {
+      const eventPassed = r.event_date && r.event_date < TODAY;
+      const fadedOrange = 'rgba(255,152,0,0.60)';
+      const orangeColor = isHistory ? fadedOrange : COLORS.orange;
+
+      if (!eventPassed) {
+        const label = isHistory ? '⏱  Liberación pendiente' : '⏱  Retenido hasta el evento';
+        return mkChip(label, orangeColor, 'rgba(255,152,0,0.10)', 'rgba(255,152,0,0.30)');
+      }
+
+      // Post-evento: calcular tiempo restante hasta liberación (12h)
+      const heldAt = r.held_at ? new Date(r.held_at as string) : null;
+      if (heldAt) {
+        const releaseAt = new Date(heldAt.getTime() + 12 * 60 * 60 * 1000);
+        const msLeft    = releaseAt.getTime() - Date.now();
+
+        if (msLeft > 60_000) {
+          const hoursLeft = msLeft / 3_600_000;
+          const label = hoursLeft >= 1
+            ? `⏱  Libera en ${Math.round(hoursLeft)}h`
+            : `⏱  Libera en ${Math.round(msLeft / 60_000)} min`;
+          return mkChip(label, orangeColor, 'rgba(255,152,0,0.10)', 'rgba(255,152,0,0.30)');
+        }
+
+        // 12h ya pasaron pero el cron aún no corrió (ventana ~15 min)
+        return mkChip('Liberando pronto...', COLORS.muted2, COLORS.card2, COLORS.border);
+      }
+
+      // held sin held_at — fallback
+      const label = isHistory ? '⏱  Liberación pendiente' : '⏱  Retenido';
+      return mkChip(label, orangeColor, 'rgba(255,152,0,0.10)', 'rgba(255,152,0,0.30)');
+    }
+  }
+
+  // Sin pago — mostrar estado de reserva relevante
+  if (r.status === 'pending_group_confirmation') {
+    return mkChip('● Por confirmar', COLORS.orange, 'rgba(255,152,0,0.08)', 'rgba(255,152,0,0.30)');
+  }
+  if (r.status === 'in_progress') {
+    return mkChip('▶  En curso', COLORS.blue, 'rgba(66,133,244,0.08)', 'rgba(66,133,244,0.30)');
+  }
+  if (r.status === 'cancelled' || r.status === 'rejected' || r.status === 'expired') {
+    return mkChip('✕  ' + (r.status === 'cancelled' ? 'Cancelada' : r.status === 'rejected' ? 'Rechazada' : 'Expirada'),
+      COLORS.muted2, COLORS.card2, COLORS.border);
+  }
+
+  return mkChip('○  Pendiente de pago', COLORS.muted2, COLORS.card2, COLORS.border);
+}
+
+// ─── Screen ───────────────────────────────────────────────────────────────────
+
 export default function GroupReservationsScreen({ route, navigation }: any) {
   const initialFilter: string | null = route?.params?.initialFilter ?? null;
   const initTab: MainTab = initialFilter === 'history' ? 'historial' : initialFilter ? 'status' : 'activas';
   const initStatus: string | null = initialFilter && initialFilter !== 'history' ? initialFilter : null;
 
   const [reservations, setReservations] = useState<any[]>([]);
-  const [mainTab, setMainTab] = useState<MainTab>(initTab);
+  const [mainTab,      setMainTab]      = useState<MainTab>(initTab);
   const [statusFilter, setStatusFilter] = useState<string | null>(initStatus);
-  const [refreshing, setRefreshing] = useState(false);
-  const [page, setPage] = useState(0);
-  const [hasMore, setHasMore] = useState(true);
+  const [refreshing,   setRefreshing]   = useState(false);
+  const [page,         setPage]         = useState(0);
+  const [hasMore,      setHasMore]      = useState(true);
   const PAGE_SIZE = 50;
 
   useEffect(() => { fetchReservations(0); }, []);
@@ -132,7 +201,7 @@ export default function GroupReservationsScreen({ route, navigation }: any) {
 
       const merged = data.map((r: any) => ({
         ...r,
-        client: clientMap[r.client_id] ?? null,
+        client:  clientMap[r.client_id]  ?? null,
         package: packageMap[r.package_id] ?? null,
       }));
 
@@ -147,9 +216,7 @@ export default function GroupReservationsScreen({ route, navigation }: any) {
     }
   };
 
-  const loadMore = () => {
-    if (hasMore) fetchReservations(page + 1);
-  };
+  const loadMore = () => { if (hasMore) fetchReservations(page + 1); };
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -157,12 +224,8 @@ export default function GroupReservationsScreen({ route, navigation }: any) {
     setRefreshing(false);
   };
 
-  // Reservas activas: solo las que aún no han pasado de fecha
-  const activeReservations = reservations.filter(r => !r.event_date || r.event_date >= TODAY);
-
-  // Historial: todas las que ya pasaron de fecha (sin importar el estado)
+  const activeReservations  = reservations.filter(r => !r.event_date || r.event_date >= TODAY);
   const historyReservations = reservations.filter(r => r.event_date && r.event_date < TODAY);
-
 
   const filtered =
     mainTab === 'historial' ? historyReservations :
@@ -191,7 +254,9 @@ export default function GroupReservationsScreen({ route, navigation }: any) {
           </Pressable>
           <View>
             <Text style={styles.headerTitle}>Reservas</Text>
-            <Text style={styles.headerSub}>{activeReservations.length} activas</Text>
+            {mainTab === 'activas' && (
+              <Text style={styles.headerSub}>{activeReservations.length} activas</Text>
+            )}
           </View>
           <View style={{ width: 40 }} />
         </View>
@@ -228,7 +293,7 @@ export default function GroupReservationsScreen({ route, navigation }: any) {
             contentContainerStyle={styles.filters}
           >
             {STATUS_FILTERS.map(f => {
-              const count = f.key === 'pagadas' ? paidCount : (countByStatus[f.key] ?? 0);
+              const count  = f.key === 'pagadas' ? paidCount : (countByStatus[f.key] ?? 0);
               const active = statusFilter === f.key;
               return (
                 <Pressable
@@ -263,7 +328,12 @@ export default function GroupReservationsScreen({ route, navigation }: any) {
           ) : (
             <>
               {filtered.map(r => (
-                <ReservationCard key={r.id} reservation={r} navigation={navigation} isHistory={mainTab === 'historial'} />
+                <ReservationCard
+                  key={r.id}
+                  reservation={r}
+                  navigation={navigation}
+                  isHistory={mainTab === 'historial' || (r.event_date && r.event_date < TODAY)}
+                />
               ))}
               {hasMore && (
                 <Pressable style={styles.loadMoreBtn} onPress={loadMore}>
@@ -278,25 +348,23 @@ export default function GroupReservationsScreen({ route, navigation }: any) {
   );
 }
 
-const PAYOUT_BADGE: Record<string, { label: string; color: string }> = {
-  held:     { label: '⏳ Retenido',        color: COLORS.orange },
-  released: { label: '✅ Disponible',      color: COLORS.green  },
-  blocked:  { label: '🔒 Bloqueado',       color: COLORS.red    },
-  refunded: { label: '↩ Reembolsado',      color: COLORS.muted  },
-};
+// ─── ReservationCard ──────────────────────────────────────────────────────────
 
 function ReservationCard({ reservation: r, navigation, isHistory }: any) {
-  const s = STATUS_MAP[r.status] ?? STATUS_MAP.pending;
-  const parts = r.event_date?.split('-') ?? [];
-  const day = parts[2] ?? '—';
-  const monthIdx = parts[1] ? parseInt(parts[1], 10) - 1 : -1;
-  const month = monthIdx >= 0 ? MONTH_SHORT[monthIdx] : '—';
-  const accentColor = isHistory ? COLORS.muted : s.color;
-  const payoutBadge = isPaid(r.payment_status) ? (PAYOUT_BADGE[r.payout_status] ?? null) : null;
+  const chip = getPaymentChip(r, isHistory);
+
+  const d = r.event_date ? new Date(r.event_date + 'T12:00:00') : null;
+  const dateShort = d
+    ? `${DAY_SHORT[d.getDay()]} ${d.getDate()} ${MONTH_SHORT[d.getMonth()]}`
+    : '—';
 
   return (
     <Pressable
-      style={[styles.card, isHistory && styles.cardPast]}
+      style={({ pressed }) => [
+        styles.card,
+        isHistory && styles.cardHistory,
+        pressed  && styles.cardPressed,
+      ]}
       onPress={() => {
         if (isPaid(r.payment_status) || r.status === 'in_progress' || r.status === 'accepted' || r.status === 'completed') {
           navigation.navigate('EventTimer', { reservation: r });
@@ -305,57 +373,55 @@ function ReservationCard({ reservation: r, navigation, isHistory }: any) {
         }
       }}
     >
-      {/* Date bubble */}
-      <View style={[styles.dateBubble, { backgroundColor: `${accentColor}18`, borderColor: `${accentColor}40` }]}>
-        <Text style={[styles.dateDay, { color: accentColor }]}>{day}</Text>
-        <Text style={[styles.dateMon, { color: accentColor }]}>{month}</Text>
+      {/* Fila 1: nombre del cliente + precio + chevron */}
+      <View style={styles.cardTopRow}>
+        <Text style={styles.clientName} numberOfLines={1}>
+          {r.client?.full_name ?? 'Cliente'}
+        </Text>
+        <View style={styles.cardRightCol}>
+          <Text style={[styles.price, { color: chip.color }]}>
+            ${r.group_earnings?.toLocaleString() ?? '—'}
+          </Text>
+          <ChevronRight size={16} color={COLORS.muted} />
+        </View>
       </View>
 
-      {/* Content */}
-      <View style={styles.cardBody}>
-        <View style={styles.cardTopRow}>
-          <Text style={[styles.clientName, isHistory && { color: COLORS.muted }]} numberOfLines={1}>{r.client?.full_name ?? 'Cliente'}</Text>
-          <Badge label={s.label} variant={isHistory ? 'muted' : s.variant} dot />
-        </View>
+      {/* Fila 2: chip de pago — protagonista */}
+      <View style={[styles.payChip, { backgroundColor: chip.bgColor, borderColor: chip.borderColor }]}>
+        <Text style={[styles.payChipText, { color: chip.color }]}>{chip.label}</Text>
+      </View>
 
-        <Text style={styles.pkgName} numberOfLines={1}>
-          {r.package?.name ?? '—'}
-          {r.package?.duration_hours ? ` · ${r.package.duration_hours}h` : ''}
-        </Text>
-
-        {/* Payout status — visible cuando ya fue pagado */}
-        {payoutBadge && (
-          <View style={[styles.payoutChip, { borderColor: payoutBadge.color + '40', backgroundColor: payoutBadge.color + '12' }]}>
-            <Text style={[styles.payoutChipText, { color: payoutBadge.color }]}>{payoutBadge.label}</Text>
-          </View>
+      {/* Fila 3: fecha + hora */}
+      <View style={styles.metaRow}>
+        <Text style={[styles.dateText, isHistory && styles.dateTextHistory]}>{dateShort}</Text>
+        {r.event_time && (
+          <>
+            <Text style={styles.metaDot}>·</Text>
+            <Clock size={11} color={COLORS.muted} />
+            <Text style={styles.metaText}>{r.event_time}</Text>
+          </>
         )}
+      </View>
 
+      {/* Fila 4: dirección */}
+      {r.address ? (
         <View style={styles.metaRow}>
-          {r.event_time && (
-            <View style={styles.metaItem}>
-              <Clock size={11} color={COLORS.muted} />
-              <Text style={styles.metaText}>{r.event_time}</Text>
-            </View>
-          )}
-          {r.address && (
-            <View style={styles.metaItem}>
-              <MapPin size={11} color={COLORS.muted} />
-              <Text style={styles.metaText} numberOfLines={1}>{r.address}</Text>
-            </View>
-          )}
+          <MapPin size={11} color={COLORS.muted} />
+          <Text style={[styles.metaText, { flex: 1 }]} numberOfLines={1}>{r.address}</Text>
         </View>
-      </View>
+      ) : null}
 
-      {/* Right: price + arrow */}
-      <View style={styles.cardRight}>
-        <Text style={[styles.price, { color: accentColor }]}>
-          ${r.group_earnings?.toLocaleString() ?? '—'}
+      {/* Fila 5: paquete */}
+      {r.package?.name ? (
+        <Text style={styles.pkgName} numberOfLines={1}>
+          {r.package.name}{r.package.duration_hours ? ` · ${r.package.duration_hours}h` : ''}
         </Text>
-        <ChevronRight size={14} color={COLORS.muted} />
-      </View>
+      ) : null}
     </Pressable>
   );
 }
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.bg },
@@ -370,7 +436,7 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   headerTitle: { fontFamily: FONTS.title, fontSize: 20, color: COLORS.text, textAlign: 'center' },
-  headerSub: { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted, textAlign: 'center', marginTop: 1 },
+  headerSub:   { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted, textAlign: 'center', marginTop: 1 },
 
   tabBar: {
     flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: COLORS.border,
@@ -380,77 +446,79 @@ const styles = StyleSheet.create({
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
     gap: 6, paddingVertical: 12, borderBottomWidth: 2, borderBottomColor: 'transparent',
   },
-  tabBtnActive: { borderBottomColor: COLORS.green },
-  tabBtnText: { fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.muted2 },
+  tabBtnActive:     { borderBottomColor: COLORS.green },
+  tabBtnText:       { fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.muted2 },
   tabBtnTextActive: { color: COLORS.green },
 
-  filters: { paddingHorizontal: SPACING.xl, paddingVertical: 10, gap: 8 },
+  filters:       { paddingHorizontal: SPACING.xl, paddingVertical: 10, gap: 8 },
   chip: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
     paddingHorizontal: 12, paddingVertical: 6,
     borderRadius: RADIUS.full, borderWidth: 1, borderColor: COLORS.border,
     backgroundColor: COLORS.card,
   },
-  chipActive: { borderColor: COLORS.green, backgroundColor: COLORS.greenMuted },
-  chipText: { fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.muted2 },
-  chipTextActive: { color: COLORS.green },
+  chipActive:           { borderColor: COLORS.green, backgroundColor: COLORS.greenMuted },
+  chipText:             { fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.muted2 },
+  chipTextActive:       { color: COLORS.green },
   chipCount: {
     minWidth: 18, height: 18, borderRadius: 9,
     backgroundColor: COLORS.border, alignItems: 'center', justifyContent: 'center',
     paddingHorizontal: 4,
   },
-  chipCountActive: { backgroundColor: `${COLORS.green}30` },
-  chipCountText: { fontFamily: FONTS.bodyMedium, fontSize: 10, color: COLORS.muted },
-  chipCountTextActive: { color: COLORS.green },
+  chipCountActive:      { backgroundColor: `${COLORS.green}30` },
+  chipCountText:        { fontFamily: FONTS.bodyMedium, fontSize: 10, color: COLORS.muted },
+  chipCountTextActive:  { color: COLORS.green },
 
   list: { padding: SPACING.xl, gap: 10, paddingBottom: 40 },
 
+  // ── Card ────────────────────────────────────────────────────────────────────
   card: {
-    flexDirection: 'row', alignItems: 'center', gap: 14,
     backgroundColor: COLORS.card, borderRadius: 20,
     borderWidth: 1, borderColor: COLORS.border,
-    padding: 14,
+    padding: 14, gap: 8,
   },
-  cardPast: { opacity: 0.5 },
-  dateBubble: {
-    width: 50, height: 58, borderRadius: 14,
-    borderWidth: 1, alignItems: 'center', justifyContent: 'center',
-    flexShrink: 0,
+  cardHistory: {
+    backgroundColor: COLORS.bg,
+    borderColor: 'rgba(26,26,26,0.55)',
   },
-  dateDay: { fontFamily: FONTS.title, fontSize: 20, lineHeight: 24 },
-  dateMon: { fontFamily: FONTS.bodyMedium, fontSize: 10, letterSpacing: 1 },
+  cardPressed: { backgroundColor: COLORS.card2 },
 
-  cardBody: { flex: 1, gap: 5 },
-  cardTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
-  clientName: { fontFamily: FONTS.title, fontSize: 16, color: COLORS.text, flex: 1 },
-  pkgName: { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted },
-  metaRow: { flexDirection: 'row', gap: 6, flexWrap: 'wrap', marginTop: 2 },
-  metaItem: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    backgroundColor: COLORS.card2, borderRadius: RADIUS.sm,
-    paddingHorizontal: 7, paddingVertical: 4,
+  cardTopRow: {
+    flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'space-between', gap: 8,
   },
-  metaText: { fontFamily: FONTS.bodyMedium, fontSize: 11, color: COLORS.muted2 },
+  clientName: { fontFamily: FONTS.title, fontSize: 17, color: COLORS.text, flex: 1 },
+  cardRightCol: {
+    flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 0,
+  },
+  price: { fontFamily: FONTS.bodySemiBold, fontSize: 15 },
 
-  cardRight: { alignItems: 'flex-end', gap: 6, flexShrink: 0 },
-  price: { fontFamily: FONTS.title, fontSize: 17 },
+  // Chip de estado de pago — protagonista
+  payChip: {
+    alignSelf: 'flex-start' as const,
+    borderRadius: RADIUS.full, borderWidth: 1,
+    paddingHorizontal: 12, paddingVertical: 7,
+  },
+  payChipText: { fontFamily: FONTS.bodySemiBold, fontSize: 13 },
 
-  empty: { alignItems: 'center', paddingTop: 80, gap: 8 },
-  emptyIcon: { fontSize: 36 },
+  // Meta rows
+  metaRow:         { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  dateText:        { fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.muted2 },
+  dateTextHistory: { color: COLORS.muted },
+  metaDot:         { fontFamily: FONTS.body, fontSize: 13, color: COLORS.muted },
+  metaText:        { fontFamily: FONTS.bodyMedium, fontSize: 12, color: COLORS.muted },
+  pkgName:         { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted },
+
+  // Empty state
+  empty:      { alignItems: 'center', paddingTop: 80, gap: 8 },
+  emptyIcon:  { fontSize: 48 },
   emptyTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 16, color: COLORS.text },
-  emptyText: { fontFamily: FONTS.body, fontSize: 13, color: COLORS.muted },
+  emptyText:  { fontFamily: FONTS.body, fontSize: 13, color: COLORS.muted },
+
   loadMoreBtn: {
     marginHorizontal: SPACING.xl, marginVertical: 12, paddingVertical: 14,
     borderRadius: RADIUS.lg, borderWidth: 1, borderColor: COLORS.border,
     alignItems: 'center' as const,
   },
   loadMoreText: { fontFamily: FONTS.bodyMedium, fontSize: 14, color: COLORS.muted2 },
-
-  payoutChip: {
-    alignSelf: 'flex-start' as const,
-    borderRadius: RADIUS.full, borderWidth: 1,
-    paddingHorizontal: 8, paddingVertical: 3,
-    marginTop: 4,
-  },
-  payoutChipText: { fontFamily: FONTS.bodyMedium, fontSize: 10 },
 });
