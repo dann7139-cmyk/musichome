@@ -6,7 +6,7 @@
  * El primer grupo que acepte se queda con el evento.
  */
 import * as Location from 'expo-location';
-import { ArrowLeft, CheckCircle, Clock, Navigation, Send, Trash2, Zap } from 'lucide-react-native';
+import { ArrowLeft, CheckCircle, Clock, Navigation, Send, Trash2 } from 'lucide-react-native';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -477,7 +477,6 @@ export default function OpenRequestScreen({ navigation, route }: any) {
           <Text style={s.headerTitle}>Solicitar grupo ahora</Text>
           <Text style={s.headerSub}>El primer grupo disponible te contactará</Text>
         </View>
-        <Zap size={22} color={COLORS.green} />
       </SafeAreaView>
 
       {/* ── Tabs ─────────────────────────────────────────────────────────────── */}
@@ -1038,7 +1037,7 @@ const s = StyleSheet.create({
   },
   rejectProposalBtnText: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: '#FF5252' },
   acceptProposalBtn: {
-    flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 11,
+    flex: 2, alignItems: 'center', justifyContent: 'center', paddingVertical: 11,
     borderRadius: RADIUS.md, backgroundColor: COLORS.green,
   },
   acceptProposalBtnText: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.bg },
@@ -1114,7 +1113,7 @@ const s = StyleSheet.create({
     backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border,
     alignItems: 'center', justifyContent: 'center',
   },
-  headerTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 16, color: COLORS.text },
+  headerTitle: { fontFamily: FONTS.title, fontSize: 18, color: COLORS.text },
   headerSub:   { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2, marginTop: 1 },
 
   scroll: { padding: SPACING.xl },
@@ -1217,7 +1216,7 @@ const s = StyleSheet.create({
     backgroundColor: COLORS.green, borderRadius: RADIUS.lg,
     paddingVertical: 16, marginTop: 28,
   },
-  submitBtnDisabled: { backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border },
+  submitBtnDisabled: { opacity: 0.4 },
   submitBtnText:     { fontFamily: FONTS.bodySemiBold, fontSize: 15, color: COLORS.bg },
 
   calOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
@@ -1289,9 +1288,7 @@ const s = StyleSheet.create({
     gap: 8, backgroundColor: COLORS.green, borderRadius: RADIUS.lg,
     paddingVertical: 14,
   },
-  wizardNextBtnDisabled: {
-    backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border,
-  },
+  wizardNextBtnDisabled: { opacity: 0.4 },
   wizardNextBtnText: {
     fontFamily: FONTS.bodySemiBold, fontSize: 15, color: COLORS.bg,
   },

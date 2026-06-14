@@ -268,6 +268,31 @@ export default function QuoteFormScreen({ route, navigation }: any) {
         </View>
       </SafeAreaView>
 
+      {/* ── Progreso ─────────────────────────────────────────────────────────── */}
+      {(() => {
+        const sections = [
+          !!eventType,
+          !!(address.trim() && addressConfirmed),
+          !!eventDate,
+          !!eventTime,
+          !!duration,
+          !!(numPersonas && parseInt(numPersonas, 10) > 0),
+          !!venueCovered,
+          !!venueSize,
+          !!needsSound,
+        ];
+        const completed = sections.filter(Boolean).length;
+        const total = sections.length;
+        return (
+          <View style={s.progressWrap}>
+            <View style={s.progressTrack}>
+              <View style={[s.progressFill, { width: `${Math.round((completed / total) * 100)}%` as any }]} />
+            </View>
+            <Text style={s.progressLabel}>{completed} de {total} completadas</Text>
+          </View>
+        );
+      })()}
+
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -623,13 +648,19 @@ const s = StyleSheet.create({
   chipText:       { fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.muted2 },
   chipTextActive: { color: COLORS.green },
 
+  // ── Progreso ──────────────────────────────────────────────────────────────
+  progressWrap:  { paddingHorizontal: SPACING.xl, paddingTop: 10, paddingBottom: 6 },
+  progressTrack: { width: '100%', height: 4, backgroundColor: COLORS.border, borderRadius: 2, marginBottom: 6 },
+  progressFill:  { height: 4, backgroundColor: COLORS.green, borderRadius: 2 },
+  progressLabel: { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2, textAlign: 'right' },
+
   // ── Submit ────────────────────────────────────────────────────────────────
   submitBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10,
     backgroundColor: COLORS.green, borderRadius: RADIUS.lg,
     paddingVertical: 16, marginTop: 28,
   },
-  submitBtnDisabled: { backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border },
+  submitBtnDisabled: { opacity: 0.4 },
   submitBtnText:     { fontFamily: FONTS.bodySemiBold, fontSize: 15, color: COLORS.bg },
 
   // ── Calendar modal ────────────────────────────────────────────────────────

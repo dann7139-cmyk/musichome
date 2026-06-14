@@ -711,7 +711,7 @@ const s = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
     backgroundColor: COLORS.green, borderRadius: RADIUS.lg, paddingVertical: 14, marginTop: 24,
   },
-  nextBtnDisabled: { backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border },
+  nextBtnDisabled: { opacity: 0.4 },
   nextBtnText: { fontFamily: FONTS.bodySemiBold, fontSize: 15, color: COLORS.bg },
 
   // Submit
@@ -719,7 +719,7 @@ const s = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10,
     backgroundColor: COLORS.green, borderRadius: RADIUS.lg, paddingVertical: 16, marginTop: 24,
   },
-  submitBtnDisabled: { opacity: 0.45 },
+  submitBtnDisabled: { opacity: 0.4 },
   submitBtnText: { fontFamily: FONTS.bodySemiBold, fontSize: 16, color: COLORS.bg },
   submitHint: {
     fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted,

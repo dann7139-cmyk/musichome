@@ -260,8 +260,7 @@ export default function ProposeRequestScreen({ route, navigation }: any) {
         <Pressable style={s.backBtn} onPress={() => navigation.goBack()}>
           <ArrowLeft size={20} color={COLORS.text} />
         </Pressable>
-        <Text style={s.headerTitle}>Tu cotización</Text>
-        <View style={{ width: 40 }} />
+        <Text style={[s.headerTitle, { flex: 1 }]}>Tu cotización</Text>
       </SafeAreaView>
 
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -623,7 +622,7 @@ const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: COLORS.bg },
 
   header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    flexDirection: 'row', alignItems: 'center', gap: 14,
     paddingHorizontal: SPACING.xl, paddingVertical: 12,
     borderBottomWidth: 1, borderBottomColor: COLORS.border,
   },
@@ -632,7 +631,7 @@ const s = StyleSheet.create({
     backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border,
     alignItems: 'center', justifyContent: 'center',
   },
-  headerTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 17, color: COLORS.text },
+  headerTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 16, color: COLORS.text },
 
   scroll: { padding: SPACING.xl },
 
@@ -764,7 +763,7 @@ const s = StyleSheet.create({
     paddingVertical: 17, borderRadius: RADIUS.lg,
     backgroundColor: COLORS.green, marginTop: 8,
   },
-  sendBtnDisabled: { backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border },
+  sendBtnDisabled: { opacity: 0.4 },
   sendBtnText:     { fontFamily: FONTS.bodySemiBold, fontSize: 15, color: COLORS.bg },
 
   surgeRow: {

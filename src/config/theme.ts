@@ -89,6 +89,13 @@ export const FONTS = {
   bodySemiBold: 'DMSans_600SemiBold',
 };
 
+// ─── Estándares de header por tipo de pantalla ────────────────────────────────
+// LISTA     → FONTS.title 20px centrado          (ReservationsScreen)
+// FORMULARIO → FONTS.bodySemiBold 16px izquierda (QuoteFormScreen, QuoteDetailScreen, ProposeRequestScreen, ClientQuoteDetailScreen, EventTimerScreen)
+// WIZARD    → FONTS.title 18px centrado          (GuidedRequestScreen, OpenRequestScreen)
+// DETALLE   → FONTS.bodySemiBold 16px izquierda  (ClientQuoteDetailScreen)
+// ─────────────────────────────────────────────────────────────────────────────
+
 export const RADIUS = {
   sm: 8,
   md: 10,

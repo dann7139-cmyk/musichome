@@ -408,7 +408,7 @@ const styles = StyleSheet.create({
   card: {
     flexDirection: 'row', alignItems: 'center', gap: 14,
     backgroundColor: COLORS.card, borderRadius: 20,
-    borderWidth: 1, borderColor: '#1c1c1c',
+    borderWidth: 1, borderColor: COLORS.border,
     padding: 14,
   },
   cardPast: { opacity: 0.5 },
@@ -427,7 +427,7 @@ const styles = StyleSheet.create({
   metaRow: { flexDirection: 'row', gap: 6, flexWrap: 'wrap', marginTop: 2 },
   metaItem: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
-    backgroundColor: '#151515', borderRadius: 8,
+    backgroundColor: COLORS.card2, borderRadius: RADIUS.sm,
     paddingHorizontal: 7, paddingVertical: 4,
   },
   metaText: { fontFamily: FONTS.bodyMedium, fontSize: 11, color: COLORS.muted2 },
