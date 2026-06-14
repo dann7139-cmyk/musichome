@@ -6,6 +6,7 @@ import {
   Alert,
   Animated,
   Image,
+  useWindowDimensions,
   Linking,
   Modal,
   Pressable,
@@ -370,6 +371,9 @@ const cel = StyleSheet.create({
 
 export default function EventTimerScreen({ route, navigation }: any) {
   const { reservation, readOnly = false, userRole } = route.params;
+  const { width: screenWidth } = useWindowDimensions();
+  // Ring responsivo: máx 320px, mínimo 20px de padding lateral
+  const RING_SIZE = Math.min(screenWidth * 0.80, 320);
   // client = readOnly + userRole 'client'; talent = readOnly + userRole 'talent'; group owner = !readOnly
   const canSeeDetails = !readOnly || userRole === 'talent';
 
@@ -1331,8 +1335,8 @@ export default function EventTimerScreen({ route, navigation }: any) {
             })()}
 
             {/* SVG ring + digits overlay */}
-            <View style={st.timerSvgWrap}>
-              <Svg width={320} height={320} viewBox="0 0 320 320">
+            <View style={[st.timerSvgWrap, { width: RING_SIZE, height: RING_SIZE }]}>
+              <Svg width={RING_SIZE} height={RING_SIZE} viewBox="0 0 320 320">
                 {/* Dark fill inside ring for contrast */}
                 <Circle cx="160" cy="160" r={RING_R - RING_SW / 2} fill="rgba(4,4,4,0.85)" />
                 {/* Track ring */}
@@ -2322,7 +2326,7 @@ const st = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   headerTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 16, color: COLORS.text },
-  scroll: { paddingHorizontal: 16, paddingVertical: 20, alignItems: 'center' },
+  scroll: { paddingHorizontal: 20, paddingVertical: 20, alignItems: 'center' },
 
   // ── Timer SVG Arc ──────────────────────────────────────────
   timerSection: { alignItems: 'center', marginBottom: 24, width: '100%' },
