@@ -162,7 +162,7 @@ BEGIN
   -- ── A. Expirar 'open' por inactividad — ventana adaptativa ───────────────────
   -- Solo aplica a eventos con > 2h restantes (D ya manejó los < 2h).
   FOR v_req IN
-    SELECT er.id, er.group_id, er.client_id,
+    SELECT er.id, er.client_id,
            er.event_date, er.event_time, er.negotiating_group_id
     FROM   public.event_requests er
     WHERE  er.status = 'open'
@@ -196,22 +196,6 @@ BEGIN
           'screen',           'Home'
         )
       );
-    END IF;
-
-    IF v_req.group_id IS NOT NULL THEN
-      INSERT INTO public.notifications (user_id, type, title, body, data)
-      SELECT
-        g.owner_id,
-        'booking',
-        '⏳ Solicitud expirada automáticamente',
-        'Una solicitud sin actividad fue expirada.',
-        jsonb_build_object(
-          'event_request_id', v_req.id,
-          'event_date',       v_req.event_date,
-          'screen',           'Reservations'
-        )
-      FROM public.groups g
-      WHERE g.id = v_req.group_id;
     END IF;
 
     v_expired_count := v_expired_count + 1;
