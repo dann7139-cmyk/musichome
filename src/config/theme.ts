@@ -21,6 +21,7 @@ export const COLORS = {
   blue: '#4285F4',
   red: '#EF5350',
   orange: '#FF9800',
+  purple: '#9C27B0',
 
   // Utilidades
   white: '#FFFFFF',

@@ -320,7 +320,7 @@ export default function ClientQuoteDetailScreen({ route, navigation }: any) {
         )}
 
         {/* Precio total */}
-        <View style={s.priceCard}>
+        <View style={[s.priceCard, { borderColor: isAccepted ? COLORS.green : isCancelled ? COLORS.red : COLORS.border }]}>
           <Text style={s.priceLabel}>Total cotizado</Text>
           <Text style={s.priceValue}>${total.toLocaleString()} MXN</Text>
           {quote.travel_cost > 0 && (
@@ -473,7 +473,7 @@ const s = StyleSheet.create({
 
   priceCard: {
     backgroundColor: COLORS.card, borderRadius: RADIUS.xl,
-    borderWidth: 1, borderColor: COLORS.green,
+    borderWidth: 1,
     padding: SPACING.xl, alignItems: 'center', marginBottom: 20,
   },
   priceLabel: { fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.muted2, marginBottom: 8 },

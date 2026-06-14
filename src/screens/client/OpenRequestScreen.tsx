@@ -970,7 +970,7 @@ const s = StyleSheet.create({
   tabBtnActive: { borderBottomColor: COLORS.green },
   tabBtnText:   { fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.muted2 },
   tabBtnTextActive: { color: COLORS.green, fontFamily: FONTS.bodySemiBold },
-  tabBadge:     { color: '#FF5252', fontFamily: FONTS.bodySemiBold },
+  tabBadge:     { color: COLORS.red, fontFamily: FONTS.bodySemiBold },
 
   // ── Mis solicitudes ───────────────────────────────────────────────────────
   emptyMine: { alignItems: 'center', paddingVertical: 60, paddingHorizontal: 20 },

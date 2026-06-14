@@ -1331,7 +1331,7 @@ export default function EventTimerScreen({ route, navigation }: any) {
                 : 'rgba(0,230,118,0.35)',
           }]}>
             <Text style={[st.rolePillText, {
-              color: userRole === 'client' ? '#4285F4' : userRole === 'talent' ? '#9C27B0' : COLORS.green,
+              color: userRole === 'client' ? '#4285F4' : userRole === 'talent' ? COLORS.purple : COLORS.green,
             }]}>
               {userRole === 'client' ? '👁️ Vista' : userRole === 'talent' ? '🎼 Músico' : '🎵 Grupo'}
             </Text>
@@ -2581,7 +2581,7 @@ const st = StyleSheet.create({
     borderRadius: RADIUS.lg, borderWidth: 1, borderColor: 'rgba(156,39,176,0.3)',
     padding: 14, marginTop: 8,
   },
-  readOnlyText: { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: '#9C27B0', marginBottom: 2 },
+  readOnlyText: { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: COLORS.purple, marginBottom: 2 },
   readOnlyHint: { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2, lineHeight: 18 },
   earningCard: {
     width: '100%', backgroundColor: COLORS.greenMuted, borderRadius: RADIUS.lg,

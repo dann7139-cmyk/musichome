@@ -589,7 +589,7 @@ const s = StyleSheet.create({
     marginBottom: 10,
   },
   inputMulti: { minHeight: 100, paddingTop: 13 },
-  charCount:  { fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted, textAlign: 'right', marginTop: -6, marginBottom: 10 },
+  charCount:  { fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted, textAlign: 'right', marginTop: 2, marginBottom: 10 },
   row2:       { flexDirection: 'row', gap: 10 },
 
   // ── Map confirm ───────────────────────────────────────────────────────────
@@ -713,6 +713,6 @@ const s = StyleSheet.create({
   useMapBtn:     { alignSelf: 'flex-start', paddingVertical: 6, marginTop: 4, marginBottom: 4 },
   useMapBtnText: { fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.green },
 
-  warnBox:  { backgroundColor: 'rgba(239,83,80,0.10)', borderRadius: 8, padding: 10, marginTop: 6, borderWidth: 1, borderColor: 'rgba(239,83,80,0.3)' },
+  warnBox:  { backgroundColor: 'rgba(239,83,80,0.10)', borderRadius: RADIUS.sm, padding: 10, marginTop: 6, borderWidth: 1, borderColor: 'rgba(239,83,80,0.3)' },
   warnText: { fontFamily: FONTS.body, fontSize: 12, color: '#EF5350', lineHeight: 17 },
 });
