@@ -327,7 +327,7 @@ const cel = StyleSheet.create({
   },
   particle: { position: 'absolute', fontSize: 26 },
   content: { alignItems: 'center', paddingHorizontal: 32 },
-  bigEmoji: { fontSize: 80, marginBottom: 12 },
+  bigEmoji: { fontSize: 64, marginBottom: 12 },
   title: {
     fontFamily: FONTS.title, fontSize: 34, color: COLORS.text,
     textAlign: 'center', marginBottom: 12,
@@ -353,7 +353,7 @@ const cel = StyleSheet.create({
     padding: 18, alignItems: 'center', marginBottom: 16,
   },
   myPayoutLabel: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.green, marginBottom: 4 },
-  myPayoutAmount: { fontFamily: FONTS.title, fontSize: 38, color: COLORS.green },
+  myPayoutAmount: { fontFamily: FONTS.title, fontSize: 42, color: COLORS.green },
   myPayoutSub: { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2, marginTop: 2 },
   clientNoticeBox: {
     width: '100%', backgroundColor: 'rgba(66,133,244,0.10)',
