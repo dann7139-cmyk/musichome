@@ -43,7 +43,9 @@ interface Notification {
         // Admin / pagos / KYC
         'payout' | 'wallet' | 'fraud_alert' |
         // Cotización enviada a integrantes del grupo (dueño mandó precio al cliente)
-        'quote_sent_to_client';
+        'quote_sent_to_client' |
+        // Proximidad al evento
+        'request_expired_proximity' | 'quote_expired_proximity';
   title: string;
   message?: string;
   body?: string;
@@ -77,6 +79,9 @@ const TYPE_ICONS: Record<string, string> = {
   quote_cancelled:   '❌',
   chat:              '💬',
   booking:           '⚡',
+  // Proximidad al evento
+  request_expired_proximity: '⏱',
+  quote_expired_proximity:   '⏱',
   // Marketing
   ad_space_available: '🔥',
   high_demand:        '⚡',
@@ -438,6 +443,21 @@ export default function NotificationsScreen({ navigation }: any) {
       case 'fraud_alert':
         if (role === 'admin') {
           navigation.navigate('AdminDisputes');
+        }
+        break;
+
+      // ── Proximidad al evento ────────────────────────────────────────────────
+      case 'request_expired_proximity':
+        // Al cliente: lleva al flujo Express (Solicitar grupo ahora)
+        if (role === 'client') {
+          navigation.navigate('OpenRequest' as any);
+        }
+        break;
+
+      case 'quote_expired_proximity':
+        // Al grupo: lleva a sus reservas
+        if (role === 'group') {
+          navigation.navigate('GroupReservations');
         }
         break;
 
