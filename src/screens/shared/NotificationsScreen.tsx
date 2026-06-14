@@ -33,7 +33,7 @@ interface Notification {
         'new_city_groups' | 'group_nearby' |
         // Otros
         'financial' | 'admin_alert' | 'dispute_opened' | 'dispute_received' |
-        'event_started' | 'overtime_requested' | 'booking_cancelled' |
+        'event_started' | 'booking_cancelled' |
         // Competencia de bids
         'bid_displaced' | 'bid_expiring_soon' | 'bid_expiry_reminder' |
         // Anuncios
@@ -45,7 +45,9 @@ interface Notification {
         // Cotización enviada a integrantes del grupo (dueño mandó precio al cliente)
         'quote_sent_to_client' |
         // Proximidad al evento
-        'request_expired_proximity' | 'quote_expired_proximity';
+        'request_expired_proximity' | 'quote_expired_proximity' |
+        // Horas extra
+        'extra_hour_proposed' | 'extra_hour_approved_by_client' | 'extra_hour_payment_confirmed';
   title: string;
   message?: string;
   body?: string;
@@ -108,8 +110,11 @@ const TYPE_ICONS: Record<string, string> = {
   dispute_opened:     '⚖️',
   dispute_received:   '⚖️',
   event_started:      '🎤',
-  overtime_requested: '⏱️',
   booking_cancelled:  '❌',
+  // Horas extra
+  extra_hour_proposed:           '⏰',
+  extra_hour_approved_by_client: '✅',
+  extra_hour_payment_confirmed:  '💳',
 };
 
 export default function NotificationsScreen({ navigation }: any) {
@@ -421,7 +426,6 @@ export default function NotificationsScreen({ navigation }: any) {
         break;
 
       case 'event_started':
-      case 'overtime_requested':
         await goToReservation(role === 'group');
         break;
 
@@ -458,6 +462,34 @@ export default function NotificationsScreen({ navigation }: any) {
         // Al grupo: lleva a sus reservas
         if (role === 'group') {
           navigation.navigate('GroupReservations');
+        }
+        break;
+
+      // ── Horas extra ──────────────────────────────────────────────────────────
+      case 'extra_hour_proposed':
+        // Al cliente: lleva a la pantalla de aprobación de hora extra
+        if (role === 'client') {
+          navigation.navigate('ClientExtraHours' as any, {
+            reservation_id: notif.data?.reservation_id,
+          });
+        }
+        break;
+
+      case 'extra_hour_approved_by_client':
+        // Al grupo: lleva al EventTimer para confirmar continuación
+        if (role === 'group') {
+          navigation.navigate('EventTimer' as any, {
+            reservation_id: notif.data?.reservation_id,
+          });
+        }
+        break;
+
+      case 'extra_hour_payment_confirmed':
+        // Al cliente: lleva a ClientExtraHours para ver detalle del cobro
+        if (role === 'client') {
+          navigation.navigate('ClientExtraHours' as any, {
+            reservation_id: notif.data?.reservation_id,
+          });
         }
         break;
 
