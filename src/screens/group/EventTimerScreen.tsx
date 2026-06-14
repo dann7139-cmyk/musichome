@@ -415,6 +415,7 @@ export default function EventTimerScreen({ route, navigation }: any) {
   const [arrivedAt, setArrivedAt] = useState<string | null>(reservation.group_arrived_at ?? null);
   const [eventLatLng, setEventLatLng] = useState<{ lat: number; lng: number } | null>(null);
   const [showBreakModal, setShowBreakModal] = useState(false);
+  const [showEndModal, setShowEndModal] = useState(false);
   const [ratingQueue, setRatingQueue]       = useState<RatingSubject[]>([]);
   const [currentRating, setCurrentRating]   = useState<RatingSubject | null>(null);
   const [payoutInfo, setPayoutInfo] = useState<{
@@ -1667,12 +1668,13 @@ export default function EventTimerScreen({ route, navigation }: any) {
             </>
           ) : (
             <View style={st.actions}>
-              {!isRunning && !startedAt && (
+              {/* (a) Pre-llegada, pre-inicio */}
+              {!isRunning && !startedAt && !hasArrived && (
                 <>
-                  {!hasArrived && <Button label="📍 Llegué al evento" onPress={handleArrive} variant="outline" size="lg" />}
-                  {!hasArrived && <View style={{ height: 10 }} />}
+                  <Button label="📍 Llegué al evento" onPress={handleArrive} size="lg" />
+                  <View style={{ height: 10 }} />
                   {eventDateTime && !canStartNow && (
-                    <Text style={{ fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2, textAlign: 'center', marginBottom: 8 }}>
+                    <Text style={st.autoStartHint}>
                       {'⏳ Auto-inicio a las ' + (() => {
                         const g = new Date(eventDateTime.getTime() + 10 * 60 * 1000);
                         return g.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
@@ -1680,7 +1682,28 @@ export default function EventTimerScreen({ route, navigation }: any) {
                     </Text>
                   )}
                   <Button
-                    label={canStartNow ? '▶️ Iniciar evento' : '▶️ Iniciar (aún no es la hora)'}
+                    label="▶ Iniciar evento"
+                    onPress={handleStartPress}
+                    loading={loading}
+                    size="lg"
+                    variant="outline"
+                    disabled={!canStartNow}
+                  />
+                </>
+              )}
+              {/* (b) Post-llegada, pre-inicio */}
+              {!isRunning && !startedAt && hasArrived && (
+                <>
+                  {eventDateTime && !canStartNow && (
+                    <Text style={st.autoStartHint}>
+                      {'⏳ Auto-inicio a las ' + (() => {
+                        const g = new Date(eventDateTime.getTime() + 10 * 60 * 1000);
+                        return g.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
+                      })() + ' si no inicias antes'}
+                    </Text>
+                  )}
+                  <Button
+                    label="▶ Iniciar evento"
                     onPress={handleStartPress}
                     loading={loading}
                     size="lg"
@@ -1688,13 +1711,20 @@ export default function EventTimerScreen({ route, navigation }: any) {
                   />
                 </>
               )}
-              {isRunning && !hasArrived && (
+              {/* (c/d) EN VIVO o EN DESCANSO */}
+              {isRunning && (
                 <>
-                  <Button label="📍 Llegué al evento" onPress={handleArrive} variant="outline" size="lg" />
-                  <View style={{ height: 10 }} />
+                  {!hasArrived && (
+                    <>
+                      <Button label="📍 Llegué al evento" onPress={handleArrive} variant="outline" size="lg" />
+                      <View style={{ height: 10 }} />
+                    </>
+                  )}
+                  <Pressable style={st.endEventLink} onPress={() => setShowEndModal(true)}>
+                    <Text style={st.endEventLinkText}>Finalizar evento ↗</Text>
+                  </Pressable>
                 </>
               )}
-              {/* El evento finaliza automáticamente cuando se agota el tiempo */}
             </View>
           )}
 
@@ -2212,6 +2242,32 @@ export default function EventTimerScreen({ route, navigation }: any) {
             >
               <Text style={st.cancelBreakBtnText}>Omitir</Text>
             </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── FINALIZAR EVENTO — confirmación destructiva ────────── */}
+      <Modal visible={showEndModal} transparent animationType="fade">
+        <View style={st.endConfirmOverlay}>
+          <View style={st.endConfirmCard}>
+            <Text style={st.endConfirmTitle}>¿Terminar el evento ahora?</Text>
+            <Text style={st.endConfirmBody}>
+              El tiempo restante NO se descontará de tu ganancia.
+            </Text>
+            <View style={st.endConfirmRow}>
+              <Pressable
+                style={[st.endConfirmBtn, st.endConfirmCancel]}
+                onPress={() => setShowEndModal(false)}
+              >
+                <Text style={st.endConfirmCancelText}>Cancelar</Text>
+              </Pressable>
+              <Pressable
+                style={[st.endConfirmBtn, st.endConfirmOk]}
+                onPress={() => { setShowEndModal(false); finishEvent(); }}
+              >
+                <Text style={st.endConfirmOkText}>Sí, finalizar</Text>
+              </Pressable>
+            </View>
           </View>
         </View>
       </Modal>
@@ -2946,4 +3002,54 @@ const st = StyleSheet.create({
   exactMapWrap:  { marginTop: 12, borderRadius: RADIUS.lg, overflow: 'hidden' },
   exactMapLabel: { fontFamily: FONTS.bodyMedium, fontSize: 12, color: COLORS.muted2, marginBottom: 6 },
   exactMap:      { width: '100%', height: 180, borderRadius: RADIUS.lg },
+
+  // ── Actions (Commit 4) ────────────────────────────────────
+  autoStartHint: {
+    fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2,
+    textAlign: 'center', marginBottom: 8,
+  },
+  endEventLink: {
+    alignSelf: 'center', paddingVertical: 10, paddingHorizontal: 16, marginTop: 4,
+  },
+  endEventLinkText: {
+    fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.muted,
+  },
+
+  // ── End-event confirmation modal ─────────────────────────
+  endConfirmOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.72)',
+    alignItems: 'center', justifyContent: 'center', padding: 24,
+  },
+  endConfirmCard: {
+    width: '100%', backgroundColor: COLORS.card,
+    borderRadius: RADIUS.xl, borderWidth: 1, borderColor: COLORS.border,
+    padding: 24,
+  },
+  endConfirmTitle: {
+    fontFamily: FONTS.title, fontSize: 20, color: COLORS.text,
+    marginBottom: 10,
+  },
+  endConfirmBody: {
+    fontFamily: FONTS.body, fontSize: 14, color: COLORS.muted2,
+    lineHeight: 20, marginBottom: 24,
+  },
+  endConfirmRow: {
+    flexDirection: 'row', gap: 12,
+  },
+  endConfirmBtn: {
+    flex: 1, paddingVertical: 14,
+    borderRadius: RADIUS.lg, alignItems: 'center', justifyContent: 'center',
+  },
+  endConfirmCancel: {
+    backgroundColor: COLORS.card2, borderWidth: 1, borderColor: COLORS.border,
+  },
+  endConfirmCancelText: {
+    fontFamily: FONTS.bodyMedium, fontSize: 14, color: COLORS.muted2,
+  },
+  endConfirmOk: {
+    backgroundColor: '#B71C1C',
+  },
+  endConfirmOkText: {
+    fontFamily: FONTS.bodySemiBold, fontSize: 14, color: '#fff',
+  },
 });
