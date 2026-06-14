@@ -179,9 +179,10 @@ export default function ProposeRequestScreen({ route, navigation }: any) {
             if (error || !data?.ok) {
               const code = data?.error ?? error?.message ?? '';
               const msg =
-                code === 'not_available'   ? 'Otro grupo ya entró en negociación con este cliente.' :
-                code === 'request_expired' ? 'Esta solicitud ya expiró.' :
-                code === 'genre_mismatch'  ? 'El género no coincide con tu grupo.' :
+                code === 'not_available'      ? 'Otro grupo ya entró en negociación con este cliente.' :
+                code === 'request_expired'   ? 'Esta solicitud ya expiró.' :
+                code === 'genre_mismatch'    ? 'El género no coincide con tu grupo.' :
+                code === 'too_close_to_event'? 'Esta solicitud es muy próxima al evento. Ya no es posible cotizar (necesita al menos 2 horas de margen).' :
                 `Error: ${code || 'No se pudo enviar. Inténtalo de nuevo.'}`;
               Alert.alert('No disponible', msg);
             } else {

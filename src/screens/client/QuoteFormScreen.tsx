@@ -2,7 +2,7 @@
  * QuoteFormScreen — Cliente solicita cotización personalizada a un grupo.
  * Mínimo 3 horas. El break lo elige el grupo al iniciar, no el cliente.
  */
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -123,6 +123,26 @@ export default function QuoteFormScreen({ route, navigation }: any) {
   const [timePickerOpen, setTimePickerOpen] = useState(false);
   const [mapPickerOpen, setMapPickerOpen] = useState(false);
   const [showManualAddress, setShowManualAddress] = useState(false);
+  const [bypassProximityBlock, setBypassProximityBlock] = useState(false);
+
+  // Reset bypass when the user changes date or time
+  useEffect(() => { setBypassProximityBlock(false); }, [eventDate, eventTime]);
+
+  // Horas restantes al evento (null si falta fecha u hora)
+  const hoursUntilEvent = useMemo(() => {
+    if (!eventDate || !eventTime) return null;
+    const dt = new Date(`${eventDate}T${eventTime}:00`);
+    return (dt.getTime() - Date.now()) / 3_600_000;
+  }, [eventDate, eventTime]);
+
+  // 'past' | 'block' (<6h) | 'warn' (6-24h) | 'ok' (>24h) | null (sin fecha/hora)
+  const proximityLevel = useMemo(() => {
+    if (hoursUntilEvent === null) return null;
+    if (hoursUntilEvent < 0)  return 'past'  as const;
+    if (hoursUntilEvent < 6)  return 'block' as const;
+    if (hoursUntilEvent < 24) return 'warn'  as const;
+    return 'ok' as const;
+  }, [hoursUntilEvent]);
 
   const onConfirmAddress = (result: AddressResult) => {
     setAddress(result.address);
@@ -149,7 +169,9 @@ export default function QuoteFormScreen({ route, navigation }: any) {
     addressConfirmed &&
     !!eventDate && !!eventTime && !!duration &&
     !!numPersonas && parseInt(numPersonas) > 0 &&
-    !!venueCovered && !!venueSize && !!needsSound;
+    !!venueCovered && !!venueSize && !!needsSound &&
+    proximityLevel !== 'past' &&
+    (proximityLevel !== 'block' || bypassProximityBlock);
 
   // ── Enviar ───────────────────────────────────────────────────────────────
   const handleSubmit = async () => {
@@ -402,6 +424,62 @@ export default function QuoteFormScreen({ route, navigation }: any) {
               {eventTime ? formatTime12h(eventTime) : 'Toca para elegir la hora'}
             </Text>
           </Pressable>
+
+          {/* ─── BANNER PROXIMIDAD — se muestra en tiempo real ──── */}
+          {proximityLevel === 'ok' && (
+            <View style={s.proximityOk}>
+              <Text style={s.proximityOkText}>✓ El grupo tiene tiempo para coordinarse</Text>
+            </View>
+          )}
+          {proximityLevel === 'warn' && (
+            <View style={s.proximityWarn}>
+              <Text style={s.proximityWarnText}>
+                ⏱ Evento próximo — el grupo tendrá ventana reducida para responder.
+              </Text>
+            </View>
+          )}
+          {proximityLevel === 'block' && !bypassProximityBlock && (
+            <View style={s.proximityBlock}>
+              <Text style={s.proximityBlockTitle}>🚨 Tu evento es en menos de 6 horas</Text>
+              <Text style={s.proximityBlockBody}>
+                {'Las cotizaciones programadas no son rápidas — el grupo puede tardar en responder y no llegar a tiempo.\n\nPara eventos urgentes usa '}
+                <Text style={{ fontFamily: 'DMSans_600SemiBold' }}>Solicitar grupo ahora</Text>
+                {' — múltiples grupos disponibles te responderán al instante.'}
+              </Text>
+              <Pressable
+                style={s.proximityExpressBtn}
+                onPress={() => navigation.navigate('OpenRequest' as any)}
+              >
+                <Text style={s.proximityExpressBtnText}>Solicitar grupo ahora →</Text>
+              </Pressable>
+              <Pressable
+                style={s.proximityBypassLink}
+                onPress={() => {
+                  Alert.alert(
+                    'Continuar con cotización programada',
+                    'El grupo podría no tener tiempo suficiente para organizarse y llegar al evento. ¿Seguro que quieres enviar la solicitud?',
+                    [
+                      { text: 'Cancelar', style: 'cancel' },
+                      {
+                        text: 'Sí, enviar de todas formas',
+                        style: 'destructive',
+                        onPress: () => setBypassProximityBlock(true),
+                      },
+                    ],
+                  );
+                }}
+              >
+                <Text style={s.proximityBypassLinkText}>Entiendo, continuar de todas formas</Text>
+              </Pressable>
+            </View>
+          )}
+          {proximityLevel === 'past' && (
+            <View style={s.proximityPast}>
+              <Text style={s.proximityPastText}>
+                Este evento ya pasó. Selecciona una fecha y hora futura.
+              </Text>
+            </View>
+          )}
 
           {/* ─── 5. DURACIÓN ─────────────────────────────────────── */}
           <SectionTitle>5. Duración *  <Text style={s.minNote}>(mínimo 3 horas)</Text></SectionTitle>
@@ -715,4 +793,44 @@ const s = StyleSheet.create({
 
   warnBox:  { backgroundColor: 'rgba(239,83,80,0.10)', borderRadius: RADIUS.sm, padding: 10, marginTop: 6, borderWidth: 1, borderColor: 'rgba(239,83,80,0.3)' },
   warnText: { fontFamily: FONTS.body, fontSize: 12, color: '#EF5350', lineHeight: 17 },
+
+  // ── Proximity banners ─────────────────────────────────────────────────────
+  proximityOk: {
+    backgroundColor: 'rgba(0,230,118,0.07)',
+    borderRadius: RADIUS.md, borderWidth: 1, borderColor: 'rgba(0,230,118,0.20)',
+    paddingHorizontal: 14, paddingVertical: 10, marginTop: 4, marginBottom: 8,
+  },
+  proximityOkText: { fontFamily: FONTS.body, fontSize: 12, color: COLORS.green },
+
+  proximityWarn: {
+    backgroundColor: 'rgba(245,158,11,0.10)',
+    borderRadius: RADIUS.md, borderWidth: 1, borderColor: 'rgba(245,158,11,0.30)',
+    paddingHorizontal: 14, paddingVertical: 12, marginTop: 4, marginBottom: 8,
+  },
+  proximityWarnText: { fontFamily: FONTS.body, fontSize: 13, color: '#F59E0B', lineHeight: 18 },
+
+  proximityBlock: {
+    backgroundColor: 'rgba(183,28,28,0.08)',
+    borderRadius: RADIUS.lg, borderWidth: 1, borderColor: 'rgba(183,28,28,0.25)',
+    padding: 18, marginTop: 4, marginBottom: 8, gap: 14,
+  },
+  proximityBlockTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 15, color: '#EF5350' },
+  proximityBlockBody:  { fontFamily: FONTS.body, fontSize: 13, color: COLORS.muted2, lineHeight: 20 },
+  proximityExpressBtn: {
+    backgroundColor: COLORS.green, borderRadius: RADIUS.lg,
+    paddingVertical: 14, alignItems: 'center' as const,
+  },
+  proximityExpressBtnText: { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: COLORS.bg },
+  proximityBypassLink: { alignSelf: 'center' as const, paddingVertical: 6 },
+  proximityBypassLinkText: {
+    fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted,
+    textDecorationLine: 'underline' as const,
+  },
+
+  proximityPast: {
+    backgroundColor: 'rgba(239,83,80,0.10)',
+    borderRadius: RADIUS.md, borderWidth: 1, borderColor: 'rgba(239,83,80,0.30)',
+    paddingHorizontal: 14, paddingVertical: 12, marginTop: 4, marginBottom: 8,
+  },
+  proximityPastText: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: '#EF5350' },
 });
