@@ -1221,6 +1221,22 @@ export default function EventTimerScreen({ route, navigation }: any) {
   const nearEnd    = remaining <= 900 && remaining > 0;
   const isOnBreak  = currentSegment?.type === 'break';
   const isCompleted = !isRunning && !!startedAt && musicElapsed >= totalMusicSecs;
+
+  // Pulso del punto "●" en el banner EN VIVO (solo cuando corre y no está en descanso)
+  useEffect(() => {
+    if (isRunning && !isOnBreak) {
+      const anim = Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, { toValue: 1.5, duration: 900, useNativeDriver: true }),
+          Animated.timing(pulseAnim, { toValue: 1.0, duration: 900, useNativeDriver: true }),
+        ])
+      );
+      anim.start();
+      return () => { anim.stop(); pulseAnim.setValue(1); };
+    } else {
+      pulseAnim.setValue(1);
+    }
+  }, [isRunning, isOnBreak]);
   const time = splitTime(remaining);
   const elapsedTime = splitTime(elapsed);
   const timePercent = totalMusicSecs > 0 ? remaining / totalMusicSecs : 1;
@@ -1277,6 +1293,43 @@ export default function EventTimerScreen({ route, navigation }: any) {
 
           {/* ── TIMER (siempre visible para todos) ──────────── */}
           <View style={st.timerSection}>
+
+            {/* ── STATE BANNER — legible de reojo a 2 metros ─── */}
+            {(() => {
+              if (!startedAt) {
+                const label = !hasArrived ? '⏱  WARMUP' : '⏱  WARMUP · ✓ Llegaste';
+                return (
+                  <View style={st.bannerWarmup}>
+                    <Text style={st.bannerWarmupText}>{label}</Text>
+                  </View>
+                );
+              }
+              if (isOnBreak && currentSegment) {
+                const bSecs = Math.max(0, currentSegment.toMin * 60 - elapsed);
+                const bm = Math.floor(bSecs / 60);
+                const bs = bSecs % 60;
+                return (
+                  <View style={st.bannerBreak}>
+                    <Text style={st.bannerBreakText}>⏸  EN DESCANSO</Text>
+                    <Text style={st.bannerBreakSub}>
+                      Vuelves en {bm}:{String(bs).padStart(2, '0')}
+                    </Text>
+                  </View>
+                );
+              }
+              if (isRunning) {
+                return (
+                  <View style={st.bannerLive}>
+                    <Text style={st.bannerLiveText}>▶  EN VIVO</Text>
+                    <Animated.Text style={[st.bannerDot, { transform: [{ scale: pulseAnim }] }]}>
+                      ●
+                    </Animated.Text>
+                  </View>
+                );
+              }
+              return null;
+            })()}
+
             {/* SVG ring + digits overlay */}
             <View style={st.timerSvgWrap}>
               <Svg width={320} height={320} viewBox="0 0 320 320">
@@ -1304,30 +1357,9 @@ export default function EventTimerScreen({ route, navigation }: any) {
 
               {/* Contenido central */}
               <View style={st.timerCenterOverlay}>
-                {/* Badge de estado */}
-                {isRunning && currentSegment && (
-                  <View style={[st.segBadge, {
-                    backgroundColor: isOnBreak ? 'rgba(255,152,0,0.15)' : 'rgba(0,230,118,0.12)',
-                    borderColor: isOnBreak ? 'rgba(255,152,0,0.4)' : 'rgba(0,230,118,0.35)',
-                  }]}>
-                    {isOnBreak
-                      ? <Coffee size={11} color={COLORS.orange} />
-                      : <Music2 size={11} color={COLORS.green} />}
-                    <Text style={[st.segBadgeText, { color: isOnBreak ? COLORS.orange : COLORS.green }]}>
-                      {isOnBreak ? 'DESCANSO' : 'TOCANDO'}
-                    </Text>
-                  </View>
+                {isOnBreak && (
+                  <Text style={st.pauseLabel}>─ EN PAUSA ─</Text>
                 )}
-                {!startedAt && (
-                  <View style={[st.segBadge, {
-                    backgroundColor: 'rgba(255,179,0,0.1)',
-                    borderColor: 'rgba(255,179,0,0.35)',
-                  }]}>
-                    <Clock size={11} color={COLORS.gold} />
-                    <Text style={[st.segBadgeText, { color: COLORS.gold }]}>PRÓXIMO EVENTO</Text>
-                  </View>
-                )}
-                {isCompleted && <Text style={st.stateLabel}>FINALIZADO</Text>}
 
                 {/* Dígitos grandes */}
                 <View style={st.timeRow}>
@@ -2328,12 +2360,53 @@ const st = StyleSheet.create({
   // Time digits — inside circle
   timeRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
   digitCard: { alignItems: 'center' },
-  timeDigit: { fontFamily: FONTS.title, fontSize: 38, lineHeight: 42 },
+  timeDigit: { fontFamily: FONTS.title, fontSize: 42, lineHeight: 46 },
   timeUnit: {
     fontFamily: FONTS.body, fontSize: 7, color: COLORS.muted,
     letterSpacing: 1.2, marginTop: -2,
   },
-  timeSep: { fontFamily: FONTS.title, fontSize: 26, lineHeight: 42, marginHorizontal: 1, marginBottom: 8 },
+  timeSep: {
+    fontFamily: FONTS.title, fontSize: 16, lineHeight: 46,
+    marginHorizontal: 2, marginBottom: 8, opacity: 0.35,
+  },
+  pauseLabel: {
+    fontFamily: FONTS.body, fontSize: 10, color: COLORS.muted,
+    letterSpacing: 1.5, marginBottom: 6,
+  },
+
+  // ── State banners ───────────────────────────────────────────
+  bannerWarmup: {
+    width: '100%', alignItems: 'center', justifyContent: 'center',
+    backgroundColor: 'rgba(60,72,100,0.18)', borderRadius: RADIUS.lg,
+    borderWidth: 1, borderColor: 'rgba(100,120,160,0.25)',
+    paddingVertical: 14, paddingHorizontal: 20, marginBottom: 16,
+  },
+  bannerWarmupText: {
+    fontFamily: FONTS.bodySemiBold, fontSize: 18, color: COLORS.muted2, letterSpacing: 0.3,
+  },
+  bannerLive: {
+    width: '100%', flexDirection: 'row' as const, alignItems: 'center' as const,
+    justifyContent: 'center' as const, gap: 10,
+    backgroundColor: COLORS.greenMuted, borderRadius: RADIUS.lg,
+    borderWidth: 1, borderColor: 'rgba(0,230,118,0.35)',
+    paddingVertical: 14, paddingHorizontal: 20, marginBottom: 16,
+  },
+  bannerLiveText: {
+    fontFamily: FONTS.bodySemiBold, fontSize: 18, color: COLORS.green, letterSpacing: 0.3,
+  },
+  bannerDot: { fontFamily: FONTS.body, fontSize: 14, color: COLORS.green },
+  bannerBreak: {
+    width: '100%', alignItems: 'center' as const, justifyContent: 'center' as const,
+    backgroundColor: 'rgba(66,133,244,0.10)', borderRadius: RADIUS.lg,
+    borderWidth: 1, borderColor: 'rgba(66,133,244,0.30)',
+    paddingVertical: 14, paddingHorizontal: 20, marginBottom: 16, gap: 4,
+  },
+  bannerBreakText: {
+    fontFamily: FONTS.bodySemiBold, fontSize: 18, color: COLORS.blue, letterSpacing: 0.3,
+  },
+  bannerBreakSub: {
+    fontFamily: FONTS.bodyMedium, fontSize: 15, color: COLORS.blue, opacity: 0.75,
+  },
 
   elapsedLabel: {
     fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted, marginTop: 8, letterSpacing: 0.3,
