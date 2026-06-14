@@ -24,6 +24,7 @@ import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import Button from '../../components/ui/Button';
 import Particles from '../../components/ui/Particles';
 import { formatCurrency, SERVICE_FEE_RATE } from '../../utils/calculations';
+import { formatExtraHourRange, formatProposedAt } from '../../utils/extraHoursFormatter';
 
 // ─── Barra de progreso de saldo ───────────────────────────────────────────────
 
@@ -97,6 +98,15 @@ export default function ClientExtraHoursScreen({ route, navigation }: any) {
   const hoursAdded   = extraHour.hours_added ?? 1;
   const balanceSuff  = clientBalance !== null && clientBalance >= extraTotal;
   const usedBalance  = totalPaid - serviceFee - (clientBalance ?? 0);
+
+  // Contexto temporal
+  const timeRange  = formatExtraHourRange(
+    reservation.event_time,
+    reservation.hours ?? reservation.duration ?? 0,
+    reservation.extra_hours_added ?? 0,
+    hoursAdded,
+  );
+  const proposedAt = formatProposedAt(extraHour.created_at);
 
   // ── Aprobar hora extra ────────────────────────────────────────────────────
 
@@ -280,6 +290,22 @@ export default function ClientExtraHoursScreen({ route, navigation }: any) {
                 </Text>
                 <Text style={styles.requestAmount}>{formatCurrency(extraTotal)}</Text>
               </View>
+
+              {timeRange && (
+                <View style={styles.requestRow}>
+                  <Text style={styles.requestLabel}>Horario</Text>
+                  <Text style={[styles.requestLabel, { color: COLORS.text }]}>
+                    {timeRange.from} → {timeRange.to}
+                  </Text>
+                </View>
+              )}
+
+              {proposedAt && (
+                <View style={styles.requestRow}>
+                  <Text style={styles.requestLabel}>Propuesta</Text>
+                  <Text style={[styles.requestLabel, { color: COLORS.muted }]}>{proposedAt}</Text>
+                </View>
+              )}
 
               {!isCash && (
                 <View style={styles.requestRow}>
