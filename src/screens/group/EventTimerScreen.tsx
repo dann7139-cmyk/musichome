@@ -5,7 +5,6 @@ import Svg, { Circle } from 'react-native-svg';
 import {
   Alert,
   Animated,
-  Easing,
   Image,
   Linking,
   Modal,
@@ -21,7 +20,6 @@ import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import { EARTH_STYLE } from '../../constants/mapStyle';
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
-import Particles from '../../components/ui/Particles';
 import RatingModal, { type RatingSubject } from '../../components/ui/RatingModal';
 import { generateBreakSchedule, isPaid } from '../../utils/calculations';
 
@@ -516,10 +514,7 @@ export default function EventTimerScreen({ route, navigation }: any) {
 
 
   const progressAnim = useRef(new Animated.Value(0)).current;
-  const pulseAnim = useRef(new Animated.Value(1)).current;
-  const glowAnim = useRef(new Animated.Value(0.3)).current;
-  const noteAnims = useRef([0,1,2,3,4,5].map(() => new Animated.Value(0))).current;
-  const sparkAnims = useRef(Array.from({ length: 10 }, () => new Animated.Value(0))).current;
+  const pulseAnim    = useRef(new Animated.Value(1)).current;
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const sentMilestones = useRef<Set<string>>(new Set());
   const warned15MinRef  = useRef(false);
@@ -593,66 +588,7 @@ export default function EventTimerScreen({ route, navigation }: any) {
     return music;
   }, [elapsed, schedule]);
 
-  // ── Animations ─────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (isRunning) {
-      const pulse = Animated.loop(
-        Animated.sequence([
-          Animated.timing(pulseAnim, { toValue: 1.03, duration: 1800, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-          Animated.timing(pulseAnim, { toValue: 1, duration: 1800, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-        ])
-      );
-      const glow = Animated.loop(
-        Animated.sequence([
-          Animated.timing(glowAnim, { toValue: 0.7, duration: 1800, useNativeDriver: true }),
-          Animated.timing(glowAnim, { toValue: 0.3, duration: 1800, useNativeDriver: true }),
-        ])
-      );
-      pulse.start();
-      glow.start();
-      return () => { pulse.stop(); glow.stop(); };
-    } else {
-      pulseAnim.setValue(1);
-      glowAnim.setValue(0.3);
-    }
-  }, [isRunning]);
 
-  // Orbiting musical notes animation (only while running)
-  useEffect(() => {
-    if (!isRunning) {
-      noteAnims.forEach(a => a.setValue(0));
-      return;
-    }
-    const durations = [4200, 5600, 3400, 4900, 6000, 3100];
-    const anims = noteAnims.map((anim, i) =>
-      Animated.loop(Animated.timing(anim, {
-        toValue: 1, duration: durations[i],
-        useNativeDriver: true, easing: Easing.linear,
-      }))
-    );
-    anims.forEach(a => a.start());
-    return () => anims.forEach(a => a.stop());
-  }, [isRunning]);
-
-  // Spark particles around the ring (while running)
-  useEffect(() => {
-    if (!isRunning) {
-      sparkAnims.forEach(a => a.setValue(0));
-      return;
-    }
-    const anims = sparkAnims.map((anim, i) =>
-      Animated.loop(
-        Animated.sequence([
-          Animated.delay(i * 220),
-          Animated.timing(anim, { toValue: 1, duration: 400, useNativeDriver: true, easing: Easing.out(Easing.ease) }),
-          Animated.timing(anim, { toValue: 0, duration: 700, useNativeDriver: true, easing: Easing.in(Easing.quad) }),
-          Animated.delay(800 + i * 60),
-        ])
-      )
-    );
-    anims.forEach(a => a.start());
-    return () => anims.forEach(a => a.stop());
-  }, [isRunning]);
 
   useEffect(() => {
     if (reservation.event_started_at) {
@@ -1304,7 +1240,6 @@ export default function EventTimerScreen({ route, navigation }: any) {
 
   return (
     <View style={st.container}>
-      <Particles />
       <SafeAreaView style={{ flex: 1 }}>
         <View style={st.header}>
           <Pressable style={st.backBtn} onPress={() => navigation.goBack()}>
@@ -1342,17 +1277,8 @@ export default function EventTimerScreen({ route, navigation }: any) {
 
           {/* ── TIMER (siempre visible para todos) ──────────── */}
           <View style={st.timerSection}>
-            {/* Glow halo */}
-            {isRunning && (
-              <Animated.View style={[st.outerGlow, {
-                opacity: glowAnim,
-                borderColor: ringColor,
-                shadowColor: ringColor,
-              }]} />
-            )}
-
             {/* SVG ring + digits overlay */}
-            <Animated.View style={[st.timerSvgWrap, { transform: [{ scale: pulseAnim }] }]}>
+            <View style={st.timerSvgWrap}>
               <Svg width={320} height={320} viewBox="0 0 320 320">
                 {/* Dark fill inside ring for contrast */}
                 <Circle cx="160" cy="160" r={RING_R - RING_SW / 2} fill="rgba(4,4,4,0.85)" />
@@ -1375,55 +1301,6 @@ export default function EventTimerScreen({ route, navigation }: any) {
                   transform="rotate(-90 160 160)"
                 />
               </Svg>
-
-              {/* Orbiting musical notes (solo cuando corre) */}
-              {isRunning && (['♩','♪','♫','♬','♩','♪'] as const).map((note, i) => {
-                const initialDeg = i * 60;
-                const rotate = noteAnims[i].interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [`${initialDeg}deg`, `${initialDeg + 360}deg`],
-                });
-                const noteColor = i % 3 === 0 ? ringColor : i % 3 === 1 ? `${ringColor}99` : `${ringColor}55`;
-                return (
-                  <Animated.View
-                    key={i}
-                    style={[StyleSheet.absoluteFill, { alignItems: 'center', transform: [{ rotate }] }]}
-                  >
-                    <Text style={{ fontSize: 16, color: noteColor, marginTop: 4 }}>
-                      {note}
-                    </Text>
-                  </Animated.View>
-                );
-              })}
-
-              {/* Spark particles around the ring */}
-              {isRunning && sparkAnims.map((anim, i) => {
-                const angle = (i / 10) * 2 * Math.PI - Math.PI / 2 + (i % 2 === 0 ? 0.18 : -0.12);
-                const sparkR = 157;
-                const cx = 160 + sparkR * Math.cos(angle);
-                const cy = 160 + sparkR * Math.sin(angle);
-                const sizes = [4, 3, 5, 3, 6, 3, 5, 4, 3, 5];
-                const sz = sizes[i];
-                const sparkColor = i % 3 === 0 ? '#FFFFFF' : i % 3 === 1 ? ringColor : `${ringColor}BB`;
-                return (
-                  <Animated.View
-                    key={`sp-${i}`}
-                    style={{
-                      position: 'absolute',
-                      left: cx - sz / 2,
-                      top: cy - sz / 2,
-                      width: sz,
-                      height: sz,
-                      borderRadius: sz / 2,
-                      backgroundColor: sparkColor,
-                      opacity: anim,
-                      transform: [{
-                        scale: anim.interpolate({ inputRange: [0, 0.4, 1], outputRange: [0.1, 2.0, 0.2] }),
-                      }],
-                    }}
-                  />
-                );
-              })}
 
               {/* Contenido central */}
               <View style={st.timerCenterOverlay}>
@@ -1483,7 +1360,7 @@ export default function EventTimerScreen({ route, navigation }: any) {
                   <Text style={st.elapsedLabel}>⏰ Inicia en {preEventCountdown}</Text>
                 ) : null}
               </View>
-            </Animated.View>
+            </View>
 
             {/* Barra de progreso */}
             <View style={st.progressBarTrack}>
@@ -2417,12 +2294,6 @@ const st = StyleSheet.create({
 
   // ── Timer SVG Arc ──────────────────────────────────────────
   timerSection: { alignItems: 'center', marginBottom: 24, width: '100%' },
-  outerGlow: {
-    position: 'absolute', top: -10, width: 340, height: 340, borderRadius: 170,
-    borderWidth: 1.5, shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.7, shadowRadius: 40, elevation: 0,
-  },
-
   // Container for SVG + absolute overlay
   timerSvgWrap: {
     width: 320, height: 320,
