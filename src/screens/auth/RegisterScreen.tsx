@@ -217,6 +217,32 @@ export default function RegisterScreen({ navigation, route }: any) {
 
   // ── Pantalla de éxito post-registro ─────────────────────────────────────
   if (registered) {
+    if (role === 'talent') {
+      return (
+        <View style={styles.container}>
+          <Particles />
+          <SafeAreaView style={{ flex: 1, justifyContent: 'center' }}>
+            <View style={styles.successContainer}>
+              <Text style={styles.successEmoji}>🎵</Text>
+              <Text style={styles.successTitle}>¡Bienvenido a Daricefy!</Text>
+              <Text style={styles.successSub}>
+                Tu perfil ya está visible en la bolsa de trabajo. Los grupos
+                podrán invitarte a tocadas o a formar parte de su banda.
+              </Text>
+              <Button
+                label="Entrar a la app →"
+                onPress={() => navigation?.replace?.('Login')}
+                size="lg"
+              />
+              <Text style={styles.successHint}>
+                Recibirás notificaciones cuando un grupo te invite.
+              </Text>
+            </View>
+          </SafeAreaView>
+        </View>
+      );
+    }
+
     return (
       <View style={styles.container}>
         <Particles />
@@ -554,6 +580,7 @@ const styles = StyleSheet.create({
   successEmoji:     { fontSize: 64, marginBottom: 8 },
   successTitle:     { fontFamily: FONTS.title, fontSize: 28, color: COLORS.text, textAlign: 'center' },
   successSub:       { fontFamily: FONTS.body, fontSize: 15, color: COLORS.muted2, textAlign: 'center', lineHeight: 22, marginBottom: 12 },
+  successHint:      { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted, textAlign: 'center', marginTop: 12 },
   skipBtn:          { paddingVertical: 14, paddingHorizontal: 24 },
   skipText:         { fontFamily: FONTS.bodyMedium, fontSize: 14, color: COLORS.muted2 },
 });
