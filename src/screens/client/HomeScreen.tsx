@@ -29,6 +29,7 @@ import { useAuth } from '../../context/AuthContext';
 import { getSafeCity } from '../../utils/cityUtils';
 import { stateToCountry } from '../../utils/locationUtils';
 import { useBackgroundLocation } from '../../hooks/useBackgroundLocation';
+import LocationBanner from '../../components/ui/LocationBanner';
 
 interface Promotion {
   id: string;
@@ -63,7 +64,7 @@ const CATEGORY_ICONS: Record<string, string> = {
 
 export default function HomeScreen({ navigation }: any) {
   const { t } = useTranslation();
-  const { detectedCity, safeState, safeCountry } = useAuth();
+  const { detectedCity, safeState, safeCountry, detectedState: gpsState } = useAuth();
   useBackgroundLocation(); // GPS en vivo — actualiza client_locations en background
   const hour = new Date().getHours();
   const greeting = hour < 12
@@ -78,6 +79,7 @@ export default function HomeScreen({ navigation }: any) {
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [profile, setProfile] = useState<any>(null);
+  const [locationMode, setLocationMode] = useState<'home' | 'here'>('home');
   const [groupHasActiveAds, setGroupHasActiveAds] = useState(false);
   const [nearbyCity, setNearbyCity] = useState<string | null>(null);
   const [locationLoading, setLocationLoading] = useState(false);
@@ -123,6 +125,13 @@ export default function HomeScreen({ navigation }: any) {
     });
     return unsubscribe;
   }, [navigation]);
+
+  // Re-cargar grupos cuando el usuario cambia entre "Aquí" y "Mi casa"
+  const locationModeInitialized = useRef(false);
+  useEffect(() => {
+    if (!locationModeInitialized.current) { locationModeInitialized.current = true; return; }
+    fetchData();
+  }, [locationMode]);
 
   // Registrar impresión cada vez que cambia el anuncio visible (fire-and-forget)
   useEffect(() => {
@@ -215,6 +224,8 @@ export default function HomeScreen({ navigation }: any) {
     let userCity: string | null = null;
     // Estado del usuario: viene del contexto (persiste entre sesiones)
     const detectedState = safeState;
+    // Si el usuario eligió ver grupos "aquí" (viajando), usa el GPS; si no, su estado de perfil.
+    const activeGroupState = locationMode === 'here' && gpsState ? gpsState : safeState;
     const { data: sessionData } = await supabase.auth.getSession();
     if (sessionData.session) {
       const { data: prof } = await supabase
@@ -320,9 +331,10 @@ export default function HomeScreen({ navigation }: any) {
     }
 
     // Grupos patrocinados
-    const { data: sponData } = await supabase.rpc('get_sponsored_group_ids', {
-      p_city: userCity,
-    });
+    const sponParams: Record<string, any> = { p_city: userCity };
+    if (safeState)   sponParams.p_state   = safeState;
+    if (safeCountry) sponParams.p_country = safeCountry.toLowerCase();
+    const { data: sponData } = await supabase.rpc('get_sponsored_group_ids', sponParams);
     const sponSet = new Set<string>((sponData ?? []).map((s: any) => s.group_id));
     setSponsoredGroupIds(sponSet);
 
@@ -330,22 +342,19 @@ export default function HomeScreen({ navigation }: any) {
     // p_city=null + p_state=safeState → todos los grupos del estado + nacionales.
     let rawGroups: any[] = [];
     const groupParams: Record<string, any> = { p_city: null, p_limit: 80 };
-    if (safeState) groupParams.p_state = safeState;
+    if (activeGroupState) groupParams.p_state   = activeGroupState;
+    if (safeCountry)      groupParams.p_country = safeCountry.toLowerCase();
     const { data: stateData } = await supabase.rpc('get_groups_ranked_by_city', groupParams);
     if (stateData && (stateData as any[]).length > 0) {
       rawGroups = stateData as any[];
     } else {
-      // Fallback: sin filtros (grupos nacionales/globales)
-      const { data: allData } = await supabase.rpc('get_groups_ranked_by_city', { p_city: null, p_limit: 80 });
+      // Fallback: sin estado — filtra solo por país
+      const fallbackParams: Record<string, any> = { p_city: null, p_limit: 80 };
+      if (safeCountry) fallbackParams.p_country = safeCountry.toLowerCase();
+      const { data: allData } = await supabase.rpc('get_groups_ranked_by_city', fallbackParams);
       rawGroups = (allData as any[]) ?? [];
     }
-    if (!safeState) {
-      // Sin estado detectado → filtrar por país del usuario
-      const userCountry = safeCountry ?? 'México';
-      rawGroups = rawGroups.filter(g => !g.country || g.country === userCountry);
-    }
-    // Con estado detectado el RPC ya filtró correctamente
-    // (incluye grupos con state=null que son nacionales)
+    // El RPC filtra por estado y país en DB; grupos con state/country=null son nacionales y siempre se incluyen.
     if (rawGroups.length > 0) {
       const scored = rawGroups.map(g => ({
         ...g,
@@ -359,7 +368,8 @@ export default function HomeScreen({ navigation }: any) {
     // get_active_recommendations devuelve: id, name, city, genre, rating,
     // profile_image, is_verified (actualizado en 170_ad_monetization_ordering.sql)
     const recParams: Record<string, any> = { p_city: null, p_limit: 20 };
-    if (safeState) recParams.p_state = safeState;
+    if (activeGroupState) recParams.p_state   = activeGroupState;
+    if (safeCountry)      recParams.p_country = safeCountry.toLowerCase();
     const { data: recTop } = await supabase.rpc('get_active_recommendations', recParams);
     const paid = recTop
       ? recTop.map((r: any) => ({
@@ -788,6 +798,16 @@ export default function HomeScreen({ navigation }: any) {
                 <X size={13} color={COLORS.muted2} />
               </Pressable>
             </View>
+          )}
+
+          {/* BANNER UBICACIÓN — solo si el usuario está viajando fuera de su estado */}
+          {profile?.state && gpsState && profile.state.toLowerCase() !== gpsState.toLowerCase() && (
+            <LocationBanner
+              profileState={profile.state}
+              detectedState={gpsState}
+              onUseHere={() => setLocationMode('here')}
+              onUseHome={() => setLocationMode('home')}
+            />
           )}
 
           {/* DEMANDA CIUDAD — aparece 5 s y se desvanece */}

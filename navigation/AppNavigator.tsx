@@ -27,7 +27,8 @@ import Particles from '../src/components/ui/Particles';
 // Auth
 import IntroScreen    from '../src/screens/auth/IntroScreen';
 import LoginScreen    from '../src/screens/auth/LoginScreen';
-import RegisterScreen from '../src/screens/auth/RegisterScreen';
+import RegisterScreen         from '../src/screens/auth/RegisterScreen';
+import LocationRequestScreen from '../src/screens/auth/LocationRequestScreen';
 
 // Client
 import HomeScreen from '../src/screens/client/HomeScreen';
@@ -697,6 +698,13 @@ export default function AppNavigator() {
         onSignOut={signOut}
       />
     );
+  }
+
+  // ── 4a. Guard de ubicación ────────────────────────────────────────────────
+  // Bloquea el acceso hasta que profiles.state Y profiles.country estén llenos.
+  // Admins quedan exentos (pueden operar sin ubicación fija).
+  if (role !== 'admin' && (!profile?.state || !profile?.country)) {
+    return <LocationRequestScreen />;
   }
 
   // ── 4. Enrutado por rol ────────────────────────────────────────────────────

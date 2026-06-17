@@ -294,7 +294,10 @@ export default function ClientReservationsScreen({ navigation, route }: any) {
     );
   };
 
-  const pendingQuotes  = quotes.filter(q => q.status === 'pending' || q.status === 'quoted');
+  const today         = new Date().toISOString().slice(0, 10); // 'YYYY-MM-DD'
+  const pendingQuotes  = quotes.filter(q =>
+    (q.status === 'pending' || q.status === 'quoted') && q.event_date >= today
+  );
   const pendingCount   = pendingQuotes.length + expressRequests.length;
 
   // Badge en el ícono del menú inferior

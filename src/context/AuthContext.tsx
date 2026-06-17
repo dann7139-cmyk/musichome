@@ -285,8 +285,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => subscription.unsubscribe();
   }, [handleSession]);
 
-  // ── GPS — captura estado y país (principales), ciudad (auxiliar) ───────────
-  // Arquitectura: País → Estado. La ciudad es dato secundario para métricas.
+  // ── GPS — detección silenciosa de estado y país (solo lectura) ─────────────
+  // Detecta la ubicación del dispositivo y la guarda SOLO EN MEMORIA como
+  // detectedState/detectedCountry. NUNCA escribe a la DB automáticamente.
+  // La escritura la confirma el usuario vía LocationRequestScreen.
   // Se activa cuando falta state o country en el perfil (cualquier rol excepto admin).
   useEffect(() => {
     const { profile, role } = state;
@@ -324,36 +326,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const stateName   = place?.region ?? null;                      // "Jalisco"
         const countryIso  = place?.isoCountryCode ?? null;              // "MX"
         const countryName = countryIso ? isoToCountryName(countryIso) : null; // "México"
-        const cityName    = place?.city ?? place?.subregion ?? null;    // "Guadalajara" (auxiliar)
-
         if ((!stateName && !countryName) || cancelled) return;
 
-        console.log('[AuthContext] GPS detectó — estado:', stateName,
-          '| país:', countryName, '| ciudad (auxiliar):', cityName);
+        console.log('[AuthContext] GPS detectó — estado:', stateName, '| país:', countryName);
 
-        // 1. Persistir estado + país inmediatamente (filtro principal)
+        // Solo persiste en memoria. La escritura a DB la confirma el usuario vía LocationRequestScreen.
         if (mountedRef.current) {
           patch({ detectedState: stateName, detectedCountry: countryName });
-        }
-        await supabase.rpc('update_my_location', {
-          p_state:   stateName,
-          p_country: countryName,
-        });
-        if (mountedRef.current && state.user?.id) fetchProfile(state.user.id);
-
-        // 2. Intentar guardar ciudad como dato auxiliar (sin bloquear — no es crítico)
-        if (cityName && !cancelled) {
-          const { data: cityData } = await supabase.rpc('get_active_cities');
-          const allCities = (cityData as any[]) ?? [];
-          const match = allCities.find((c: any) =>
-            c.name.toLowerCase() === cityName.toLowerCase() ||
-            c.name.toLowerCase().includes(cityName.toLowerCase()) ||
-            cityName.toLowerCase().includes(c.name.toLowerCase())
-          );
-          if (match && mountedRef.current && !cancelled) {
-            patch({ detectedCity: match.name });
-            supabase.rpc('update_my_location', { p_city: match.name }).then(() => {});
-          }
         }
       } catch (err) {
         console.log('[AuthContext] GPS silencioso falló (normal):', err);

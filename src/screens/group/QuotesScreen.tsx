@@ -63,7 +63,8 @@ export default function GroupQuotesScreen({ navigation }: any) {
       .order('created_at', { ascending: false });
 
     if (activeTab === 'pending') {
-      query = query.in('status', ['pending', 'quoted']);
+      const today = new Date().toISOString().slice(0, 10);
+      query = query.in('status', ['pending', 'quoted']).gte('event_date', today);
     }
 
     const { data } = await query;
