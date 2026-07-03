@@ -15,3 +15,10 @@ export const MSI_FEE_RATES: Record<number, number> = {
   9:  0.09,
   12: 0.12,
 };
+
+/**
+ * Radio (m) para verificar llegada del grupo por GPS en el cliente.
+ * El servidor valida a 250 m (release_half_on_arrival, sql/424) — el
+ * margen de 50 m evita rechazos por deriva GPS urbana.
+ */
+export const ARRIVAL_RADIUS_M = 200;

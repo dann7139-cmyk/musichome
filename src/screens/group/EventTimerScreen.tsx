@@ -30,6 +30,8 @@ import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
 import RatingModal, { type RatingSubject } from '../../components/ui/RatingModal';
 import { generateBreakSchedule, isPaid, parseEventDateMX } from '../../utils/calculations';
+import { haversineKm, formatDist } from '../../utils/mapUtils';
+import { ARRIVAL_RADIUS_M } from '../../utils/constants';
 
 const RING_R    = 145;
 const RING_SW   = 14;
@@ -1374,21 +1376,33 @@ export default function EventTimerScreen({ route, navigation }: any) {
     }
   };
 
-  const _doArriveFlow = async (ts: string) => {
+  const _doArriveFlow = async (lat: number | null, lng: number | null) => {
+    // El RPC marca group_arrived_at atómicamente (candado GPS server-side,
+    // sql/424) y libera el 50%. Sin OK del server, NO se marca llegada.
+    const { data: rel, error: relErr } = await supabase.rpc('release_half_on_arrival', {
+      p_reservation_id: reservation.id,
+      p_lat: lat,
+      p_lng: lng,
+    });
+    if (relErr || !rel?.ok) {
+      const code: string = rel?.error ?? '';
+      if (code === 'too_far') {
+        Alert.alert(
+          '🚩 Aún estás lejos del evento',
+          `Estás a ~${formatDist((rel?.distance_m ?? 0) / 1000)} del lugar. Acércate a menos de ${ARRIVAL_RADIUS_M} m para confirmar tu llegada.`,
+        );
+      } else if (code === 'gps_required') {
+        Alert.alert('📍 Activa tu ubicación', 'Necesitamos verificar que estás en el lugar del evento. Intenta de nuevo.');
+      } else {
+        Alert.alert('No se pudo registrar la llegada', 'Intenta de nuevo en unos segundos.');
+      }
+      return;
+    }
+    if (rel?.amount_released) console.log('[Arrival] 50% liberado:', rel.amount_released);
+
+    const ts = new Date().toISOString();
     setHasArrived(true);
     setArrivedAt(ts);
-
-    // Marcar llegada en DB — impide que mark_abandoned_reservations lo clasifique como no-show
-    await supabase.from('reservations').update({ group_arrived_at: ts }).eq('id', reservation.id);
-
-    // Liberar 50% de las ganancias al llegar
-    supabase.rpc('release_half_on_arrival', { p_reservation_id: reservation.id })
-      .then(({ data, error }) => {
-        if (error) console.warn('[Arrival] Error liberando 50%:', error.message);
-        else if (data?.amount_released) {
-          console.log('[Arrival] 50% liberado:', data.amount_released);
-        }
-      });
 
     // Obtener client_id desde DB si no viene en el objeto
     let clientId: string | null = reservation.client_id ?? null;
@@ -1449,13 +1463,64 @@ export default function EventTimerScreen({ route, navigation }: any) {
     Alert.alert('¡Llegada registrada!', 'Se notificó al cliente que ya llegaste.');
   };
 
-  const handleArrivePress = () => {
+  const handleArrivePress = async () => {
+    // Sin coords del evento (reserva directa): el server libera con
+    // arrival_gps_verified=false y avisa al admin — flujo sin GPS.
+    if (!eventLatLng) {
+      Alert.alert(
+        '¿Ya llegaste al lugar?',
+        'Esto notificará al cliente que ya estás en el evento.',
+        [
+          { text: 'Cancelar', style: 'cancel' },
+          { text: 'Sí, llegué', onPress: () => _doArriveFlow(null, null) },
+        ]
+      );
+      return;
+    }
+
+    // Evento con coords: verificación GPS obligatoria antes de marcar llegada
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert(
+        '📍 Activa tu ubicación',
+        'Para confirmar tu llegada necesitamos verificar que estás en el lugar del evento. Activa el permiso de ubicación e intenta de nuevo.',
+        [
+          { text: 'Abrir Ajustes', onPress: () => Linking.openSettings() },
+          { text: 'Cancelar', style: 'cancel' },
+        ]
+      );
+      return;
+    }
+
+    let pos: Location.LocationObject;
+    try {
+      pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+    } catch {
+      Alert.alert(
+        'No pudimos obtener tu ubicación',
+        'Revisa que el GPS esté activado y vuelve a intentar en unos segundos.',
+      );
+      return;
+    }
+
+    const distM = haversineKm(
+      pos.coords.latitude, pos.coords.longitude,
+      eventLatLng.lat, eventLatLng.lng,
+    ) * 1000;
+    if (distM > ARRIVAL_RADIUS_M) {
+      Alert.alert(
+        '🚩 Aún estás lejos del evento',
+        `Estás a ~${formatDist(distM / 1000)} del lugar. Acércate a menos de ${ARRIVAL_RADIUS_M} m para confirmar tu llegada.`,
+      );
+      return;
+    }
+
     Alert.alert(
       '¿Ya llegaste al lugar?',
       'Esto notificará al cliente que ya estás en el evento.',
       [
         { text: 'Cancelar', style: 'cancel' },
-        { text: 'Sí, llegué', onPress: () => _doArriveFlow(new Date().toISOString()) },
+        { text: 'Sí, llegué', onPress: () => _doArriveFlow(pos.coords.latitude, pos.coords.longitude) },
       ]
     );
   };

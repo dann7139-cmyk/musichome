@@ -259,28 +259,10 @@ export default function GroupConfirmBookingScreen({ route, navigation }: any) {
     );
   };
 
-  const handleArrive = async () => {
-    Alert.alert('Llegué al evento ✅', '¿Confirmas que llegaste al lugar?', [
-      { text: 'Cancelar', style: 'cancel' },
-      {
-        text: 'Confirmar',
-        onPress: async () => {
-          await supabase.from('reservations').update({
-            group_arrived_at: new Date().toISOString(),
-          }).eq('id', reservation.id);
-          if (reservation.client_id) {
-            await supabase.from('notifications').insert([{
-              user_id: reservation.client_id,
-              type: 'reservation',
-              title: '📍 El grupo ha llegado',
-              message: 'El grupo ya llegó al lugar del evento. ¡Todo listo!',
-              reference_id: reservation.id,
-            }]);
-          }
-          Alert.alert('¡Registrado!', 'Se notificó al cliente que llegaste.');
-        },
-      },
-    ]);
+  const handleArrive = () => {
+    // La llegada se registra en el Temporizador con verificación GPS
+    // (release_half_on_arrival, sql/424) — una sola ruta de llegada.
+    navigation.navigate('EventTimer', { reservation });
   };
 
   const handleStartEvent = () => {
