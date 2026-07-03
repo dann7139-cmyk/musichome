@@ -1114,7 +1114,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: -2,
     color: '#fff',
-    lineHeight: 46,
     textShadowColor: 'rgba(0,0,0,1)',
     textShadowOffset: { width: 0, height: 2 },
     textShadowRadius: 18,

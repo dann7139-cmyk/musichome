@@ -1600,19 +1600,6 @@ export default function EventTimerScreen({ route, navigation }: any) {
           body: `¿Cómo estuvo ${reservation.group?.name ?? 'el grupo'}? Deja tu calificación.`,
           data: { reservation_id: reservation.id, target_screen: 'EventTimer' },
         });
-        // Oferta extras solo si no hubo horas extra
-        if (extraHoursAdded === 0) {
-          const pricePerHour = Math.round(
-            (reservation.total_price ?? 0) / Math.max(contractHours, 1)
-          );
-          finishNotifs.push({
-            user_id: reservation.client_id,
-            type: 'extra_hours_offer',
-            title: '🎵 ¿Quieres más música?',
-            body: `El grupo todavía puede quedarse. Agrega horas extra desde $${pricePerHour.toLocaleString()}/hr.`,
-            data: { reservation_id: reservation.id, price_per_hour: pricePerHour },
-          });
-        }
       }
       // BUG F: reservation.group?.owner_id puede ser undefined si la navegación no
       // incluye el join de grupos (ej. GroupEventsScreen). ownerIdRef es un ref
