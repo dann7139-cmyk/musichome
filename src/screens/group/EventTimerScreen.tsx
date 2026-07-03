@@ -671,8 +671,6 @@ export default function EventTimerScreen({ route, navigation }: any) {
   // Trackea qué IDs de extra_hours ya sumamos a extraHoursAdded (evita doble conteo
   // cuando el mismo row recibe múltiples UPDATEs mientras status='accepted').
   const countedExtraIds = useRef<Set<string>>(new Set());
-  const breakEndWarnedSegs = useRef<Set<number>>(new Set());
-  const extraHourStartWarnedSegs = useRef<Set<number>>(new Set());
 
   const selectedBreak = BREAK_OPTIONS.find(o => o.type === breakType);
   const breakMins = selectedBreak ? selectedBreak.breakMinutesFor(contractHours) : 0;
@@ -1011,6 +1009,18 @@ export default function EventTimerScreen({ route, navigation }: any) {
           .eq('status', 'accepted')
           .is('event_id', null);
         (invs ?? []).forEach((i: any) => { if (!ids.includes(i.invited_user_id)) ids.push(i.invited_user_id); });
+        // Talentos invitados y aceptados a ESTE evento (misma regla que sql/421/422)
+        if (reservation.event_id || reservation.event_request_id) {
+          const evQ = supabase
+            .from('job_invitations')
+            .select('invited_user_id')
+            .eq('invitation_type', 'job')
+            .eq('status', 'accepted');
+          if (reservation.event_id) evQ.eq('event_id', reservation.event_id);
+          else evQ.eq('event_request_id', reservation.event_request_id);
+          const { data: evInvs } = await evQ;
+          (evInvs ?? []).forEach((i: any) => { if (!ids.includes(i.invited_user_id)) ids.push(i.invited_user_id); });
+        }
         setGroupMemberIds(ids);
         ownerIdRef.current = ids[0] ?? null;
       });
@@ -1098,60 +1108,11 @@ export default function EventTimerScreen({ route, navigation }: any) {
     }
   }, [elapsed, isRunning]);
 
-  // ── Aviso 3 min antes de que termine un descanso ─────────────────────────
-  useEffect(() => {
-    if (readOnly || !isRunning || !currentSegment) return;
-    if (currentSegment.type !== 'break') return;
-    const elapsedMin = elapsed / 60;
-    const remaining = currentSegment.toMin - elapsedMin;
-    const segIdx = schedule.indexOf(currentSegment);
-    if (remaining <= 3 && remaining > 0 && !breakEndWarnedSegs.current.has(segIdx)) {
-      breakEndWarnedSegs.current.add(segIdx);
-      const notifs: any[] = [];
-      if (reservation.client_id) notifs.push({
-        user_id: reservation.client_id, type: 'reservation',
-        title: '🎵 El descanso está por terminar',
-        body: 'En 3 minutos el grupo vuelve a tocar. ¡Prepárate!',
-        data: { reservation_id: reservation.id },
-      });
-      groupMemberIds.forEach(uid => notifs.push({
-        user_id: uid, type: 'reservation',
-        title: '⏰ Descanso por terminar',
-        body: 'En 3 minutos vuelven a tocar. ¡Afinen y prepárense!',
-        data: { reservation_id: reservation.id },
-      }));
-      if (notifs.length) supabase.from('notifications').insert(notifs);
-    }
-  }, [elapsed, isRunning, currentSegment]);
+  // Avisos de descanso (por empezar / por terminar): server-side desde sql/419
+  // — cron notify-break-transitions cada minuto, espejo event_break_boundaries.
 
-  // ── Aviso cuando inicia un segmento de hora extra ────────────────────────
-  useEffect(() => {
-    if (readOnly || !isRunning || !currentSegment || extraHoursAdded === 0) return;
-    const elapsedMin = elapsed / 60;
-    // Detectar segmentos de música que son hora extra (después del tiempo contratado base)
-    const baseMusicMins = contractHours * 60;
-    if (currentSegment.type === 'music' && currentSegment.fromMin >= baseMusicMins) {
-      const segIdx = schedule.indexOf(currentSegment);
-      if (!extraHourStartWarnedSegs.current.has(segIdx) && elapsedMin >= currentSegment.fromMin && elapsedMin < currentSegment.fromMin + 1) {
-        extraHourStartWarnedSegs.current.add(segIdx);
-        const extraNum = Math.ceil((currentSegment.fromMin - baseMusicMins) / 60) + 1;
-        const notifs: any[] = [];
-        if (reservation.client_id) notifs.push({
-          user_id: reservation.client_id, type: 'reservation',
-          title: `🎵 ¡Tu hora extra ${extraNum > 1 ? extraNum : ''} está iniciando!`,
-          body: 'El grupo está listo para seguir tocando. ¡Disfrútalo!',
-          data: { reservation_id: reservation.id },
-        });
-        groupMemberIds.forEach(uid => notifs.push({
-          user_id: uid, type: 'reservation',
-          title: '🔥 ¡Hora extra, a darlo todo!',
-          body: 'El cliente quiere más música. ¡Están increíbles, sigan así!',
-          data: { reservation_id: reservation.id },
-        }));
-        if (notifs.length) supabase.from('notifications').insert(notifs);
-      }
-    }
-  }, [elapsed, isRunning, currentSegment, extraHoursAdded]);
+  // Inicio de hora extra: server-side desde sql/421 (break_ended numerada
+  // "🔥 ¡La hora extra N inició!") — cron notify-break-transitions.
 
   const fetchPayoutInfo = async () => {
     const { data } = await supabase

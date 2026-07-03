@@ -30,6 +30,7 @@ interface Notification {
         // Recordatorios de evento (crons) + auto-inicio
         'event_reminder_morning' | 'event_reminder_1h' | 'event_reminder_2h' |
         'event_reminder_15m' | 'event_upcoming_24h' | 'event_auto_started' |
+        'break_starting_soon' | 'break_ending_soon' | 'break_started' | 'break_ended' |
         'job_invitation' |
         'new_quote_request' | 'quote_received' | 'quote_accepted' | 'quote_cancelled' | 'chat' |
         'booking' |
@@ -336,6 +337,10 @@ export default function NotificationsScreen({ navigation }: any) {
       case 'event_reminder_2h':
       case 'event_reminder_15m':
       case 'event_auto_started':
+      case 'break_starting_soon':
+      case 'break_started':
+      case 'break_ending_soon':
+      case 'break_ended':
       case 'extra_hour_rejected_by_client': {
         if (reservationId) {
           const { data: resRem } = await supabase
@@ -344,15 +349,12 @@ export default function NotificationsScreen({ navigation }: any) {
             .eq('id', reservationId)
             .maybeSingle();
           if (resRem) {
-            if (role === 'client') {
-              navigation.navigate('LiveEvent' as any, { reservation: resRem });
-            } else {
-              // Owner y talento: EventTimer existe en sus stacks
-              navigation.navigate('EventTimer' as any, {
-                reservation: resRem,
-                ...(role === 'talent' ? { readOnly: true, userRole: 'talent' } : {}),
-              });
-            }
+            // Cliente → mismo destino que el banner del Home: EventTimer readOnly
+            navigation.navigate('EventTimer' as any, {
+              reservation: resRem,
+              ...(role === 'client' ? { readOnly: true, userRole: 'client' } :
+                  role === 'talent' ? { readOnly: true, userRole: 'talent' } : {}),
+            });
             break;
           }
         }
