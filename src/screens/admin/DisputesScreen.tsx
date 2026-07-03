@@ -16,6 +16,7 @@ import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import Badge from '../../components/ui/Badge';
 import Particles from '../../components/ui/Particles';
+import DisputeEvidenceMap from '../../components/admin/DisputeEvidenceMap';
 
 // Fila que devuelve admin_dispute_overview (sql/186)
 interface DisputeRow {
@@ -211,41 +212,48 @@ export default function AdminDisputesScreen({ navigation }: any) {
                     <Badge label={badge.label} variant={badge.variant} />
                   </Pressable>
 
-                  {isOpen && canResolve && (
+                  {isOpen && (
                     <View style={styles.panel}>
-                      <Text style={styles.panelLabel}>Resolución / notas (se envía a ambas partes)</Text>
-                      <TextInput
-                        style={styles.textArea}
-                        placeholder="Describe la resolución..."
-                        placeholderTextColor={COLORS.muted}
-                        value={note}
-                        onChangeText={setNote}
-                        multiline
-                        numberOfLines={3}
-                      />
-                      <View style={styles.panelBtns}>
-                        <Pressable
-                          style={[styles.resolveBtn, styles.btnClient, resolving && { opacity: 0.5 }]}
-                          disabled={resolving}
-                          onPress={() => confirmResolve(d, 'resolved_client')}
-                        >
-                          {resolving
-                            ? <ActivityIndicator size="small" color={COLORS.text} />
-                            : <Text style={styles.btnClientText}>A favor del cliente</Text>}
-                        </Pressable>
-                        <Pressable
-                          style={[styles.resolveBtn, styles.btnGroup, resolving && { opacity: 0.5 }]}
-                          disabled={resolving}
-                          onPress={() => confirmResolve(d, 'resolved_group')}
-                        >
-                          {resolving
-                            ? <ActivityIndicator size="small" color={COLORS.black} />
-                            : <Text style={styles.btnGroupText}>A favor del grupo</Text>}
-                        </Pressable>
-                        <Pressable style={styles.closeBtn} onPress={() => setSelectedId(null)}>
-                          <XCircle size={16} color={COLORS.muted2} />
-                        </Pressable>
-                      </View>
+                      {/* Evidencia GPS — se monta solo al expandir (sql/426) */}
+                      <DisputeEvidenceMap reservationId={d.reservation_id} />
+
+                      {canResolve && (
+                        <>
+                          <Text style={styles.panelLabel}>Resolución / notas (se envía a ambas partes)</Text>
+                          <TextInput
+                            style={styles.textArea}
+                            placeholder="Describe la resolución..."
+                            placeholderTextColor={COLORS.muted}
+                            value={note}
+                            onChangeText={setNote}
+                            multiline
+                            numberOfLines={3}
+                          />
+                          <View style={styles.panelBtns}>
+                            <Pressable
+                              style={[styles.resolveBtn, styles.btnClient, resolving && { opacity: 0.5 }]}
+                              disabled={resolving}
+                              onPress={() => confirmResolve(d, 'resolved_client')}
+                            >
+                              {resolving
+                                ? <ActivityIndicator size="small" color={COLORS.text} />
+                                : <Text style={styles.btnClientText}>A favor del cliente</Text>}
+                            </Pressable>
+                            <Pressable
+                              style={[styles.resolveBtn, styles.btnGroup, resolving && { opacity: 0.5 }]}
+                              disabled={resolving}
+                              onPress={() => confirmResolve(d, 'resolved_group')}
+                            >
+                              {resolving
+                                ? <ActivityIndicator size="small" color={COLORS.black} />
+                                : <Text style={styles.btnGroupText}>A favor del grupo</Text>}
+                            </Pressable>
+                            <Pressable style={styles.closeBtn} onPress={() => setSelectedId(null)}>
+                              <XCircle size={16} color={COLORS.muted2} />
+                            </Pressable>
+                          </View>
+                        </>
+                      )}
                     </View>
                   )}
                 </View>
