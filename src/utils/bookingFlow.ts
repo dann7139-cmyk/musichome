@@ -61,7 +61,7 @@ export async function clientConfirmEventComplete(
 
 /**
  * Fetch all reservations for the current client.
- * Includes group and package details.
+ * Includes group details.
  */
 export async function fetchClientReservations(): Promise<Reservation[]> {
   const { data: { user } } = await supabase.auth.getUser();
@@ -71,8 +71,7 @@ export async function fetchClientReservations(): Promise<Reservation[]> {
     .from('reservations')
     .select(`
       *,
-      group:groups ( id, name, profile_image, city ),
-      package:packages ( id, name, duration_hours, price )
+      group:groups ( id, name, profile_image, city )
     `)
     .eq('client_id', user.id)
     .order('event_date', { ascending: false });
@@ -93,7 +92,6 @@ export async function fetchReservationById(
     .select(`
       *,
       group:groups ( id, name, profile_image, city ),
-      package:packages ( id, name, duration_hours, price ),
       client:profiles ( id, full_name, avatar_url, phone )
     `)
     .eq('id', reservationId)
@@ -147,8 +145,7 @@ export async function fetchPendingGroupBookings(
     .from('reservations')
     .select(`
       *,
-      client:profiles ( id, full_name, avatar_url, phone ),
-      package:packages ( id, name, duration_hours, price )
+      client:profiles ( id, full_name, avatar_url, phone )
     `)
     .eq('group_id', groupId)
     .eq('status', 'pending_group_confirmation')
@@ -169,8 +166,7 @@ export async function fetchGroupReservations(
     .from('reservations')
     .select(`
       *,
-      client:profiles ( id, full_name, avatar_url, phone ),
-      package:packages ( id, name, duration_hours, price )
+      client:profiles ( id, full_name, avatar_url, phone )
     `)
     .eq('group_id', groupId)
     .order('event_date', { ascending: false });

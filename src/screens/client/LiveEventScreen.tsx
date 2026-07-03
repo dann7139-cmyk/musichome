@@ -146,7 +146,6 @@ export default function LiveEventScreen({ route, navigation }: any) {
 
   const contractHours: number =
     reservation.quote?.duration_hours ??
-    reservation.package?.duration_hours ??
     (reservation.hours_count != null ? Number(reservation.hours_count) : null) ??
     3;
 
@@ -355,7 +354,6 @@ export default function LiveEventScreen({ route, navigation }: any) {
           : COLORS.green;
 
   const pricePerHour = pricePerHourState
-    ?? reservation.package?.price_per_hour
     ?? Math.round((reservation.total_price ?? 0) / contractHours);
 
   return (
@@ -567,7 +565,7 @@ export default function LiveEventScreen({ route, navigation }: any) {
             <View style={s.infoRow}>
               <Text style={{ fontSize: 14 }}>🎵</Text>
               <Text style={s.infoText}>
-                {reservation.package?.name ?? 'Evento express'} — {contractHours}h
+                Evento — {contractHours}h
               </Text>
             </View>
           </View>

@@ -137,7 +137,7 @@ export default function GroupStatsScreen({ navigation }: any) {
 
     const [resRes, quotesRes, grpRes, monthRes] = await Promise.all([
       supabase.from('reservations')
-        .select('status, payment_status, payout_status, group_earnings, commission_amount, service_fee_amount, msi_fee_amount, total_price, event_date, event_time, package_id, created_at')
+        .select('status, payment_status, payout_status, group_earnings, commission_amount, service_fee_amount, msi_fee_amount, total_price, event_date, event_time, created_at')
         .eq('group_id', grp.id),
       supabase.from('quotes')
         .select('status, created_at')

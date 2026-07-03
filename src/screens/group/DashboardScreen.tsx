@@ -18,14 +18,16 @@ import {
   X,
   Zap,
 } from 'lucide-react-native';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   Animated,
   AppState,
   Image,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -45,7 +47,9 @@ import { pickAndUploadGroupImage } from '../../utils/uploadGroupImage';
 import { pickAndUploadGroupVideo } from '../../utils/uploadGroupVideo';
 import { normalizeCity } from '../../utils/cityUtils';
 import { stateToCountry } from '../../utils/locationUtils';
+import { validatePublicText } from '../../utils/textValidation';
 import { useAuth } from '../../context/AuthContext';
+import { useExpress } from '../../context/ExpressContext';
 import { useGroupBadges } from '../../context/GroupBadgesContext';
 import { useBackgroundLocation } from '../../hooks/useBackgroundLocation';
 import * as Haptics from 'expo-haptics';
@@ -74,6 +78,18 @@ interface Group {
   referral_code?: string | null;
   badges?: string[] | null;
   recent_completions?: number | null;
+  has_sound?:             boolean | null;
+  sound_capacity_max?:    number | null;
+  has_lighting?:          boolean | null;
+  lighting_level?:        string | null;
+  has_stage?:             boolean | null;
+  stage_sizes_available?: string[] | null;
+  has_led_screen?:        boolean | null;
+  led_sizes_available?:   string[] | null;
+  power_amps?:            number | null;
+  needs_parking?:         boolean | null;
+  setup_minutes?:         number | null;
+  includes_text?:         string | null;
 }
 
 interface FinancialStats {
@@ -83,7 +99,6 @@ interface FinancialStats {
   monthNetEarnings: number;
   pendingCount: number;
   completedCount: number;
-  packagesCount: number;
   cancellationCount: number;
   totalCount: number;
 }
@@ -99,16 +114,37 @@ function fmt(n: number) {
   return n.toLocaleString('es-MX', { minimumFractionDigits: 0 });
 }
 
+// ─── Equipment options (modal Mi Equipo) ──────────────────────────────────────
+const LIGHTING_LEVEL_OPTIONS = [
+  { key: 'simple',  label: 'Sencilla' },
+  { key: 'pro',     label: 'Profesional' },
+  { key: 'premium', label: 'Premium' },
+];
+const STAGE_SIZE_OPTIONS = [
+  { key: 'small',   label: 'Chico 3×2m' },
+  { key: 'medium',  label: 'Mediano 4×3m' },
+  { key: 'wedding', label: 'Grande boda 6×4m' },
+];
+const LED_SIZE_OPTIONS = [
+  { key: 'medium', label: 'Mediana' },
+  { key: 'large',  label: 'Grande' },
+  { key: 'xl',     label: 'XL boda' },
+];
+function toggleItem(arr: string[], item: string): string[] {
+  return arr.includes(item) ? arr.filter(x => x !== item) : [...arr, item];
+}
+
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
 export default function GroupDashboardScreen({ navigation }: any) {
   const { profile: authProfile } = useAuth();
   const { setPendingQuotesCount } = useGroupBadges();
+  const { dispatches: expressDispatches, hasDismissed: expressHasDismissed, reviveAll: expressReviveAll } = useExpress();
   useBackgroundLocation(); // GPS en vivo — actualiza group_locations en background
   const [group, setGroup]               = useState<Group | null>(null);
   const [stats, setStats] = useState<FinancialStats>({
     grossIncome: 0, commission: 0, netEarnings: 0,
-    monthNetEarnings: 0, pendingCount: 0, completedCount: 0, packagesCount: 0,
+    monthNetEarnings: 0, pendingCount: 0, completedCount: 0,
     cancellationCount: 0, totalCount: 0,
   });
   const [_message, setMessage] = useState('');
@@ -120,7 +156,14 @@ export default function GroupDashboardScreen({ navigation }: any) {
   const [creating, setCreating]   = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [editVisible, setEditVisible] = useState(false);
-  const [editForm, setEditForm] = useState({ name: '', description: '', genre: '', state: '' });
+  const [editForm, setEditForm] = useState({
+    name: '', description: '', genre: '', state: '',
+    has_sound: false,      sound_capacity_max: '',
+    has_lighting: false,   lighting_level: '',
+    has_stage: false,      stage_sizes_available: [] as string[],
+    has_led_screen: false, led_sizes_available: [] as string[],
+    power_amps: '', needs_parking: false, setup_minutes: '', includes_text: '',
+  });
   const [editSaving, setEditSaving] = useState(false);
   const [photoLoading, setPhotoLoading] = useState(false);
   const [videoLoading, setVideoLoading] = useState(false);
@@ -143,6 +186,8 @@ export default function GroupDashboardScreen({ navigation }: any) {
   const [rankingPos,         setRankingPos]         = useState<any>(null);
   const [adSlots,            setAdSlots]            = useState<any>(null);
   const [competitorAlert,    setCompetitorAlert]    = useState<'rising' | 'displaced' | null>(null);
+  const [descriptionError, setDescriptionError] = useState<string | null>(null);
+  const [includesError,    setIncludesError]    = useState<string | null>(null);
   const prevRankPosRef  = useRef<number | null>(null);
   const promoPulseAnim  = useRef(new Animated.Value(1)).current;
   const rankSuccessAnim = useRef(new Animated.Value(0)).current;
@@ -242,9 +287,10 @@ export default function GroupDashboardScreen({ navigation }: any) {
     return () => { almostUpAnim.current?.stop(); };
   }, [rankingPos]);
 
-  // Slide-in + pulse cuando hay solicitudes express abiertas
+  // Slide-in + pulse cuando hay solicitudes express (activas o ignoradas)
+  const expressVisible = expressDispatches.length > 0 || expressHasDismissed;
   useEffect(() => {
-    if (openExpressCount > 0) {
+    if (expressVisible) {
       Animated.spring(expressBannerSlide, {
         toValue: 0, useNativeDriver: true, tension: 80, friction: 10,
       }).start();
@@ -260,14 +306,28 @@ export default function GroupDashboardScreen({ navigation }: any) {
       expressBannerSlide.setValue(-50);
       expressPulse.setValue(1);
     }
-  }, [openExpressCount]);
+  }, [expressVisible]);
 
-  const fetchWallet = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    const { data } = await supabase.from('wallets').select('available_balance').eq('user_id', user.id).maybeSingle();
-    setWalletBalance(data?.available_balance ?? 0);
-  };
+  const fetchWallet = useCallback(async () => {
+    const { data } = await supabase.rpc('get_my_wallet');
+    if (data?.ok) {
+      setWalletBalance(data.wallet?.available_balance ?? 0);
+    }
+  }, []);
+
+  // ── Realtime: wallet del grupo ────────────────────────────────────────────
+  useEffect(() => {
+    const sub = supabase
+      .channel('dashboard-wallet-realtime')
+      .on('postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'group_wallets' },
+        () => fetchWallet())
+      .on('postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'wallet_transactions' },
+        () => fetchWallet())
+      .subscribe();
+    return () => { supabase.removeChannel(sub); };
+  }, [fetchWallet]);
 
   // ── Realtime: actualizar badge de campana en tiempo real ─────────────────
   useEffect(() => {
@@ -555,19 +615,11 @@ export default function GroupDashboardScreen({ navigation }: any) {
       const now   = new Date();
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
 
-      const [allRes, pkgRes] = await Promise.all([
-        // Todas las reservas para stats
-        supabase
-          .from('reservations')
-          .select('total_price, platform_commission, group_earnings, status, created_at')
-          .eq('group_id', grp.id),
-
-        // Cantidad de paquetes
-        supabase
-          .from('packages')
-          .select('id', { count: 'exact', head: true })
-          .eq('group_id', grp.id),
-      ]);
+      // Todas las reservas para stats
+      const allRes = await supabase
+        .from('reservations')
+        .select('total_price, platform_commission, group_earnings, status, created_at')
+        .eq('group_id', grp.id);
 
       if (allRes.data) {
         const all = allRes.data as any[];
@@ -591,7 +643,6 @@ export default function GroupDashboardScreen({ navigation }: any) {
         setStats({
           grossIncome, commission, netEarnings,
           monthNetEarnings, pendingCount, completedCount,
-          packagesCount: pkgRes.count ?? 0,
           cancellationCount, totalCount,
         });
       }
@@ -758,34 +809,81 @@ export default function GroupDashboardScreen({ navigation }: any) {
 
   const openEdit = () => {
     if (!group) return;
-    setEditForm({ name: group.name ?? '', description: group.description ?? '', genre: group.genre ?? '', state: (group as any).state ?? '' });
+    setEditForm({
+      name:                  group.name ?? '',
+      description:           group.description ?? '',
+      genre:                 group.genre ?? '',
+      state:                 (group as any).state ?? '',
+      has_sound:             group.has_sound ?? false,
+      sound_capacity_max:    String(group.sound_capacity_max ?? ''),
+      has_lighting:          group.has_lighting ?? false,
+      lighting_level:        group.lighting_level ?? '',
+      has_stage:             group.has_stage ?? false,
+      stage_sizes_available: group.stage_sizes_available ?? [],
+      has_led_screen:        group.has_led_screen ?? false,
+      led_sizes_available:   group.led_sizes_available ?? [],
+      power_amps:            String(group.power_amps ?? ''),
+      needs_parking:         group.needs_parking ?? false,
+      setup_minutes:         String(group.setup_minutes ?? ''),
+      includes_text:         group.includes_text ?? '',
+    });
     setEditVisible(true);
   };
 
   const saveEdit = async () => {
     if (!group) return;
     const name  = editForm.name.trim();
-    const state = editForm.state.trim();
+    // Usar el estado del formulario; si está vacío, conservar el del grupo (no romper grupos sin estado)
+    const state = editForm.state.trim() || group.state || '';
     if (!name)  { Alert.alert('Error', 'El nombre no puede estar vacío.'); return; }
-    if (!state) { Alert.alert('Error', 'El estado es obligatorio.'); return; }
+    if (!state) { Alert.alert('Error', 'El estado es obligatorio. Ingresa tu estado para continuar.'); return; }
+
+    // Validación anti-bypass
+    const descVal = validatePublicText(editForm.description);
+    if (!descVal.valid) { Alert.alert('Texto no permitido', descVal.error); return; }
+    const inclVal = validatePublicText(editForm.includes_text);
+    if (!inclVal.valid) { Alert.alert('Texto no permitido', inclVal.error); return; }
+
     // País se deriva del estado automáticamente; conservar country existente como fallback
-    const country = stateToCountry(state) || (group as any).country || 'México';
+    const country = stateToCountry(state) || group.country || 'México';
+
+    // Convertir numéricos con .trim() para evitar NaN por espacios
+    const soundCap  = editForm.sound_capacity_max.trim() ? parseInt(editForm.sound_capacity_max) : null;
+    const powerAmps = editForm.power_amps.trim()         ? parseInt(editForm.power_amps)         : null;
+    const setupMins = editForm.setup_minutes.trim()      ? parseInt(editForm.setup_minutes)      : null;
+
+    const updatePayload = {
+      name,
+      description:           editForm.description.trim() || null,
+      genre:                 editForm.genre.trim() || null,
+      state,
+      country,
+      has_sound:             editForm.has_sound,
+      sound_capacity_max:    soundCap,
+      has_lighting:          editForm.has_lighting,
+      lighting_level:        editForm.lighting_level || null,
+      has_stage:             editForm.has_stage,
+      stage_sizes_available: editForm.stage_sizes_available,
+      has_led_screen:        editForm.has_led_screen,
+      led_sizes_available:   editForm.led_sizes_available,
+      power_amps:            powerAmps,
+      needs_parking:         editForm.needs_parking,
+      setup_minutes:         setupMins,
+      includes_text:         editForm.includes_text.trim() || null,
+    };
+
     setEditSaving(true);
-    const { error: ue } = await supabase.from('groups')
-      .update({
-        name,
-        description: editForm.description.trim() || null,
-        genre:       editForm.genre.trim() || null,
-        state,
-        country,
-      })
+    const { error: ue } = await supabase
+      .from('groups')
+      .update(updatePayload)
       .eq('id', group.id);
+
     if (!ue) {
       await supabase.rpc('update_my_location', { p_state: state, p_country: country });
     }
     setEditSaving(false);
     if (ue) { Alert.alert('Error', 'No se pudieron guardar los cambios.'); return; }
-    setGroup(p => p ? { ...p, name, description: editForm.description.trim() || null, genre: editForm.genre.trim() || null, state, country } : p);
+    setGroup(p => p ? { ...p, ...updatePayload, state, country } : p);
     setEditVisible(false);
   };
 
@@ -1050,39 +1148,34 @@ export default function GroupDashboardScreen({ navigation }: any) {
               </Pressable>
             </View>
 
-            {/* Botón permanente: Solicitudes express */}
-            <Pressable
-              style={[s.expressBtn, openExpressCount > 0 && s.expressBtnActive]}
-              onPress={() => navigation.navigate('OpenRequests')}
-            >
-              <Zap size={16} color={openExpressCount > 0 ? '#FF6B35' : COLORS.muted} />
-              <Text style={[s.expressBtnText, openExpressCount > 0 && { color: '#FF6B35' }]}>
-                {openExpressCount > 0
-                  ? `${openExpressCount} solicitud${openExpressCount !== 1 ? 'es' : ''} abierta${openExpressCount !== 1 ? 's' : ''}`
-                  : 'Ver solicitudes abiertas'}
-              </Text>
-              {openExpressCount > 0 && (
-                <View style={s.expressBtnBadge}>
-                  <Text style={s.expressBtnBadgeText}>{openExpressCount}</Text>
-                </View>
-              )}
-            </Pressable>
+            {/* Nudge de alta demanda — solo cuando Express está OFF */}
+            {(() => {
+              const demandLevel = cityDemand?.demand_level as string | undefined;
+              const isHigh = demandLevel === 'high' || demandLevel === 'very_high';
+              if (!isHigh || groupAvailability === 'available') return null;
+              return (
+                <Pressable style={s.demandNudge} onPress={toggleAvailability}>
+                  <Text style={s.demandNudgeTx}>
+                    ⚡ Alta demanda en {group?.city} · Activa Express para recibir solicitudes
+                  </Text>
+                </Pressable>
+              );
+            })()}
+
           </View>
 
-          {/* ── Banner animado: solicitudes express abiertas ──────────── */}
-          {openExpressCount > 0 && (
+          {/* ── Banner animado: solicitudes express ──────────────────── */}
+          {expressVisible && (
             <Animated.View style={{ transform: [{ translateY: expressBannerSlide }, { scale: expressPulse }] }}>
-              <Pressable style={s.expressBanner} onPress={() => navigation.navigate('OpenRequests')}>
+              <Pressable style={s.expressBanner} onPress={expressReviveAll}>
                 <Text style={s.expressBannerEmoji}>⚡</Text>
                 <View style={{ flex: 1 }}>
                   <Text style={s.expressBannerTitle}>
-                    {openExpressCount} cliente{openExpressCount !== 1 ? 's' : ''} busca{openExpressCount !== 1 ? 'n' : ''} grupo ahora
+                    {expressDispatches.length > 0
+                      ? `${expressDispatches.length} solicitud${expressDispatches.length !== 1 ? 'es' : ''} express para ti`
+                      : 'Tienes solicitudes express esperando'}
                   </Text>
-                  <Text style={s.expressBannerSub}>
-                    {groupAvailability === 'available'
-                      ? '¡Responde rápido y consigue el evento!'
-                      : 'Activa Express para responder solicitudes'}
-                  </Text>
+                  <Text style={s.expressBannerSub}>Toca para verlas · responde rápido</Text>
                 </View>
                 <ChevronRight size={16} color="#FF6B35" />
               </Pressable>
@@ -1116,28 +1209,6 @@ export default function GroupDashboardScreen({ navigation }: any) {
               </Animated.View>
             )}
 
-            {/* Demand widget */}
-            {(() => {
-              const demandLevel = cityDemand?.demand_level as string | undefined;
-              const openCount = zoneStats?.open_requests ?? cityDemand?.active_bids ?? 0;
-              const isHigh = demandLevel === 'high' || demandLevel === 'very_high';
-              if (!cityDemand?.ok && !zoneStats) return null;
-              return (
-                <View style={[s.demandWidget, isHigh && s.demandWidgetHigh]}>
-                  <Text style={s.demandEmoji}>{isHigh ? '🔥' : '📊'}</Text>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[s.demandTitle, isHigh && { color: '#FF6B35' }]}>
-                      {isHigh ? `Alta demanda en ${group?.city}` : `Actividad en ${group?.city}`}
-                    </Text>
-                    <Text style={s.demandSub}>
-                      {openCount > 0
-                        ? `${openCount} evento${openCount > 1 ? 's' : ''} buscando grupo ahora`
-                        : 'Activa Express para aparecer en el mapa'}
-                    </Text>
-                  </View>
-                </View>
-              );
-            })()}
 
             {/* Stats row */}
             <View style={s.statsRow}>
@@ -1255,16 +1326,17 @@ export default function GroupDashboardScreen({ navigation }: any) {
 
       {/* ── EDIT MODAL ── */}
       <Modal visible={editVisible} transparent animationType="slide" onRequestClose={() => setEditVisible(false)}>
-        <View style={s.overlay}>
-          <View style={s.sheet}>
-            <View style={s.sheetHeader}>
-              <Text style={s.sheetTitle}>Información del grupo</Text>
-              <Pressable onPress={() => setEditVisible(false)} style={s.sheetClose}>
-                <X size={18} color={COLORS.muted2} />
-              </Pressable>
-            </View>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
+          <View style={s.overlay}>
+            <View style={s.sheet}>
+              <View style={s.sheetHeader}>
+                <Text style={s.sheetTitle}>Información del grupo</Text>
+                <Pressable onPress={() => setEditVisible(false)} style={s.sheetClose}>
+                  <X size={18} color={COLORS.muted2} />
+                </Pressable>
+              </View>
 
-            <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+              <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 100 }}>
               <Text style={s.label}>Nombre del grupo *</Text>
               <TextInput style={s.input} value={editForm.name}
                 onChangeText={v => setEditForm(f => ({ ...f, name: v }))}
@@ -1286,13 +1358,20 @@ export default function GroupDashboardScreen({ navigation }: any) {
 
               <Text style={s.label}>Descripción</Text>
               <TextInput
-                style={[s.input, s.inputMulti]}
+                style={[s.input, s.inputMulti, !!descriptionError && s.inputError]}
                 value={editForm.description}
-                onChangeText={v => setEditForm(f => ({ ...f, description: v }))}
+                onChangeText={v => {
+                  setEditForm(f => ({ ...f, description: v }));
+                  const r = validatePublicText(v);
+                  setDescriptionError(r.valid ? null : r.error!);
+                }}
                 placeholder="Describe a tu grupo, experiencia, estilo..."
                 placeholderTextColor={COLORS.muted}
                 multiline numberOfLines={4} textAlignVertical="top" maxLength={500}
               />
+              {descriptionError && (
+                <Text style={s.errorText}>⚠️ {descriptionError}</Text>
+              )}
               <Text style={s.charCount}>{editForm.description.length}/500</Text>
 
               {/* ── Video promocional ─────────────────────────────────────────── */}
@@ -1335,7 +1414,7 @@ export default function GroupDashboardScreen({ navigation }: any) {
               )}
               {videoSuccessMsg && (
                 <View style={s.videoSuccessBanner}>
-                  <Text style={s.videoSuccessText}>✅ ¡Listo! Tu video estará en revisión.</Text>
+                  <Text style={s.videoSuccessText}>✅ ¡Listo! Video guardado y enviado a revisión. No necesitas presionar "Guardar perfil".</Text>
                 </View>
               )}
               {!videoSuccessMsg && group?.video_status === 'pending' && (
@@ -1350,12 +1429,180 @@ export default function GroupDashboardScreen({ navigation }: any) {
               )}
               <Text style={s.videoHint}>MP4, MOV o WebM · máx. 50 MB{'\n'}⚠️ Sin redes sociales, teléfonos ni logos externos</Text>
 
-              <Pressable style={[s.saveBtn, editSaving && { opacity: 0.5 }]} onPress={saveEdit} disabled={editSaving}>
-                <Text style={s.saveBtnText}>{editSaving ? 'Guardando...' : 'Guardar cambios'}</Text>
+              {/* ── Mi Equipo ──────────────────────────────────────────────── */}
+              <Text style={s.equipSectionTitle}>Mi Equipo</Text>
+
+              {/* Sonido */}
+              <View style={s.equipRow}>
+                <Text style={s.equipLabel}>🔊 Sonido propio</Text>
+                <Pressable
+                  style={[s.equipToggle, editForm.has_sound && s.equipToggleOn]}
+                  onPress={() => setEditForm(f => ({ ...f, has_sound: !f.has_sound }))}
+                >
+                  <Text style={[s.equipToggleText, editForm.has_sound && s.equipToggleTextOn]}>
+                    {editForm.has_sound ? 'Sí' : 'No'}
+                  </Text>
+                </Pressable>
+              </View>
+              {editForm.has_sound && (
+                <TextInput
+                  style={s.input}
+                  placeholder="Capacidad máx. personas (ej: 200)"
+                  placeholderTextColor={COLORS.muted}
+                  keyboardType="numeric"
+                  value={editForm.sound_capacity_max}
+                  onChangeText={v => setEditForm(f => ({ ...f, sound_capacity_max: v.replace(/[^0-9]/g, '') }))}
+                />
+              )}
+
+              {/* Iluminación */}
+              <View style={s.equipRow}>
+                <Text style={s.equipLabel}>💡 Iluminación propia</Text>
+                <Pressable
+                  style={[s.equipToggle, editForm.has_lighting && s.equipToggleOn]}
+                  onPress={() => setEditForm(f => ({ ...f, has_lighting: !f.has_lighting, lighting_level: f.has_lighting ? '' : f.lighting_level }))}
+                >
+                  <Text style={[s.equipToggleText, editForm.has_lighting && s.equipToggleTextOn]}>
+                    {editForm.has_lighting ? 'Sí' : 'No'}
+                  </Text>
+                </Pressable>
+              </View>
+              {editForm.has_lighting && (
+                <View style={s.equipChipRow}>
+                  {LIGHTING_LEVEL_OPTIONS.map(opt => (
+                    <Pressable
+                      key={opt.key}
+                      style={[s.equipChip, editForm.lighting_level === opt.key && s.equipChipActive]}
+                      onPress={() => setEditForm(f => ({ ...f, lighting_level: opt.key }))}
+                    >
+                      <Text style={[s.equipChipText, editForm.lighting_level === opt.key && s.equipChipTextActive]}>
+                        {opt.label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
+
+              {/* Tarima */}
+              <View style={s.equipRow}>
+                <Text style={s.equipLabel}>🎭 Tarima / Escenario</Text>
+                <Pressable
+                  style={[s.equipToggle, editForm.has_stage && s.equipToggleOn]}
+                  onPress={() => setEditForm(f => ({ ...f, has_stage: !f.has_stage, stage_sizes_available: f.has_stage ? [] : f.stage_sizes_available }))}
+                >
+                  <Text style={[s.equipToggleText, editForm.has_stage && s.equipToggleTextOn]}>
+                    {editForm.has_stage ? 'Sí' : 'No'}
+                  </Text>
+                </Pressable>
+              </View>
+              {editForm.has_stage && (
+                <View style={s.equipChipRow}>
+                  {STAGE_SIZE_OPTIONS.map(opt => (
+                    <Pressable
+                      key={opt.key}
+                      style={[s.equipChip, editForm.stage_sizes_available.includes(opt.key) && s.equipChipActive]}
+                      onPress={() => setEditForm(f => ({ ...f, stage_sizes_available: toggleItem(f.stage_sizes_available, opt.key) }))}
+                    >
+                      <Text style={[s.equipChipText, editForm.stage_sizes_available.includes(opt.key) && s.equipChipTextActive]}>
+                        {opt.label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
+
+              {/* Pantalla LED */}
+              <View style={s.equipRow}>
+                <Text style={s.equipLabel}>📺 Pantalla LED</Text>
+                <Pressable
+                  style={[s.equipToggle, editForm.has_led_screen && s.equipToggleOn]}
+                  onPress={() => setEditForm(f => ({ ...f, has_led_screen: !f.has_led_screen, led_sizes_available: f.has_led_screen ? [] : f.led_sizes_available }))}
+                >
+                  <Text style={[s.equipToggleText, editForm.has_led_screen && s.equipToggleTextOn]}>
+                    {editForm.has_led_screen ? 'Sí' : 'No'}
+                  </Text>
+                </Pressable>
+              </View>
+              {editForm.has_led_screen && (
+                <View style={s.equipChipRow}>
+                  {LED_SIZE_OPTIONS.map(opt => (
+                    <Pressable
+                      key={opt.key}
+                      style={[s.equipChip, editForm.led_sizes_available.includes(opt.key) && s.equipChipActive]}
+                      onPress={() => setEditForm(f => ({ ...f, led_sizes_available: toggleItem(f.led_sizes_available, opt.key) }))}
+                    >
+                      <Text style={[s.equipChipText, editForm.led_sizes_available.includes(opt.key) && s.equipChipTextActive]}>
+                        {opt.label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
+
+              {/* Corriente */}
+              <Text style={s.label}>⚡ Corriente requerida (amperes)</Text>
+              <TextInput
+                style={s.input}
+                placeholder="Ej: 30  (vacío si no aplica)"
+                placeholderTextColor={COLORS.muted}
+                keyboardType="numeric"
+                value={editForm.power_amps}
+                onChangeText={v => setEditForm(f => ({ ...f, power_amps: v.replace(/[^0-9]/g, '') }))}
+              />
+
+              {/* Parking */}
+              <View style={s.equipRow}>
+                <Text style={s.equipLabel}>🅿️ Requiere estacionamiento</Text>
+                <Pressable
+                  style={[s.equipToggle, editForm.needs_parking && s.equipToggleOn]}
+                  onPress={() => setEditForm(f => ({ ...f, needs_parking: !f.needs_parking }))}
+                >
+                  <Text style={[s.equipToggleText, editForm.needs_parking && s.equipToggleTextOn]}>
+                    {editForm.needs_parking ? 'Sí' : 'No'}
+                  </Text>
+                </Pressable>
+              </View>
+
+              {/* Instalación */}
+              <Text style={s.label}>⏱ Tiempo de instalación (minutos)</Text>
+              <TextInput
+                style={s.input}
+                placeholder="Ej: 60"
+                placeholderTextColor={COLORS.muted}
+                keyboardType="numeric"
+                value={editForm.setup_minutes}
+                onChangeText={v => setEditForm(f => ({ ...f, setup_minutes: v.replace(/[^0-9]/g, '') }))}
+              />
+
+              {/* ¿Qué incluye? */}
+              <Text style={s.label}>📋 ¿Qué incluye tu precio base?</Text>
+              <TextInput
+                style={[s.input, s.inputMulti, !!includesError && s.inputError]}
+                placeholder={'Ej: "Sonido, luces básicas y transporte"\n"Solo músicos, sin equipo"'}
+                placeholderTextColor={COLORS.muted}
+                value={editForm.includes_text}
+                onChangeText={v => {
+                  setEditForm(f => ({ ...f, includes_text: v }));
+                  const r = validatePublicText(v);
+                  setIncludesError(r.valid ? null : r.error!);
+                }}
+                multiline maxLength={300} textAlignVertical="top"
+              />
+              {includesError && (
+                <Text style={s.errorText}>⚠️ {includesError}</Text>
+              )}
+
+              <Pressable
+                style={[s.saveBtn, (editSaving || !!descriptionError || !!includesError) && { opacity: 0.5 }]}
+                onPress={saveEdit}
+                disabled={editSaving || !!descriptionError || !!includesError}
+              >
+                <Text style={s.saveBtnText}>{editSaving ? 'Guardando...' : 'Guardar perfil'}</Text>
               </Pressable>
-            </ScrollView>
+              </ScrollView>
+            </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* ── MEMBER DETAIL MODAL ── */}
@@ -2574,6 +2821,16 @@ const s = StyleSheet.create({
   },
   rankBidText: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.bg },
 
+  // Demand nudge near express toggle
+  demandNudge: {
+    marginTop: 8,
+    backgroundColor: 'rgba(255,179,0,0.07)',
+    borderRadius: RADIUS.md,
+    borderWidth: 1, borderColor: 'rgba(255,179,0,0.25)',
+    paddingHorizontal: 12, paddingVertical: 8,
+  },
+  demandNudgeTx: { fontFamily: FONTS.bodyMedium, fontSize: 12, color: '#FFB300', lineHeight: 17 },
+
   // Demand widget
   demandWidget: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
@@ -2654,15 +2911,6 @@ const s = StyleSheet.create({
   loyalName: { fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted2, textAlign: 'center' },
   loyalCount: { fontFamily: FONTS.bodySemiBold, fontSize: 10, color: COLORS.green, textAlign: 'center' },
 
-  // Packages card (bloque 5)
-  packagesCard: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    backgroundColor: COLORS.card, borderRadius: RADIUS.lg,
-    borderWidth: 1, borderColor: COLORS.border, padding: 16,
-  },
-  packagesTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: COLORS.text, marginBottom: 3 },
-  packagesSub: { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2, lineHeight: 18 },
-
   // ── Banner express: solicitudes abiertas ─────────────────────────────────
   expressBanner: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
@@ -2694,4 +2942,27 @@ const s = StyleSheet.create({
     paddingHorizontal: 5,
   },
   expressBtnBadgeText: { fontFamily: FONTS.bodySemiBold, fontSize: 11, color: '#fff' },
+
+  // ── Validación texto ──────────────────────────────────────────────────────────
+  inputError: { borderColor: '#EF5350', borderWidth: 1.5 },
+  errorText:  { fontFamily: FONTS.body, fontSize: 12, color: '#EF5350', marginTop: -10, marginBottom: 12 },
+
+  // ── Mi Equipo (modal edit) ────────────────────────────────────────────────────
+  equipSectionTitle: {
+    fontFamily: FONTS.bodySemiBold, fontSize: 12, color: COLORS.muted2,
+    textTransform: 'uppercase', letterSpacing: 0.6,
+    marginTop: 24, marginBottom: 14,
+    paddingTop: 16, borderTopWidth: 1, borderTopColor: COLORS.border,
+  },
+  equipRow:          { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
+  equipLabel:        { fontFamily: FONTS.bodyMedium, fontSize: 14, color: COLORS.text, flex: 1 },
+  equipToggle:       { paddingHorizontal: 16, paddingVertical: 8, borderRadius: RADIUS.full, backgroundColor: COLORS.bg, borderWidth: 1, borderColor: COLORS.border },
+  equipToggleOn:     { backgroundColor: 'rgba(0,230,118,0.12)', borderColor: COLORS.green },
+  equipToggleText:   { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.muted2 },
+  equipToggleTextOn: { color: COLORS.green },
+  equipChipRow:      { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 14 },
+  equipChip:         { paddingHorizontal: 12, paddingVertical: 8, borderRadius: RADIUS.full, backgroundColor: COLORS.bg, borderWidth: 1, borderColor: COLORS.border },
+  equipChipActive:   { backgroundColor: 'rgba(0,230,118,0.12)', borderColor: COLORS.green },
+  equipChipText:     { fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.muted2 },
+  equipChipTextActive: { color: COLORS.green },
 });

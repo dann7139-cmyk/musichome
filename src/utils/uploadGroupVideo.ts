@@ -1,12 +1,12 @@
 import * as ImagePicker from 'expo-image-picker';
+import { Alert } from 'react-native';
 import { supabase } from '../config/supabase';
 
 const MAX_BYTES = 50 * 1024 * 1024; // 50 MB
 
 const ALLOWED_TYPES: Record<string, string> = {
-  'video/mp4':       'mp4',
-  'video/quicktime': 'mov',
-  'video/webm':      'webm',
+  'video/mp4':  'mp4',
+  'video/webm': 'webm',
 };
 
 export async function pickAndUploadGroupVideo(groupId: string): Promise<string | null> {
@@ -27,9 +27,18 @@ export async function pickAndUploadGroupVideo(groupId: string): Promise<string |
   }
 
   const mimeType = asset.mimeType ?? 'video/mp4';
+
+  if (mimeType === 'video/quicktime') {
+    Alert.alert(
+      '❌ Formato no compatible',
+      'Tu video está en formato .mov (iPhone).\n\nPara que TODOS puedan verlo (iPhone, Android, Web), súbelo en formato MP4.\n\n📱 PARA TU iPHONE — Cambia el formato de grabación:\n1. Configuración\n2. Cámara\n3. Formatos\n4. Selecciona "Más compatible"\n\nDespués graba un video nuevo y súbelo.\n\n🌐 PARA CONVERTIR uno que ya tienes:\n- cloudconvert.com (gratis)\n- O usa cualquier conversor online',
+    );
+    return null;
+  }
+
   const ext = ALLOWED_TYPES[mimeType];
   if (!ext) {
-    throw new Error('Formato no válido. Solo se aceptan MP4, MOV y WebM.');
+    throw new Error('Formato no válido. Solo se aceptan MP4 y WebM.');
   }
 
   const path = `${groupId}/promo-video.${ext}`;
@@ -44,12 +53,14 @@ export async function pickAndUploadGroupVideo(groupId: string): Promise<string |
   const { data } = supabase.storage.from('group-videos').getPublicUrl(path);
   const publicUrl = data.publicUrl;
 
-  // Usar RPC SECURITY DEFINER para evitar bloqueos de RLS en groups
-  const { data: rpcData, error: rpcError } = await supabase
+  // Guardar URL via RPC (SECURITY DEFINER omite RLS — update directo falla en producción)
+  const { data: rpcData, error: dbError } = await supabase
     .rpc('update_group_video', { p_group_id: groupId, p_video_url: publicUrl });
 
-  if (rpcError) throw rpcError;
-  if (rpcData?.ok === false) throw new Error(rpcData.error ?? 'Error al guardar video');
+  const rpcFailed = dbError || (rpcData && rpcData.ok === false);
+  if (rpcFailed) {
+    throw new Error('Video subido pero no se pudo guardar en el perfil: ' + (dbError?.message ?? rpcData?.error ?? 'error desconocido'));
+  }
 
   return publicUrl;
 }

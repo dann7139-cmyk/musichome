@@ -1,23 +1,23 @@
 // ── Precios públicos para cotizaciones ────────────────────────────────────────
 //
 // El grupo escribe el monto NETO que quiere recibir.
-// La plataforma carga el 10% encima → contado = precioGrupo / 0.90.
+// La plataforma carga el 20% encima → contado = precioGrupo × 1.20.
 // Los planes MSI aplican un multiplicador sobre el contado.
 //
 // Fórmulas oficiales:
-//   contado  = groupPrice / 0.90
+//   contado  = groupPrice × 1.20
 //   3 meses  = contado × 1.05
-//   6 meses  = contado × 1.08
-//   9 meses  = contado × 1.11
-//   12 meses = contado × 1.14
+//   6 meses  = contado × 1.06
+//   9 meses  = contado × 1.09
+//   12 meses = contado × 1.12
 
 /** Tasas de financiamiento MSI por número de meses (sobre el contado). */
 export const PUBLIC_MSI_FEE_RATES: Record<number, number> = {
   1:  0,
   3:  0.05,
-  6:  0.08,
-  9:  0.11,
-  12: 0.14,
+  6:  0.06,
+  9:  0.09,
+  12: 0.12,
 };
 
 export interface PublicPrices {
@@ -49,7 +49,7 @@ export function calculatePublicPrices(groupPrice: number): PublicPrices {
  */
 export function calculateContadoPrice(groupPrice: number): number {
   if (groupPrice <= 0) return 0;
-  return Math.round(groupPrice / 0.90);
+  return Math.round(groupPrice * 1.20);
 }
 
 /**

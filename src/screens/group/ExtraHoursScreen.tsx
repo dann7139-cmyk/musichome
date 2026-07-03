@@ -1,11 +1,11 @@
 /**
  * ExtraHoursScreen — Grupo propone horas extra al cliente.
  *
- * Flujo actualizado:
- * - Grupo selecciona cuántas horas extra ofrecer
- * - Se muestra el desglose con "Tarifa de servicio" (10%)
- * - Si el cliente tiene saldo disponible → se descuenta automáticamente
- * - Si el saldo está agotado → el grupo puede registrar pago en efectivo
+ * Flujo:
+ * - Grupo ingresa su precio neto (lo que quieren recibir, 100%)
+ * - El cliente paga groupNeto × 1.20 (markup 20%, interno — no mostrar)
+ * - Si el cliente tiene saldo disponible → descuento automático vía plataforma
+ * - Si el saldo está agotado → pago en efectivo directo al grupo (sin markup)
  */
 import { ArrowLeft, Clock, DollarSign, Banknote, CheckCircle } from 'lucide-react-native';
 import React, { useEffect, useState } from 'react';
@@ -21,11 +21,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import Button from '../../components/ui/Button';
-import { calcServiceFee, calcGroupEarnings, formatCurrency, SERVICE_FEE_RATE } from '../../utils/calculations';
+import { calcGroupEarnings, formatCurrency } from '../../utils/calculations';
 import Particles from '../../components/ui/Particles';
 
 export default function ExtraHoursScreen({ route, navigation }: any) {
-  const { reservation } = route.params;
+  const { reservation, initialHours } = route.params;
   const q = reservation.quote;
 
   // Precios pactados en cotización (si los hay)
@@ -37,8 +37,9 @@ export default function ExtraHoursScreen({ route, navigation }: any) {
 
   const hasQuotePrices = quoteOpts.length > 0;
 
-  const [hoursToAdd, setHoursToAdd]   = useState(quoteOpts[0]?.hours ?? 1);
+  const [hoursToAdd, setHoursToAdd]   = useState(initialHours ?? quoteOpts[0]?.hours ?? 1);
   const [pricePerHour, setPricePerHour] = useState(0);
+  const [priceLoading, setPriceLoading] = useState(!hasQuotePrices);
   const [loading, setLoading]         = useState(false);
   const [cashLoading, setCashLoading] = useState(false);
 
@@ -56,12 +57,18 @@ export default function ExtraHoursScreen({ route, navigation }: any) {
   }, []);
 
   const fetchPriceInfo = async () => {
-    const { data: pkg } = await supabase
-      .from('packages')
-      .select('price, duration_hours')
-      .eq('id', reservation.package_id)
+    // Precio/hora neto derivado de la propia reserva (la tabla packages ya no existe)
+    const { data: res } = await supabase
+      .from('reservations')
+      .select('total_price, group_earnings, hours_count')
+      .eq('id', reservation.id)
       .single();
-    if (pkg) setPricePerHour(Math.round(pkg.price / pkg.duration_hours));
+    if (res) {
+      const hours = Number(res.hours_count) || 1;
+      const net = res.group_earnings ?? calcGroupEarnings(res.total_price ?? 0);
+      if (net > 0) setPricePerHour(Math.round(net / hours));
+    }
+    setPriceLoading(false);
   };
 
   const fetchClientBalance = async () => {
@@ -78,14 +85,24 @@ export default function ExtraHoursScreen({ route, navigation }: any) {
     ? (quoteOpts.find(o => o.hours === hoursToAdd) ?? quoteOpts[0])
     : null;
 
-  const totalExtra    = selectedQuoteOpt ? selectedQuoteOpt.total : pricePerHour * hoursToAdd;
-  const serviceFee    = calcServiceFee(totalExtra);   // 10% de la hora extra
-  const groupEarnings = calcGroupEarnings(totalExtra); // 90% — lo que recibe el grupo
+  // overtime_X_price en DB ya es precio CLIENTE (markup 20% aplicado en QuoteDetailScreen).
+  // Cuando se usa quoteOpt: groupNet = DB_value / 1.20; clientTotal = DB_value.
+  // Sin quoteOpts: grupo ingresa precio neto directo.
+  const groupNet      = selectedQuoteOpt
+    ? calcGroupEarnings(selectedQuoteOpt.total)   // DB tiene precio cliente → derivar neto
+    : pricePerHour * hoursToAdd;
+  const clientTotal   = selectedQuoteOpt
+    ? selectedQuoteOpt.total                      // ya es precio cliente ✓
+    : Math.round(groupNet * 1.20);
+  const groupEarnings = groupNet;
   const unitPrice     = selectedQuoteOpt
     ? Math.round(selectedQuoteOpt.total / selectedQuoteOpt.hours)
     : pricePerHour;
 
-  const balanceSufficient = clientBalance !== null && clientBalance >= totalExtra;
+  const balanceSufficient = clientBalance !== null && clientBalance >= clientTotal;
+
+  // Guard: sin precio por hora resuelto, nunca permitir una extra a $0
+  const priceUnavailable = !hasQuotePrices && pricePerHour === 0;
 
   // ── Proponer hora extra (cliente paga desde saldo) ──────────────────────────
   const handleRequest = async () => {
@@ -93,14 +110,14 @@ export default function ExtraHoursScreen({ route, navigation }: any) {
     const { data, error } = await supabase
       .from('extra_hours')
       .insert([{
-        reservation_id:    reservation.id,
-        hours_added:       hoursToAdd,
-        price_per_hour:    unitPrice,
-        total_extra_cost:  totalExtra,
-        platform_commission: serviceFee,
-        group_extra_earnings: groupEarnings,
-        status:            'pending',
-        is_cash_payment:   false,
+        reservation_id:       reservation.id,
+        hours_added:          hoursToAdd,
+        price_per_hour:       unitPrice,
+        total_extra_cost:     clientTotal,           // lo que paga el cliente (groupNeto × 1.20)
+        platform_commission:  clientTotal - groupNet, // comisión Daricefy (interna)
+        group_extra_earnings: groupEarnings,          // lo que recibe el grupo (= groupNet)
+        status:               'pending',
+        is_cash_payment:      false,
       }])
       .select('id')
       .single();
@@ -111,7 +128,7 @@ export default function ExtraHoursScreen({ route, navigation }: any) {
     } else {
       Alert.alert(
         '⏰ Solicitud enviada',
-        `Se notificó al cliente que puede agregar ${hoursToAdd}h extra por ${formatCurrency(totalExtra)}.`,
+        `Se notificó al cliente sobre ${hoursToAdd}h extra. Recibirás ${formatCurrency(groupEarnings)} al terminar el evento.`,
         [{ text: 'OK', onPress: () => navigation.goBack() }]
       );
     }
@@ -121,7 +138,7 @@ export default function ExtraHoursScreen({ route, navigation }: any) {
   const handleCashRequest = async () => {
     Alert.alert(
       '💵 Registrar hora extra en efectivo',
-      `¿Confirmas que vas a solicitar ${hoursToAdd}h extra por ${formatCurrency(totalExtra)} en efectivo?\n\nEsto es porque el saldo del cliente ya no es suficiente.`,
+      `¿Confirmas ${hoursToAdd}h extra en efectivo?\n\nEl cliente te pagará directamente: ${formatCurrency(groupNet)}`,
       [
         { text: 'Cancelar', style: 'cancel' },
         {
@@ -131,14 +148,14 @@ export default function ExtraHoursScreen({ route, navigation }: any) {
             const { data, error } = await supabase
               .from('extra_hours')
               .insert([{
-                reservation_id:      reservation.id,
-                hours_added:         hoursToAdd,
-                price_per_hour:      unitPrice,
-                total_extra_cost:    totalExtra,
-                platform_commission: 0,      // efectivo no pasa por la plataforma
-                group_extra_earnings: totalExtra,
-                status:              'pending',
-                is_cash_payment:     true,
+                reservation_id:       reservation.id,
+                hours_added:          hoursToAdd,
+                price_per_hour:       unitPrice,
+                total_extra_cost:     groupNet,  // efectivo: sin markup, grupo recibe directo
+                platform_commission:  0,
+                group_extra_earnings: groupNet,
+                status:               'pending',
+                is_cash_payment:      true,
               }])
               .select('id')
               .single();
@@ -183,17 +200,17 @@ export default function ExtraHoursScreen({ route, navigation }: any) {
             <CheckCircle size={56} color={COLORS.green} />
             <Text style={styles.successTitle}>¡Efectivo confirmado!</Text>
             <Text style={styles.successDesc}>
-              Registramos que recibiste ${totalExtra.toLocaleString()} en efectivo por {hoursToAdd}h extra.{'\n\n'}
+              Registramos que recibiste ${groupNet.toLocaleString()} en efectivo por {hoursToAdd}h extra.{'\n\n'}
               Este pago no pasa por la plataforma. Tú lo tienes.
             </Text>
             <View style={styles.successSummary}>
               <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Pago por plataforma</Text>
-                <Text style={styles.summaryValue}>{formatCurrency(groupEarnings)}</Text>
+                <Text style={styles.summaryLabel}>Horas extra</Text>
+                <Text style={styles.summaryValue}>{hoursToAdd === 1 ? '1 hora' : `${hoursToAdd} horas`}</Text>
               </View>
               <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Efectivo (tú lo tienes)</Text>
-                <Text style={[styles.summaryValue, { color: COLORS.orange }]}>{formatCurrency(totalExtra)}</Text>
+                <Text style={styles.summaryLabel}>Recibiste en efectivo</Text>
+                <Text style={[styles.summaryValue, { color: COLORS.orange }]}>{formatCurrency(groupNet)}</Text>
               </View>
             </View>
             <Button label="Listo" onPress={() => navigation.goBack()} size="lg" />
@@ -228,7 +245,7 @@ export default function ExtraHoursScreen({ route, navigation }: any) {
                 </View>
                 <View style={styles.priceRow}>
                   <Text style={styles.priceLabel}>Monto recibido</Text>
-                  <Text style={[styles.priceValue, { color: COLORS.orange }]}>{formatCurrency(totalExtra)}</Text>
+                  <Text style={[styles.priceValue, { color: COLORS.orange }]}>{formatCurrency(groupNet)}</Text>
                 </View>
               </View>
 
@@ -242,7 +259,7 @@ export default function ExtraHoursScreen({ route, navigation }: any) {
 
             <View style={{ marginTop: 16, marginBottom: 32, gap: 12 }}>
               <Button
-                label={`✅ Confirmar que recibí ${formatCurrency(totalExtra)} en efectivo`}
+                label={`✅ Confirmar que recibí ${formatCurrency(groupNet)} en efectivo`}
                 onPress={handleConfirmCashReceived}
                 loading={cashLoading}
                 size="lg"
@@ -334,58 +351,34 @@ export default function ExtraHoursScreen({ route, navigation }: any) {
           <Text style={styles.sectionTitle}>Desglose</Text>
           <View style={styles.breakdownCard}>
             {hasQuotePrices ? (
-              <PriceRow label={`Precio pactado (${hoursToAdd}h)`} value={formatCurrency(totalExtra)} bold />
+              <PriceRow label={`Precio pactado (${hoursToAdd}h)`} value={formatCurrency(groupNet)} bold />
             ) : (
               <>
-                <PriceRow label="Precio por hora" value={formatCurrency(pricePerHour)} />
-                <PriceRow label={`× ${hoursToAdd} hora${hoursToAdd > 1 ? 's' : ''}`} value={formatCurrency(totalExtra)} bold />
+                <PriceRow label="Tu precio neto por hora" value={formatCurrency(pricePerHour)} />
+                <PriceRow label={`× ${hoursToAdd} hora${hoursToAdd > 1 ? 's' : ''}`} value={formatCurrency(groupNet)} bold />
               </>
             )}
             <View style={styles.divider} />
-
-            {balanceSufficient ? (
-              // Pago desde saldo: el cliente paga, la plataforma toma 10%
-              <>
-                <PriceRow
-                  label={`Tarifa de servicio (${Math.round(SERVICE_FEE_RATE * 100)}%)`}
-                  value={`-${formatCurrency(serviceFee)}`}
-                  color={COLORS.muted2}
-                />
-                <View style={styles.divider} />
-                <View style={styles.netRow}>
-                  <Text style={styles.netLabel}>Tu ganancia extra</Text>
-                  <Text style={styles.netValue}>{formatCurrency(groupEarnings)}</Text>
-                </View>
-              </>
-            ) : (
-              // Pago en efectivo: el grupo se queda todo
-              <>
-                <PriceRow label="Tarifa de servicio" value="$0 (efectivo)" color={COLORS.muted2} />
-                <View style={styles.divider} />
-                <View style={styles.netRow}>
-                  <Text style={styles.netLabel}>Tu ganancia extra (efectivo)</Text>
-                  <Text style={styles.netValue}>{formatCurrency(totalExtra)}</Text>
-                </View>
-              </>
-            )}
-          </View>
-
-          {/* TOTAL QUE PAGA EL CLIENTE */}
-          <View style={styles.clientPays}>
-            <DollarSign size={18} color={COLORS.green} />
-            <Text style={styles.clientPaysText}>
-              El cliente paga: <Text style={styles.clientPaysAmount}>{formatCurrency(totalExtra)}</Text>
-            </Text>
+            <View style={styles.netRow}>
+              <Text style={styles.netLabel}>Tu ganancia extra</Text>
+              <Text style={styles.netValue}>{formatCurrency(groupEarnings)}</Text>
+            </View>
           </View>
 
           {/* BOTONES */}
           <View style={{ marginTop: 24, marginBottom: 32, gap: 12 }}>
+            {priceUnavailable && (
+              <Text style={styles.priceUnavailableTx}>
+                {priceLoading ? 'Calculando precio…' : 'Precio no disponible para esta reserva'}
+              </Text>
+            )}
             {balanceSufficient ? (
               // Tiene saldo — descuento automático
               <Button
                 label={`Solicitar +${hoursToAdd}h (desde saldo del cliente)`}
                 onPress={handleRequest}
-                loading={loading}
+                loading={loading || (!hasQuotePrices && loadingBalance)}
+                disabled={priceUnavailable}
                 size="lg"
               />
             ) : (
@@ -401,6 +394,7 @@ export default function ExtraHoursScreen({ route, navigation }: any) {
                   label={`💵 Registrar ${hoursToAdd}h en efectivo`}
                   onPress={handleCashRequest}
                   loading={cashLoading}
+                  disabled={priceUnavailable}
                   size="lg"
                 />
               </>
@@ -469,12 +463,12 @@ const styles = StyleSheet.create({
   sectionTitle: { fontFamily: FONTS.title, fontSize: 18, color: COLORS.text, marginBottom: 14 },
   selectorRow:  { flexDirection: 'row', gap: 14, marginBottom: 28 },
   hoursBtn: {
-    flex: 1, alignItems: 'center', paddingVertical: 20,
+    flex: 1, alignItems: 'center', paddingVertical: 12,
     backgroundColor: COLORS.card, borderRadius: RADIUS.lg,
     borderWidth: 1, borderColor: COLORS.border,
   },
   hoursBtnActive: { borderColor: COLORS.green, backgroundColor: COLORS.greenMuted },
-  hoursNum: { fontFamily: FONTS.title, fontSize: 32, color: COLORS.muted2, marginBottom: 4 },
+  hoursNum: { fontFamily: FONTS.title, fontSize: 22, color: COLORS.muted2, marginBottom: 2 },
   hoursNumActive: { color: COLORS.green },
   hoursSub: { fontFamily: FONTS.body, fontSize: 13, color: COLORS.muted },
 
@@ -505,6 +499,7 @@ const styles = StyleSheet.create({
   },
   noBalanceTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: COLORS.orange, marginBottom: 6 },
   noBalanceDesc:  { fontFamily: FONTS.body, fontSize: 13, color: COLORS.muted2, lineHeight: 20 },
+  priceUnavailableTx: { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2, textAlign: 'center' },
 
   // Cash confirmation
   cashConfirmCard: {

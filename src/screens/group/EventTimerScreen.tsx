@@ -1,20 +1,27 @@
-import { ArrowLeft, CheckCircle, Clock, Coffee, ExternalLink, MapPin, MessageCircle, Music2, Navigation } from 'lucide-react-native';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
-import Svg, { Circle } from 'react-native-svg';
+import { ArrowLeft, CheckCircle, Clock, Coffee, CreditCard, ExternalLink, MapPin, MessageCircle, Music2, Navigation, Play } from 'lucide-react-native';
+import { CircleTimerVisual, TimerState } from '../../components/event-timer/CircleTimerVisual';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
+import { useStripe } from '@stripe/stripe-react-native';
+import MapView, { Circle as MapCircle, Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
+import Svg, { Circle, Path, Rect, Text as SvgText } from 'react-native-svg';
 import {
+  ActivityIndicator,
   Alert,
   Animated,
   Image,
   useWindowDimensions,
+  Keyboard,
   Linking,
   Modal,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
+import * as Location from 'expo-location';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
@@ -27,6 +34,32 @@ import { generateBreakSchedule, isPaid } from '../../utils/calculations';
 const RING_R    = 145;
 const RING_SW   = 14;
 const RING_CIRC = 2 * Math.PI * RING_R; // ≈ 910.9
+
+const AnimatedSvgCircle = Animated.createAnimatedComponent(Circle);
+
+const EXTRA_MSI_OPTIONS = [1, 3, 6, 9] as const;
+const EXTRA_MSI_FEE: Record<number, number> = { 1: 0, 3: 0.05, 6: 0.08, 9: 0.11 };
+
+const VisaLogo = () => (
+  <Svg width={38} height={24} viewBox="0 0 38 24">
+    <Rect width={38} height={24} rx={4} fill="#1A1F71" />
+    <SvgText x="19" y="16.5" fontSize="11" fontWeight="bold" fill="white" textAnchor="middle" fontStyle="italic">VISA</SvgText>
+  </Svg>
+);
+const McardLogo = () => (
+  <Svg width={38} height={24} viewBox="0 0 38 24">
+    <Rect width={38} height={24} rx={4} fill="#252525" />
+    <Circle cx="15" cy="12" r="6.5" fill="#EB001B" />
+    <Circle cx="23" cy="12" r="6.5" fill="#F79E1B" />
+    <Path d="M19 6.8a6.5 6.5 0 0 1 0 10.4A6.5 6.5 0 0 1 19 6.8z" fill="#FF5F00" />
+  </Svg>
+);
+const AmexLogo = () => (
+  <Svg width={38} height={24} viewBox="0 0 38 24">
+    <Rect width={38} height={24} rx={4} fill="#2E77BC" />
+    <SvgText x="19" y="16" fontSize="9" fontWeight="bold" fill="white" textAnchor="middle" letterSpacing="1">AMEX</SvgText>
+  </Svg>
+);
 
 // ── OPCIONES DE DESCANSO ──────────────────────────────────────────────
 // desc es función para mostrar tiempos reales según las horas contratadas
@@ -51,15 +84,6 @@ const BREAK_OPTIONS = [
       `Un solo descanso de 15 min a la mitad del evento\n${hours}h contratadas = ${formatMinutes(hours * 60 - 15)} de música + 15 min descanso`,
     clientVisible: true,
     breakMinutesFor: (_hours: number) => 15,
-    totalMinutes: (hours: number) => hours * 60,
-  },
-  {
-    type: 'C',
-    label: '20 min de descanso',
-    desc: (hours: number) =>
-      `Un solo descanso de 20 min a la mitad del evento\n${hours}h contratadas = ${formatMinutes(hours * 60 - 20)} de música + 20 min descanso`,
-    clientVisible: true,
-    breakMinutesFor: (_hours: number) => 20,
     totalMinutes: (hours: number) => hours * 60,
   },
   {
@@ -190,191 +214,181 @@ const pp = StyleSheet.create({
   btnText: { fontFamily: FONTS.bodyMedium, fontSize: 15, color: COLORS.bg },
 });
 
-// ── Celebration overlay ───────────────────────────────────────────────────────
 
-const EMOJIS = ['🎉','🎊','🎵','🎶','✨','🎸','🔥','💫','⭐','🎤'];
+// ── Map helpers (espejo de IncomingExpressScreen) ─────────────────────────────
+const CITY_COORDS: Record<string, { lat: number; lng: number }> = {
+  'guadalajara':      { lat: 20.6597, lng: -103.3496 },
+  'zapopan':          { lat: 20.7167, lng: -103.3833 },
+  'tlaquepaque':      { lat: 20.6419, lng: -103.3117 },
+  'tonalá':           { lat: 20.6236, lng: -103.2347 },
+  'tonala':           { lat: 20.6236, lng: -103.2347 },
+  'ciudad de méxico': { lat: 19.4326, lng: -99.1332 },
+  'cdmx':             { lat: 19.4326, lng: -99.1332 },
+  'monterrey':        { lat: 25.6866, lng: -100.3161 },
+  'puebla':           { lat: 19.0414, lng: -98.2063 },
+  'tijuana':          { lat: 32.5149, lng: -117.0382 },
+  'león':             { lat: 21.1221, lng: -101.6826 },
+  'leon':             { lat: 21.1221, lng: -101.6826 },
+  'aguascalientes':   { lat: 21.8818, lng: -102.2916 },
+  'querétaro':        { lat: 20.5888, lng: -100.3899 },
+  'queretaro':        { lat: 20.5888, lng: -100.3899 },
+  'mérida':           { lat: 20.9674, lng: -89.5926 },
+  'merida':           { lat: 20.9674, lng: -89.5926 },
+  'cancún':           { lat: 21.1619, lng: -86.8515 },
+  'cancun':           { lat: 21.1619, lng: -86.8515 },
+  'veracruz':         { lat: 19.1738, lng: -96.1342 },
+  'puerto vallarta':  { lat: 20.6534, lng: -105.2253 },
+  'hermosillo':       { lat: 29.0729, lng: -110.9559 },
+  'chihuahua':        { lat: 28.6330, lng: -106.0691 },
+  'oaxaca':           { lat: 17.0732, lng: -96.7266 },
+  'morelia':          { lat: 19.7060, lng: -101.1950 },
+  'saltillo':         { lat: 25.4270, lng: -101.0034 },
+  'durango':          { lat: 24.0277, lng: -104.6532 },
+  'mazatlán':         { lat: 23.2494, lng: -106.4111 },
+  'mazatlan':         { lat: 23.2494, lng: -106.4111 },
+  'culiacán':         { lat: 24.8091, lng: -107.3940 },
+  'culiacan':         { lat: 24.8091, lng: -107.3940 },
+};
+function idHash(id: string): number {
+  let h = 5381;
+  for (let i = 0; i < id.length; i++) h = ((h << 5) + h + id.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+function privacyOffset(id: string, city: string, municipio?: string | null) {
+  const key = (municipio ?? city).toLowerCase().trim();
+  const base =
+    CITY_COORDS[key] ??
+    Object.entries(CITY_COORDS).find(([k]) => key.includes(k) || k.includes(key))?.[1] ??
+    { lat: 20.6597, lng: -103.3496 };
+  const h = idHash(id);
+  const dlat = ((h % 800) - 400) / 100_000;
+  const dlng = (((h * 31) % 800) - 400) / 100_000;
+  return { latitude: base.lat + dlat, longitude: base.lng + dlng };
+}
+function buildRoute(
+  origin: { latitude: number; longitude: number },
+  dest:   { latitude: number; longitude: number },
+) {
+  const pts = [];
+  for (let i = 0; i <= 8; i++) {
+    const t    = i / 8;
+    const lat  = origin.latitude  + (dest.latitude  - origin.latitude)  * t;
+    const lng  = origin.longitude + (dest.longitude - origin.longitude) * t;
+    const curve = Math.sin(t * Math.PI) * 0.0025;
+    pts.push({ latitude: lat - (dest.longitude - origin.longitude) * curve,
+               longitude: lng + (dest.latitude  - origin.latitude)  * curve });
+  }
+  return pts;
+}
+function lerpRoute(route: { latitude: number; longitude: number }[], t: number) {
+  const clamped = Math.max(0, Math.min(1, t));
+  const idx = clamped * (route.length - 1);
+  const lo  = Math.floor(idx);
+  const hi  = Math.min(route.length - 1, lo + 1);
+  const frac = idx - lo;
+  return {
+    latitude:  route[lo].latitude  + (route[hi].latitude  - route[lo].latitude)  * frac,
+    longitude: route[lo].longitude + (route[hi].longitude - route[lo].longitude) * frac,
+  };
+}
 
-function CelebrationOverlay({ isOwner, userRole, payouts, currentUserId, onOfferExtra, onClose }: {
-  isOwner: boolean;
-  userRole?: string;
-  payouts: EventPayout[];
-  currentUserId: string | null;
-  onOfferExtra: () => void;
-  onClose: () => void;
-}) {
-  const myPayout = payouts.find(p => p.user_id === currentUserId);
-  const particles = useRef(Array.from({ length: 24 }, () => ({
-    x: new Animated.Value(0),
-    y: new Animated.Value(0),
-    opacity: new Animated.Value(0),
-    scale: new Animated.Value(0),
-  }))).current;
-
-  const titleScale = useRef(new Animated.Value(0.4)).current;
-  const titleOpacity = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    // Title entrance
-    Animated.parallel([
-      Animated.spring(titleScale, { toValue: 1, friction: 5, useNativeDriver: true }),
-      Animated.timing(titleOpacity, { toValue: 1, duration: 400, useNativeDriver: true }),
-    ]).start();
-
-    // Burst particles
-    particles.forEach((p, i) => {
-      const angle = (i / particles.length) * 2 * Math.PI;
-      const dist = 120 + Math.random() * 80;
-      Animated.sequence([
-        Animated.delay(i * 30),
-        Animated.parallel([
-          Animated.timing(p.opacity, { toValue: 1, duration: 150, useNativeDriver: true }),
-          Animated.spring(p.scale,   { toValue: 1 + Math.random() * 0.8, friction: 4, useNativeDriver: true }),
-          Animated.timing(p.x,       { toValue: Math.cos(angle) * dist, duration: 600, useNativeDriver: true }),
-          Animated.timing(p.y,       { toValue: Math.sin(angle) * dist, duration: 600, useNativeDriver: true }),
-        ]),
-        Animated.timing(p.opacity, { toValue: 0, duration: 400, useNativeDriver: true }),
-      ]).start();
-    });
-  }, []);
-
+function RouteParticle({ route, delay, emoji = '🎵' }: { route: { latitude: number; longitude: number }[]; delay: number; emoji?: string }) {
+  const [pos, setPos] = React.useState(lerpRoute(route, 0));
+  const [started, setStarted] = React.useState(false);
+  React.useEffect(() => {
+    if (route.length < 2) return;
+    let startMs: number | null = null;
+    const DURATION = 4000;
+    const THROTTLE = 120;
+    let lastUpdate = 0;
+    let frameId: number;
+    const beginAt = Date.now() + delay;
+    const tick = () => {
+      frameId = requestAnimationFrame(tick);
+      const now = Date.now();
+      if (now < beginAt) return;
+      if (startMs === null) { startMs = now; setStarted(true); }
+      if (now - lastUpdate < THROTTLE) return;
+      lastUpdate = now;
+      setPos(lerpRoute(route, ((now - startMs) % DURATION) / DURATION));
+    };
+    frameId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frameId);
+  }, [route, delay]);
+  if (!started) return null;
   return (
-    <View style={cel.overlay}>
-      {/* Burst particles */}
-      <View style={cel.burstCenter} pointerEvents="none">
-        {particles.map((p, i) => (
-          <Animated.Text
-            key={i}
-            style={[
-              cel.particle,
-              { transform: [{ translateX: p.x }, { translateY: p.y }, { scale: p.scale }], opacity: p.opacity },
-            ]}
-          >
-            {EMOJIS[i % EMOJIS.length]}
-          </Animated.Text>
-        ))}
-      </View>
+    <Marker coordinate={pos} anchor={{ x: 0.5, y: 0.5 }} tracksViewChanges>
+      <Text style={etMapSt.noteEmoji}>{emoji}</Text>
+    </Marker>
+  );
+}
 
-      <Animated.View style={[cel.content, { transform: [{ scale: titleScale }], opacity: titleOpacity }]}>
-        <Text style={cel.bigEmoji}>🎉</Text>
-        <Text style={cel.title}>¡Evento finalizado!</Text>
-
-        {/* Pago del usuario actual */}
-        {myPayout && (
-          <View style={cel.myPayoutBox}>
-            <Text style={cel.myPayoutLabel}>💰 Tu pago ha sido acreditado</Text>
-            <Text style={cel.myPayoutAmount}>${myPayout.amount.toLocaleString()}</Text>
-            <Text style={cel.myPayoutSub}>en tu cartera</Text>
-          </View>
-        )}
-
-        {/* Cliente: cobro automático */}
-        {userRole === 'client' && (
-          <View style={cel.clientNoticeBox}>
-            <Text style={cel.clientNoticeText}>
-              💳 El pago de este evento fue procesado con Stripe. Tu saldo se libera automáticamente al finalizar.
-            </Text>
-          </View>
-        )}
-
-        {/* Distribución a todos (solo dueño) */}
-        {isOwner && payouts.length > 0 && (
-          <View style={cel.payoutsBox}>
-            <Text style={cel.payoutsTitle}>Distribución del pago</Text>
-            {payouts.map(p => {
-              const roleLabel = p.role === 'owner' ? 'Dueño' : p.role === 'member' ? 'Integrante' : 'Invitado';
-              return (
-                <View key={p.id} style={cel.payoutRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={cel.payoutName} numberOfLines={1}>{(p.profile as any)?.full_name ?? 'Usuario'}</Text>
-                    <Text style={cel.payoutRole}>{roleLabel}</Text>
-                  </View>
-                  <Text style={[cel.payoutAmount, { color: p.payout_status === 'paid' ? COLORS.green : COLORS.gold }]}>
-                    ${p.amount.toLocaleString()}
-                  </Text>
-                </View>
-              );
-            })}
-          </View>
-        )}
-
-        {/* Mensaje genérico si no hay payouts cargados */}
-        {payouts.length === 0 && !userRole && (
-          <Text style={cel.sub}>El pago ha sido procesado automáticamente.{'\n'}¡Gracias por usar Daricefy!</Text>
-        )}
-
-        {isOwner && (
-          <Pressable style={cel.btnExtra} onPress={onOfferExtra}>
-            <Text style={cel.btnExtraText}>🎵 Ofrecer horas extra</Text>
-          </Pressable>
-        )}
-
-        <Pressable style={cel.btnClose} onPress={onClose}>
-          <Text style={cel.btnCloseText}>Volver al inicio</Text>
-        </Pressable>
-      </Animated.View>
+function DestPinMarker() {
+  const ring1       = React.useRef(new Animated.Value(1)).current;
+  const ring2       = React.useRef(new Animated.Value(0.6)).current;
+  const ring3       = React.useRef(new Animated.Value(0.3)).current;
+  const glowScale   = React.useRef(new Animated.Value(1)).current;
+  const glowOpacity = React.useRef(new Animated.Value(0.08)).current;
+  React.useEffect(() => {
+    const pulse = (val: Animated.Value, dur: number, delay: number) =>
+      Animated.loop(Animated.sequence([
+        Animated.delay(delay),
+        Animated.timing(val, { toValue: 1.9, duration: dur, useNativeDriver: true }),
+        Animated.timing(val, { toValue: 1,   duration: dur, useNativeDriver: true }),
+      ]));
+    pulse(ring1, 1400, 0).start();
+    pulse(ring2, 1400, 350).start();
+    pulse(ring3, 1400, 700).start();
+    Animated.loop(Animated.sequence([
+      Animated.parallel([
+        Animated.timing(glowScale,   { toValue: 1.3,  duration: 2000, useNativeDriver: true }),
+        Animated.timing(glowOpacity, { toValue: 0.20, duration: 2000, useNativeDriver: true }),
+      ]),
+      Animated.parallel([
+        Animated.timing(glowScale,   { toValue: 0.85, duration: 2000, useNativeDriver: true }),
+        Animated.timing(glowOpacity, { toValue: 0.05, duration: 2000, useNativeDriver: true }),
+      ]),
+    ])).start();
+  }, []);
+  return (
+    <View style={etMapSt.markerWrap}>
+      <Animated.View style={[etMapSt.glowBase, { opacity: glowOpacity, transform: [{ scale: glowScale }] }]} />
+      <Animated.View style={[etMapSt.pulse, { width: 80, height: 80, borderRadius: 40, opacity: 0.12, transform: [{ scale: ring1 }] }]} />
+      <Animated.View style={[etMapSt.pulse, { width: 52, height: 52, borderRadius: 26, opacity: 0.25, transform: [{ scale: ring2 }] }]} />
+      <Animated.View style={[etMapSt.pulse, { width: 28, height: 28, borderRadius: 14, opacity: 0.45, transform: [{ scale: ring3 }] }]} />
+      <View style={etMapSt.pulseCenter} />
     </View>
   );
 }
 
-const cel = StyleSheet.create({
-  overlay: {
-    flex: 1, backgroundColor: COLORS.bg,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  burstCenter: {
-    position: 'absolute', alignItems: 'center', justifyContent: 'center',
-    width: 0, height: 0, top: '40%', left: '50%',
-  },
-  particle: { position: 'absolute', fontSize: 26 },
-  content: { alignItems: 'center', paddingHorizontal: 32 },
-  bigEmoji: { fontSize: 64, marginBottom: 12 },
-  title: {
-    fontFamily: FONTS.title, fontSize: 34, color: COLORS.text,
-    textAlign: 'center', marginBottom: 12,
-  },
-  sub: {
-    fontFamily: FONTS.body, fontSize: 15, color: COLORS.muted2,
-    textAlign: 'center', lineHeight: 24, marginBottom: 36,
-  },
-  btnExtra: {
-    width: '100%', backgroundColor: COLORS.green, borderRadius: RADIUS.lg,
-    paddingVertical: 16, alignItems: 'center', marginBottom: 12,
-  },
-  btnExtraText: { fontFamily: FONTS.bodySemiBold, fontSize: 16, color: COLORS.bg },
-  btnClose: {
-    width: '100%', backgroundColor: COLORS.card, borderRadius: RADIUS.lg,
-    borderWidth: 1, borderColor: COLORS.border,
-    paddingVertical: 16, alignItems: 'center',
-  },
-  btnCloseText: { fontFamily: FONTS.bodyMedium, fontSize: 15, color: COLORS.muted2 },
-  myPayoutBox: {
-    width: '100%', backgroundColor: 'rgba(0,230,118,0.10)',
-    borderRadius: RADIUS.lg, borderWidth: 1, borderColor: 'rgba(0,230,118,0.3)',
-    padding: 18, alignItems: 'center', marginBottom: 16,
-  },
-  myPayoutLabel: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.green, marginBottom: 4 },
-  myPayoutAmount: { fontFamily: FONTS.title, fontSize: 42, color: COLORS.green },
-  myPayoutSub: { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2, marginTop: 2 },
-  clientNoticeBox: {
-    width: '100%', backgroundColor: 'rgba(66,133,244,0.10)',
-    borderRadius: RADIUS.lg, borderWidth: 1, borderColor: 'rgba(66,133,244,0.3)',
-    padding: 14, marginBottom: 20,
-  },
-  clientNoticeText: { fontFamily: FONTS.body, fontSize: 13, color: '#4285F4', textAlign: 'center', lineHeight: 20 },
-  payoutsBox: {
-    width: '100%', backgroundColor: 'rgba(255,255,255,0.04)',
-    borderRadius: RADIUS.lg, borderWidth: 1, borderColor: COLORS.border,
-    padding: 14, marginBottom: 20,
-  },
-  payoutsTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 12, color: COLORS.muted2, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 10 },
-  payoutRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6 },
-  payoutName: { fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.text },
-  payoutRole: { fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted, marginTop: 1 },
-  payoutAmount: { fontFamily: FONTS.bodySemiBold, fontSize: 15 },
+const etMapSt = StyleSheet.create({
+  markerWrap:  { width: 100, height: 100, alignItems: 'center', justifyContent: 'center' },
+  glowBase:    { position: 'absolute', width: 120, height: 120, borderRadius: 60, backgroundColor: 'rgba(0,230,118,0.25)', borderWidth: 1.5, borderColor: 'rgba(0,230,118,0.35)' },
+  pulse:       { position: 'absolute', backgroundColor: 'rgba(0,230,118,0.18)', borderWidth: 1, borderColor: 'rgba(0,230,118,0.4)' },
+  pulseCenter: { width: 12, height: 12, borderRadius: 6, backgroundColor: '#00E676', shadowColor: '#00E676', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 1, shadowRadius: 10, elevation: 8 },
+  noteEmoji:   { fontSize: 22, lineHeight: 26 },
+  originDot:   { width: 20, height: 20, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.15)', borderWidth: 2, borderColor: '#fff', alignItems: 'center', justifyContent: 'center' },
+  originInner: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#fff' },
 });
+// ─────────────────────────────────────────────────────────────────────────────
+
+function timeAgo(isoStr: string): string {
+  const diff = new Date().getTime() - new Date(isoStr).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return 'ahora';
+  if (m < 60) return `hace ${m} min`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `hace ${h}h`;
+  return `hace ${Math.floor(h / 24)} días`;
+}
 
 export default function EventTimerScreen({ route, navigation }: any) {
-  const { reservation, readOnly = false, userRole } = route.params;
+  if (!route?.params?.reservation) {
+    navigation.goBack();
+    return null;
+  }
+  const { reservation, userRole } = route.params;
+  const readOnly: boolean = route.params.readOnly ?? route.params.readonly ?? false;
   const { width: screenWidth } = useWindowDimensions();
   // Ring responsivo: máx 320px, mínimo 20px de padding lateral
   const RING_SIZE = Math.min(screenWidth * 0.80, 320);
@@ -384,30 +398,49 @@ export default function EventTimerScreen({ route, navigation }: any) {
   // Cotización en vivo (cuando route.params.reservation no trae quote)
   const [liveQuote, setLiveQuote] = useState<any>(reservation.quote ?? null);
 
-  // Horas contratadas: cotización (live o en params) → paquete → hours_count (express/quote) → fallback 3h
+  // Horas contratadas: hours_count (definitivo) → cotización → paquete → fallback 3h
+  // hours_count va primero: es el valor contractual real de la reserva.
+  // quote/liveQuote son solo respaldo por si la reserva no trae hours_count.
   const contractHours: number = useMemo(() =>
+    (reservation.hours_count != null ? Number(reservation.hours_count) : null) ??
     reservation.quote?.duration_hours ??
     liveQuote?.duration_hours ??
-    reservation.package?.duration_hours ??
-    (reservation.hours_count != null ? Number(reservation.hours_count) : null) ??
     3
   , [liveQuote]);
 
+  const clientExtraOpts = useMemo(() => {
+    const q = liveQuote ?? reservation.quote;
+    return [
+      { hours: 1, price: (q?.overtime_1h_price ?? 0) as number },
+      { hours: 2, price: (q?.overtime_2h_price ?? 0) as number },
+      { hours: 3, price: (q?.overtime_3h_price ?? 0) as number },
+    ].filter(o => o.price > 0);
+  }, [liveQuote, reservation.quote]);
+
+  const { initPaymentSheet, presentPaymentSheet } = useStripe();
+
   const [elapsed, setElapsed] = useState(0);
-  const [isRunning, setIsRunning] = useState(false);
+  // Inicializar isRunning sincrónico para evitar el flash gris en el primer render.
+  // El useEffect posterior confirma el estado y arranca el tick.
+  const [isRunning, setIsRunning] = useState(
+    () => !!reservation.event_started_at &&
+          reservation.status !== 'completed' &&
+          !reservation.event_ended_at
+  );
   const [startedAt, setStartedAt] = useState<Date | null>(null);
   const [preEventCountdown, setPreEventCountdown] = useState('');
   const [loading, setLoading] = useState(false);
   const [paymentPending, setPaymentPending] = useState(false);
   const [paymentFailReason, setPaymentFailReason] = useState('');
   const isAlreadyDone = reservation.status === 'completed' || !!reservation.event_ended_at;
-  const [showCelebration, setShowCelebration] = useState(isAlreadyDone);
+
   const [invitedTalents, setInvitedTalents] = useState<TocadaTalent[]>([]);
   const [payouts, setPayouts] = useState<EventPayout[]>([]);
 
   const [, setMemberEarning] = useState<number | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [extraHoursAdded, setExtraHoursAdded] = useState(0);
+  const [extraHoursLoaded, setExtraHoursLoaded] = useState(false);
   const [groupMemberIds, setGroupMemberIds] = useState<string[]>([]);
   const [unreadMessages, setUnreadMessages] = useState(0);
   const [showGroupConfirmModal, setShowGroupConfirmModal] = useState(false);
@@ -417,11 +450,35 @@ export default function EventTimerScreen({ route, navigation }: any) {
   const [breakType, setBreakType] = useState<string>(reservation.break_type ?? '');
   const [hasArrived, setHasArrived] = useState<boolean>(!!reservation.group_arrived_at);
   const [arrivedAt, setArrivedAt] = useState<string | null>(reservation.group_arrived_at ?? null);
+  const [showArrivalCodeModal, setShowArrivalCodeModal] = useState(false);
+  const [arrivalCodeInput, setArrivalCodeInput] = useState(['', '', '', '']);
+  const [codeLoading, setCodeLoading] = useState(false);
+  const codeRef0 = useRef<any>(null);
+  const codeRef1 = useRef<any>(null);
+  const codeRef2 = useRef<any>(null);
+  const codeRef3 = useRef<any>(null);
   const [eventLatLng, setEventLatLng] = useState<{ lat: number; lng: number } | null>(null);
+  const [approxDest,  setApproxDest]  = useState<{ latitude: number; longitude: number } | null>(null);
+  const [groupOrigin, setGroupOrigin] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [routePts,    setRoutePts]    = useState<{ latitude: number; longitude: number }[]>([]);
+  const mapRef = useRef<MapView>(null);
   const [showBreakModal, setShowBreakModal] = useState(false);
+  const [pendingStartAfterBreak, setPendingStartAfterBreak] = useState(false);
+  const [showClientNearEndModal, setShowClientNearEndModal] = useState(false);
+  const clientNearEndShownRef = useRef(false);
+  const partialExtraReleasedRef = useRef(false);
   const [showEndModal, setShowEndModal] = useState(false);
+  const [showMsiModal, setShowMsiModal] = useState(false);
+  const [msiPendingChoice, setMsiPendingChoice] = useState<{ hours: number; price: number } | null>(null);
+  const [msiSelectedMonths, setMsiSelectedMonths] = useState<number>(1);
+  const [pendingPaymentExtra, setPendingPaymentExtra] = useState<{
+    id: string; hours: number; price: number; msiMonths: number;
+  } | null>(null);
+  const [stripeLoading, setStripeLoading] = useState(false);
   const [ratingQueue, setRatingQueue]       = useState<RatingSubject[]>([]);
   const [currentRating, setCurrentRating]   = useState<RatingSubject | null>(null);
+  const [hasAlreadyRated, setHasAlreadyRated] = useState(false);
+  const [reviewReceived, setReviewReceived] = useState<{ rating: number; comment?: string; createdAt?: string } | null>(null);
   const [payoutInfo, setPayoutInfo] = useState<{
     payout_status:  'held' | 'released' | 'blocked' | 'refunded' | null;
     payment_status: string | null;
@@ -434,21 +491,79 @@ export default function EventTimerScreen({ route, navigation }: any) {
     if (liveQuote || !reservation.quote_id) return;
     supabase
       .from('quotes')
-      .select('id, overtime_1h_price, overtime_2h_price, overtime_3h_price, duration_hours, event_type, guests_count, notes')
+      .select('id, overtime_1h_price, overtime_2h_price, overtime_3h_price, duration_hours, event_type, notes')
       .eq('id', reservation.quote_id)
       .maybeSingle()
       .then(({ data }) => { if (data) setLiveQuote(data); });
   }, []);
 
+  // Pre-check: two separate queries.
+  // 1. gaveQuery  — ¿ya califiqué al otro? → hasAlreadyRated (controla modal)
+  // 2. receivedQuery — ¿qué me dieron? → reviewReceived (muestra tarjeta verde)
+  useEffect(() => {
+    if (!reservation?.id) return;
+    (async () => {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const myUserId = sessionData?.session?.user.id ?? '';
+
+      // ── Query 1: ¿Ya di yo una calificación? ─────────────────────────
+      let alreadyRated = false;
+      if (userRole === 'client') {
+        const { data } = await supabase.from('reviews')
+          .select('id').eq('reservation_id', reservation.id).limit(1);
+        alreadyRated = !!data?.length;
+      } else if (userRole !== 'talent') {
+        const { data } = await supabase.from('client_reviews')
+          .select('id').eq('reservation_id', reservation.id)
+          .eq('group_id', reservation.group_id ?? '').limit(1);
+        alreadyRated = !!data?.length;
+      }
+      if (alreadyRated) setHasAlreadyRated(true);
+
+      // ── Query 2: ¿Me dieron una calificación a mí? ───────────────────
+      let receivedData: { rating: number; comment: string | null; created_at: string } | null = null;
+      if (userRole === 'client') {
+        const { data } = await supabase.from('client_reviews')
+          .select('rating, comment, created_at')
+          .eq('reservation_id', reservation.id).limit(1);
+        receivedData = data?.[0] ?? null;
+      } else if (userRole === 'talent') {
+        const { data } = await supabase.from('talent_reviews')
+          .select('rating, comment, created_at')
+          .eq('reservation_id', reservation.id)
+          .eq('talent_id', myUserId).limit(1);
+        receivedData = data?.[0] ?? null;
+      } else {
+        const { data } = await supabase.from('reviews')
+          .select('rating, comment, created_at')
+          .eq('reservation_id', reservation.id).limit(1);
+        receivedData = data?.[0] ?? null;
+      }
+      if (receivedData) {
+        setReviewReceived({
+          rating: receivedData.rating,
+          comment: receivedData.comment ?? undefined,
+          createdAt: receivedData.created_at ?? undefined,
+        });
+      }
+
+      if (isAlreadyDone && !alreadyRated && userRole !== 'talent') {
+        startRatingFlow();
+      }
+    })();
+  }, [reservation?.id]);
+
   // Cargar estado fresco desde DB al montar (resuelve re-navegación)
   useEffect(() => {
     supabase
       .from('reservations')
-      .select('status, event_ended_at, event_started_at, group_arrived_at')
+      .select('status, event_ended_at, event_started_at, group_arrived_at, break_type')
       .eq('id', reservation.id)
       .single()
       .then(({ data }) => {
         if (!data) return;
+        // Restaurar tipo de descanso (BUG 3 fix: el nav param puede traerlo vacío)
+        if (data.break_type) setBreakType(data.break_type);
         // Restaurar llegada
         if (data.group_arrived_at) {
           setHasArrived(true);
@@ -458,25 +573,23 @@ export default function EventTimerScreen({ route, navigation }: any) {
           autoFinishedRef.current = true;
           if (intervalRef.current) clearInterval(intervalRef.current);
           setIsRunning(false);
-          setShowCelebration(true);
+          // BUG E: cuando el grupo re-abre un evento completado, elapsed=0 (no hay tick).
+          // Seteamos elapsed con la duración real para que finalElapsedSeconds muestre
+          // el total correcto (ej. 5:00:00 con 1h extra) en vez del fallback totalMusicSecs.
+          if (data.event_ended_at && data.event_started_at) {
+            setElapsed(Math.max(0, Math.floor(
+              (new Date(data.event_ended_at).getTime() - new Date(data.event_started_at).getTime()) / 1000
+            )));
+          }
         } else if (data.event_started_at) {
-          // Reanudar timer si el evento sigue en progreso (dentro del tiempo contratado)
+          // Reanudar timer si el evento sigue in_progress en DB.
+          // No se limita por contractHours: extra hours pueden extender el evento.
+          // El auto-stop real lo maneja L1312 con totalMusicSecs (incluye extras).
           const elapsedSecs = Math.floor((Date.now() - new Date(data.event_started_at).getTime()) / 1000);
-          if (elapsedSecs >= 0 && elapsedSecs < contractHours * 3600) {
+          if (elapsedSecs >= 0) {
             setStartedAt(new Date(data.event_started_at));
             setElapsed(elapsedSecs);
             setIsRunning(true);
-          } else if (!readOnly && !autoFinishedRef.current && elapsedSecs >= 0) {
-            // Recovery: tiempo agotado mientras la app estuvo cerrada — cerrar evento en DB
-            autoFinishedRef.current = true;
-            supabase.from('reservations').update({
-              status: 'completed',
-              finished_at: new Date().toISOString(),
-              actual_duration_minutes: Math.floor(elapsedSecs / 60),
-            }).eq('id', reservation.id).then(() => {
-              supabase.rpc('release_group_earnings_atomic', { p_reservation_id: reservation.id });
-            });
-            setShowCelebration(true);
           }
         } else if (
           !readOnly &&
@@ -493,6 +606,26 @@ export default function EventTimerScreen({ route, navigation }: any) {
         }
       });
   }, []);
+
+  // Restaurar estado de llegada y descanso al volver a la pantalla
+  // (native-stack mantiene el componente montado: useFocusEffect re-corre en cada focus)
+  useFocusEffect(
+    useCallback(() => {
+      supabase
+        .from('reservations')
+        .select('group_arrived_at, break_type')
+        .eq('id', reservation.id)
+        .single()
+        .then(({ data }) => {
+          if (!data) return;
+          if (data.break_type) setBreakType(data.break_type);
+          if (data.group_arrived_at) {
+            setHasArrived(true);
+            setArrivedAt(data.group_arrived_at);
+          }
+        });
+    }, [reservation.id])
+  );
 
   // Ticker para mantener `now` actualizado (para canStartNow y auto-start)
   useEffect(() => {
@@ -522,8 +655,10 @@ export default function EventTimerScreen({ route, navigation }: any) {
   }, [now, hasArrived]);
 
 
-  const progressAnim = useRef(new Animated.Value(0)).current;
-  const pulseAnim    = useRef(new Animated.Value(1)).current;
+  const progressAnim      = useRef(new Animated.Value(0)).current;
+  const pulseAnim         = useRef(new Animated.Value(1)).current;
+  const ringColorAnim     = useRef(new Animated.Value(0)).current;
+  const ringColorPhaseRef = useRef(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const sentMilestones = useRef<Set<string>>(new Set());
   const warned15MinRef  = useRef(false);
@@ -532,6 +667,10 @@ export default function EventTimerScreen({ route, navigation }: any) {
   const autoStartReadyRef = useRef(false);
   const warned30MinRef = useRef(false);
   const autoFinishedRef = useRef(false);
+  const ownerIdRef = useRef<string | null>(null);
+  // Trackea qué IDs de extra_hours ya sumamos a extraHoursAdded (evita doble conteo
+  // cuando el mismo row recibe múltiples UPDATEs mientras status='accepted').
+  const countedExtraIds = useRef<Set<string>>(new Set());
   const breakEndWarnedSegs = useRef<Set<number>>(new Set());
   const extraHourStartWarnedSegs = useRef<Set<number>>(new Set());
 
@@ -597,16 +736,18 @@ export default function EventTimerScreen({ route, navigation }: any) {
     return music;
   }, [elapsed, schedule]);
 
-
+  // ── Derived timing state (needed before useEffects) ─────────────────────
+  const remaining  = Math.max(0, totalMusicSecs - musicElapsed);
+  const nearEnd    = remaining <= 900 && remaining > 0;
 
   useEffect(() => {
     if (reservation.event_started_at) {
       const start    = new Date(reservation.event_started_at);
       const nowSecs  = Math.floor((Date.now() - start.getTime()) / 1000);
-      const approxDuration = contractHours * 3600;
+      // isAlreadyOver: confiar solo en status/event_ended_at de DB
+      // (extra hours pueden extender el evento más allá de contractHours)
       const isAlreadyOver  = reservation.status === 'completed'
-        || !!reservation.event_ended_at
-        || nowSecs >= approxDuration;
+        || !!reservation.event_ended_at;
 
       setStartedAt(start);
       autoFinishedRef.current = isAlreadyOver;
@@ -617,7 +758,6 @@ export default function EventTimerScreen({ route, navigation }: any) {
         setElapsed(nowSecs);
         startTick(start);
       }
-      // Si ya terminó, dejamos showCelebration en su valor inicial (isAlreadyDone)
     }
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
   }, []);
@@ -643,6 +783,12 @@ export default function EventTimerScreen({ route, navigation }: any) {
           setStartedAt(start);
           setIsRunning(true);
           startTick(start);
+        }
+        // Bug 5: cliente ve "en curso" aunque el grupo ya finalizó
+        if (upd.status === 'completed' || upd.event_ended_at) {
+          setIsRunning(false);
+          if (intervalRef.current) clearInterval(intervalRef.current);
+          startRatingFlow();
         }
       })
       .subscribe();
@@ -713,18 +859,61 @@ export default function EventTimerScreen({ route, navigation }: any) {
 
   // ── Cargar horas extra aceptadas al montar + realtime ────────────────────
   useEffect(() => {
-    // Carga inicial
+    // Carga inicial — incluir 'paid' además de 'accepted' para Stripe flow.
+    // Registramos los IDs cargados en countedExtraIds para evitar doble conteo
+    // si el realtime UPDATE dispara después por el mismo row.
     supabase
       .from('extra_hours')
-      .select('hours_added')
+      .select('id, hours_added')
       .eq('reservation_id', reservation.id)
-      .eq('status', 'accepted')
+      .in('status', ['accepted', 'paid'])
       .then(({ data }) => {
         if (data && data.length > 0) {
           const total = data.reduce((s: number, r: any) => s + (r.hours_added ?? 0), 0);
+          data.forEach((r: any) => { if (r.id) countedExtraIds.current.add(r.id); });
           setExtraHoursAdded(total);
         }
+        setExtraHoursLoaded(true);
       });
+
+    // Restaurar estado si el cliente reabre la pantalla
+    if (readOnly) {
+      supabase
+        .from('extra_hours')
+        .select('id, hours_added, total_extra_cost, status, msi_months')
+        .eq('reservation_id', reservation.id)
+        .in('status', ['awaiting_group_confirmation', 'pending_payment'])
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+        .then(({ data: pending }) => {
+          if (!pending) return;
+          if (pending.status === 'pending_payment') {
+            setPendingPaymentExtra({
+              id: pending.id,
+              hours: pending.hours_added,
+              price: pending.total_extra_cost,
+              msiMonths: pending.msi_months ?? 1,
+            });
+          } else {
+            setClientPendingExtra({ hours: pending.hours_added, price: pending.total_extra_cost });
+          }
+        });
+    } else {
+      // Grupo: mostrar modal si llegó desde notificación y el INSERT de Realtime ya fue perdido
+      supabase
+        .from('extra_hours')
+        .select('*')
+        .eq('reservation_id', reservation.id)
+        .eq('status', 'awaiting_group_confirmation')
+        .maybeSingle()
+        .then(({ data: pendingRow }) => {
+          if (pendingRow) {
+            setPendingExtraRow(pendingRow);
+            setShowGroupConfirmModal(true);
+          }
+        });
+    }
 
     // Realtime: nuevo registro de horas extra (cliente solicitó)
     const ch = supabase
@@ -736,7 +925,10 @@ export default function EventTimerScreen({ route, navigation }: any) {
         const row = payload.new;
         if (row.status === 'accepted') {
           // Path A (grupo oferta directa ya aceptada por cliente)
-          setExtraHoursAdded(prev => prev + (row.hours_added ?? 0));
+          if (row.id && !countedExtraIds.current.has(row.id)) {
+            countedExtraIds.current.add(row.id);
+            setExtraHoursAdded(prev => prev + (row.hours_added ?? 0));
+          }
         } else if (row.status === 'awaiting_group_confirmation') {
           if (!readOnly) {
             // Grupo ve el modal de confirmación con desglose de comisión
@@ -752,9 +944,35 @@ export default function EventTimerScreen({ route, navigation }: any) {
       }, (payload: any) => {
         const row = payload.new;
         if (row.status === 'accepted') {
-          // Grupo aceptó: actualizar anillo para cliente + músicos vía Realtime
-          setExtraHoursAdded(prev => prev + (row.hours_added ?? 0));
+          // Grupo aceptó (balance flow): actualizar anillo para cliente + músicos vía Realtime
+          if (row.id && !countedExtraIds.current.has(row.id)) {
+            countedExtraIds.current.add(row.id);
+            setExtraHoursAdded(prev => prev + (row.hours_added ?? 0));
+          }
           setClientPendingExtra(null);
+        } else if (row.status === 'pending_payment') {
+          // Grupo aceptó (stripe flow): mostrar banner "Paga ahora" al cliente
+          if (readOnly) {
+            setPendingPaymentExtra({
+              id: row.id,
+              hours: row.hours_added ?? 0,
+              price: row.total_extra_cost ?? 0,
+              msiMonths: row.msi_months ?? 1,
+            });
+            setClientPendingExtra(null);
+          }
+        } else if (row.status === 'paid') {
+          // Pago Stripe confirmado por webhook: actualizar anillo automáticamente
+          if (row.id && !countedExtraIds.current.has(row.id)) {
+            countedExtraIds.current.add(row.id);
+            setExtraHoursAdded(prev => prev + (row.hours_added ?? 0));
+          }
+          setClientPendingExtra(null);
+          setPendingPaymentExtra(null);
+        } else if (row.status === 'rejected' && readOnly) {
+          // Grupo rechazó: limpiar estado de espera del cliente
+          setClientPendingExtra(null);
+          setPendingPaymentExtra(null);
         }
       })
       .subscribe();
@@ -794,12 +1012,13 @@ export default function EventTimerScreen({ route, navigation }: any) {
           .is('event_id', null);
         (invs ?? []).forEach((i: any) => { if (!ids.includes(i.invited_user_id)) ids.push(i.invited_user_id); });
         setGroupMemberIds(ids);
+        ownerIdRef.current = ids[0] ?? null;
       });
   }, []);
 
   // ── Aviso 15 min antes del fin → notificar al cliente ────────────────────
   useEffect(() => {
-    if (!isRunning || sentMilestones.current.has('15min')) return;
+    if (readOnly || !isRunning || sentMilestones.current.has('15min')) return;
     const remaining = Math.max(0, totalSecs - elapsed);
     if (remaining <= 900 && remaining > 0) {
       sentMilestones.current.add('15min');
@@ -816,6 +1035,30 @@ export default function EventTimerScreen({ route, navigation }: any) {
     }
   }, [elapsed, isRunning]);
 
+  // ── Modal horas extra cliente — aparece una sola vez al llegar a nearEnd ────
+  useEffect(() => {
+    if (!isRunning || !nearEnd || userRole !== 'client') return;
+    if (!extraHoursLoaded) return;
+    if (clientNearEndShownRef.current || clientExtraOpts.length === 0) return;
+    if (extraHoursAdded > 0) return;
+    if (pendingPaymentExtra) return;
+    clientNearEndShownRef.current = true;
+    setShowClientNearEndModal(true);
+  }, [nearEnd, isRunning, extraHoursAdded, extraHoursLoaded]);
+
+  // ── Liberar 50% extras al cruzar el tiempo contractual (grupo owner) ────────
+  useEffect(() => {
+    if (!isRunning || readOnly) return;
+    if (partialExtraReleasedRef.current) return;
+    if (elapsed < contractHours * 3600) return;
+    if (extraHoursAdded === 0) return;
+    partialExtraReleasedRef.current = true;
+    supabase.rpc('release_extra_hours_partial', { p_reservation_id: reservation.id })
+      .then(({ error }) => {
+        if (error) console.warn('[ExtraPartial] Error:', error.message);
+      });
+  }, [elapsed, isRunning, extraHoursAdded]);
+
   // ── Aviso a las 2 horas → oferta de horas extra al cliente ───────────────
   useEffect(() => {
     if (!isRunning || sentMilestones.current.has('2h') || readOnly) return;
@@ -823,8 +1066,7 @@ export default function EventTimerScreen({ route, navigation }: any) {
       sentMilestones.current.add('2h');
       warned2hRef.current = true;
       if (reservation.client_id) {
-        const pricePerHour = reservation.package?.price_per_hour
-          ?? Math.round((reservation.total_price ?? 0) / contractHours);
+        const pricePerHour = Math.round((reservation.total_price ?? 0) / contractHours);
         supabase.from('notifications').insert([{
           user_id: reservation.client_id,
           type: 'extra_hours_offer',
@@ -844,8 +1086,7 @@ export default function EventTimerScreen({ route, navigation }: any) {
       sentMilestones.current.add('30min');
       warned30MinRef.current = true;
       if (reservation.client_id) {
-        const pricePerHour = reservation.package?.price_per_hour
-          ?? Math.round((reservation.total_price ?? 0) / contractHours);
+        const pricePerHour = Math.round((reservation.total_price ?? 0) / contractHours);
         supabase.from('notifications').insert([{
           user_id: reservation.client_id,
           type: 'extra_hours_offer',
@@ -859,7 +1100,7 @@ export default function EventTimerScreen({ route, navigation }: any) {
 
   // ── Aviso 3 min antes de que termine un descanso ─────────────────────────
   useEffect(() => {
-    if (!isRunning || !currentSegment) return;
+    if (readOnly || !isRunning || !currentSegment) return;
     if (currentSegment.type !== 'break') return;
     const elapsedMin = elapsed / 60;
     const remaining = currentSegment.toMin - elapsedMin;
@@ -885,7 +1126,7 @@ export default function EventTimerScreen({ route, navigation }: any) {
 
   // ── Aviso cuando inicia un segmento de hora extra ────────────────────────
   useEffect(() => {
-    if (!isRunning || !currentSegment || extraHoursAdded === 0) return;
+    if (readOnly || !isRunning || !currentSegment || extraHoursAdded === 0) return;
     const elapsedMin = elapsed / 60;
     // Detectar segmentos de música que son hora extra (después del tiempo contratado base)
     const baseMusicMins = contractHours * 60;
@@ -923,33 +1164,72 @@ export default function EventTimerScreen({ route, navigation }: any) {
 
   useEffect(() => { if (!readOnly || userRole === 'talent') fetchPayoutInfo(); }, []);
 
-  // Cargar coordenadas exactas del evento (del cliente) desde quote o event_request
+  // Cargar coordenadas del evento — exactas (pagado) o ciudad aproximada (sin pago)
   useEffect(() => {
+    const paid = isPaid(reservation.payment_status);
     const load = async () => {
       if (reservation.quote_id) {
         const { data } = await supabase
           .from('quotes')
-          .select('latitude, longitude')
+          .select('latitude, longitude, event_municipio, event_estado')
           .eq('id', reservation.quote_id)
           .single();
-        if (data?.latitude && data?.longitude) {
-          setEventLatLng({ lat: data.latitude, lng: data.longitude });
+        if (data) {
+          if (paid && data.latitude && data.longitude) {
+            setEventLatLng({ lat: data.latitude, lng: data.longitude });
+            return;
+          }
+          const city = data.event_municipio ?? data.event_estado ?? 'guadalajara';
+          setApproxDest(privacyOffset(reservation.quote_id, city));
           return;
         }
       }
       if (reservation.event_request_id) {
         const { data } = await supabase
           .from('event_requests')
-          .select('latitude, longitude')
+          .select('latitude, longitude, location_city, location_municipio')
           .eq('id', reservation.event_request_id)
           .single();
-        if (data?.latitude && data?.longitude) {
-          setEventLatLng({ lat: data.latitude, lng: data.longitude });
+        if (data) {
+          if (paid && data.latitude && data.longitude) {
+            setEventLatLng({ lat: data.latitude, lng: data.longitude });
+            return;
+          }
+          const city = data.location_municipio ?? data.location_city ?? 'guadalajara';
+          setApproxDest(privacyOffset(reservation.event_request_id, city));
         }
       }
     };
     load();
   }, []);
+
+  // GPS del grupo (origen de la ruta)
+  useEffect(() => {
+    if (readOnly) return;
+    Location.requestForegroundPermissionsAsync().then(({ status }) => {
+      if (status !== 'granted') return;
+      Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced })
+        .then(loc => setGroupOrigin({ latitude: loc.coords.latitude, longitude: loc.coords.longitude }))
+        .catch(() => {});
+    });
+  }, [readOnly]);
+
+  // Construir ruta cuando cambian origen o destino
+  useEffect(() => {
+    const exactDest = eventLatLng ? { latitude: eventLatLng.lat, longitude: eventLatLng.lng } : null;
+    const dest = exactDest ?? approxDest;
+    if (!dest) return;
+    const origin = groupOrigin ?? { latitude: dest.latitude + 0.015, longitude: dest.longitude + 0.01 };
+    const pts = buildRoute(origin, dest);
+    setRoutePts(pts);
+    if (mapRef.current) {
+      setTimeout(() => {
+        mapRef.current?.fitToCoordinates([origin, dest], {
+          edgePadding: { top: 40, right: 40, bottom: 40, left: 40 }, animated: true,
+        });
+      }, 600);
+    }
+  }, [eventLatLng, approxDest, groupOrigin]);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -958,8 +1238,11 @@ export default function EventTimerScreen({ route, navigation }: any) {
   }, []);
 
 
-  // Auto-stop y auto-cobro cuando se agota el tiempo de música
+  // Auto-stop y auto-cobro cuando se agota el tiempo de música.
+  // Gate: esperar a que extraHoursLoaded=true para evitar que el stop dispare
+  // con totalMusicSecs calculado sin extras (race condition al re-entrar).
   useEffect(() => {
+    if (!extraHoursLoaded) return;
     if (!isRunning || !startedAt || totalMusicSecs === 0) return;
     if (musicElapsed >= totalMusicSecs) {
       if (intervalRef.current) clearInterval(intervalRef.current);
@@ -968,10 +1251,10 @@ export default function EventTimerScreen({ route, navigation }: any) {
         autoFinishedRef.current = true;
         finishEvent();
       } else {
-        setShowCelebration(true);
+        startRatingFlow();
       }
     }
-  }, [musicElapsed, totalMusicSecs, isRunning, startedAt]);
+  }, [musicElapsed, totalMusicSecs, isRunning, startedAt, extraHoursLoaded]);
 
   const startTick = (from: Date) => {
     if (intervalRef.current) clearInterval(intervalRef.current);
@@ -981,10 +1264,119 @@ export default function EventTimerScreen({ route, navigation }: any) {
     }, 1000);
   };
 
+  // ── Solicitar horas extra con Stripe (PASO A: solo INSERT, no paga aún) ──
+  // El grupo debe aceptar primero. El pago ocurre en handlePayNow.
+  // Trigger trg_notify_extra_hour_proposed (sql/395) notifica al grupo automáticamente.
+  const handleRequestWithStripe = async (hours: number, price: number, msiMonths: number) => {
+    if (stripeLoading) return;
+    setStripeLoading(true);
+    try {
+      const { data: existing } = await supabase
+        .from('extra_hours')
+        .select('id')
+        .eq('reservation_id', reservation.id)
+        .in('status', ['awaiting_group_confirmation', 'pending_payment', 'pending'])
+        .limit(1)
+        .maybeSingle();
+      if (existing) {
+        Alert.alert('Solicitud pendiente', 'Ya tienes una solicitud de hora extra en proceso.');
+        return;
+      }
+      const commissionAmt = Math.round(price * 0.10 * 100) / 100;
+      const ownerEarnings = price - commissionAmt;
+      const { error: insertErr } = await supabase.from('extra_hours').insert([{
+        reservation_id:       reservation.id,
+        hours_added:          hours,
+        price_per_hour:       Math.round(price / hours),
+        total_extra_cost:     price,
+        platform_commission:  commissionAmt,
+        group_extra_earnings: ownerEarnings,
+        status:               'awaiting_group_confirmation',
+        payment_method:       'stripe',
+        msi_months:           msiMonths,
+      }]);
+      if (insertErr) { Alert.alert('Error', 'No se pudo crear la solicitud. Intenta de nuevo.'); return; }
+      setClientPendingExtra({ hours, price });
+    } catch (err: any) {
+      Alert.alert('Error', err.message ?? 'Intenta de nuevo.');
+    } finally {
+      setStripeLoading(false);
+    }
+  };
+
+  // ── Pagar horas extra ya aceptadas (PASO C: Stripe PaymentSheet) ───────
+  // Se llama desde el banner "Paga ahora" cuando status='pending_payment'.
+  const handlePayNow = async (extraId: string, hours: number, price: number, msiMonths: number) => {
+    if (stripeLoading) return;
+    setStripeLoading(true);
+    try {
+      const { data: sd } = await supabase.auth.getSession();
+      console.log('[PayNow] token ok:', !!sd.session?.access_token, '| extraId:', extraId, '| msi:', msiMonths);
+      const { data: piData, error: piErr } = await supabase.functions.invoke(
+        'create-extra-hour-payment-intent',
+        {
+          body: { extra_hour_id: extraId, msi_months: msiMonths },
+          headers: { Authorization: `Bearer ${sd.session?.access_token}` },
+        },
+      );
+      console.log('[PayNow] Edge fn → piErr:', piErr?.message ?? 'none', '| piData:', JSON.stringify(piData));
+      if (piErr) throw new Error(`Error de pago: ${piErr.message}`);
+      if (!piData?.client_secret) throw new Error(piData?.error ?? 'Sin respuesta del servidor.');
+
+      const { error: initErr } = await initPaymentSheet({
+        paymentIntentClientSecret: piData.client_secret,
+        merchantDisplayName: 'Daricefy',
+        style: 'alwaysDark',
+      });
+      console.log('[PayNow] initPaymentSheet → initErr:', initErr?.message ?? 'none');
+      if (initErr) throw new Error(initErr.message);
+
+      const { error: payErr } = await presentPaymentSheet();
+      console.log('[PayNow] presentPaymentSheet → code:', payErr?.code ?? 'ok', '| msg:', (payErr as any)?.message ?? 'none');
+      if (payErr) {
+        if (payErr.code !== 'Canceled') {
+          const msg: string = (payErr as any).message ?? '';
+          if (msiMonths > 1 && (msg.toLowerCase().includes('installment') || msg.toLowerCase().includes('no está disponible'))) {
+            throw new Error('Esta tarjeta no es compatible con MSI. Contacta a soporte o elige 1 pago.');
+          }
+          throw new Error(msg || 'Ocurrió un problema al procesar el pago.');
+        }
+        return;
+      }
+      setPendingPaymentExtra(null);
+      Alert.alert('¡Pago exitoso!', 'Tu pago fue recibido. El grupo fue notificado y el timer se actualizará automáticamente.');
+    } catch (err: any) {
+      Alert.alert('Error al procesar el pago', err.message ?? 'Intenta de nuevo.');
+    } finally {
+      setStripeLoading(false);
+    }
+  };
+
   // ── Actions ────────────────────────────────────────────────────────────
   const handleStartPress = () => {
-    if (!breakType) setShowBreakModal(true);
-    else confirmStart();
+    if (!breakType) {
+      setPendingStartAfterBreak(true);
+      setShowBreakModal(true);
+      return;
+    }
+    setArrivalCodeInput(['', '', '', '']);
+    setShowArrivalCodeModal(true);
+    setTimeout(() => codeRef0.current?.focus(), 350);
+  };
+
+  const _doStartFlow = () => {
+    if (breakType === 'D') {
+      Alert.alert(
+        '⚠️ Modo sin descanso',
+        'El cliente eligió modo corrido. Tu equipo tocará las 3 horas sin pausas. ¿Confirmas que están preparados?',
+        [
+          { text: 'Cancelar', style: 'cancel' },
+          { text: 'Sí, iniciar', onPress: () => confirmStart() },
+        ],
+      );
+      return;
+    }
+    confirmStart();
   };
 
   const confirmStart = async (autoBreakType?: string) => {
@@ -1028,149 +1420,245 @@ export default function EventTimerScreen({ route, navigation }: any) {
     }
   };
 
-  const handleArrive = async () => {
-    Alert.alert('Llegué al evento ✅', '¿Confirmas que llegaste al lugar?', [
-      { text: 'Cancelar', style: 'cancel' },
-      {
-        text: 'Confirmar',
-        onPress: async () => {
-          const ts = new Date().toISOString();
-          const { error: arriveError } = await supabase
-            .from('reservations')
-            .update({ group_arrived_at: ts })
-            .eq('id', reservation.id);
+  const _doArriveFlow = async (ts: string) => {
+    setHasArrived(true);
+    setArrivedAt(ts);
 
-          if (arriveError) {
-            Alert.alert('Error', `No se pudo registrar la llegada: ${arriveError.message}`);
-            return;
-          }
+    // Marcar llegada en DB — impide que mark_abandoned_reservations lo clasifique como no-show
+    await supabase.from('reservations').update({ group_arrived_at: ts }).eq('id', reservation.id);
 
-          // Actualizar estado local inmediatamente
-          setHasArrived(true);
-          setArrivedAt(ts);
+    // Liberar 50% de las ganancias al llegar
+    supabase.rpc('release_half_on_arrival', { p_reservation_id: reservation.id })
+      .then(({ data, error }) => {
+        if (error) console.warn('[Arrival] Error liberando 50%:', error.message);
+        else if (data?.amount_released) {
+          console.log('[Arrival] 50% liberado:', data.amount_released);
+        }
+      });
 
-          // Liberar 50% de las ganancias al llegar
-          supabase.rpc('release_half_on_arrival', { p_reservation_id: reservation.id })
-            .then(({ data, error }) => {
-              if (error) console.warn('[Arrival] Error liberando 50%:', error.message);
-              else if (data?.amount_released) {
-                console.log('[Arrival] 50% liberado:', data.amount_released);
-              }
-            });
+    // Obtener client_id desde DB si no viene en el objeto
+    let clientId: string | null = reservation.client_id ?? null;
+    if (!clientId) {
+      const { data: res } = await supabase
+        .from('reservations')
+        .select('client_id')
+        .eq('id', reservation.id)
+        .single();
+      clientId = res?.client_id ?? null;
+    }
 
-          // Obtener client_id desde DB si no viene en el objeto
-          let clientId: string | null = reservation.client_id ?? null;
-          if (!clientId) {
-            const { data: res } = await supabase
-              .from('reservations')
-              .select('client_id')
-              .eq('id', reservation.id)
-              .single();
-            clientId = res?.client_id ?? null;
-          }
+    // Notificar al cliente
+    if (clientId) {
+      const { error: notifErr } = await supabase.from('notifications').insert([{
+        user_id: clientId,
+        type: 'reservation',
+        title: '📍 El grupo ha llegado',
+        body: 'El grupo ya llegó al lugar del evento. ¡Todo listo para comenzar!',
+        data: { reservation_id: reservation.id },
+      }]);
+      if (notifErr) console.warn('Notification insert error:', notifErr.message);
+    }
 
-          // Notificar al cliente
-          if (clientId) {
-            const { error: notifErr } = await supabase.from('notifications').insert([{
-              user_id: clientId,
-              type: 'reservation',
-              title: '📍 El grupo ha llegado',
-              body: 'El grupo ya llegó al lugar del evento. ¡Todo listo para comenzar!',
-              data: { reservation_id: reservation.id },
-            }]);
-            if (notifErr) {
-              console.warn('Notification insert error:', notifErr.message);
-            }
-          }
+    // Notificar a todos los admins
+    const { data: admins } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('role', 'admin');
 
-          // Notificar a todos los admins
-          const { data: admins } = await supabase
-            .from('profiles')
-            .select('id')
-            .eq('role', 'admin');
+    if (admins && admins.length > 0) {
+      const clientName = reservation.client?.full_name ?? 'Cliente';
+      await supabase.from('notifications').insert(
+        admins.map((admin: any) => ({
+          user_id: admin.id,
+          type: 'reservation',
+          title: '📍 Grupo llegó al evento',
+          body: `El grupo llegó al evento del cliente ${clientName} en ${reservation.address ?? 'dirección no especificada'}. Fecha: ${reservation.event_date}`,
+          data: { reservation_id: reservation.id },
+        }))
+      );
+    }
 
-          if (admins && admins.length > 0) {
-            const clientName = reservation.client?.full_name ?? 'Cliente';
-            await supabase.from('notifications').insert(
-              admins.map((admin: any) => ({
-                user_id: admin.id,
-                type: 'reservation',
-                title: '📍 Grupo llegó al evento',
-                body: `El grupo llegó al evento del cliente ${clientName} en ${reservation.address ?? 'dirección no especificada'}. Fecha: ${reservation.event_date}`,
-                data: { reservation_id: reservation.id },
-              }))
-            );
-          }
+    // Notificar a integrantes del grupo — excluye al owner (quien presionó el botón)
+    const membersToNotify = groupMemberIds.filter(uid => uid !== currentUserId);
+    if (membersToNotify.length > 0) {
+      supabase.from('notifications').insert(
+        membersToNotify.map(uid => ({
+          user_id: uid,
+          type: 'reservation',
+          title: '📍 El dueño llegó al evento',
+          body: 'Se confirmó la llegada al lugar. Coordínense para el inicio.',
+          data: { reservation_id: reservation.id },
+        }))
+      ).then();
+    }
 
-          // Notificar a integrantes del grupo — excluye al owner (quien presionó el botón)
-          const membersToNotify = groupMemberIds.filter(uid => uid !== currentUserId);
-          if (membersToNotify.length > 0) {
-            supabase.from('notifications').insert(
-              membersToNotify.map(uid => ({
-                user_id: uid,
-                type: 'reservation',
-                title: '📍 El dueño llegó al evento',
-                body: 'Se confirmó la llegada al lugar. Coordínense para el inicio.',
-                data: { reservation_id: reservation.id },
-              }))
-            ).then();
-          }
+    Alert.alert('¡Llegada registrada!', 'Se notificó al cliente que ya llegaste.');
+  };
 
-          Alert.alert('¡Registrado!', 'Se notificó al cliente que llegaste.');
-        },
-      },
-    ]);
+  const handleArrivePress = () => {
+    Alert.alert(
+      '¿Ya llegaste al lugar?',
+      'Esto notificará al cliente que ya estás en el evento.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Sí, llegué', onPress: () => _doArriveFlow(new Date().toISOString()) },
+      ]
+    );
+  };
+
+  // Auto-avance entre cajas + backspace
+  const handleCodeDigit = (text: string, index: number) => {
+    const digit = text.replace(/[^0-9]/g, '').slice(-1);
+    const next = [...arrivalCodeInput];
+    next[index] = digit;
+    setArrivalCodeInput(next);
+    if (digit && index < 3) {
+      [codeRef0, codeRef1, codeRef2, codeRef3][index + 1].current?.focus();
+    }
+  };
+
+  const handleCodeKeyPress = (key: string, index: number) => {
+    if (key === 'Backspace' && !arrivalCodeInput[index] && index > 0) {
+      [codeRef0, codeRef1, codeRef2, codeRef3][index - 1].current?.focus();
+    }
+  };
+
+  const handleCodeSubmit = async () => {
+    const code = arrivalCodeInput.join('');
+    if (code.length < 4) return;
+    setCodeLoading(true);
+    const { data, error } = await supabase.rpc('validate_start_code', {
+      p_reservation_id: reservation.id,
+      p_code: code,
+    });
+    setCodeLoading(false);
+    if (error || !data?.ok) {
+      Alert.alert('Código inválido', data?.error ?? 'Verifica el código con el cliente e intenta de nuevo.');
+      setArrivalCodeInput(['', '', '', '']);
+      setTimeout(() => codeRef0.current?.focus(), 100);
+      return;
+    }
+    setShowArrivalCodeModal(false);
+    _doStartFlow();
   };
 
   const finishEvent = async () => {
     if (intervalRef.current) clearInterval(intervalRef.current);
     setIsRunning(false);
     setLoading(true);
+    let succeeded = false;
 
-    await supabase.from('reservations').update({
-      status: 'completed',
-      finished_at: new Date().toISOString(),
-      actual_duration_minutes: Math.floor(elapsed / 60),
-    }).eq('id', reservation.id);
-
-    // Liberar el 50% restante (o 100% si no se marcó llegué previamente)
-    supabase.rpc('release_group_earnings_atomic', { p_reservation_id: reservation.id })
-      .then(({ data, error }) => {
-        if (error) console.warn('[FinishEvent] Error liberando ganancias:', error.message);
-        else if (data?.amount_released) {
-          console.log('[FinishEvent] Ganancias liberadas:', data.amount_released);
-        }
+    try {
+      // Fix 1+3: capturar resultado — NO proceder si complete_event falla
+      const { data: completeData, error: completeError } = await supabase.rpc('complete_event', {
+        p_reservation_id: reservation.id,
       });
 
-    await fetchPayoutInfo();
+      if (completeError || completeData?.ok === false) {
+        Alert.alert('Error al finalizar', 'No se pudo registrar el fin del evento. Intenta de nuevo.');
+        setIsRunning(true);
+        if (startedAt) startTick(startedAt);
+        return;
+      }
 
-    // Recargar payouts para la pantalla de celebración
-    const { data: freshPayouts } = await supabase
-      .from('event_payouts')
-      .select('id, user_id, role, amount, payout_status, profile:user_id(full_name)')
-      .eq('reservation_id', reservation.id);
-    if (freshPayouts) setPayouts(freshPayouts as any);
+      // Fix 3: release SOLO después de confirmar éxito de complete_event
+      supabase.rpc('release_group_earnings_atomic', { p_reservation_id: reservation.id })
+        .then(({ data, error }) => {
+          if (error) console.warn('[FinishEvent] Error liberando ganancias:', error.message);
+          else if (data?.amount_released) {
+            console.log('[FinishEvent] Ganancias liberadas:', data.amount_released);
+          }
+        });
 
-    // Oferta de horas extra al cliente
-    if (extraHoursAdded === 0 && reservation.client_id) {
-      const pricePerHour = reservation.package?.price_per_hour
-        ?? Math.round((reservation.total_price ?? 0) / contractHours);
-      await supabase.from('notifications').insert([{
-        user_id: reservation.client_id,
-        type: 'extra_hours_offer',
-        title: '🎵 ¿Quieres más música?',
-        body: `El grupo todavía puede quedarse. Agrega horas extra desde $${pricePerHour.toLocaleString()}/hr.`,
-        data: { reservation_id: reservation.id, price_per_hour: pricePerHour },
-      }]);
+      // Liberar ganancias de horas extra (50% restante o 100% si partial no corrió)
+      supabase.rpc('release_extra_hours_final', { p_reservation_id: reservation.id })
+        .then(({ data, error }) => {
+          if (error) console.warn('[FinishEvent] Error liberando extras:', error.message);
+          else if (data?.amount > 0) {
+            console.log('[FinishEvent] Extras liberados:', data.amount);
+          }
+        });
+
+      try { await fetchPayoutInfo(); } catch (e) { console.warn('[FinishEvent] fetchPayoutInfo:', e); }
+
+      // Recargar payouts para la pantalla de celebración
+      try {
+        const { data: freshPayouts } = await supabase
+          .from('event_payouts')
+          .select('id, user_id, role, amount, payout_status, profile:user_id(full_name)')
+          .eq('reservation_id', reservation.id);
+        if (freshPayouts) setPayouts(freshPayouts as any);
+      } catch (e) { console.warn('[FinishEvent] event_payouts:', e); }
+
+      // Notif: evento finalizado → cliente + dueño del grupo
+      const finishNotifs: any[] = [];
+      if (reservation.client_id) {
+        finishNotifs.push({
+          user_id: reservation.client_id,
+          type: 'event_finalized',
+          title: '🎉 ¡Tu evento ha terminado!',
+          body: `¿Cómo estuvo ${reservation.group?.name ?? 'el grupo'}? Deja tu calificación.`,
+          data: { reservation_id: reservation.id, target_screen: 'EventTimer' },
+        });
+        // Oferta extras solo si no hubo horas extra
+        if (extraHoursAdded === 0) {
+          const pricePerHour = Math.round(
+            (reservation.total_price ?? 0) / Math.max(contractHours, 1)
+          );
+          finishNotifs.push({
+            user_id: reservation.client_id,
+            type: 'extra_hours_offer',
+            title: '🎵 ¿Quieres más música?',
+            body: `El grupo todavía puede quedarse. Agrega horas extra desde $${pricePerHour.toLocaleString()}/hr.`,
+            data: { reservation_id: reservation.id, price_per_hour: pricePerHour },
+          });
+        }
+      }
+      // BUG F: reservation.group?.owner_id puede ser undefined si la navegación no
+      // incluye el join de grupos (ej. GroupEventsScreen). ownerIdRef es un ref
+      // (no state) para evitar el stale closure del auto-stop useEffect.
+      const ownerIdForNotif = reservation.group?.owner_id ?? ownerIdRef.current ?? null;
+      if (ownerIdForNotif) {
+        finishNotifs.push({
+          user_id: ownerIdForNotif,
+          type: 'event_finalized',
+          title: '✅ Evento finalizado',
+          body: 'El evento ha concluido. Tu pago se liberará en breve.',
+          data: { reservation_id: reservation.id, target_screen: 'EventTimer' },
+        });
+      }
+      // Talentos invitados — excluir al owner para no duplicar
+      groupMemberIds
+        .filter(id => id !== ownerIdForNotif)
+        .forEach(talentId => {
+          finishNotifs.push({
+            user_id: talentId,
+            type: 'event_finalized',
+            title: '✅ Evento finalizado',
+            body: 'El evento ha concluido. Revisa tus ganancias en la app.',
+            data: { reservation_id: reservation.id, target_screen: 'EventTimer' },
+          });
+        });
+      if (finishNotifs.length > 0) {
+        await supabase.from('notifications').insert(finishNotifs);
+      }
+
+      succeeded = true;
+    } catch (err) {
+      console.warn('[FinishEvent] Error general:', err);
+      Alert.alert('Error inesperado', 'Ocurrió un error al finalizar el evento. Intenta de nuevo.');
+      setIsRunning(true);
+      if (startedAt) startTick(startedAt);
+    } finally {
+      setLoading(false);
+      if (succeeded) startRatingFlow();
     }
-
-    setLoading(false);
-    setShowCelebration(true);
   };
 
 
   // ── Rating queue helpers ─────────────────────────────────────────────────
   const startRatingFlow = () => {
+    if (hasAlreadyRated) { return; }
     const queue: RatingSubject[] = [];
 
     if (!readOnly) {
@@ -1208,28 +1696,127 @@ export default function EventTimerScreen({ route, navigation }: any) {
     if (queue.length > 0) {
       setRatingQueue(queue.slice(1));
       setCurrentRating(queue[0]);
-    } else {
-      navigation.goBack();
     }
+    // Si queue vacía (rol talent u otro sin targets): quedarse en vista completada
   };
 
-  const advanceRatingQueue = () => {
+  const advanceRatingQueue = (submitted: { stars: number; comment: string } | null) => {
+    const justSubmitted = currentRating;
+
+    // Enviar notificación review_received por cada submit (no en skip)
+    if (justSubmitted && submitted) {
+      const notifs: any[] = [];
+      const starsText = `${submitted.stars} estrella${submitted.stars !== 1 ? 's' : ''}`;
+
+      if (justSubmitted.type === 'group') {
+        // Cliente calificó al grupo → notificar al dueño del grupo
+        const ownerName = reservation.client?.full_name ?? 'El cliente';
+        if (reservation.group?.owner_id) {
+          notifs.push({
+            user_id: reservation.group.owner_id,
+            type: 'review_received',
+            title: '⭐ Recibiste una calificación',
+            body: `${ownerName} te calificó con ${starsText}`,
+            data: { reservation_id: reservation.id, review_type: 'cliente_a_grupo', target_screen: 'EventTimer' },
+          });
+        }
+        // Talentos del grupo
+        groupMemberIds.filter(id => id !== reservation.group?.owner_id).forEach(id => {
+          notifs.push({
+            user_id: id,
+            type: 'review_received',
+            title: '⭐ El cliente calificó el evento',
+            body: `${ownerName} calificó el evento con ${starsText}`,
+            data: { reservation_id: reservation.id, review_type: 'cliente_a_grupo', target_screen: 'EventTimer' },
+          });
+        });
+      } else if (justSubmitted.type === 'client') {
+        // Grupo calificó al cliente → notificar al cliente
+        const groupName = reservation.group?.name ?? 'El grupo';
+        if (reservation.client_id) {
+          notifs.push({
+            user_id: reservation.client_id,
+            type: 'review_received',
+            title: '⭐ Recibiste una calificación',
+            body: `${groupName} te calificó con ${starsText}`,
+            data: { reservation_id: reservation.id, review_type: 'grupo_a_cliente', target_screen: 'EventTimer' },
+          });
+        }
+        // Talentos del grupo
+        groupMemberIds.filter(id => id !== currentUserId).forEach(id => {
+          notifs.push({
+            user_id: id,
+            type: 'review_received',
+            title: '⭐ El grupo calificó al cliente',
+            body: `${groupName} calificó a ${reservation.client?.full_name ?? 'el cliente'}`,
+            data: { reservation_id: reservation.id, review_type: 'grupo_a_cliente', target_screen: 'EventTimer' },
+          });
+        });
+      } else if (justSubmitted.type === 'talent') {
+        // Grupo calificó a un talento específico
+        notifs.push({
+          user_id: justSubmitted.targetId,
+          type: 'review_received',
+          title: '⭐ Recibiste una calificación',
+          body: `${reservation.group?.name ?? 'El grupo'} te calificó con ${starsText}`,
+          data: { reservation_id: reservation.id, review_type: 'grupo_a_talento', target_screen: 'EventTimer' },
+        });
+      }
+
+      if (notifs.length > 0) {
+        void supabase.from('notifications').insert(notifs.filter(n => n.user_id));
+      }
+    }
+
     if (ratingQueue.length > 0) {
       setCurrentRating(ratingQueue[0]);
       setRatingQueue(prev => prev.slice(1));
     } else {
       setCurrentRating(null);
-      navigation.goBack();
+      setHasAlreadyRated(true);
+      // Re-fetch la review que ME dieron (para mostrar tarjeta verde)
+      void (async () => {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const myUserId = sessionData?.session?.user.id ?? '';
+        let receivedData: { rating: number; comment: string | null; created_at: string } | null = null;
+        if (userRole === 'client') {
+          const { data } = await supabase.from('client_reviews')
+            .select('rating, comment, created_at')
+            .eq('reservation_id', reservation.id).limit(1);
+          receivedData = data?.[0] ?? null;
+        } else if (userRole === 'talent') {
+          const { data } = await supabase.from('talent_reviews')
+            .select('rating, comment, created_at')
+            .eq('reservation_id', reservation.id)
+            .eq('talent_id', myUserId).limit(1);
+          receivedData = data?.[0] ?? null;
+        } else {
+          const { data } = await supabase.from('reviews')
+            .select('rating, comment, created_at')
+            .eq('reservation_id', reservation.id).limit(1);
+          receivedData = data?.[0] ?? null;
+        }
+        if (receivedData) {
+          setReviewReceived({
+            rating: receivedData.rating,
+            comment: receivedData.comment ?? undefined,
+            createdAt: receivedData.created_at ?? undefined,
+          });
+        }
+      })();
     }
   };
 
   // ── Derived state ──────────────────────────────────────────────────────
-  // Durante descanso: remaining no avanza (timer pausado)
-  const remaining  = Math.max(0, totalMusicSecs - musicElapsed);
   const progress   = totalMusicSecs > 0 ? Math.min(musicElapsed / totalMusicSecs, 1) : 0;
-  const nearEnd    = remaining <= 900 && remaining > 0;
   const isOnBreak  = currentSegment?.type === 'break';
-  const isCompleted = !isRunning && !!startedAt && musicElapsed >= totalMusicSecs;
+  // True when event is over — covers both live completion (startedAt set) and
+  // fresh loads of already-completed reservations (startedAt may still be null).
+  const isCompleted = !isRunning && (
+    (!!startedAt && musicElapsed >= totalMusicSecs) ||
+    reservation.status === 'completed' ||
+    !!reservation.event_ended_at
+  );
 
   // Pulso del punto "●" en el banner EN VIVO (solo cuando corre y no está en descanso)
   useEffect(() => {
@@ -1246,9 +1833,22 @@ export default function EventTimerScreen({ route, navigation }: any) {
       pulseAnim.setValue(1);
     }
   }, [isRunning, isOnBreak]);
+
+
   const time = splitTime(remaining);
   const elapsedTime = splitTime(elapsed);
   const timePercent = totalMusicSecs > 0 ? remaining / totalMusicSecs : 1;
+
+  // When completed, show actual event duration instead of 00:00:00
+  const finalElapsedSeconds = (() => {
+    if (reservation?.event_ended_at && reservation?.event_started_at) {
+      return Math.max(0, Math.floor(
+        (new Date(reservation.event_ended_at).getTime() - new Date(reservation.event_started_at).getTime()) / 1000
+      ));
+    }
+    return elapsed > 0 ? elapsed : totalMusicSecs;
+  })();
+  const displayTime = isCompleted ? splitTime(finalElapsedSeconds) : time;
   const ringColor = isCompleted
     ? COLORS.muted
     : isOnBreak
@@ -1262,6 +1862,57 @@ export default function EventTimerScreen({ route, navigation }: any) {
   const svgDashOffset = totalMusicSecs > 0
     ? RING_CIRC * Math.min(musicElapsed / totalMusicSecs, 1)
     : 0;
+
+  // Transición suave de color del ring (800ms al cruzar umbral)
+  const colorPhase = isCompleted ? 3
+    : isOnBreak ? 1
+    : timePercent < 0.1 ? 2
+    : timePercent < 0.25 ? 1
+    : 0;
+  useEffect(() => {
+    if (colorPhase === ringColorPhaseRef.current) return;
+    ringColorPhaseRef.current = colorPhase;
+    Animated.timing(ringColorAnim, {
+      toValue: colorPhase,
+      duration: 800,
+      useNativeDriver: false,
+    }).start();
+  }, [colorPhase]);
+  const animatedRingColor = ringColorAnim.interpolate({
+    inputRange: [0, 1, 2, 3],
+    outputRange: [COLORS.green, COLORS.orange, '#FF5252', COLORS.muted],
+  });
+
+  // ── Helpers para CircleTimerVisual ───────────────────────────────────────
+  // Hora extra REAL: segmento de música posterior al tiempo base contratado
+  // (mismo criterio que la notificación de inicio de hora extra)
+  const isInExtraSegment = isRunning
+    && currentSegment?.type === 'music'
+    && currentSegment.fromMin >= contractHours * 60;
+  const getTimerVisualState = (): TimerState => {
+    if (isCompleted) return 'completed';
+    if (isOnBreak) return 'break';
+    if (isInExtraSegment) return 'extra_hours';
+    if (isRunning) return 'live';
+    return 'pre_event';
+  };
+  const getTimerSubtitle = (): string => {
+    if (isCompleted) return `${contractHours + extraHoursAdded}h tocadas`;
+    if (isOnBreak && currentSegment) {
+      const bSecs = Math.max(0, currentSegment.toMin * 60 - elapsed);
+      const bm = Math.floor(bSecs / 60);
+      const bs = bSecs % 60;
+      return `Vuelves en ${bm}:${String(bs).padStart(2, '0')}`;
+    }
+    if (isInExtraSegment) return `+${extraHoursAdded}h extra activa`;
+    if (!startedAt && preEventCountdown) return `⏰ Inicia en ${preEventCountdown}`;
+    if (isRunning) {
+      const h = Math.floor(remaining / 3600);
+      const m = Math.floor((remaining % 3600) / 60);
+      return `Restan ${h}h ${m}m`;
+    }
+    return '';
+  };
 
   return (
     <View style={st.container}>
@@ -1278,34 +1929,48 @@ export default function EventTimerScreen({ route, navigation }: any) {
               </Text>
             )}
           </View>
-          <View style={[st.rolePill, {
-            backgroundColor: userRole === 'client'
-              ? 'rgba(66,133,244,0.12)'
-              : userRole === 'talent'
-                ? 'rgba(156,39,176,0.12)'
-                : 'rgba(0,230,118,0.10)',
-            borderColor: userRole === 'client'
-              ? 'rgba(66,133,244,0.4)'
-              : userRole === 'talent'
-                ? 'rgba(156,39,176,0.4)'
-                : 'rgba(0,230,118,0.35)',
-          }]}>
-            <Text style={[st.rolePillText, {
-              color: userRole === 'client' ? '#4285F4' : userRole === 'talent' ? COLORS.purple : COLORS.green,
-            }]}>
-              {userRole === 'client' ? '👁️ Vista' : userRole === 'talent' ? '🎼 Músico' : '🎵 Grupo'}
-            </Text>
-          </View>
         </View>
 
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={st.scroll}>
+
+          {/* ── BANNER "PAGA AHORA" — grupo aceptó con Stripe ── */}
+          {userRole === 'client' && pendingPaymentExtra && (
+            <View style={st.payNowBanner}>
+              <Text style={st.payNowBannerTitle}>
+                ✅ Grupo aceptó tus +{pendingPaymentExtra.hours}h
+              </Text>
+              <Text style={st.payNowBannerSub}>
+                Total: ${pendingPaymentExtra.price.toLocaleString()} MXN
+                {pendingPaymentExtra.msiMonths > 1 ? ` · ${pendingPaymentExtra.msiMonths} meses` : ''}
+              </Text>
+              <Pressable
+                style={[st.payNowBannerBtn, stripeLoading && { opacity: 0.6 }]}
+                disabled={stripeLoading}
+                onPress={() => handlePayNow(
+                  pendingPaymentExtra.id,
+                  pendingPaymentExtra.hours,
+                  pendingPaymentExtra.price,
+                  pendingPaymentExtra.msiMonths,
+                )}
+              >
+                {stripeLoading
+                  ? <ActivityIndicator color="#FFFFFF" size="small" />
+                  : <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <CreditCard size={15} color="#FFFFFF" />
+                      <Text style={st.payNowBannerBtnText}>Pagar ahora</Text>
+                    </View>
+                }
+              </Pressable>
+              <Text style={st.payNowBannerTimer}>⏱ Tienes 20 min para confirmar el pago</Text>
+            </View>
+          )}
 
           {/* ── TIMER (siempre visible para todos) ──────────── */}
           <View style={st.timerSection}>
 
             {/* ── STATE BANNER — legible de reojo a 2 metros ─── */}
             {(() => {
-              if (!startedAt) {
+              if (!startedAt && !isCompleted) {
                 const label = !hasArrived ? '⏱  WARMUP' : '⏱  WARMUP · ✓ Llegaste';
                 return (
                   <View style={st.bannerWarmup}>
@@ -1326,6 +1991,14 @@ export default function EventTimerScreen({ route, navigation }: any) {
                   </View>
                 );
               }
+              if (readOnly && clientPendingExtra && isRunning) {
+                return (
+                  <View style={st.bannerPendingExtra}>
+                    <Text style={st.bannerPendingExtraText}>⏳ +{clientPendingExtra.hours}h solicitada</Text>
+                    <Text style={st.bannerPendingExtraSub}>El grupo está revisando</Text>
+                  </View>
+                );
+              }
               if (isRunning) {
                 return (
                   <View style={st.bannerLive}>
@@ -1339,92 +2012,63 @@ export default function EventTimerScreen({ route, navigation }: any) {
               return null;
             })()}
 
-            {/* SVG ring + digits overlay */}
-            <View style={[st.timerSvgWrap, { width: RING_SIZE, height: RING_SIZE }]}>
-              <Svg width={RING_SIZE} height={RING_SIZE} viewBox="0 0 320 320">
-                {/* Dark fill inside ring for contrast */}
-                <Circle cx="160" cy="160" r={RING_R - RING_SW / 2} fill="rgba(4,4,4,0.85)" />
-                {/* Track ring */}
-                <Circle
-                  cx="160" cy="160" r={RING_R}
-                  stroke={`${ringColor}22`}
-                  strokeWidth={RING_SW}
-                  fill="none"
-                />
-                {/* Depleting arc */}
-                <Circle
-                  cx="160" cy="160" r={RING_R}
-                  stroke={ringColor}
-                  strokeWidth={RING_SW}
-                  fill="none"
-                  strokeDasharray={RING_CIRC}
-                  strokeDashoffset={svgDashOffset}
-                  strokeLinecap="round"
-                  transform="rotate(-90 160 160)"
-                />
-              </Svg>
-
-              {/* Contenido central */}
-              <View style={st.timerCenterOverlay}>
-                {isOnBreak && (
-                  <Text style={st.pauseLabel}>─ EN PAUSA ─</Text>
-                )}
-
-                {/* Dígitos grandes */}
-                <View style={st.timeRow}>
-                  <View style={st.digitCard}>
-                    <Text style={[st.timeDigit, { color: ringColor }]}>{String(time.h).padStart(2, '0')}</Text>
-                    <Text style={st.timeUnit}>HR</Text>
-                  </View>
-                  <Text style={[st.timeSep, { color: ringColor }]}>:</Text>
-                  <View style={st.digitCard}>
-                    <Text style={[st.timeDigit, { color: ringColor }]}>{String(time.m).padStart(2, '0')}</Text>
-                    <Text style={st.timeUnit}>MIN</Text>
-                  </View>
-                  <Text style={[st.timeSep, { color: ringColor }]}>:</Text>
-                  <View style={st.digitCard}>
-                    <Text style={[st.timeDigit, { color: ringColor }]}>{String(time.s).padStart(2, '0')}</Text>
-                    <Text style={st.timeUnit}>SEG</Text>
-                  </View>
-                </View>
-
-                {isRunning && (
-                  <Text style={st.elapsedLabel}>{elapsedTime.full} transcurrido</Text>
-                )}
-                {!startedAt && reservation.event_date && (
-                  <Text style={[st.elapsedLabel, { marginTop: 2 }]}>
-                    {new Date(reservation.event_date + 'T12:00:00').toLocaleDateString('es-MX', { weekday: 'short', day: 'numeric', month: 'short' })}
-                    {reservation.event_time ? ` · ${formatTime12h(reservation.event_time)}` : ''}
-                  </Text>
-                )}
-                {!startedAt && reservation.event_time && preEventCountdown ? (
-                  <Text style={st.elapsedLabel}>⏰ Inicia en {preEventCountdown}</Text>
-                ) : null}
-              </View>
-            </View>
-
-            {/* Barra de progreso */}
-            <View style={st.progressBarTrack}>
-              <Animated.View style={[st.progressBarFill, {
-                width: progressAnim.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }),
-                backgroundColor: ringColor,
-              }]} />
-            </View>
-            <Text style={st.progressText}>{Math.round(progress * 100)}% completado</Text>
+            {/* Timer visual premium — 5 estados animados */}
+            <CircleTimerVisual
+              state={getTimerVisualState()}
+              currentTime={`${String(displayTime.h).padStart(2, '0')}:${String(displayTime.m).padStart(2, '0')}:${String(displayTime.s).padStart(2, '0')}`}
+              subtitle={getTimerSubtitle()}
+              progress={isCompleted ? 1 : progress}
+              size={RING_SIZE}
+            />
           </View>
 
+          {/* ── OFRECER HORAS EXTRA (grupo dueño, solo durante evento activo) ── */}
+          {!readOnly && isRunning && !isOnBreak && (
+            <Pressable
+              style={({ pressed }) => [
+                st.iconBtn, st.iconBtnOutline,
+                { alignSelf: 'center', width: '80%', marginTop: 12 },
+                pressed && { opacity: 0.8 },
+              ]}
+              onPress={() => navigation.navigate('ExtraHours', { reservation })}
+            >
+              <Text style={[st.iconBtnLabel, { color: COLORS.green }]}>🎵 Ofrecer horas extra</Text>
+            </Pressable>
+          )}
+
+          {/* ── TARJETA DE CALIFICACIÓN recibida ── */}
+          {isCompleted && reviewReceived && (() => {
+            const reviewerName = (userRole === 'client' || userRole === 'talent')
+              ? (reservation.group?.name ?? 'el grupo')
+              : (reservation.client?.full_name ?? 'el cliente');
+            return (
+              <View style={st.reviewCard}>
+                <View style={st.reviewStarsRow}>
+                  {[1, 2, 3, 4, 5].map(n => (
+                    <Text key={n} style={n <= reviewReceived.rating ? st.reviewStarOn : st.reviewStarOff}>★</Text>
+                  ))}
+                </View>
+                {!!reviewReceived.comment && (
+                  <Text style={st.reviewCommentInline}>
+                    {reviewReceived.comment}
+                  </Text>
+                )}
+                <Text style={st.reviewCardFooter}>
+                  — De {reviewerName}{reviewReceived.createdAt ? ` · ${timeAgo(reviewReceived.createdAt)}` : ''}
+                </Text>
+              </View>
+            );
+          })()}
 
           {/* ── ROLE CONTEXT STRIP ──────────────────────────────── */}
           <View style={st.roleContextStrip}>
-            {/* Left: who's viewing */}
+            {/* Left: info de la OTRA parte (no del que está viendo) */}
             <View style={st.roleContextLeft}>
-              <Text style={st.roleContextLabel}>
-                {userRole === 'client' ? '👤 Cliente' : userRole === 'talent' ? '🎵 Músico invitado' : '🎸 Grupo'}
-              </Text>
-              {!readOnly && reservation.client?.full_name && (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 }}>
+              {!readOnly && reservation.client?.full_name ? (
+                // Dueño del grupo → ve info del CLIENTE
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                   <View style={st.clientAvatarBox}>
-                    {reservation.client?.avatar_url ? (
+                    {reservation.client.avatar_url ? (
                       <Image source={{ uri: reservation.client.avatar_url }} style={st.clientAvatarImg} />
                     ) : (
                       <Text style={st.clientAvatarInitial}>
@@ -1432,12 +2076,29 @@ export default function EventTimerScreen({ route, navigation }: any) {
                       </Text>
                     )}
                   </View>
-                  <Text style={st.roleContextSub} numberOfLines={1}>{reservation.client.full_name}</Text>
+                  <View>
+                    <Text style={st.roleContextLabel} numberOfLines={1}>{reservation.client.full_name}</Text>
+                    <Text style={st.roleContextSub}>Cliente</Text>
+                  </View>
                 </View>
-              )}
-              {(userRole === 'client' || userRole === 'talent') && reservation.group?.name && (
-                <Text style={st.roleContextSub} numberOfLines={1}>Grupo: {reservation.group.name}</Text>
-              )}
+              ) : (userRole === 'client' || userRole === 'talent') && reservation.group?.name ? (
+                // Cliente o Talento → ve info del GRUPO (con foto si viene en el parámetro)
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                  <View style={st.clientAvatarBox}>
+                    {(reservation.group as any)?.profile_image ? (
+                      <Image source={{ uri: (reservation.group as any).profile_image }} style={st.clientAvatarImg} />
+                    ) : (
+                      <Text style={st.clientAvatarInitial}>
+                        {reservation.group.name.charAt(0).toUpperCase()}
+                      </Text>
+                    )}
+                  </View>
+                  <View>
+                    <Text style={st.roleContextLabel} numberOfLines={1}>{reservation.group.name}</Text>
+                    <Text style={st.roleContextSub}>Grupo</Text>
+                  </View>
+                </View>
+              ) : null}
             </View>
             {/* Right: contracted hours */}
             <View style={st.roleContextRight}>
@@ -1449,18 +2110,13 @@ export default function EventTimerScreen({ route, navigation }: any) {
           {/* ── BREAK INFO + SCHEDULE ──────────────────────────── */}
           {breakType ? (
             <View style={st.breakCard}>
-              <View style={st.breakRow}>
-                <Text style={st.breakLabel}>Tipo de descanso:</Text>
-                <Text style={st.breakValue}>{selectedBreak?.label}</Text>
-              </View>
-              <View style={st.breakRow}>
-                <Text style={st.breakLabel}>Tiempo descanso:</Text>
-                <Text style={[st.breakValue, { color: COLORS.orange }]}>{formatMinutes(breakMins)}</Text>
-              </View>
-              <View style={st.breakRow}>
-                <Text style={st.breakLabel}>Tiempo de música:</Text>
-                <Text style={[st.breakValue, { color: COLORS.green }]}>{formatMinutes(contractHours * 60 - breakMins)}</Text>
-              </View>
+              <Text style={st.breakInfoText}>
+                {breakType === 'D'
+                  ? '🎵 Tocarán corrido, sin descansos'
+                  : breakType === 'A'
+                  ? '☕ Descanso de 15 min después de cada hora tocada'
+                  : '☕ Un descanso de 15 min a la mitad del evento'}
+              </Text>
               {!readOnly && userRole !== 'talent' && !isRunning && !startedAt && (
                 <Pressable onPress={() => setShowBreakModal(true)}>
                   <Text style={st.changeBreak}>Cambiar tipo de descanso →</Text>
@@ -1470,38 +2126,67 @@ export default function EventTimerScreen({ route, navigation }: any) {
               {/* Timeline */}
               {schedule.length > 0 && (() => {
                 const elapsedMin = elapsed / 60;
+                // Bug 1: cuando hay extras aceptadas, forzar elapsed a inicio del bloque extra
+                // para que todos los segmentos originales aparezcan como "pasados".
+                const extraStartMin = contractHours * 60;
+                const effectiveElapsedMin = extraHoursAdded > 0
+                  ? Math.max(elapsedMin, extraStartMin + 0.1)
+                  : elapsedMin;
                 return (
                   <View style={st.scheduleSection}>
                     <Text style={st.scheduleTitle}>Horario del evento</Text>
                     {schedule.map((seg, i) => {
-                      const isActive = elapsedMin >= seg.fromMin && elapsedMin < seg.toMin;
-                      const isPast = elapsedMin >= seg.toMin;
+                      const isActive = effectiveElapsedMin >= seg.fromMin && effectiveElapsedMin < seg.toMin;
+                      const isPast = effectiveElapsedMin >= seg.toMin;
+                      const isExtra = seg.isExtra ?? false;
                       return (
                         <View key={i} style={[
                           st.scheduleRow,
-                          isActive && st.scheduleRowActive,
-                          isPast && st.scheduleRowPast,
+                          // Bug 2: color del fondo activo según tipo (break=azul, music extra=dorado, music orig=verde)
+                          isActive
+                            ? (seg.type === 'break'
+                                ? st.scheduleRowActiveBreak
+                                : (isExtra ? st.scheduleRowExtraActive : st.scheduleRowActive))
+                            : (isExtra
+                                ? (isPast ? st.scheduleRowExtraPast : st.scheduleRowExtra)
+                                : (isPast ? st.scheduleRowPast : undefined)),
                         ]}>
                           <View style={[
                             st.scheduleIcon,
-                            seg.type === 'break' ? st.scheduleIconBreak : st.scheduleIconMusic,
-                            isActive && (seg.type === 'break' ? st.scheduleIconBreakActive : st.scheduleIconMusicActive),
+                            isExtra ? st.scheduleIconExtra
+                              : (seg.type === 'break' ? st.scheduleIconBreak : st.scheduleIconMusic),
+                            // Ícono activo: break=azul, música extra=dorado, música orig=verde
+                            isActive && (
+                              seg.type === 'break'
+                                ? st.scheduleIconBreakActive
+                                : isExtra
+                                  ? st.scheduleIconExtraActive
+                                  : st.scheduleIconMusicActive
+                            ),
                           ]}>
                             {seg.type === 'music'
-                              ? <Music2 size={14} color={isActive ? COLORS.bg : isPast ? COLORS.muted : COLORS.green} />
-                              : <Coffee size={14} color={isActive ? COLORS.bg : isPast ? COLORS.muted : COLORS.orange} />
+                              ? <Music2 size={14} color={isActive ? COLORS.bg : (isExtra ? '#FBBF24' : isPast ? COLORS.muted : COLORS.green)} />
+                              : <Coffee size={14} color={isActive ? COLORS.bg : (isExtra ? '#FBBF24' : isPast ? COLORS.muted : '#60A5FA')} />
                             }
                           </View>
                           <View style={{ flex: 1 }}>
-                            <Text style={[st.scheduleLabel, isPast && st.scheduleLabelPast]}>
-                              {seg.type === 'music' ? 'Tocando' : 'Descanso'}
-                              {isActive && (seg.type === 'music' ? ' 🎵' : ' ☕')}
-                            </Text>
-                            <Text style={[st.scheduleTime, isPast && st.scheduleTimePast]}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                              <Text style={[st.scheduleLabel, isExtra ? st.scheduleLabelExtra : isPast && st.scheduleLabelPast]}>
+                                {isPast && !isExtra ? '✓ ' : ''}
+                                {seg.type === 'music' ? 'Tocando' : 'Descanso'}
+                                {isActive && !isExtra && (seg.type === 'music' ? ' 🎵' : ' ☕')}
+                              </Text>
+                              {isExtra && (
+                                <View style={st.scheduleBadgeExtra}>
+                                  <Text style={st.scheduleBadgeExtraText}>Hora extra</Text>
+                                </View>
+                              )}
+                            </View>
+                            <Text style={[st.scheduleTime, isExtra ? st.scheduleTimeExtra : isPast && st.scheduleTimePast]}>
                               {seg.fromTime} — {seg.toTime}
                             </Text>
                           </View>
-                          <Text style={[st.scheduleDuration, isPast && st.scheduleTimePast]}>
+                          <Text style={[st.scheduleDuration, isExtra ? st.scheduleDurationExtra : isPast && st.scheduleTimePast]}>
                             {seg.toMin - seg.fromMin} min
                           </Text>
                         </View>
@@ -1523,7 +2208,7 @@ export default function EventTimerScreen({ route, navigation }: any) {
           {/* ── STATUS ────────────────────────────────────────── */}
           <View style={st.statusRow}>
             {isRunning ? (
-              <Badge label={isOnBreak ? '☕ En descanso' : '🎵 En progreso'} variant={isOnBreak ? 'orange' : 'green'} dot />
+              <Badge label={isOnBreak ? '☕ En descanso' : '🎵 En progreso'} variant={isOnBreak ? 'blue' : 'green'} dot />
             ) : isCompleted ? (
               <Badge label="✅ Completado" variant="muted" />
             ) : startedAt ? (
@@ -1535,6 +2220,9 @@ export default function EventTimerScreen({ route, navigation }: any) {
 
           {/* ── EVENT INFO ─────────────────────────────────────── */}
           <View style={st.infoCard}>
+            {reservation.folio && (
+              <Text style={st.folioChip}>{reservation.folio}</Text>
+            )}
             <View style={st.infoRow}>
               <Clock size={15} color={COLORS.muted2} />
               <Text style={st.infoText}>
@@ -1554,86 +2242,89 @@ export default function EventTimerScreen({ route, navigation }: any) {
                 <ExternalLink size={12} color={COLORS.green} />
               </Pressable>
             )}
-            {/* Mapa con pin exacto — visible para el grupo cuando el cliente pagó */}
-            {!readOnly &&
-              isPaid(reservation.payment_status) &&
-              eventLatLng && (
+            {/* Mapa Express-style — zona aprox antes de pago, ruta+partículas al pagar */}
+            {!readOnly && (eventLatLng || approxDest) && (
               <View style={st.exactMapWrap}>
-                <Text style={st.exactMapLabel}>📍 Ubicación exacta del cliente</Text>
+                <Text style={st.exactMapLabel}>
+                  {isPaid(reservation.payment_status) ? '📍 Ubicación exacta del cliente' : '📍 Zona aproximada del evento'}
+                </Text>
                 <MapView
+                  ref={mapRef}
                   style={st.exactMap}
                   provider={PROVIDER_GOOGLE}
                   customMapStyle={EARTH_STYLE}
                   userInterfaceStyle="dark"
-                  initialRegion={{
-                    latitude:      eventLatLng.lat,
-                    longitude:     eventLatLng.lng,
-                    latitudeDelta:  0.004,
-                    longitudeDelta: 0.004,
-                  }}
+                  initialRegion={eventLatLng
+                    ? { latitude: eventLatLng.lat, longitude: eventLatLng.lng, latitudeDelta: 0.018, longitudeDelta: 0.018 }
+                    : approxDest
+                    ? { latitude: approxDest.latitude, longitude: approxDest.longitude, latitudeDelta: 0.018, longitudeDelta: 0.018 }
+                    : undefined}
                   scrollEnabled={true}
                   zoomEnabled={true}
                   pitchEnabled={false}
                   rotateEnabled={false}
+                  showsTraffic={false}
+                  showsBuildings={false}
+                  showsIndoors={false}
+                  showsCompass={false}
+                  showsMyLocationButton={false}
+                  showsUserLocation={false}
+                  toolbarEnabled={false}
                 >
-                  <Marker coordinate={{ latitude: eventLatLng.lat, longitude: eventLatLng.lng }} />
+                  {/* Círculo zona aprox (siempre visible) */}
+                  {(approxDest || eventLatLng) && (
+                    <MapCircle
+                      center={eventLatLng ? { latitude: eventLatLng.lat, longitude: eventLatLng.lng } : approxDest!}
+                      radius={isPaid(reservation.payment_status) ? 60 : 450}
+                      fillColor="rgba(0,230,118,0.06)"
+                      strokeColor="rgba(0,230,118,0.35)"
+                      strokeWidth={1.5}
+                    />
+                  )}
+                  {/* Ruta verde (solo pagado) — opaco para no mezclar con azul del mapa */}
+                  {isPaid(reservation.payment_status) && routePts.length > 1 && (
+                    <Polyline coordinates={routePts} strokeWidth={3} strokeColor="#00E676" />
+                  )}
+                  {/* Instrumentos viajando del grupo al cliente */}
+                  {isPaid(reservation.payment_status) && routePts.length > 1 && (
+                    <>
+                      <RouteParticle route={routePts} delay={0}    emoji="🎸" />
+                      <RouteParticle route={routePts} delay={1333} emoji="🎺" />
+                      <RouteParticle route={routePts} delay={2666} emoji="🎻" />
+                    </>
+                  )}
+                  {/* Marcador destino */}
+                  {(eventLatLng || approxDest) && (
+                    <Marker
+                      coordinate={eventLatLng
+                        ? { latitude: eventLatLng.lat, longitude: eventLatLng.lng }
+                        : approxDest!}
+                      anchor={{ x: 0.5, y: 0.5 }}
+                      tracksViewChanges={false}
+                    >
+                      <DestPinMarker />
+                    </Marker>
+                  )}
+                  {/* Punto de origen del grupo */}
+                  {isPaid(reservation.payment_status) && groupOrigin && (
+                    <Marker coordinate={groupOrigin} anchor={{ x: 0.5, y: 0.5 }} tracksViewChanges={false}>
+                      <View style={etMapSt.originDot}><View style={etMapSt.originInner} /></View>
+                    </Marker>
+                  )}
                 </MapView>
               </View>
             )}
           </View>
 
-          {/* ── NEAR END WARNING (15 min) ────────────────────────── */}
-          {nearEnd && isRunning && (() => {
-            // Precios de horas extra: paquete (fijos) o cotización (variables)
-            const extraPkg = reservation.package?.extra_hour_price;
-            const q = liveQuote ?? reservation.quote;
-            const hasQuoteExtras = q && (q.overtime_1h_price || q.overtime_2h_price || q.overtime_3h_price);
 
-            return (
-              <View style={st.warningBanner}>
-                <Text style={st.warningText}>
-                  ⏰ Quedan menos de 15 minutos
-                </Text>
-
-                {/* Horas extra del paquete (precio fijo) */}
-                {extraPkg != null && (
-                  <View style={st.extraPriceBox}>
-                    <Text style={st.extraPriceTitle}>Hora extra disponible</Text>
-                    <Text style={st.extraPriceValue}>${extraPkg.toLocaleString()} / hr</Text>
-                  </View>
-                )}
-
-                {/* Horas extra de la cotización */}
-                {hasQuoteExtras && (
-                  <View style={st.extraPriceBox}>
-                    <Text style={st.extraPriceTitle}>Horas extra cotizadas</Text>
-                    {q.overtime_1h_price != null && (
-                      <Text style={st.extraPriceLine}>1 hr extra: ${q.overtime_1h_price.toLocaleString()}</Text>
-                    )}
-                    {q.overtime_2h_price != null && (
-                      <Text style={st.extraPriceLine}>2 hr extra: ${q.overtime_2h_price.toLocaleString()}</Text>
-                    )}
-                    {q.overtime_3h_price != null && (
-                      <Text style={st.extraPriceLine}>3 hr extra: ${q.overtime_3h_price.toLocaleString()}</Text>
-                    )}
-                  </View>
-                )}
-
-                <Pressable style={st.warningBtn} onPress={() => navigation.navigate('ExtraHours', { reservation })}>
-                  <Text style={st.warningBtnText}>Solicitar hora extra al cliente</Text>
-                </Pressable>
-              </View>
-            );
-          })()}
-
-          {/* ── PUNTUALIDAD: banner pre-evento (todos los roles) ── */}
-          {!startedAt && reservation.event_date && reservation.event_time && (
+          {/* ── PUNTUALIDAD: banner pre-evento (solo grupo) ── */}
+          {!readOnly && !startedAt && !isCompleted && reservation.event_date && reservation.event_time && (
             <View style={st.punctualityBanner}>
               <Text style={st.punctualityIcon}>⏰</Text>
               <View style={{ flex: 1 }}>
                 <Text style={st.punctualityTitle}>Puedes iniciar antes, no después</Text>
                 <Text style={st.punctualitySub}>
-                  {`El evento es a las ${formatTime12h(reservation.event_time)}. Puedes iniciar anticipadamente si el cliente lo solicita. Una vez pasada la hora, el inicio es automático.`}
+                  {`El evento es a las ${formatTime12h(reservation.event_time)}.\nPara iniciar, pide al cliente su código de inicio.\nSin el código no puedes comenzar antes.\n⏰ Si pasan 15 min del horario sin código, el evento inicia automáticamente.`}
                 </Text>
               </View>
             </View>
@@ -1643,7 +2334,7 @@ export default function EventTimerScreen({ route, navigation }: any) {
           {readOnly ? (
             <>
               {/* Banner de llegada del grupo (visible para cliente) */}
-              {userRole === 'client' && hasArrived && (
+              {userRole === 'client' && hasArrived && !startedAt && (
                 <View style={st.arrivedBanner}>
                   <View style={st.arrivedIconWrap}>
                     <Text style={{ fontSize: 24 }}>📍</Text>
@@ -1675,7 +2366,13 @@ export default function EventTimerScreen({ route, navigation }: any) {
               {/* (a) Pre-llegada, pre-inicio */}
               {!isRunning && !startedAt && !hasArrived && (
                 <>
-                  <Button label="📍 Llegué al evento" onPress={handleArrive} size="lg" />
+                  <Pressable
+                    style={({ pressed }) => [st.iconBtn, st.iconBtnPrimary, pressed && { opacity: 0.8 }]}
+                    onPress={handleArrivePress}
+                  >
+                    <MapPin size={18} color={COLORS.black} />
+                    <Text style={[st.iconBtnLabel, { color: COLORS.black }]}>Llegué al evento</Text>
+                  </Pressable>
                   <View style={{ height: 10 }} />
                   {eventDateTime && !canStartNow && (
                     <Text style={st.autoStartHint}>
@@ -1685,14 +2382,25 @@ export default function EventTimerScreen({ route, navigation }: any) {
                       })() + ' si no inicias antes'}
                     </Text>
                   )}
-                  <Button
-                    label="▶ Iniciar evento"
+                  <Pressable
+                    style={({ pressed }) => [
+                      st.iconBtn, st.iconBtnOutline,
+                      (!canStartNow || loading) && st.iconBtnDisabled,
+                      pressed && !(!canStartNow || loading) && { opacity: 0.8 },
+                    ]}
                     onPress={handleStartPress}
-                    loading={loading}
-                    size="lg"
-                    variant="outline"
-                    disabled={!canStartNow}
-                  />
+                    disabled={!canStartNow || loading}
+                  >
+                    {loading
+                      ? <ActivityIndicator color={COLORS.green} size="small" />
+                      : <>
+                          <Play size={18} color={!canStartNow ? COLORS.muted : COLORS.green} />
+                          <Text style={[st.iconBtnLabel, { color: !canStartNow ? COLORS.muted : COLORS.green }]}>
+                            Iniciar evento
+                          </Text>
+                        </>
+                    }
+                  </Pressable>
                 </>
               )}
               {/* (b) Post-llegada, pre-inicio */}
@@ -1706,13 +2414,23 @@ export default function EventTimerScreen({ route, navigation }: any) {
                       })() + ' si no inicias antes'}
                     </Text>
                   )}
-                  <Button
-                    label="▶ Iniciar evento"
+                  <Pressable
+                    style={({ pressed }) => [
+                      st.iconBtn, st.iconBtnPrimary,
+                      (!canStartNow || loading) && st.iconBtnDisabled,
+                      pressed && !(!canStartNow || loading) && { opacity: 0.8 },
+                    ]}
                     onPress={handleStartPress}
-                    loading={loading}
-                    size="lg"
-                    disabled={!canStartNow}
-                  />
+                    disabled={!canStartNow || loading}
+                  >
+                    {loading
+                      ? <ActivityIndicator color={COLORS.black} size="small" />
+                      : <>
+                          <Play size={18} color={COLORS.black} />
+                          <Text style={[st.iconBtnLabel, { color: COLORS.black }]}>Iniciar evento</Text>
+                        </>
+                    }
+                  </Pressable>
                 </>
               )}
               {/* (c/d) EN VIVO o EN DESCANSO */}
@@ -1720,7 +2438,13 @@ export default function EventTimerScreen({ route, navigation }: any) {
                 <>
                   {!hasArrived && (
                     <>
-                      <Button label="📍 Llegué al evento" onPress={handleArrive} variant="outline" size="lg" />
+                      <Pressable
+                        style={({ pressed }) => [st.iconBtn, st.iconBtnOutline, pressed && { opacity: 0.8 }]}
+                        onPress={handleArrivePress}
+                      >
+                        <MapPin size={18} color={COLORS.green} />
+                        <Text style={[st.iconBtnLabel, { color: COLORS.green }]}>Llegué al evento</Text>
+                      </Pressable>
                       <View style={{ height: 10 }} />
                     </>
                   )}
@@ -1732,94 +2456,55 @@ export default function EventTimerScreen({ route, navigation }: any) {
             </View>
           )}
 
-          {/* ── HORAS EXTRA — cliente compra directamente ────────── */}
-          {userRole === 'client' && isRunning && (() => {
-            const q = liveQuote ?? reservation.quote;
-            const opts = [
-              q?.overtime_1h_price != null ? { hours: 1, price: q.overtime_1h_price } : null,
-              q?.overtime_2h_price != null ? { hours: 2, price: q.overtime_2h_price } : null,
-              q?.overtime_3h_price != null ? { hours: 3, price: q.overtime_3h_price } : null,
-            ].filter(Boolean) as { hours: number; price: number }[];
+          {/* ── HORAS EXTRA — cliente solicita (últimos 15 min) ── */}
+          {userRole === 'client' && isRunning && nearEnd && clientExtraOpts.length > 0 && extraHoursAdded === 0 && !pendingPaymentExtra && (
+            <>
+              {/* Anti-bypass warning */}
+              <View style={st.antiBypassBanner}>
+                <Text style={st.antiBypassText}>
+                  ⚠️ Para tu seguridad y garantía de servicio, solicita tus horas extra aquí, a través de la app. Los pagos fuera de la plataforma no están cubiertos por nuestra garantía de calidad.
+                </Text>
+              </View>
 
-            if (opts.length === 0) return null;
+              <View style={st.clientExtraCard}>
+                <Text style={st.clientExtraTitle}>¿Quieres más tiempo? 🎵</Text>
+                <Text style={st.clientExtraSub}>Solicita horas extra con tarjeta — el grupo confirma y el anillo se actualiza automáticamente.</Text>
 
-            const handleBuyExtra = async (hours: number, price: number) => {
-              Alert.alert(
-                `Solicitar +${hours}h extra`,
-                `Enviarás una solicitud al grupo para agregar ${hours}h más por $${price.toLocaleString()}. El grupo debe aceptar antes de extender el tiempo.`,
-                [
-                  { text: 'Cancelar', style: 'cancel' },
-                  {
-                    text: 'Solicitar',
-                    onPress: async () => {
-                      const commissionAmt = Math.round(price * 0.10 * 100) / 100;
-                      const ownerEarnings = price - commissionAmt;
-                      const { error } = await supabase.from('extra_hours').insert([{
-                        reservation_id: reservation.id,
-                        hours_added: hours,
-                        price_per_hour: Math.round(price / hours),
-                        total_extra_cost: price,
-                        platform_commission: commissionAmt,
-                        group_extra_earnings: ownerEarnings,
-                        status: 'awaiting_group_confirmation',
-                      }]);
-                      if (error) { Alert.alert('Error', error.message); return; }
-                      setClientPendingExtra({ hours, price });
-                      // Notificar al grupo para que abra el temporizador
-                      const notifs = groupMemberIds.map(uid => ({
-                        user_id: uid, type: 'reservation',
-                        title: '🕐 Solicitud de hora extra',
-                        body: `El cliente solicitó ${hours}h extra por $${price.toLocaleString()} MXN.`,
-                        data: { reservation_id: reservation.id },
-                      }));
-                      if (notifs.length) supabase.from('notifications').insert(notifs).then();
-                    },
-                  },
-                ]
-              );
-            };
-
-            return (
-              <>
-                {/* Anti-bypass warning */}
-                <View style={st.antiBypassBanner}>
-                  <Text style={st.antiBypassText}>
-                    ⚠️ Para tu seguridad y garantía de servicio, solicita tus horas extra aquí, a través de la app. Los pagos fuera de la plataforma no están cubiertos por nuestra garantía de calidad.
-                  </Text>
-                </View>
-
-                <View style={st.clientExtraCard}>
-                  <Text style={st.clientExtraTitle}>¿Quieres más tiempo? 🎵</Text>
-                  <Text style={st.clientExtraSub}>Solicita horas extra — el grupo confirma y el anillo se actualiza automáticamente.</Text>
-
-                  {clientPendingExtra ? (
-                    <View style={st.clientExtraPending}>
-                      <Text style={st.clientExtraPendingIcon}>⏳</Text>
-                      <Text style={st.clientExtraPendingText}>
-                        Solicitud de +{clientPendingExtra.hours}h enviada al grupo.{'\n'}Esperando confirmación…
-                      </Text>
-                    </View>
-                  ) : (
-                    <View style={st.clientExtraOpts}>
-                      {opts.map(opt => (
-                        <Pressable
-                          key={opt.hours}
-                          style={[st.clientExtraOpt, extraHoursAdded >= opt.hours && st.clientExtraOptDone]}
-                          onPress={() => extraHoursAdded < opt.hours && handleBuyExtra(opt.hours, opt.price)}
-                        >
-                          <Text style={st.clientExtraOptHours}>+{opt.hours}h</Text>
-                          <Text style={st.clientExtraOptPrice}>${opt.price.toLocaleString()}</Text>
-                          {extraHoursAdded >= opt.hours && (
-                            <Text style={st.clientExtraOptDoneLabel}>✓ Activo</Text>
-                          )}
-                        </Pressable>
-                      ))}
-                    </View>
-                  )}
-                </View>
-              </>
-            );
-          })()}
+                {clientPendingExtra ? (
+                  <View style={st.clientExtraPending}>
+                    <Text style={st.clientExtraPendingIcon}>⏳</Text>
+                    <Text style={st.clientExtraPendingText}>
+                      Solicitud de +{clientPendingExtra.hours}h enviada al grupo.{'\n'}Esperando confirmación…
+                    </Text>
+                  </View>
+                ) : (
+                  <View style={st.clientExtraOpts}>
+                    {clientExtraOpts.map(opt => (
+                      <Pressable
+                        key={opt.hours}
+                        style={[
+                          st.clientExtraOpt,
+                          extraHoursAdded >= opt.hours && st.clientExtraOptDone,
+                        ]}
+                        onPress={() => {
+                          if (extraHoursAdded >= opt.hours) return;
+                          setMsiPendingChoice({ hours: opt.hours, price: opt.price });
+                          setMsiSelectedMonths(1);
+                          setShowMsiModal(true);
+                        }}
+                      >
+                        <Text style={st.clientExtraOptHours}>+{opt.hours}h</Text>
+                        <Text style={st.clientExtraOptPrice}>${opt.price.toLocaleString()}</Text>
+                        {extraHoursAdded >= opt.hours && (
+                          <Text style={st.clientExtraOptDoneLabel}>✓ Activo</Text>
+                        )}
+                      </Pressable>
+                    ))}
+                  </View>
+                )}
+              </View>
+            </>
+          )}
 
           {/* espacio para el FAB */}
           {(hasArrived || isRunning) && !reservation.event_ended_at && (
@@ -2058,7 +2743,7 @@ export default function EventTimerScreen({ route, navigation }: any) {
         </ScrollView>
 
         {/* ── CHAT FAB ─────────────────────────────────────────── */}
-        {(hasArrived || isRunning) && !reservation.event_ended_at && (
+        {!isCompleted && !startedAt && (hasArrived || isRunning) && (
           <Pressable
             style={st.chatFab}
             onPress={() => {
@@ -2102,21 +2787,26 @@ export default function EventTimerScreen({ route, navigation }: any) {
                     . ¿Aceptan continuar tocando?
                   </Text>
 
-                  {/* Desglose de comisión */}
-                  <View style={st.extraCommBox}>
-                    <Text style={st.extraCommTitle}>💰 Desglose de la hora extra</Text>
-                    <View style={st.extraCommRow}>
-                      <Text style={st.extraCommLabel}>Total cobrado al cliente</Text>
-                      <Text style={[st.extraCommValue, { color: COLORS.text }]}>${total.toLocaleString()}</Text>
-                    </View>
-                    <View style={st.extraCommRow}>
-                      <Text style={st.extraCommLabel}>Comisión plataforma (10%)</Text>
-                      <Text style={[st.extraCommValue, { color: COLORS.orange }]}>- ${comm.toLocaleString()}</Text>
-                    </View>
-                    <View style={[st.extraCommRow, { borderTopWidth: 1, borderTopColor: COLORS.border, paddingTop: 8, marginTop: 4 }]}>
-                      <Text style={[st.extraCommLabel, { fontFamily: FONTS.bodySemiBold, color: COLORS.text }]}>Para el grupo</Text>
-                      <Text style={[st.extraCommValue, { color: COLORS.green, fontSize: 18 }]}>${groupCut.toLocaleString()}</Text>
-                    </View>
+                  {/* Lo que recibe el grupo — sin mostrar comisión */}
+                  <View style={st.groupEarningsBox}>
+                    <Text style={st.groupEarningsLabel}>Lo que recibirías</Text>
+                    <Text style={st.groupEarningsAmount}>${Math.round(groupCut).toLocaleString()}</Text>
+                  </View>
+
+                  {/* Badge método de pago */}
+                  <View style={st.paymentMethodBadge}>
+                    <Text style={st.paymentMethodBadgeText}>
+                      {(pendingExtraRow.payment_method ?? 'balance') === 'stripe'
+                        ? `💳 Tarjeta${(pendingExtraRow.msi_months ?? 1) > 1 ? ` · ${pendingExtraRow.msi_months} meses MSI` : ' · Pago único'}`
+                        : '💰 Saldo del cliente'}
+                    </Text>
+                  </View>
+
+                  {/* Aviso de términos — disuade cobro por fuera */}
+                  <View style={st.securityNoticeGroup}>
+                    <Text style={st.securityNoticeGroupText}>
+                      💼 Recuerda: cobrar por fuera viola los términos de uso, pierdes respaldo legal y de pagos, y acumulas strikes automáticos.
+                    </Text>
                   </View>
 
                   <Pressable
@@ -2151,54 +2841,69 @@ export default function EventTimerScreen({ route, navigation }: any) {
                       }
 
                       setShowGroupConfirmModal(false);
-                      const { error } = await supabase.rpc('group_confirm_extra_hours', {
-                        p_extra_id: pendingExtraRow.id,
-                      });
-                      if (error) {
-                        Alert.alert('Error', 'No se pudo confirmar. Intenta de nuevo.');
-                        return;
+
+                      if ((pendingExtraRow.payment_method ?? 'balance') === 'stripe') {
+                        // STRIPE: solo aceptar; el cliente paga después con PaymentSheet
+                        const { data: result, error } = await supabase.rpc('group_accept_extra_hour_stripe', {
+                          p_extra_id: pendingExtraRow.id,
+                        });
+                        console.log('[ACCEPT] error:', error?.message ?? 'none', '| result:', JSON.stringify(result));
+                        if (error || result?.ok === false) {
+                          Alert.alert('Error', 'No se pudo aceptar la solicitud. Intenta de nuevo.');
+                        } else {
+                          Alert.alert('✅ Solicitud aceptada', 'El cliente recibirá una notificación para completar el pago con tarjeta.');
+                        }
+                        setPendingExtraRow(null);
+                      } else {
+                        // LEGACY BALANCE: confirmar con cargo al saldo del cliente
+                        const { data: confirmResult, error } = await supabase.rpc('group_confirm_extra_hours', {
+                          p_extra_id: pendingExtraRow.id,
+                        });
+                        if (error || confirmResult?.ok === false) {
+                          if (confirmResult?.error === 'saldo_insuficiente') {
+                            Alert.alert(
+                              'Saldo insuficiente',
+                              `El cliente no tiene fondos suficientes para esta hora extra.\n\nDisponible: $${Number(confirmResult.balance ?? 0).toLocaleString()}\nRequerido:  $${Number(confirmResult.required ?? 0).toLocaleString()}\n\nLa solicitud fue cancelada y el cliente fue notificado.`
+                            );
+                            await supabase.rpc('group_reject_extra_hour', { p_extra_id: pendingExtraRow.id });
+                          } else {
+                            Alert.alert('Error', 'No se pudo confirmar. Intenta de nuevo.');
+                          }
+                          setPendingExtraRow(null);
+                          return;
+                        }
+                        supabase.rpc('credit_extra_hour_earnings', {
+                          p_reservation_id: reservation.id,
+                          p_extra_amount: total,
+                        }).then(({ error: rpcErr }) => {
+                          if (rpcErr) console.warn('credit_extra_hour_earnings:', rpcErr.message);
+                        });
+                        if (reservation.client_id) {
+                          supabase.from('notifications').insert([{
+                            user_id: reservation.client_id,
+                            type: 'reservation',
+                            title: '✅ ¡Hora extra confirmada!',
+                            body: `El grupo aceptó. Se agregaron ${hrs}h extra al temporizador.`,
+                            data: { reservation_id: reservation.id },
+                          }]).then();
+                        }
+                        setExtraHoursAdded(prev => prev + hrs);
+                        setPendingExtraRow(null);
                       }
-                      // Acreditar ganancias inmediatamente (97% grupo / 3% plataforma)
-                      supabase.rpc('credit_extra_hour_earnings', {
-                        p_reservation_id: reservation.id,
-                        p_extra_amount: total,
-                      }).then(({ error: rpcErr }) => {
-                        if (rpcErr) console.warn('credit_extra_hour_earnings:', rpcErr.message);
-                      });
-                      // Notificar al cliente que fue aceptado
-                      if (reservation.client_id) {
-                        supabase.from('notifications').insert([{
-                          user_id: reservation.client_id,
-                          type: 'reservation',
-                          title: '✅ ¡Hora extra confirmada!',
-                          body: `El grupo aceptó. Se agregaron ${hrs}h extra al temporizador.`,
-                          data: { reservation_id: reservation.id },
-                        }]).then();
-                      }
-                      setExtraHoursAdded(prev => prev + hrs);
-                      setPendingExtraRow(null);
                     }}
                   >
-                    <Text style={st.confirmBtnText}>✅ Aceptar y extender timer</Text>
+                    <Text style={st.confirmBtnText}>
+                      {(pendingExtraRow.payment_method ?? 'balance') === 'stripe'
+                        ? '✅ Aceptar solicitud'
+                        : '✅ Aceptar y extender timer'}
+                    </Text>
                   </Pressable>
 
                   <Pressable
                     style={[st.cancelBreakBtn, { marginTop: 8 }]}
                     onPress={async () => {
                       setShowGroupConfirmModal(false);
-                      // Marcar como rechazado en DB
-                      await supabase.from('extra_hours')
-                        .update({ status: 'rejected' })
-                        .eq('id', pendingExtraRow.id);
-                      if (reservation.client_id) {
-                        supabase.from('notifications').insert([{
-                          user_id: reservation.client_id,
-                          type: 'reservation',
-                          title: '❌ Hora extra no disponible',
-                          body: 'El grupo no puede extender el servicio en este momento.',
-                          data: { reservation_id: reservation.id },
-                        }]).then();
-                      }
+                      await supabase.rpc('group_reject_extra_hour', { p_extra_id: pendingExtraRow.id });
                       setPendingExtraRow(null);
                     }}
                   >
@@ -2250,6 +2955,7 @@ export default function EventTimerScreen({ route, navigation }: any) {
         </View>
       </Modal>
 
+
       {/* ── FINALIZAR EVENTO — confirmación destructiva ────────── */}
       <Modal visible={showEndModal} transparent animationType="fade">
         <View style={st.endConfirmOverlay}>
@@ -2267,7 +2973,13 @@ export default function EventTimerScreen({ route, navigation }: any) {
               </Pressable>
               <Pressable
                 style={[st.endConfirmBtn, st.endConfirmOk]}
-                onPress={() => { setShowEndModal(false); finishEvent(); }}
+                onPress={() => {
+                  setShowEndModal(false);
+                  if (!autoFinishedRef.current) {
+                    autoFinishedRef.current = true;
+                    finishEvent();
+                  }
+                }}
               >
                 <Text style={st.endConfirmOkText}>Sí, finalizar</Text>
               </Pressable>
@@ -2287,24 +2999,6 @@ export default function EventTimerScreen({ route, navigation }: any) {
         />
       </Modal>
 
-      {/* ── CELEBRACIÓN: EVENTO FINALIZADO ───────────────────── */}
-      <Modal visible={showCelebration} transparent={false} animationType="fade">
-        <CelebrationOverlay
-          isOwner={!readOnly}
-          userRole={userRole}
-          payouts={payouts}
-          currentUserId={currentUserId}
-          onOfferExtra={() => {
-            setShowCelebration(false);
-            navigation.navigate('ExtraHours', { reservation });
-          }}
-          onClose={() => {
-            setShowCelebration(false);
-            startRatingFlow();
-          }}
-        />
-      </Modal>
-
       {/* ── CALIFICACIÓN POST-EVENTO ──────────────────────────── */}
       <RatingModal
         visible={!!currentRating}
@@ -2315,57 +3009,265 @@ export default function EventTimerScreen({ route, navigation }: any) {
       {/* ── MODAL: TIPO DE DESCANSO ──────────────────────────── */}
       <Modal visible={showBreakModal} transparent animationType="slide">
         <View style={st.modalOverlay}>
-          <View style={st.modal}>
+          <View style={[st.modal, { flex: 1 }]}>
             <Text style={st.modalTitle}>Tipo de descanso</Text>
             <Text style={st.modalSub}>
               Pregunta al cliente cuál prefiere y selecciónalo aquí.{'\n'}
               El tiempo de música se actualizará automáticamente.
             </Text>
 
-            {BREAK_OPTIONS.map(opt => (
-              <Pressable
-                key={opt.type}
-                style={[st.breakOpt, breakType === opt.type && st.breakOptActive]}
-                onPress={() => setBreakType(opt.type)}
-              >
-                <View style={st.breakOptLeft}>
-                  <View style={[st.breakOptRadio, breakType === opt.type && st.breakOptRadioActive]}>
-                    {breakType === opt.type && <View style={st.breakOptRadioDot} />}
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[st.breakOptLabel, breakType === opt.type && { color: COLORS.green }]}>
-                      {opt.label}
-                      {!opt.clientVisible && (
-                        <Text style={st.breakOptOnlyGroup}> (solo grupo)</Text>
-                      )}
-                    </Text>
-                    <Text style={st.breakOptDesc}>{opt.desc(contractHours)}</Text>
-                    {breakType === opt.type && (
-                      <Text style={st.breakOptCalc}>
-                        → Música: {formatMinutes(contractHours * 60 - opt.breakMinutesFor(contractHours))}
-                        {' · '}Evento: {formatMinutes(opt.totalMinutes(contractHours))}
+            <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
+              {BREAK_OPTIONS.map(opt => (
+                <Pressable
+                  key={opt.type}
+                  style={[st.breakOpt, breakType === opt.type && st.breakOptActive]}
+                  onPress={() => setBreakType(opt.type)}
+                >
+                  <View style={st.breakOptLeft}>
+                    <View style={[st.breakOptRadio, breakType === opt.type && st.breakOptRadioActive]}>
+                      {breakType === opt.type && <View style={st.breakOptRadioDot} />}
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[st.breakOptLabel, breakType === opt.type && { color: COLORS.green }]}>
+                        {opt.label}
+                        {!opt.clientVisible && (
+                          <Text style={st.breakOptOnlyGroup}> (solo grupo)</Text>
+                        )}
                       </Text>
-                    )}
+                      <Text style={st.breakOptDesc}>{opt.desc(contractHours)}</Text>
+                      {breakType === opt.type && (
+                        <Text style={st.breakOptCalc}>
+                          → Música: {formatMinutes(contractHours * 60 - opt.breakMinutesFor(contractHours))}
+                          {' · '}Evento: {formatMinutes(opt.totalMinutes(contractHours))}
+                        </Text>
+                      )}
+                    </View>
                   </View>
-                </View>
-              </Pressable>
-            ))}
+                </Pressable>
+              ))}
+            </ScrollView>
 
             <Pressable
               style={[st.confirmBtn, !breakType && { opacity: 0.4 }]}
-              onPress={() => setShowBreakModal(false)}
+              onPress={() => {
+                setShowBreakModal(false);
+                // Persist break_type to DB immediately so useFocusEffect can
+                // restore it on re-mount even if the event hasn't started yet.
+                if (breakType) {
+                  supabase.from('reservations')
+                    .update({ break_type: breakType })
+                    .eq('id', reservation.id)
+                    .then();
+                }
+                if (pendingStartAfterBreak && breakType) {
+                  setPendingStartAfterBreak(false);
+                  setTimeout(() => {
+                    setArrivalCodeInput(['', '', '', '']);
+                    setShowArrivalCodeModal(true);
+                    setTimeout(() => codeRef0.current?.focus(), 350);
+                  }, 350);
+                }
+              }}
               disabled={!breakType}
             >
               <Text style={st.confirmBtnText}>Confirmar</Text>
             </Pressable>
             <Pressable
               style={st.cancelBreakBtn}
-              onPress={() => setShowBreakModal(false)}
+              onPress={() => { setShowBreakModal(false); setPendingStartAfterBreak(false); }}
             >
               <Text style={st.cancelBreakBtnText}>Cancelar</Text>
             </Pressable>
           </View>
         </View>
+      </Modal>
+
+      {/* ── HORAS EXTRA — modal automático nearEnd (solo cliente) ─── */}
+      <Modal visible={showClientNearEndModal} transparent animationType="slide">
+        <View style={st.nearEndOverlay}>
+          <View style={st.nearEndModal}>
+            <Text style={st.nearEndTitle}>Quedan menos de 15 min</Text>
+            <Text style={st.nearEndSub}>
+              ¿Quieres que el grupo continúe? Selecciona cuánto tiempo extra deseas:
+            </Text>
+
+            {/* Recordatorio MSI */}
+            <Text style={st.nearEndMsi}>
+              💳 Paga a plazos hasta 9 meses con MSI.
+            </Text>
+
+            {clientPendingExtra ? (
+              <View style={st.nearEndPending}>
+                <Text style={st.nearEndPendingText}>
+                  Solicitud de +{clientPendingExtra.hours}h enviada.{'\n'}Esperando confirmación del grupo…
+                </Text>
+              </View>
+            ) : (
+              <>
+                {clientExtraOpts.map((opt, idx) => (
+                  <Pressable
+                    key={opt.hours}
+                    style={[
+                      st.nearEndRow,
+                      idx < clientExtraOpts.length - 1 && st.nearEndRowBorder,
+                    ]}
+                    onPress={() => {
+                      setShowClientNearEndModal(false);
+                      setMsiPendingChoice({ hours: opt.hours, price: opt.price });
+                      setMsiSelectedMonths(1);
+                      setShowMsiModal(true);
+                    }}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={st.nearEndHours}>+{opt.hours} {opt.hours === 1 ? 'hora' : 'horas'}</Text>
+                    </View>
+                    <Text style={st.nearEndPrice}>${opt.price.toLocaleString()}</Text>
+                    <Text style={st.nearEndChevron}>›</Text>
+                  </Pressable>
+                ))}
+              </>
+            )}
+
+            {/* Mensaje de seguridad — cliente */}
+            <View style={st.securityNoticeClient}>
+              <Text style={st.securityNoticeClientText}>
+                🔒 Al contratar dentro de la app: el temporizador garantiza que el grupo toque, tienes pago seguro y respaldo legal, y soporte ante cualquier problema.
+              </Text>
+            </View>
+
+            <Pressable style={st.nearEndDismiss} onPress={() => setShowClientNearEndModal(false)}>
+              <Text style={st.nearEndDismissText}>Ahora no</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── SELECTOR MSI HORA EXTRA — Stripe-style ──────────────── */}
+      <Modal visible={showMsiModal} transparent animationType="slide">
+        <View style={st.nearEndOverlay}>
+          <View style={st.nearEndModal}>
+            <Text style={st.nearEndTitle}>Selecciona tu plan</Text>
+            {msiPendingChoice && (
+              <Text style={[st.nearEndSub, { marginBottom: 8 }]}>
+                +{msiPendingChoice.hours}h extra — ${msiPendingChoice.price.toLocaleString()} MXN
+              </Text>
+            )}
+
+            {/* Logos de tarjetas */}
+            <View style={st.cardLogosRow}>
+              <VisaLogo />
+              <McardLogo />
+              <AmexLogo />
+            </View>
+
+            {/* Opciones MSI */}
+            {EXTRA_MSI_OPTIONS.map(months => {
+              const base = msiPendingChoice?.price ?? 0;
+              const fee = EXTRA_MSI_FEE[months] ?? 0;
+              const total = Math.round(base * (1 + fee));
+              const monthly = Math.ceil(total / months);
+              const isSelected = msiSelectedMonths === months;
+              return (
+                <Pressable
+                  key={months}
+                  style={[st.msiCard, isSelected && st.msiCardSelected]}
+                  onPress={() => setMsiSelectedMonths(months)}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text style={[st.msiCardTitle, isSelected && { color: '#16A34A' }]}>
+                      {months === 1 ? '1 pago' : `${months} meses`}
+                    </Text>
+                    <Text style={st.msiCardFee}>
+                      {months === 1 ? 'Sin cargo adicional' : `+${(fee * 100).toFixed(0)}% de cargo · $${monthly.toLocaleString()}/mes`}
+                    </Text>
+                  </View>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={[st.msiCardPrice, isSelected && { color: '#16A34A' }]}>
+                      ${total.toLocaleString()}
+                    </Text>
+                    {months > 1 && (
+                      <Text style={st.msiCardTotal}>total</Text>
+                    )}
+                    {isSelected && <Text style={{ fontSize: 16, color: '#16A34A', marginTop: 2 }}>✓</Text>}
+                  </View>
+                </Pressable>
+              );
+            })}
+
+            {/* CTA */}
+            <Pressable
+              style={[st.msiSubmitBtn, stripeLoading && { opacity: 0.6 }]}
+              disabled={stripeLoading}
+              onPress={() => {
+                if (!msiPendingChoice) return;
+                setShowMsiModal(false);
+                handleRequestWithStripe(msiPendingChoice.hours, msiPendingChoice.price, msiSelectedMonths);
+              }}
+            >
+              {stripeLoading
+                ? <ActivityIndicator color="#FFFFFF" />
+                : <Text style={st.msiSubmitBtnText}>
+                    Solicitar +{msiPendingChoice?.hours ?? 1}h al grupo
+                  </Text>
+              }
+            </Pressable>
+
+            <Pressable
+              style={st.nearEndDismiss}
+              onPress={() => { setShowMsiModal(false); setMsiPendingChoice(null); }}
+            >
+              <Text style={st.nearEndDismissText}>Cancelar</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── CÓDIGO DE INICIO — validación al iniciar evento ──────── */}
+      <Modal visible={showArrivalCodeModal} transparent animationType="fade">
+        <Pressable style={st.codeModalOverlay} onPress={() => { Keyboard.dismiss(); setShowArrivalCodeModal(false); }}>
+          <Pressable style={st.codeModal}>
+            <Text style={st.codeModalTitle}>Iniciar evento</Text>
+            <Text style={st.codeModalSub}>Pide al cliente sus 4 dígitos para comenzar</Text>
+
+            <View style={st.codeDigitsRow}>
+              {([codeRef0, codeRef1, codeRef2, codeRef3] as React.RefObject<any>[]).map((ref, i) => (
+                <TextInput
+                  key={i}
+                  ref={ref}
+                  style={[st.codeDigitInput, arrivalCodeInput[i] ? st.codeDigitInputFilled : undefined]}
+                  value={arrivalCodeInput[i]}
+                  onChangeText={text => handleCodeDigit(text, i)}
+                  onKeyPress={({ nativeEvent }) => handleCodeKeyPress(nativeEvent.key, i)}
+                  keyboardType="number-pad"
+                  maxLength={1}
+                  selectTextOnFocus
+                  caretHidden
+                />
+              ))}
+            </View>
+
+            <Pressable
+              style={[
+                st.codeConfirmBtn,
+                (arrivalCodeInput.join('').length < 4 || codeLoading) && { opacity: 0.45 },
+              ]}
+              onPress={handleCodeSubmit}
+              disabled={arrivalCodeInput.join('').length < 4 || codeLoading}
+            >
+              {codeLoading
+                ? <ActivityIndicator color="#FFFFFF" />
+                : <Text style={st.codeConfirmBtnText}>Confirmar inicio</Text>
+              }
+            </Pressable>
+
+            <Pressable
+              style={st.codeCancelBtn}
+              onPress={() => { Keyboard.dismiss(); setShowArrivalCodeModal(false); }}
+            >
+              <Text style={st.codeCancelBtnText}>Cancelar</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
       </Modal>
     </View>
   );
@@ -2389,7 +3291,7 @@ const st = StyleSheet.create({
   scroll: { paddingHorizontal: 20, paddingVertical: 20, alignItems: 'center' },
 
   // ── Timer SVG Arc ──────────────────────────────────────────
-  timerSection: { alignItems: 'center', marginBottom: 24, width: '100%' },
+  timerSection: { alignItems: 'center', marginBottom: 16, width: '100%' },
   // Container for SVG + absolute overlay
   timerSvgWrap: {
     width: 320, height: 320,
@@ -2400,13 +3302,13 @@ const st = StyleSheet.create({
     position: 'absolute',
     top: 0, left: 0, right: 0, bottom: 0,
     alignItems: 'center', justifyContent: 'center',
-    paddingHorizontal: 16,
+    paddingHorizontal: 47,
   },
   progressBarTrack: {
-    width: '100%', height: 4, borderRadius: 2,
+    width: '100%', height: 7, borderRadius: 3.5,
     backgroundColor: COLORS.border, marginBottom: 8, overflow: 'hidden',
   },
-  progressBarFill: { height: 4, borderRadius: 2 },
+  progressBarFill: { height: 7, borderRadius: 3.5 },
 
   // Segment badge
   segBadge: {
@@ -2424,13 +3326,13 @@ const st = StyleSheet.create({
   // Time digits — inside circle
   timeRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
   digitCard: { alignItems: 'center' },
-  timeDigit: { fontFamily: FONTS.title, fontSize: 42, lineHeight: 46 },
+  timeDigit: { fontFamily: FONTS.title, fontSize: 34, lineHeight: 38, letterSpacing: -2 },
   timeUnit: {
     fontFamily: FONTS.body, fontSize: 7, color: COLORS.muted,
     letterSpacing: 1.2, marginTop: -2,
   },
   timeSep: {
-    fontFamily: FONTS.title, fontSize: 16, lineHeight: 46,
+    fontFamily: FONTS.title, fontSize: 13, lineHeight: 38,
     marginHorizontal: 2, marginBottom: 8, opacity: 0.35,
   },
   pauseLabel: {
@@ -2450,26 +3352,26 @@ const st = StyleSheet.create({
   },
   bannerLive: {
     width: '100%', flexDirection: 'row' as const, alignItems: 'center' as const,
-    justifyContent: 'center' as const, gap: 10,
+    justifyContent: 'center' as const, gap: 8,
     backgroundColor: COLORS.greenMuted, borderRadius: RADIUS.lg,
     borderWidth: 1, borderColor: 'rgba(0,230,118,0.35)',
-    paddingVertical: 14, paddingHorizontal: 20, marginBottom: 16,
+    paddingVertical: 6, paddingHorizontal: 14, marginBottom: 14,
   },
   bannerLiveText: {
-    fontFamily: FONTS.bodySemiBold, fontSize: 18, color: COLORS.green, letterSpacing: 0.3,
+    fontFamily: FONTS.bodySemiBold, fontSize: 11, color: COLORS.green, letterSpacing: 0.8,
   },
-  bannerDot: { fontFamily: FONTS.body, fontSize: 14, color: COLORS.green },
+  bannerDot: { fontFamily: FONTS.body, fontSize: 10, color: COLORS.green },
   bannerBreak: {
     width: '100%', alignItems: 'center' as const, justifyContent: 'center' as const,
     backgroundColor: 'rgba(66,133,244,0.10)', borderRadius: RADIUS.lg,
     borderWidth: 1, borderColor: 'rgba(66,133,244,0.30)',
-    paddingVertical: 14, paddingHorizontal: 20, marginBottom: 16, gap: 4,
+    paddingVertical: 6, paddingHorizontal: 14, marginBottom: 14, gap: 3,
   },
   bannerBreakText: {
-    fontFamily: FONTS.bodySemiBold, fontSize: 18, color: COLORS.blue, letterSpacing: 0.3,
+    fontFamily: FONTS.bodySemiBold, fontSize: 11, color: COLORS.blue, letterSpacing: 0.8,
   },
   bannerBreakSub: {
-    fontFamily: FONTS.bodyMedium, fontSize: 15, color: COLORS.blue, opacity: 0.75,
+    fontFamily: FONTS.bodyMedium, fontSize: 10, color: COLORS.blue, opacity: 0.75,
   },
 
   elapsedLabel: {
@@ -2487,6 +3389,7 @@ const st = StyleSheet.create({
   breakRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   breakLabel: { fontFamily: FONTS.body, fontSize: 13, color: COLORS.muted2 },
   breakValue: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.text },
+  breakInfoText: { fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.muted2, lineHeight: 18 },
   changeBreak: { fontFamily: FONTS.bodyMedium, fontSize: 12, color: COLORS.green, marginTop: 4 },
 
   // Schedule timeline
@@ -2499,20 +3402,35 @@ const st = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 10,
     paddingVertical: 10, paddingHorizontal: 10, borderRadius: RADIUS.md, marginBottom: 4,
   },
-  scheduleRowActive: { backgroundColor: 'rgba(0,230,118,0.08)', borderWidth: 1, borderColor: 'rgba(0,230,118,0.3)' },
+  scheduleRowActive:      { backgroundColor: 'rgba(0,230,118,0.08)', borderWidth: 1, borderColor: 'rgba(0,230,118,0.3)' },
+  scheduleRowActiveBreak: { backgroundColor: 'rgba(96,165,250,0.08)', borderWidth: 1, borderColor: 'rgba(96,165,250,0.3)' },
   scheduleRowPast: { opacity: 0.5 },
   scheduleIcon: {
     width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center',
   },
   scheduleIconMusic: { backgroundColor: 'rgba(0,230,118,0.12)' },
-  scheduleIconBreak: { backgroundColor: 'rgba(255,152,0,0.12)' },
+  scheduleIconBreak: { backgroundColor: 'rgba(96,165,250,0.12)' },
   scheduleIconMusicActive: { backgroundColor: COLORS.green },
-  scheduleIconBreakActive: { backgroundColor: COLORS.orange },
+  scheduleIconBreakActive: { backgroundColor: '#60A5FA' },
   scheduleLabel: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.text },
   scheduleLabelPast: { color: COLORS.muted },
   scheduleTime: { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2, marginTop: 1 },
   scheduleTimePast: { color: COLORS.muted },
   scheduleDuration: { fontFamily: FONTS.bodyMedium, fontSize: 12, color: COLORS.muted2 },
+
+  // Extra-hours golden treatment
+  scheduleRowExtra:       { backgroundColor: 'rgba(251,191,36,0.08)', borderWidth: 1, borderColor: 'rgba(251,191,36,0.25)' },
+  scheduleRowExtraActive: { backgroundColor: 'rgba(251,191,36,0.16)', borderWidth: 1, borderColor: 'rgba(251,191,36,0.5)' },
+  scheduleRowExtraPast:   { backgroundColor: 'rgba(251,191,36,0.05)', borderWidth: 1, borderColor: 'rgba(251,191,36,0.12)', opacity: 0.75 },
+  scheduleIconExtra:      { backgroundColor: 'rgba(251,191,36,0.15)' },
+  scheduleIconExtraActive:{ backgroundColor: '#FBBF24' },
+  scheduleLabelExtra:     { color: '#FBBF24' },
+  scheduleTimeExtra:      { color: 'rgba(251,191,36,0.7)' },
+  scheduleDurationExtra:  { color: '#FBBF24' },
+  scheduleBadgeExtra: {
+    backgroundColor: 'rgba(251,191,36,0.2)', borderRadius: 4, paddingHorizontal: 5, paddingVertical: 1,
+  },
+  scheduleBadgeExtraText: { fontFamily: FONTS.bodySemiBold, fontSize: 10, color: '#FBBF24' },
 
   selectBreakBtn: {
     width: '100%', flexDirection: 'row', alignItems: 'center', gap: 10,
@@ -2827,6 +3745,30 @@ const st = StyleSheet.create({
   clientReqLabel: { fontFamily: FONTS.body, fontSize: 13, color: COLORS.muted2, flex: 1 },
   clientReqValue: { fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.text, textAlign: 'right', flex: 1 },
 
+  // ── Review card (estado terminal completado) ──────────────────
+  reviewCard: {
+    backgroundColor: 'rgba(0,230,118,0.04)',
+    borderLeftWidth: 3,
+    borderLeftColor: COLORS.green,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginLeft: 20,
+    marginRight: 0,
+    marginTop: 8,
+  },
+  reviewStarsRow: { flexDirection: 'row', alignItems: 'center', gap: 3, marginBottom: 6 },
+  reviewStarOn:   { color: '#FBBF24', fontSize: 16 },
+  reviewStarOff:  { color: 'rgba(255,255,255,0.2)', fontSize: 16 },
+  reviewCommentInline: {
+    fontFamily: FONTS.body,
+    fontSize: 13,
+    fontStyle: 'italic',
+    color: COLORS.muted2,
+    marginBottom: 4,
+    lineHeight: 18,
+  },
+  reviewCardFooter: { fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted },
+
   // Commission breakdown
   commissionBox: {
     backgroundColor: COLORS.card, borderRadius: RADIUS.lg,
@@ -2872,8 +3814,107 @@ const st = StyleSheet.create({
   },
   clientExtraOptDone: { borderColor: COLORS.muted, backgroundColor: COLORS.card2, opacity: 0.6 },
   clientExtraOptHours: { fontFamily: FONTS.title, fontSize: 22, color: COLORS.green, marginBottom: 2 },
-  clientExtraOptPrice: { fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.muted2 },
+  clientExtraOptPrice: { fontFamily: FONTS.bodyMedium, fontSize: 13, color: '#16A34A' },
   clientExtraOptDoneLabel: { fontFamily: FONTS.bodySemiBold, fontSize: 11, color: COLORS.green, marginTop: 4 },
+  clientExtraOptDisabled: { opacity: 0.4 },
+  clientExtraOptNoFunds: { fontFamily: FONTS.body, fontSize: 10, color: '#CC4444', marginTop: 2 },
+
+  // ── Grupo: lo que recibe (sin comisión visible) ────────────────
+  groupEarningsBox: {
+    alignItems: 'center', paddingVertical: 20,
+    backgroundColor: 'rgba(0,230,118,0.06)',
+    borderRadius: RADIUS.md, marginBottom: 16,
+  },
+  groupEarningsLabel: {
+    fontFamily: FONTS.body, fontSize: 13, color: COLORS.muted2, marginBottom: 6,
+  },
+  groupEarningsAmount: {
+    fontFamily: FONTS.title, fontSize: 32, color: COLORS.green,
+  },
+
+  // ── Avisos de seguridad ───────────────────────────────────────
+  securityNoticeGroup: {
+    backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: RADIUS.md,
+    padding: 12, marginBottom: 12,
+  },
+  securityNoticeGroupText: {
+    fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2, lineHeight: 18,
+  },
+  securityNoticeClient: {
+    marginTop: 16, paddingTop: 16,
+    borderTopWidth: 1, borderTopColor: 'rgba(0,0,0,0.08)',
+  },
+  securityNoticeClientText: {
+    fontFamily: FONTS.body, fontSize: 12, color: '#777777',
+    lineHeight: 18, textAlign: 'center',
+  },
+
+  // ── Banner pendiente extra (cliente espera confirmación) ──────
+  bannerPendingExtra: {
+    width: '100%', alignItems: 'center' as const, justifyContent: 'center' as const,
+    backgroundColor: 'rgba(255,152,0,0.12)',
+    borderRadius: RADIUS.lg, borderWidth: 1, borderColor: 'rgba(255,152,0,0.30)',
+    paddingHorizontal: 14, paddingVertical: 6, marginBottom: 14, gap: 2,
+  },
+  bannerPendingExtraText: {
+    fontFamily: FONTS.bodySemiBold, fontSize: 11, color: COLORS.orange, letterSpacing: 0.8,
+  },
+  bannerPendingExtraSub: {
+    fontFamily: FONTS.bodyMedium, fontSize: 10, color: COLORS.orange, opacity: 0.8,
+  },
+
+  // ── Near-end modal — cliente (estilo bottom sheet premium) ────
+  nearEndOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.72)', justifyContent: 'flex-end',
+  },
+  nearEndModal: {
+    backgroundColor: COLORS.card, borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    paddingHorizontal: 24, paddingTop: 28, paddingBottom: 36,
+  },
+  nearEndTitle: {
+    fontFamily: FONTS.bodySemiBold, fontSize: 17, color: COLORS.text, marginBottom: 8,
+  },
+  nearEndSub: {
+    fontFamily: FONTS.body, fontSize: 14, color: COLORS.muted2, lineHeight: 21, marginBottom: 20,
+  },
+  nearEndRow: {
+    flexDirection: 'row', alignItems: 'center', paddingVertical: 16,
+  },
+  nearEndRowBorder: {
+    borderBottomWidth: 1, borderBottomColor: COLORS.border,
+  },
+  nearEndHours: {
+    fontFamily: FONTS.bodySemiBold, fontSize: 16, color: COLORS.text,
+  },
+  nearEndPrice: {
+    fontFamily: FONTS.title, fontSize: 18, color: '#16A34A', marginRight: 10,
+  },
+  nearEndChevron: {
+    fontSize: 22, color: COLORS.muted, fontFamily: FONTS.body,
+  },
+  nearEndPending: {
+    paddingVertical: 24, alignItems: 'center',
+  },
+  nearEndPendingText: {
+    fontFamily: FONTS.bodyMedium, fontSize: 14, color: COLORS.muted2,
+    textAlign: 'center', lineHeight: 22,
+  },
+  nearEndMsi: {
+    fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted,
+    textAlign: 'center', marginBottom: 16, lineHeight: 17,
+  },
+  nearEndInfoBox: {
+    marginTop: 14, alignItems: 'center', paddingVertical: 10,
+  },
+  nearEndInfoText: {
+    fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted, textAlign: 'center',
+  },
+  nearEndDismiss: {
+    marginTop: 20, alignItems: 'center', paddingVertical: 12,
+  },
+  nearEndDismissText: {
+    fontFamily: FONTS.bodyMedium, fontSize: 15, color: COLORS.muted,
+  },
 
   // ── Extra hours (client view) ─────────────────────────────
   extraOfferCard: {
@@ -2989,7 +4030,7 @@ const st = StyleSheet.create({
   clientAvatarImg:     { width: 32, height: 32, borderRadius: 16 },
   clientAvatarInitial: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.muted2 },
   roleContextRight: { alignItems: 'flex-end' },
-  roleContextHours: { fontFamily: FONTS.title, fontSize: 22, color: COLORS.green },
+  roleContextHours: { fontFamily: FONTS.title, fontSize: 20, color: COLORS.green, lineHeight: 22 },
   roleContextHoursLabel: { fontFamily: FONTS.body, fontSize: 10, color: COLORS.muted, letterSpacing: 0.3 },
 
   // ── Improved arrived / readOnly banners ────────────────────
@@ -3003,9 +4044,10 @@ const st = StyleSheet.create({
     backgroundColor: 'rgba(156,39,176,0.10)', borderWidth: 1, borderColor: 'rgba(156,39,176,0.3)',
     alignItems: 'center', justifyContent: 'center',
   },
-  exactMapWrap:  { marginTop: 12, borderRadius: RADIUS.lg, overflow: 'hidden' },
+  exactMapWrap:  { marginTop: 12 },
   exactMapLabel: { fontFamily: FONTS.bodyMedium, fontSize: 12, color: COLORS.muted2, marginBottom: 6 },
-  exactMap:      { width: '100%', height: 180, borderRadius: RADIUS.lg },
+  folioChip:     { fontFamily: FONTS.title, fontSize: 13, color: COLORS.green, letterSpacing: 1, textAlign: 'center', paddingBottom: 6, borderBottomWidth: 1, borderColor: COLORS.border },
+  exactMap:      { width: '100%', height: 220, borderRadius: RADIUS.lg, overflow: 'hidden' },
 
   // ── Actions (Commit 4) ────────────────────────────────────
   autoStartHint: {
@@ -3056,4 +4098,105 @@ const st = StyleSheet.create({
   endConfirmOkText: {
     fontFamily: FONTS.bodySemiBold, fontSize: 14, color: '#fff',
   },
+
+  // ── Arrival code modal (estilo Uber) ─────────────────────
+  codeModalOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.55)',
+    alignItems: 'center', justifyContent: 'center', padding: 24,
+  },
+  codeModal: {
+    width: '100%', backgroundColor: '#FFFFFF',
+    borderRadius: 20, padding: 28, alignItems: 'center',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.12, shadowRadius: 24, elevation: 12,
+  },
+  codeModalTitle: {
+    fontFamily: FONTS.title, fontSize: 20, color: '#111827',
+    textAlign: 'center', marginBottom: 6,
+  },
+  codeModalSub: {
+    fontFamily: FONTS.body, fontSize: 13, color: '#6B7280',
+    textAlign: 'center', lineHeight: 20, marginBottom: 28,
+  },
+  codeDigitsRow: {
+    flexDirection: 'row', gap: 12, marginBottom: 32,
+  },
+  codeDigitInput: {
+    width: 62, height: 72, borderRadius: 12,
+    backgroundColor: '#FFFFFF', borderWidth: 1.5, borderColor: '#D1D5DB',
+    color: '#111827', fontFamily: FONTS.title, fontSize: 32,
+    textAlign: 'center',
+  },
+  codeDigitInputFilled: {
+    borderColor: '#111827', backgroundColor: '#F9FAFB',
+  },
+  codeConfirmBtn: {
+    width: '100%', backgroundColor: '#111827', borderRadius: 14,
+    paddingVertical: 16, alignItems: 'center', marginBottom: 10,
+  },
+  codeConfirmBtnText: {
+    fontFamily: FONTS.bodySemiBold, fontSize: 15, color: '#FFFFFF',
+  },
+  codeCancelBtn: {
+    width: '100%', backgroundColor: '#F3F4F6', borderRadius: 14,
+    paddingVertical: 14, alignItems: 'center',
+  },
+  codeCancelBtnText: {
+    fontFamily: FONTS.bodyMedium, fontSize: 14, color: '#374151',
+  },
+
+  // ── Banner "Paga ahora" (cliente) ────────────────────────
+  payNowBanner: {
+    width: '100%', backgroundColor: 'rgba(22,163,74,0.07)',
+    borderRadius: RADIUS.lg, borderWidth: 1, borderColor: 'rgba(22,163,74,0.25)',
+    padding: 18, marginBottom: 14, alignItems: 'center',
+  },
+  payNowBannerTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 16, color: '#16A34A', marginBottom: 4 },
+  payNowBannerSub: { fontFamily: FONTS.body, fontSize: 13, color: '#555555', marginBottom: 14 },
+  payNowBannerBtn: {
+    backgroundColor: '#16A34A', borderRadius: RADIUS.lg,
+    paddingVertical: 14, paddingHorizontal: 36, marginBottom: 8,
+  },
+  payNowBannerBtnText: { fontFamily: FONTS.bodySemiBold, fontSize: 15, color: '#FFFFFF' },
+  payNowBannerTimer: { fontFamily: FONTS.body, fontSize: 11, color: '#888888' },
+
+  // ── Logos de tarjetas ─────────────────────────────────────
+  cardLogosRow: { flexDirection: 'row', gap: 8, marginBottom: 18 },
+
+  // ── MSI card options (Stripe-style) ──────────────────────
+  msiCard: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: COLORS.card2, borderRadius: 12,
+    borderWidth: 1, borderColor: COLORS.border,
+    padding: 14, marginBottom: 8,
+  },
+  msiCardSelected: { borderColor: '#16A34A', backgroundColor: 'rgba(22,163,74,0.10)' },
+  msiCardTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 15, color: COLORS.text, marginBottom: 2 },
+  msiCardFee: { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted },
+  msiCardPrice: { fontFamily: FONTS.title, fontSize: 17, color: COLORS.text },
+  msiCardTotal: { fontFamily: FONTS.body, fontSize: 10, color: COLORS.muted, marginTop: 1 },
+
+  // ── Botón CTA MSI ─────────────────────────────────────────
+  msiSubmitBtn: {
+    width: '100%', backgroundColor: '#16A34A', borderRadius: RADIUS.lg,
+    paddingVertical: 16, alignItems: 'center', marginTop: 10, marginBottom: 2,
+  },
+  msiSubmitBtnText: { fontFamily: FONTS.bodySemiBold, fontSize: 16, color: '#FFFFFF' },
+
+  // ── Badge método de pago (modal grupo) ───────────────────
+  paymentMethodBadge: {
+    backgroundColor: 'rgba(66,133,244,0.08)', borderRadius: RADIUS.md,
+    paddingHorizontal: 14, paddingVertical: 8, marginBottom: 14, alignSelf: 'center',
+  },
+  paymentMethodBadgeText: { fontFamily: FONTS.bodyMedium, fontSize: 13, color: '#4285F4' },
+
+  // ── Icon buttons (reemplazo de Button con Lucide icons) ──
+  iconBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 8, borderRadius: RADIUS.md, paddingVertical: 18, paddingHorizontal: 24, width: '100%',
+  },
+  iconBtnPrimary: { backgroundColor: COLORS.green },
+  iconBtnOutline: { backgroundColor: 'transparent', borderWidth: 1, borderColor: COLORS.green },
+  iconBtnDisabled: { opacity: 0.45 },
+  iconBtnLabel: { fontFamily: FONTS.bodySemiBold, fontSize: 16, letterSpacing: 0.3 },
 });

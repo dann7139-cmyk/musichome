@@ -4,8 +4,9 @@
  * Pendientes: cotizaciones sin responder o por aceptar → GroupQuoteDetail
  */
 import { BarChart2, Bell, ChevronRight, Clock, MapPin, PlayCircle, TrendingUp } from 'lucide-react-native';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { isUpcoming, snapshotNow } from '../../utils/eventFilter';
+import { parseEventDateMX } from '../../utils/calculations';
 import {
   ActivityIndicator,
   Image,
@@ -53,12 +54,13 @@ function ClientAvatar({ client }: { client: any }) {
 }
 
 const STATUS_MAP: Record<string, { label: string; variant: any; color: string }> = {
-  pending:     { label: 'Pendiente',  variant: 'orange', color: COLORS.orange },
-  accepted:    { label: 'Aceptada',   variant: 'blue',   color: COLORS.blue   },
-  confirmed:   { label: 'Confirmada', variant: 'green',  color: COLORS.green  },
-  in_progress: { label: 'En curso',   variant: 'blue',   color: COLORS.blue   },
-  completed:   { label: 'Completada', variant: 'muted',  color: COLORS.muted  },
-  cancelled:   { label: 'Cancelada',  variant: 'red',    color: COLORS.red    },
+  pending:     { label: 'Pendiente',       variant: 'orange', color: COLORS.orange },
+  accepted:    { label: 'Aceptada',        variant: 'blue',   color: COLORS.blue   },
+  confirmed:   { label: 'Confirmada',      variant: 'green',  color: COLORS.green  },
+  in_progress: { label: 'En curso',        variant: 'blue',   color: COLORS.blue   },
+  completed:   { label: 'Completada',      variant: 'muted',  color: COLORS.muted  },
+  cancelled:   { label: 'Cancelada',       variant: 'red',    color: COLORS.red    },
+  no_show:     { label: 'No se presentó',  variant: 'red',    color: COLORS.red    },
 };
 
 const QUOTE_STATUS_CFG: Record<string, { label: string; color: string }> = {
@@ -154,22 +156,30 @@ function useCountdown(eventDate: string | null, eventTime: string | null) {
 // ─── EventCard ────────────────────────────────────────────────────────────────
 
 function EventCard({ reservation: r, navigation }: any) {
-  const s        = STATUS_MAP[r.status] ?? STATUS_MAP.accepted;
-  const parts    = r.event_date?.split('-') ?? [];
-  const day      = parts[2] ?? '—';
-  const monthIdx = parts[1] ? parseInt(parts[1], 10) - 1 : -1;
-  const month    = monthIdx >= 0 ? MONTH_SHORT[monthIdx] : '—';
+  const isNoShow    = r.status === 'cancelled' && r.cancellation_type === 'system_auto' && r.cancel_reason === 'no_show_grupo';
+  const displayKey  = isNoShow ? 'no_show' : r.status;
+  const s           = STATUS_MAP[displayKey] ?? STATUS_MAP.accepted;
+  const parts       = r.event_date?.split('-') ?? [];
+  const day         = parts[2] ?? '—';
+  const monthIdx    = parts[1] ? parseInt(parts[1], 10) - 1 : -1;
+  const month       = monthIdx >= 0 ? MONTH_SHORT[monthIdx] : '—';
 
-  const isPaid       = r.payment_status === 'paid' || r.payment_status === 'deposit_paid' || r.payment_status === 'fully_paid';
-  const isLive       = r.status === 'in_progress';
-  const isCompleted  = r.status === 'completed';
-  const isExpress    = !!r.event_request_id;
-  const showCountdown = (isPaid || r.status === 'accepted') && !isLive;
-  const countdown = useCountdown(showCountdown ? r.event_date : null, r.event_time);
+  const isPaid        = r.payment_status === 'paid' || r.payment_status === 'deposit_paid' || r.payment_status === 'fully_paid';
+  const isLive        = r.status === 'in_progress';
+  const isCompleted   = r.status === 'completed';
+  const isExpress     = !!r.event_request_id;
+  const showCountdown = (isPaid || r.status === 'accepted') && !isLive && !isNoShow;
+  const countdown     = useCountdown(showCountdown ? r.event_date : null, r.event_time);
 
   return (
     <Pressable
-      style={[st.card, isLive && st.cardLive, isExpress && st.cardExpress, isCompleted && st.cardCompleted]}
+      style={[
+        st.card,
+        isLive      && st.cardLive,
+        isExpress   && !isNoShow && st.cardExpress,
+        isCompleted && st.cardCompleted,
+        isNoShow    && st.cardNoShow,
+      ]}
       onPress={() => navigation.navigate('EventTimer', { reservation: r })}
     >
       <View style={{ alignItems: 'center', gap: 6 }}>
@@ -187,7 +197,7 @@ function EventCard({ reservation: r, navigation }: any) {
           </Text>
           <View style={{ alignItems: 'flex-end', gap: 4 }}>
             <Badge label={s.label} variant={s.variant} dot />
-            {isExpress && (
+            {isExpress && !isNoShow && (
               <View style={st.expressBadge}>
                 <Text style={st.expressBadgeText}>⚡ Express</Text>
               </View>
@@ -197,8 +207,8 @@ function EventCard({ reservation: r, navigation }: any) {
         <Text style={st.pkgName} numberOfLines={1}>
           {isExpress
             ? `Evento Express · ${r.hours_count ?? '?'}h`
-            : (r.package?.name ?? (r.quote_id ? 'Cotización' : '—')) +
-              (r.package?.duration_hours ? ` · ${r.package.duration_hours}h` : '')
+            : (r.quote_id || r._isQuote ? 'Cotización' : '—') +
+              (r.quote?.duration_hours ? ` · ${r.quote.duration_hours}h` : '')
           }
         </Text>
         <View style={st.metaRow}>
@@ -227,6 +237,11 @@ function EventCard({ reservation: r, navigation }: any) {
             <Text style={st.countdownText}>Inicia en: {countdown}</Text>
           </View>
         ) : null}
+        {isNoShow && (
+          <View style={st.noShowRow}>
+            <Text style={st.noShowText}>El grupo no se presentó — Admin revisará el pago</Text>
+          </View>
+        )}
         {isCompleted && (
           <Pressable
             style={st.earningsBtn}
@@ -304,17 +319,81 @@ function QuoteCard({ quote: q, navigation }: any) {
   );
 }
 
+// ─── ProposalCard — Express proposal awaiting client response ────────────────
+
+function ProposalCard({ proposal: p }: any) {
+  const req    = p.request ?? {};
+  const data   = p.proposal_data ?? {};
+  const parts  = req.event_date?.split('-') ?? [];
+  const day    = parts[2] ?? '—';
+  const monthIdx = parts[1] ? parseInt(parts[1], 10) - 1 : -1;
+  const month  = monthIdx >= 0 ? MONTH_SHORT[monthIdx] : '—';
+  const amt    = data.total_amount;
+
+  return (
+    <View style={[st.card, st.cardQuote]}>
+      <View style={{ alignItems: 'center', gap: 6 }}>
+        <View style={[st.dateBubble, { backgroundColor: 'rgba(255,152,0,0.1)', borderColor: 'rgba(255,152,0,0.3)' }]}>
+          <Text style={[st.dateDay,  { color: COLORS.orange }]}>{day}</Text>
+          <Text style={[st.dateMon, { color: COLORS.orange }]}>{month}</Text>
+        </View>
+      </View>
+      <View style={st.cardBody}>
+        <View style={st.cardTop}>
+          <Text style={st.clientName} numberOfLines={1}>⚡ Propuesta Express</Text>
+          <View style={[st.quotePill, { backgroundColor: 'rgba(255,152,0,0.1)', borderColor: 'rgba(255,152,0,0.3)' }]}>
+            <Text style={[st.quotePillText, { color: COLORS.orange }]}>Esperando</Text>
+          </View>
+        </View>
+        <Text style={st.pkgName} numberOfLines={1}>
+          {req.event_type ?? 'Evento'} · {req.hours ?? '?'}h{req.genre ? ` · ${req.genre}` : ''}
+        </Text>
+        <View style={st.metaRow}>
+          {req.event_time && (
+            <View style={st.metaItem}>
+              <Clock size={11} color={COLORS.muted} />
+              <Text style={st.metaText}>{fmtTime(req.event_time)}</Text>
+            </View>
+          )}
+          {(req.location_municipio || req.location_city) && (
+            <View style={st.metaItem}>
+              <MapPin size={11} color={COLORS.muted} />
+              <Text style={st.metaText} numberOfLines={1}>
+                {req.location_municipio ?? req.location_city}, {req.location_estado}
+              </Text>
+            </View>
+          )}
+        </View>
+        {amt != null && (
+          <Text style={st.quotePrice}>${Number(amt).toLocaleString()} MXN cotizados</Text>
+        )}
+        <Text style={[st.metaText, { marginTop: 4, color: COLORS.muted }]}>
+          El cliente está revisando tu propuesta
+        </Text>
+      </View>
+    </View>
+  );
+}
+
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
 export default function GroupEventsScreen({ navigation }: any) {
   const [activeTab,    setActiveTab]    = useState<'proximos' | 'pendientes' | 'historial'>('proximos');
   const [reservations, setReservations] = useState<any[]>([]);
   const [quotes,       setQuotes]       = useState<any[]>([]);
+  const [proposals,    setProposals]    = useState<any[]>([]); // Express proposals sent by this group
   const [groupName,    setGroupName]    = useState<string | null>(null);
   const [loading,      setLoading]      = useState(true);
   const [refreshing,   setRefreshing]   = useState(false);
   const [unreadCount,  setUnreadCount]  = useState(0);
   const [walletBalance, setWalletBalance] = useState(0);
+
+  const fetchWallet = useCallback(async () => {
+    const { data } = await supabase.rpc('get_my_wallet');
+    if (data?.ok) {
+      setWalletBalance(data.wallet?.available_balance ?? 0);
+    }
+  }, []);
 
   useEffect(() => { fetchAll(); fetchWallet(); }, []);
 
@@ -325,19 +404,17 @@ export default function GroupEventsScreen({ navigation }: any) {
 
   // Realtime: actualizar saldo de billetera cuando llega un pago
   useEffect(() => {
-    let userId: string | null = null;
-    supabase.auth.getUser().then(({ data }) => { userId = data.user?.id ?? null; });
     const sub = supabase
-      .channel('group-wallet-balance')
-      .on('postgres_changes', {
-        event: 'UPDATE', schema: 'public', table: 'wallets',
-      }, (payload: any) => {
-        if (!userId || payload.new?.user_id !== userId) return;
-        setWalletBalance(payload.new.available_balance ?? 0);
-      })
+      .channel('group-events-wallet-realtime')
+      .on('postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'group_wallets' },
+        () => fetchWallet())
+      .on('postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'wallet_transactions' },
+        () => fetchWallet())
       .subscribe();
     return () => { supabase.removeChannel(sub); };
-  }, []);
+  }, [fetchWallet]);
 
   // Realtime: actualizar estado de reserva en la lista sin salir de la pantalla
   useEffect(() => {
@@ -356,17 +433,6 @@ export default function GroupEventsScreen({ navigation }: any) {
       .subscribe();
     return () => { supabase.removeChannel(sub); };
   }, []);
-
-  const fetchWallet = async () => {
-    const { data: sd } = await supabase.auth.getSession();
-    if (!sd.session) return;
-    const { data } = await supabase
-      .from('wallets')
-      .select('available_balance')
-      .eq('user_id', sd.session.user.id)
-      .maybeSingle();
-    if (data) setWalletBalance(data.available_balance ?? 0);
-  };
 
   const fetchUnread = async () => {
     const { data: sd } = await supabase.auth.getSession();
@@ -392,14 +458,36 @@ export default function GroupEventsScreen({ navigation }: any) {
       oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
       const floorDate = oneYearAgo.toISOString().split('T')[0];
 
-      // ── Reservas del grupo (join directo a profiles para evitar bloqueos RLS) ──
-      const { data: resData } = await supabase
+      // Marcar abandonados ANTES de cargar (no-show del grupo, SECURITY DEFINER)
+      await supabase.rpc('mark_abandoned_reservations');
+
+      // ── Reservas del grupo ─────────────────────────────────────────────────────
+      // Nota: profiles se hidrata por separado (query propia) porque PostgREST
+      // falla con "more than one relationship" cuando hay múltiples FKs entre
+      // reservations y profiles. quotes usa !left para manejar filas con
+      // quote_id nulo sin excluirlas. packages fue eliminada de la DB.
+      const { data: resData, error: resError } = await supabase
         .from('reservations')
-        .select('id,client_id,group_id,event_date,event_time,address,status,payment_status,total_price,quote_id,package_id,event_started_at,group_arrived_at,break_type,notes,created_at,hours_count,event_request_id,client:profiles!client_id(full_name,avatar_url,loyalty_tier),quote:quotes!quote_id(duration_hours,overtime_1h_price,overtime_2h_price,overtime_3h_price,event_type,guests_count,notes),package:packages!package_id(duration_hours,extra_hour_price)')
+        .select('id,client_id,group_id,event_date,event_time,address,status,payment_status,total_price,quote_id,event_started_at,group_arrived_at,break_type,notes,folio,created_at,hours_count,event_request_id,cancellation_type,cancel_reason,cancelled_at,quote:quotes!left(duration_hours,overtime_1h_price,overtime_2h_price,overtime_3h_price,event_type)')
         .eq('group_id', grp.id)
         .or('payment_status.eq.paid,payment_status.eq.deposit_paid,payment_status.eq.fully_paid,status.eq.in_progress,status.eq.accepted,status.eq.confirmed,status.eq.completed')
         .gte('event_date', floorDate)
         .order('event_date', { ascending: true });
+
+      console.log('[GroupEvents] fetch: rows=', resData?.length ?? 'null', 'err=', resError?.message ?? 'none');
+
+      // Hidratar perfiles de clientes en query separada (evita ambigüedad PostgREST)
+      let clientMap: Record<string, any> = {};
+      if (resData && resData.length > 0) {
+        const clientIds = [...new Set((resData as any[]).map((r: any) => r.client_id).filter(Boolean))];
+        if (clientIds.length > 0) {
+          const { data: profilesData } = await supabase
+            .from('profiles')
+            .select('id,full_name,avatar_url,loyalty_tier')
+            .in('id', clientIds);
+          clientMap = Object.fromEntries((profilesData ?? []).map((p: any) => [p.id, p]));
+        }
+      }
 
       // ── Cotizaciones aceptadas sin reserva vinculada ────────
       const { data: acceptedQuotes } = await supabase
@@ -410,7 +498,10 @@ export default function GroupEventsScreen({ navigation }: any) {
         .gte('event_date', floorDate)
         .order('event_date', { ascending: true });
 
-      const mergedRes = resData ?? [];
+      const mergedRes = (resData ?? []).map((r: any) => ({
+        ...r,
+        client: clientMap[r.client_id] ?? null,
+      }));
 
       // Cotizaciones aceptadas que NO tienen reserva vinculada
       const reservationQuoteIds = new Set(mergedRes.map((r: any) => r.quote_id).filter(Boolean));
@@ -424,7 +515,7 @@ export default function GroupEventsScreen({ navigation }: any) {
           payment_status: 'paid',
           address:        [q.event_municipio, q.event_estado].filter(Boolean).join(', ') || null,
           client:         q.client ?? null,
-          package:        { name: `Cotización · ${q.duration_hours}h`, duration_hours: q.duration_hours },
+          quote:          { duration_hours: q.duration_hours, event_type: q.event_type ?? null },
           _isQuote:       true,
           _quoteData:     q,
         }));
@@ -442,6 +533,27 @@ export default function GroupEventsScreen({ navigation }: any) {
         .order('created_at', { ascending: false });
 
       setQuotes(quoteData ?? []);
+
+      // ── Propuestas Express enviadas — esperando respuesta del cliente ──
+      const { data: proposalData } = await supabase
+        .from('event_request_proposals')
+        .select(`
+          request_id,
+          proposal_data,
+          request:event_requests!request_id(
+            id, event_type, event_date, event_time, hours, guest_count,
+            location_city, location_municipio, location_estado, genre, status
+          )
+        `)
+        .eq('group_id', grp.id);
+
+      // Only show proposals where the request is still open/negotiating (not yet accepted/reserved)
+      const activePropIds = new Set([...(quoteData ?? []).map((q: any) => q.event_request_id).filter(Boolean)]);
+      const activeProposals = (proposalData ?? []).filter((p: any) => {
+        const s = p.request?.status;
+        return s === 'open' || s === 'en_negociacion' || s === 'negotiating';
+      }).filter((p: any) => !activePropIds.has(p.request_id));
+      setProposals(activeProposals);
     } catch (e: any) {
       console.log('[GroupEvents] Error:', e.message);
     } finally {
@@ -454,14 +566,33 @@ export default function GroupEventsScreen({ navigation }: any) {
 
   // Derived arrays — memoized so filters run once per reservations change,
   // not on every render. nowMs is computed once per memo pass (not N times).
-  const { liveEvents, completedEvts, upcoming, historyEvts } = useMemo(() => {
+  const { liveEvents, completedEvts, upcoming, historyEvts, noShowEvts } = useMemo(() => {
     const nowMs     = snapshotNow();
-    const activeSet = new Set(['accepted', 'confirmed', 'pending']);
+    const activeSet = new Set(['accepted', 'confirmed', 'pending', 'pending_payment']);
+    const getDurationMs = (r: any): number => {
+      const h = r.hours_count ?? r.quote?.duration_hours ?? 4;
+      return h * 3600 * 1000;
+    };
+    // Usa timestamps directos en lugar de string comparison para evitar problemas
+    // con formato/timezone. Evento con hora nula se trata como 23:59 del día
+    // para que se quede en Próximos todo el día.
+    const isProximo = (r: any) => {
+      if (!r.event_date) return false;
+      const time = r.event_time ? r.event_time.substring(0, 5) : '23:59';
+      const startTs = parseEventDateMX(r.event_date, time);
+      if (!startTs) return true;
+      return nowMs < startTs.getTime() + getDurationMs(r);
+    };
     return {
       liveEvents:    reservations.filter(r => r.status === 'in_progress'),
       completedEvts: reservations.filter(r => r.status === 'completed'),
-      upcoming:      reservations.filter(r => activeSet.has(r.status) && isUpcoming(r.event_date, r.event_time, nowMs)),
-      historyEvts:   reservations.filter(r => activeSet.has(r.status) && !isUpcoming(r.event_date, r.event_time, nowMs)),
+      upcoming:      reservations.filter(r => activeSet.has(r.status) && isProximo(r)),
+      historyEvts:   reservations.filter(r => activeSet.has(r.status) && !isProximo(r)),
+      noShowEvts:    reservations.filter(r =>
+        r.status === 'cancelled' &&
+        r.cancellation_type === 'system_auto' &&
+        r.cancel_reason === 'no_show_grupo'
+      ),
     };
   }, [reservations]);
 
@@ -528,8 +659,8 @@ export default function GroupEventsScreen({ navigation }: any) {
           >
             <Text style={[st.tabText, activeTab === 'pendientes' && st.tabTextActive]}>
               Pendientes
-              {quotes.length > 0 && (
-                <Text style={st.tabBadge}> {quotes.length}</Text>
+              {(quotes.length + proposals.length) > 0 && (
+                <Text style={st.tabBadge}> {quotes.length + proposals.length}</Text>
               )}
             </Text>
           </Pressable>
@@ -539,8 +670,8 @@ export default function GroupEventsScreen({ navigation }: any) {
           >
             <Text style={[st.tabText, activeTab === 'historial' && st.tabTextActive]}>
               Historial
-              {(completedEvts.length + historyEvts.length) > 0 && (
-                <Text style={st.tabBadge}> {completedEvts.length + historyEvts.length}</Text>
+              {(completedEvts.length + historyEvts.length + noShowEvts.length) > 0 && (
+                <Text style={st.tabBadge}> {completedEvts.length + historyEvts.length + noShowEvts.length}</Text>
               )}
             </Text>
           </Pressable>
@@ -589,7 +720,7 @@ export default function GroupEventsScreen({ navigation }: any) {
 
           {/* ── Tab: Pendientes ── */}
           {activeTab === 'pendientes' && (
-            quotes.length === 0 ? (
+            quotes.length === 0 && proposals.length === 0 ? (
               <View style={st.emptyState}>
                 <Text style={st.emptyIcon}>📋</Text>
                 <Text style={st.emptyTitle}>Sin solicitudes pendientes</Text>
@@ -597,17 +728,31 @@ export default function GroupEventsScreen({ navigation }: any) {
               </View>
             ) : (
               <>
-                <Text style={st.sectionTitle}>Solicitudes · {quotes.length}</Text>
-                {quotes.map(q => (
-                  <QuoteCard key={q.id} quote={q} navigation={navigation} />
-                ))}
+                {proposals.length > 0 && (
+                  <>
+                    <Text style={st.sectionTitle}>Propuestas Express enviadas · {proposals.length}</Text>
+                    {proposals.map((p: any) => (
+                      <ProposalCard key={p.request_id} proposal={p} />
+                    ))}
+                  </>
+                )}
+                {quotes.length > 0 && (
+                  <>
+                    <Text style={[st.sectionTitle, { marginTop: proposals.length > 0 ? 20 : 0 }]}>
+                      Solicitudes · {quotes.length}
+                    </Text>
+                    {quotes.map(q => (
+                      <QuoteCard key={q.id} quote={q} navigation={navigation} />
+                    ))}
+                  </>
+                )}
               </>
             )
           )}
 
           {/* ── Tab: Historial ── */}
           {activeTab === 'historial' && (
-            completedEvts.length === 0 && historyEvts.length === 0 ? (
+            completedEvts.length === 0 && historyEvts.length === 0 && noShowEvts.length === 0 ? (
               <View style={st.emptyState}>
                 <Text style={st.emptyIcon}>📆</Text>
                 <Text style={st.emptyTitle}>Sin eventos pasados</Text>
@@ -631,6 +776,19 @@ export default function GroupEventsScreen({ navigation }: any) {
                       Sin cerrar · {historyEvts.length}
                     </Text>
                     {historyEvts.map(r => (
+                      <EventCard key={r.id} reservation={r} navigation={navigation} />
+                    ))}
+                  </>
+                )}
+                {noShowEvts.length > 0 && (
+                  <>
+                    <Text style={[st.sectionTitle, {
+                      color: COLORS.red,
+                      marginTop: (completedEvts.length > 0 || historyEvts.length > 0) ? 20 : 0,
+                    }]}>
+                      ⚠️ No se presentaron · {noShowEvts.length}
+                    </Text>
+                    {noShowEvts.map(r => (
                       <EventCard key={r.id} reservation={r} navigation={navigation} />
                     ))}
                   </>
@@ -779,6 +937,16 @@ const st = StyleSheet.create({
   },
   cardCompleted: {
     opacity: 0.85,
+  },
+  cardNoShow: {
+    opacity: 0.6,
+    borderColor: '#4B5563',
+  },
+  noShowRow: {
+    marginTop: 4,
+  },
+  noShowText: {
+    fontFamily: FONTS.body, fontSize: 11, color: COLORS.red,
   },
   earningsBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,

@@ -1,6 +1,6 @@
 /**
  * QuoteFormScreen — Cliente solicita cotización personalizada a un grupo.
- * Mínimo 3 horas. El break lo elige el grupo al iniciar, no el cliente.
+ * Mínimo 3 horas. El cliente elige el tipo de descanso en el formulario.
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import {
@@ -61,9 +61,38 @@ const VENUE_SIZES = [
 ];
 
 const SOUND_OPTIONS = [
-  { key: 'si',       label: 'Sí, necesito' },
-  { key: 'no',       label: 'No necesito' },
-  { key: 'ya_tengo', label: 'Ya cuento con sonido' },
+  { key: 'no_group_brings', label: 'No (grupo trae)' },
+  { key: 'si_50',           label: 'Sí, hasta 50' },
+  { key: 'si_100',          label: 'Sí, hasta 100' },
+  { key: 'si_200',          label: 'Sí, hasta 200' },
+  { key: 'si_300',          label: 'Sí, 300+' },
+];
+
+const LIGHTING_OPTIONS = [
+  { key: 'no',      label: 'No' },
+  { key: 'simple',  label: 'Sencilla' },
+  { key: 'pro',     label: 'Profesional' },
+  { key: 'premium', label: 'Premium' },
+];
+
+const STAGE_OPTIONS = [
+  { key: 'no',      label: 'No' },
+  { key: 'small',   label: 'Chico 3×2m' },
+  { key: 'medium',  label: 'Mediano 4×3m' },
+  { key: 'wedding', label: 'Grande boda 6×4m' },
+];
+
+const LED_OPTIONS = [
+  { key: 'no',     label: 'No' },
+  { key: 'medium', label: 'Mediana' },
+  { key: 'large',  label: 'Grande' },
+  { key: 'xl',     label: 'XL boda' },
+];
+
+const BREAK_OPTIONS = [
+  { type: 'A', label: '15 min por hora',  desc: 'Descanso de 15 min después de cada hora (excepto la última)' },
+  { type: 'B', label: '15 min único',     desc: 'Un solo descanso de 15 min a la mitad del evento' },
+  { type: 'D', label: 'Sin descanso',     desc: 'El grupo toca corrido sin pausas (solo para eventos de 3h exactas)' },
 ];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -96,6 +125,55 @@ function ChipRow<T extends string | number>({
   );
 }
 
+// ─── Equipment helpers ────────────────────────────────────────────────────────
+
+type InclusionLabel = '✅ Incluido' | '⚠️ Cotización extra';
+
+type GroupEquip = {
+  has_sound: boolean;           sound_capacity_max: number | null;
+  has_lighting: boolean;        lighting_level: string | null;
+  has_stage: boolean;           stage_sizes_available: string[];
+  has_led_screen: boolean;      led_sizes_available: string[];
+};
+
+const LIGHTING_HIERARCHY: Record<string, number> = {
+  simple: 1, pro: 2, premium: 3,
+};
+
+function getInclusionLabel(
+  category: 'sound' | 'lighting' | 'stage' | 'led',
+  value: string,
+  equip: GroupEquip | null,
+): InclusionLabel | null {
+  if (!equip) return null;
+
+  if (category === 'sound') {
+    if (value === 'no_group_brings') return '✅ Incluido';
+    if (!equip.has_sound) return '⚠️ Cotización extra';
+    const capMap: Record<string, number> = { si_50: 50, si_100: 100, si_200: 200, si_300: 300 };
+    return (capMap[value] ?? 0) <= (equip.sound_capacity_max ?? 0)
+      ? '✅ Incluido' : '⚠️ Cotización extra';
+  }
+  if (category === 'lighting') {
+    if (value === 'no') return null;
+    if (!equip.has_lighting) return '⚠️ Cotización extra';
+    const clientLevel = LIGHTING_HIERARCHY[value] ?? 0;
+    const groupLevel  = LIGHTING_HIERARCHY[equip.lighting_level ?? ''] ?? 0;
+    return clientLevel <= groupLevel ? '✅ Incluido' : '⚠️ Cotización extra';
+  }
+  if (category === 'stage') {
+    if (value === 'no') return null;
+    if (!equip.has_stage) return '⚠️ Cotización extra';
+    return equip.stage_sizes_available.includes(value) ? '✅ Incluido' : '⚠️ Cotización extra';
+  }
+  if (category === 'led') {
+    if (value === 'no') return null;
+    if (!equip.has_led_screen) return '⚠️ Cotización extra';
+    return equip.led_sizes_available.includes(value) ? '✅ Incluido' : '⚠️ Cotización extra';
+  }
+  return null;
+}
+
 // ─── Screen ──────────────────────────────────────────────────────────────────
 
 export default function QuoteFormScreen({ route, navigation }: any) {
@@ -123,7 +201,23 @@ export default function QuoteFormScreen({ route, navigation }: any) {
   const [timePickerOpen, setTimePickerOpen] = useState(false);
   const [mapPickerOpen, setMapPickerOpen] = useState(false);
   const [showManualAddress, setShowManualAddress] = useState(false);
+  const [breakType,            setBreakType]            = useState<string>('A');
   const [bypassProximityBlock, setBypassProximityBlock] = useState(false);
+
+  // ── Equipo del grupo ─────────────────────────────────────────────────────
+  const [groupEquip,     setGroupEquip]     = useState<GroupEquip | null>(null);
+  const [lightingNeeded, setLightingNeeded] = useState<string | null>(null);
+  const [stageNeeded,    setStageNeeded]    = useState<string | null>(null);
+  const [ledNeeded,      setLedNeeded]      = useState<string | null>(null);
+
+  useEffect(() => {
+    supabase
+      .from('groups')
+      .select('has_sound, sound_capacity_max, has_lighting, lighting_level, has_stage, stage_sizes_available, has_led_screen, led_sizes_available')
+      .eq('id', group.id)
+      .single()
+      .then(({ data }) => { if (data) setGroupEquip(data as GroupEquip); });
+  }, [group.id]);
 
   // Reset bypass when the user changes date or time
   useEffect(() => { setBypassProximityBlock(false); }, [eventDate, eventTime]);
@@ -167,7 +261,7 @@ export default function QuoteFormScreen({ route, navigation }: any) {
   const canSubmit = () =>
     !!eventType && address.trim() && municipio.trim() && estado.trim() &&
     addressConfirmed &&
-    !!eventDate && !!eventTime && !!duration &&
+    !!eventDate && !!eventTime && !!duration && !!breakType &&
     !!numPersonas && parseInt(numPersonas) > 0 &&
     !!venueCovered && !!venueSize && !!needsSound &&
     proximityLevel !== 'past' &&
@@ -188,8 +282,7 @@ export default function QuoteFormScreen({ route, navigation }: any) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { Alert.alert('Error', 'Sesión no encontrada.'); return; }
 
-    setLoading(true);
-    const { error } = await supabase.from('quotes').insert({
+    const insertPayload = {
       group_id:        group.id,
       client_id:       user.id,
       event_type:      eventType!,
@@ -200,18 +293,32 @@ export default function QuoteFormScreen({ route, navigation }: any) {
       longitude,
       event_date:      eventDate,
       event_time:      eventTime,
-      break_type:      'A' as const,
+      break_type:      breakType,
       duration_hours:  duration!,
       num_personas:    parseInt(numPersonas),
       venue_covered:   venueCovered,
       venue_size:      venueSize,
       needs_sound:     needsSound,
+      needs_lighting:  lightingNeeded,
+      needs_stage:     stageNeeded,
+      needs_led:       ledNeeded,
       comments:        comments.trim() || null,
-    });
+    };
+
+    console.log('🟡 INSERT quote payload:', JSON.stringify(insertPayload, null, 2));
+
+    setLoading(true);
+    const { data: insertData, error } = await supabase.from('quotes').insert(insertPayload).select('id');
+
+    console.log('🟢 INSERT quote response:', JSON.stringify({ insertData, error }));
     setLoading(false);
 
     if (error) {
-      Alert.alert('Error', 'No se pudo enviar la solicitud. Inténtalo de nuevo.');
+      console.error('🔴 INSERT quote ERROR:', error);
+      Alert.alert(
+        'Error detallado',
+        `Code: ${error.code ?? '—'}\nMessage: ${error.message ?? '—'}\nDetails: ${error.details ?? '—'}\nHint: ${error.hint ?? '—'}`,
+      );
     } else {
       // Notificar al grupo
       const { data: groupData } = await supabase
@@ -298,6 +405,7 @@ export default function QuoteFormScreen({ route, navigation }: any) {
           !!eventDate,
           !!eventTime,
           !!duration,
+          !!breakType,
           !!(numPersonas && parseInt(numPersonas, 10) > 0),
           !!venueCovered,
           !!venueSize,
@@ -489,8 +597,36 @@ export default function QuoteFormScreen({ route, navigation }: any) {
             onSelect={v => setDuration(Number(v))}
           />
 
-          {/* ─── 6. NÚMERO DE PERSONAS ───────────────────────────── */}
-          <SectionTitle>6. Número aproximado de personas *</SectionTitle>
+          <View style={s.extraHoursHint}>
+            <Text style={s.extraHoursHintText}>
+              💡 Elige bien las horas desde ahora. Si el evento se extiende, cada hora extra se cobra por separado y puede salir más caro que contratarlas de antemano.
+            </Text>
+          </View>
+
+          {/* ─── 6. TIPO DE DESCANSO — oculto: el grupo elige en EventTimerScreen */}
+          {false && (<>
+          <SectionTitle>6. Tipo de descanso *</SectionTitle>
+          <Text style={[s.minNote, { marginTop: -8, marginBottom: 12 }]}>
+            Todos los tipos están incluidos sin costo adicional.
+          </Text>
+          <View style={s.breakOptions}>
+            {BREAK_OPTIONS.map(opt => (
+              <Pressable
+                key={opt.type}
+                style={[s.breakOpt, breakType === opt.type && s.breakOptActive]}
+                onPress={() => setBreakType(opt.type)}
+              >
+                <Text style={[s.breakOptLabel, breakType === opt.type && { color: COLORS.green }]}>
+                  {opt.label}
+                </Text>
+                <Text style={s.breakOptDesc}>{opt.desc}</Text>
+              </Pressable>
+            ))}
+          </View>
+          </>)}
+
+          {/* ─── 7. NÚMERO DE PERSONAS ───────────────────────────── */}
+          <SectionTitle>7. Número aproximado de personas *</SectionTitle>
           <TextInput
             style={s.input}
             placeholder="Ej: 50"
@@ -501,16 +637,16 @@ export default function QuoteFormScreen({ route, navigation }: any) {
             maxLength={4}
           />
 
-          {/* ─── 7. ¿TECHADO? ────────────────────────────────────── */}
-          <SectionTitle>7. ¿El lugar está techado? *</SectionTitle>
+          {/* ─── 8. ¿TECHADO? ────────────────────────────────────── */}
+          <SectionTitle>8. ¿El lugar está techado? *</SectionTitle>
           <ChipRow
             options={COVERED_OPTIONS as any}
             selected={venueCovered}
             onSelect={setVenueCovered}
           />
 
-          {/* ─── 8. ESPACIO ──────────────────────────────────────── */}
-          <SectionTitle>8. Espacio aproximado *</SectionTitle>
+          {/* ─── 9. ESPACIO ──────────────────────────────────────── */}
+          <SectionTitle>9. Espacio aproximado *</SectionTitle>
           <View style={s.chipGrid}>
             {VENUE_SIZES.map(o => (
               <Pressable
@@ -525,16 +661,119 @@ export default function QuoteFormScreen({ route, navigation }: any) {
             ))}
           </View>
 
-          {/* ─── 9. SONIDO ───────────────────────────────────────── */}
-          <SectionTitle>9. ¿Necesitas sonido incluido? *</SectionTitle>
-          <ChipRow
-            options={SOUND_OPTIONS as any}
-            selected={needsSound}
-            onSelect={setNeedsSound}
-          />
+          {/* ─── 10. EQUIPO ──────────────────────────────────────── */}
+          <SectionTitle>10. ¿Qué necesitas para tu evento? *</SectionTitle>
 
-          {/* ─── 10. COMENTARIOS ──────────────────────────────────── */}
-          <SectionTitle>10. Comentarios adicionales</SectionTitle>
+          {/* Sonido */}
+          <Text style={s.equipSubTitle}>🎵 Sonido *</Text>
+          <View style={s.chipRow}>
+            {SOUND_OPTIONS.map(o => {
+              const lbl = getInclusionLabel('sound', o.key, groupEquip);
+              return (
+                <View key={o.key} style={s.equipOptCol}>
+                  <Pressable
+                    style={[s.chip, needsSound === o.key && s.chipActive]}
+                    onPress={() => setNeedsSound(o.key)}
+                  >
+                    <Text style={[s.chipText, needsSound === o.key && s.chipTextActive]}>
+                      {o.label}
+                    </Text>
+                  </Pressable>
+                  {lbl && (
+                    <Text style={lbl === '✅ Incluido' ? s.inclusionGreen : s.inclusionOrange}>
+                      {lbl}
+                    </Text>
+                  )}
+                </View>
+              );
+            })}
+          </View>
+
+          {/* Iluminación */}
+          <Text style={s.equipSubTitle}>💡 Iluminación <Text style={s.optionalTag}>(opcional)</Text></Text>
+          <View style={s.chipRow}>
+            {LIGHTING_OPTIONS.map(o => {
+              const lbl = getInclusionLabel('lighting', o.key, groupEquip);
+              return (
+                <View key={o.key} style={s.equipOptCol}>
+                  <Pressable
+                    style={[s.chip, lightingNeeded === o.key && s.chipActive]}
+                    onPress={() => setLightingNeeded(o.key)}
+                  >
+                    <Text style={[s.chipText, lightingNeeded === o.key && s.chipTextActive]}>
+                      {o.label}
+                    </Text>
+                  </Pressable>
+                  {lbl && (
+                    <Text style={lbl === '✅ Incluido' ? s.inclusionGreen : s.inclusionOrange}>
+                      {lbl}
+                    </Text>
+                  )}
+                </View>
+              );
+            })}
+          </View>
+
+          {/* Tarima */}
+          <Text style={s.equipSubTitle}>🎭 Tarima / Escenario <Text style={s.optionalTag}>(opcional)</Text></Text>
+          <View style={s.chipRow}>
+            {STAGE_OPTIONS.map(o => {
+              const lbl = getInclusionLabel('stage', o.key, groupEquip);
+              return (
+                <View key={o.key} style={s.equipOptCol}>
+                  <Pressable
+                    style={[s.chip, stageNeeded === o.key && s.chipActive]}
+                    onPress={() => setStageNeeded(o.key)}
+                  >
+                    <Text style={[s.chipText, stageNeeded === o.key && s.chipTextActive]}>
+                      {o.label}
+                    </Text>
+                  </Pressable>
+                  {lbl && (
+                    <Text style={lbl === '✅ Incluido' ? s.inclusionGreen : s.inclusionOrange}>
+                      {lbl}
+                    </Text>
+                  )}
+                </View>
+              );
+            })}
+          </View>
+
+          {/* LED */}
+          <Text style={s.equipSubTitle}>📺 Pantalla LED <Text style={s.optionalTag}>(opcional)</Text></Text>
+          <View style={s.chipRow}>
+            {LED_OPTIONS.map(o => {
+              const lbl = getInclusionLabel('led', o.key, groupEquip);
+              return (
+                <View key={o.key} style={s.equipOptCol}>
+                  <Pressable
+                    style={[s.chip, ledNeeded === o.key && s.chipActive]}
+                    onPress={() => setLedNeeded(o.key)}
+                  >
+                    <Text style={[s.chipText, ledNeeded === o.key && s.chipTextActive]}>
+                      {o.label}
+                    </Text>
+                  </Pressable>
+                  {lbl && (
+                    <Text style={lbl === '✅ Incluido' ? s.inclusionGreen : s.inclusionOrange}>
+                      {lbl}
+                    </Text>
+                  )}
+                </View>
+              );
+            })}
+          </View>
+
+          {/* Nota resumen */}
+          <View style={s.equipSummaryBox}>
+            <Text style={s.equipSummaryText}>
+              📋 El grupo verá tu solicitud y enviará el precio total,{'\n'}
+              incluyendo cualquier equipo adicional que necesites rentar.
+            </Text>
+          </View>
+
+          {/* ─── 11. COMENTARIOS ──────────────────────────────────── */}
+          <SectionTitle>11. Comentarios adicionales</SectionTitle>
           <TextInput
             style={[s.input, s.inputMulti]}
             placeholder={'Ej: "El evento es en rancho a 30 min de la ciudad"\n"Es al aire libre"\n"Queremos música variada"'}
@@ -833,4 +1072,54 @@ const s = StyleSheet.create({
     paddingHorizontal: 14, paddingVertical: 12, marginTop: 4, marginBottom: 8,
   },
   proximityPastText: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: '#EF5350' },
+
+  // ── Extra hours hint ──────────────────────────────────────────────────────
+  extraHoursHint: {
+    backgroundColor: 'rgba(255,179,0,0.06)',
+    borderRadius: RADIUS.md,
+    borderWidth: 1, borderColor: 'rgba(255,179,0,0.22)',
+    paddingHorizontal: 12, paddingVertical: 10, marginTop: 4, marginBottom: 10,
+  },
+  extraHoursHintText: {
+    fontFamily: FONTS.body, fontSize: 12, color: '#FFB300', lineHeight: 18,
+  },
+
+  // ── Tipo de descanso ──────────────────────────────────────────────────────
+  breakOptions:  { gap: 8, marginBottom: 4 },
+  breakOpt: {
+    backgroundColor: COLORS.card, borderRadius: RADIUS.lg,
+    borderWidth: 1, borderColor: COLORS.border,
+    paddingHorizontal: 14, paddingVertical: 12,
+  },
+  breakOptActive: { borderColor: COLORS.green, backgroundColor: 'rgba(0,230,118,0.08)' },
+  breakOptLabel:  { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: COLORS.text, marginBottom: 2 },
+  breakOptDesc:   { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2 },
+
+  // ── Sección 10 equipo ──────────────────────────────────────────────────────
+  equipSubTitle: {
+    fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.text,
+    marginTop: 16, marginBottom: 8,
+  },
+  optionalTag: {
+    fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted2,
+  },
+  equipOptCol: {
+    alignItems: 'flex-start', marginBottom: 6,
+  },
+  inclusionGreen: {
+    fontFamily: FONTS.body, fontSize: 10, color: COLORS.green,
+    marginTop: 3, marginLeft: 4,
+  },
+  inclusionOrange: {
+    fontFamily: FONTS.body, fontSize: 10, color: '#FFB300',
+    marginTop: 3, marginLeft: 4,
+  },
+  equipSummaryBox: {
+    backgroundColor: 'rgba(0,230,118,0.06)',
+    borderRadius: RADIUS.md, borderWidth: 1, borderColor: 'rgba(0,230,118,0.20)',
+    padding: 12, marginTop: 14, marginBottom: 4,
+  },
+  equipSummaryText: {
+    fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2, lineHeight: 18,
+  },
 });

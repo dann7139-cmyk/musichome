@@ -17,6 +17,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import Particles from '../../components/ui/Particles';
+import { calcGroupEarnings, calcServiceFee } from '../../utils/calculations';
 
 const MONTH_SHORT = ['ENE','FEB','MAR','ABR','MAY','JUN','JUL','AGO','SEP','OCT','NOV','DIC'];
 
@@ -58,8 +59,8 @@ export default function EventPayoutsScreen({ navigation, route }: any) {
   };
 
   const totalPrice        = Number(reservation?.total_price ?? 0);
-  const commission        = Math.round(totalPrice * 0.10 * 100) / 100;
-  const groupNet          = Math.round((totalPrice - commission) * 100) / 100;
+  const commission        = calcServiceFee(totalPrice);
+  const groupNet          = calcGroupEarnings(totalPrice);
   const participantCount  = payouts.length > 0 ? payouts.length : 1;
   const suggestedPerPerson = Math.round((groupNet / participantCount) * 100) / 100;
 
@@ -99,7 +100,7 @@ export default function EventPayoutsScreen({ navigation, route }: any) {
               </Text>
             </View>
             <View style={[st.summaryCard, { borderColor: `${COLORS.orange}50` }]}>
-              <Text style={st.summaryLabel}>Tarifa de servicio 10%</Text>
+              <Text style={st.summaryLabel}>Comisión Daricefy</Text>
               <Text style={[st.summaryValue, { color: COLORS.orange }]}>
                 -${commission.toLocaleString('es-MX', { minimumFractionDigits: 0 })}
               </Text>

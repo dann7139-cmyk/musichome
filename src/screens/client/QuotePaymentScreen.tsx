@@ -4,10 +4,11 @@
  *   - route.params.quote        → cotización nueva: crea evento + reserva + paga
  *   - route.params.reservation  → reserva existente sin pago: salta creación y va directo a Stripe
  */
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   Image,
   Pressable,
   ScrollView,
@@ -39,8 +40,8 @@ export default function QuotePaymentScreen({ route, navigation }: any) {
   const address       = existingRes?.address
     ?? [quote?.event_address, quote?.event_municipio, quote?.event_estado].filter(Boolean).join(', ')
     ?? '';
-  const durationHours = existingRes?.package?.duration_hours
-    ?? existingRes?.hours_count
+  const durationHours = existingRes?.hours_count
+    ?? existingRes?.quote?.duration_hours
     ?? quote?.duration_hours
     ?? '?';
 
@@ -48,6 +49,19 @@ export default function QuotePaymentScreen({ route, navigation }: any) {
   const initialMsi = MSI_OPTIONS.find(o => o.months === (existingRes?.msi_months ?? 1)) ?? MSI_OPTIONS[0];
   const [loading, setLoading]         = useState(false);
   const [selectedMSI, setSelectedMSI] = useState<MsiOption>(initialMsi);
+  const [paid, setPaid]               = useState(false);
+  const [paidResId, setPaidResId]     = useState<string | null>(null);
+
+  // Animación del checkmark de éxito
+  const checkScale = useRef(new Animated.Value(0)).current;
+  const checkOp    = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (!paid) return;
+    Animated.parallel([
+      Animated.spring(checkScale, { toValue: 1, tension: 60, friction: 8, useNativeDriver: true }),
+      Animated.timing(checkOp,   { toValue: 1, duration: 300, useNativeDriver: true }),
+    ]).start();
+  }, [paid]);
 
   const chargeTotal  = calculateFinancedPrice(baseTotal, selectedMSI.months);
   const msiFeeAmount = chargeTotal - baseTotal;
@@ -187,13 +201,55 @@ export default function QuotePaymentScreen({ route, navigation }: any) {
         throw new Error(errMsg || 'Ocurrió un problema al procesar el pago.');
       }
 
-      navigation.navigate('ClientReservations', { justPaidReservationId: reservationId });
+      setPaidResId(reservationId);
+      setPaid(true);
     } catch (err: any) {
       Alert.alert('Error al procesar el pago', err.message ?? 'Intenta de nuevo.');
     } finally {
       setLoading(false);
     }
   };
+
+  // ── Pantalla de éxito ────────────────────────────────────────────────────────
+  if (paid) {
+    return (
+      <SafeAreaView style={s.successRoot}>
+        <Animated.View style={[s.successIconWrap, { transform: [{ scale: checkScale }], opacity: checkOp }]}>
+          <CheckCircle size={72} color={COLORS.green} strokeWidth={1.5} />
+        </Animated.View>
+
+        <Animated.View style={{ opacity: checkOp, alignItems: 'center', gap: 8 }}>
+          <Text style={s.successTitle}>¡Pago exitoso!</Text>
+          <Text style={s.successSub}>Tu reserva está confirmada</Text>
+        </Animated.View>
+
+        <Animated.View style={[s.successCard, { opacity: checkOp }]}>
+          {groupImage ? (
+            <Image source={{ uri: groupImage }} style={s.successAvatar} />
+          ) : (
+            <View style={s.successAvatarFallback}>
+              <Text style={s.successAvatarInitial}>{groupName.charAt(0).toUpperCase()}</Text>
+            </View>
+          )}
+          <View style={{ flex: 1, gap: 4 }}>
+            <Text style={s.successGroupName}>{groupName}</Text>
+            <Text style={s.successDate}>{eventDateStr}</Text>
+          </View>
+          <View style={s.successAmtWrap}>
+            <Text style={s.successAmt}>${chargeTotal.toLocaleString()}</Text>
+            <Text style={s.successAmtLabel}>MXN</Text>
+          </View>
+        </Animated.View>
+
+        <Pressable
+          style={s.successBtn}
+          onPress={() => navigation.navigate('ClientReservations', { justPaidReservationId: paidResId })}
+        >
+          <Text style={s.successBtnText}>Ver mis reservas</Text>
+        </Pressable>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <View style={s.root}>
@@ -503,4 +559,46 @@ const s = StyleSheet.create({
   },
   payBtnText: { fontFamily: FONTS.bodySemiBold, fontSize: 15, color: COLORS.bg },
   payNote:    { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted, textAlign: 'center' },
+
+  // ── Success ────────────────────────────────────────────────────────────────
+  successRoot: {
+    flex: 1, backgroundColor: COLORS.bg,
+    alignItems: 'center', justifyContent: 'center',
+    paddingHorizontal: SPACING.xl, gap: 24,
+  },
+  successIconWrap: { marginBottom: 8 },
+  successTitle: {
+    fontFamily: FONTS.title, fontSize: 30, color: COLORS.green, textAlign: 'center',
+  },
+  successSub: {
+    fontFamily: FONTS.body, fontSize: 15, color: COLORS.muted2, textAlign: 'center',
+  },
+  successCard: {
+    width: '100%',
+    flexDirection: 'row', alignItems: 'center', gap: 14,
+    backgroundColor: COLORS.card, borderRadius: RADIUS.xl,
+    borderWidth: 1, borderColor: 'rgba(0,230,118,0.25)',
+    padding: 18,
+  },
+  successAvatar: {
+    width: 48, height: 48, borderRadius: 24,
+    borderWidth: 1, borderColor: COLORS.border,
+  },
+  successAvatarFallback: {
+    width: 48, height: 48, borderRadius: 24,
+    backgroundColor: COLORS.card2, borderWidth: 1, borderColor: COLORS.border,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  successAvatarInitial: { fontFamily: FONTS.bodySemiBold, fontSize: 18, color: COLORS.muted2 },
+  successGroupName: { fontFamily: FONTS.bodySemiBold, fontSize: 15, color: COLORS.text },
+  successDate: { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2 },
+  successAmtWrap: { alignItems: 'flex-end' },
+  successAmt: { fontFamily: FONTS.bodySemiBold, fontSize: 18, color: COLORS.green },
+  successAmtLabel: { fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted },
+  successBtn: {
+    width: '100%',
+    backgroundColor: COLORS.green, borderRadius: RADIUS.lg, paddingVertical: 17,
+    alignItems: 'center', marginTop: 8,
+  },
+  successBtnText: { fontFamily: FONTS.bodySemiBold, fontSize: 16, color: COLORS.bg },
 });

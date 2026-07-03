@@ -27,7 +27,7 @@ export default function AdminDisputesScreen({ navigation }: any) {
   const fetchDisputes = async () => {
     const { data } = await supabase
       .from('reservations')
-      .select('*, group:groups(name), client:profiles(full_name), package:packages(name)')
+      .select('*, group:groups(name), client:profiles(full_name)')
       .eq('status', 'cancelled')
       .order('updated_at', { ascending: false })
       .limit(30);

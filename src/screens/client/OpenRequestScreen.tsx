@@ -81,6 +81,12 @@ const SOUND_OPTIONS = [
   { key: 'ya_tengo', label: 'Ya cuento con sonido' },
 ];
 
+const BREAK_OPTIONS = [
+  { type: 'A', label: '15 min por hora',  desc: 'Descanso de 15 min después de cada hora (excepto la última)' },
+  { type: 'B', label: '15 min único',     desc: 'Un solo descanso de 15 min a la mitad del evento' },
+  { type: 'D', label: 'Sin descanso',     desc: 'El grupo toca corrido sin pausas (solo para eventos de 3h exactas)' },
+];
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
@@ -116,6 +122,7 @@ function ChipGrid<T extends string | number>({
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   open:           { label: '⏳ Esperando grupo',    color: '#00E676' },
   en_negociacion: { label: '🤝 Grupo interesado',   color: '#FFB300' },
+  negotiating:    { label: '🤝 Grupos interesados',  color: '#FFB300' },
   accepted:       { label: '✅ Confirmada',          color: '#40C4FF' },
   cancelled:      { label: '❌ Cancelada',           color: '#666' },
   expired:        { label: '⌛ Expirada',            color: '#FF6400' },
@@ -156,23 +163,40 @@ export default function OpenRequestScreen({ navigation, route }: any) {
 
     const requests = reqs ?? [];
 
-    // Para solicitudes en negociación, traer info del grupo que propuso
-    const negIds = requests
-      .filter((r: any) => r.status === 'en_negociacion' && r.negotiating_group_id)
-      .map((r: any) => r.negotiating_group_id);
+    // Fetch ALL proposals for this client's requests from event_request_proposals
+    const reqIds = requests.map((r: any) => r.id);
+    let proposalsByReq: Record<string, any[]> = {};
+    if (reqIds.length > 0) {
+      const { data: allProposals } = await supabase
+        .from('event_request_proposals')
+        .select('request_id, group_id, group_owner_id, proposal_data')
+        .in('request_id', reqIds);
 
-    let groupLookup: Record<string, any> = {};
-    if (negIds.length > 0) {
-      const { data: groups } = await supabase
-        .from('groups')
-        .select('id, owner_id, name, genre, profile_image, city')
-        .in('owner_id', negIds);
-      groupLookup = Object.fromEntries((groups ?? []).map((g: any) => [g.owner_id, g]));
+      if (allProposals && allProposals.length > 0) {
+        // Fetch group info for all proposing groups
+        const ownerIds = [...new Set(allProposals.map((p: any) => p.group_owner_id).filter(Boolean))];
+        const { data: groups } = await supabase
+          .from('groups')
+          .select('id, owner_id, name, genre, profile_image, city')
+          .in('owner_id', ownerIds);
+        const groupByOwner: Record<string, any> = Object.fromEntries(
+          (groups ?? []).map((g: any) => [g.owner_id, g])
+        );
+
+        // Group proposals by request_id
+        allProposals.forEach((p: any) => {
+          if (!proposalsByReq[p.request_id]) proposalsByReq[p.request_id] = [];
+          proposalsByReq[p.request_id].push({
+            ...p,
+            group: groupByOwner[p.group_owner_id] ?? null,
+          });
+        });
+      }
     }
 
     setMyRequests(requests.map((r: any) => ({
       ...r,
-      negotiating_group: r.negotiating_group_id ? (groupLookup[r.negotiating_group_id] ?? null) : null,
+      proposals: proposalsByReq[r.id] ?? [],
     })));
   };
 
@@ -219,14 +243,29 @@ export default function OpenRequestScreen({ navigation, route }: any) {
     );
   };
 
-  const handleAcceptProposal = async (req: any) => {
+  const handleAcceptProposal = async (req: any, chosenProposal?: any) => {
     const reqId     = req.id;
-    const groupName = req.negotiating_group?.name ?? 'el grupo';
-    const total     = req.proposal_data?.total_amount != null
-      ? Number(req.proposal_data.total_amount) : null;
+    const groupName = chosenProposal?.group?.name ?? req.negotiating_group?.name ?? 'el grupo';
+    const total     = (chosenProposal?.proposal_data ?? req.proposal_data)?.total_amount != null
+      ? Number((chosenProposal?.proposal_data ?? req.proposal_data).total_amount) : null;
     const payAmount = total;
 
     setRespondingId(reqId);
+    try {
+      // If client chose a specific proposal, set it as the negotiating context first
+      if (chosenProposal?.group_owner_id) {
+        const { data: { user } } = await supabase.auth.getUser();
+        await supabase
+          .from('event_requests')
+          .update({
+            negotiating_group_id: chosenProposal.group_owner_id,
+            proposal_data:        chosenProposal.proposal_data,
+            status:               'negotiating',
+          })
+          .eq('id', reqId)
+          .eq('client_id', user!.id);
+      }
+    } catch {} // non-fatal — client_accept_proposal will catch mismatches
     try {
       // 1. Crear reserva vía RPC
       const { data, error } = await supabase.rpc('client_accept_proposal', { p_request_id: reqId });
@@ -251,7 +290,7 @@ export default function OpenRequestScreen({ navigation, route }: any) {
       if (reservationId) {
         const { data: resData } = await supabase
           .from('reservations')
-          .select('*, group:groups(id, name, profile_image), package:packages(name, duration_hours)')
+          .select('*, group:groups(id, name, profile_image)')
           .eq('id', reservationId)
           .single();
 
@@ -331,6 +370,7 @@ export default function OpenRequestScreen({ navigation, route }: any) {
   const [loading, setLoading] = useState(false);
   const [commentsWarn, setCommentsWarn] = useState(false);
   const [formStep, setFormStep] = useState<1 | 2 | 3>(1);
+  const [breakType, setBreakType] = useState<string>('A');
 
   // Surge pricing
   const [surgeInfo, setSurgeInfo] = useState<{ surge_factor: number; client_message: string } | null>(null);
@@ -417,6 +457,7 @@ export default function OpenRequestScreen({ navigation, route }: any) {
         venue_covered:    venueCovered,
         venue_size:       venueSize,
         needs_sound:      needsSound,
+        break_type:       breakType,
         comments:         comments.trim() || null,
       })
       .select()
@@ -528,10 +569,11 @@ export default function OpenRequestScreen({ navigation, route }: any) {
           {myRequests.map(req => {
             const st           = STATUS_LABELS[req.status] ?? { label: req.status, color: COLORS.muted2 };
             const isOpen       = req.status === 'open';
-            const isNeg        = req.status === 'en_negociacion';
+            const isNeg        = req.status === 'en_negociacion' || req.status === 'negotiating';
             const isCanceling  = cancelingId === req.id;
             const isResponding = respondingId === req.id;
             const grp          = req.negotiating_group;
+            const proposals    = req.proposals ?? [];
 
             return (
               <View key={req.id} style={[s.mineCard, isNeg && s.mineCardNeg]}>
@@ -552,127 +594,134 @@ export default function OpenRequestScreen({ navigation, route }: any) {
                   </View>
                 </View>
 
-                {/* ── Propuesta de un grupo (en_negociacion) ── */}
-                {isNeg && grp && (
-                  <View style={s.proposalBox}>
-                    {/* Info del grupo */}
-                    <View style={s.proposalGroupRow}>
-                      {grp.profile_image ? (
-                        <Image source={{ uri: grp.profile_image }} style={s.proposalAvatar} />
-                      ) : (
-                        <View style={s.proposalAvatarPlaceholder}>
-                          <Text style={{ fontSize: 22 }}>{GENRE_EMOJIS[grp.genre] ?? '🎵'}</Text>
+                {/* ── Propuestas de grupos ── */}
+                {proposals.length > 0 && (
+                  <View>
+                    {proposals.length > 1 && (
+                      <Text style={s.proposalsHeader}>
+                        🎵 {proposals.length} grupos quieren tocar en tu evento
+                      </Text>
+                    )}
+
+                    {proposals.map((proposal: any, idx: number) => {
+                      const pg  = proposal.group;
+                      const pd  = proposal.proposal_data;
+                      return (
+                        <View key={proposal.group_id ?? idx} style={s.proposalBox}>
+                          {/* Info del grupo */}
+                          <View style={s.proposalGroupRow}>
+                            {pg?.profile_image ? (
+                              <Image source={{ uri: pg.profile_image }} style={s.proposalAvatar} />
+                            ) : (
+                              <View style={s.proposalAvatarPlaceholder}>
+                                <Text style={{ fontSize: 22 }}>{GENRE_EMOJIS[pg?.genre] ?? '🎵'}</Text>
+                              </View>
+                            )}
+                            <View style={{ flex: 1 }}>
+                              <Text style={s.proposalGroupName}>{pg?.name ?? 'Grupo'}</Text>
+                              <Text style={s.proposalGroupSub}>{pg?.genre} · {pg?.city}</Text>
+                            </View>
+                            {pg && (
+                              <Pressable
+                                style={s.viewProfileBtn}
+                                onPress={() => navigation.navigate('GroupDetail', { group: pg })}
+                              >
+                                <Text style={s.viewProfileBtnText}>Ver perfil →</Text>
+                              </Pressable>
+                            )}
+                          </View>
+
+                          {/* Resumen de cotización */}
+                          {pd && (
+                            <View style={s.proposalPriceBox}>
+                              {pd.price_per_hour != null && (
+                                <>
+                                  <View style={s.proposalPriceRow}>
+                                    <Text style={s.proposalPriceLabel}>Precio por hora</Text>
+                                    <Text style={s.proposalPriceValSub}>${Number(pd.price_per_hour).toLocaleString()}/h</Text>
+                                  </View>
+                                  <View style={s.proposalPriceRow}>
+                                    <Text style={s.proposalPriceLabel}>Duración</Text>
+                                    <Text style={s.proposalPriceValSub}>{req.hours ?? 3} horas</Text>
+                                  </View>
+                                  <View style={s.proposalPriceRow}>
+                                    <Text style={s.proposalPriceLabel}>Subtotal</Text>
+                                    <Text style={s.proposalPriceValSub}>
+                                      ${(Number(pd.price_per_hour) * (req.hours ?? 3)).toLocaleString()} MXN
+                                    </Text>
+                                  </View>
+                                </>
+                              )}
+                              {pd.travel_cost > 0 && (
+                                <View style={s.proposalPriceRow}>
+                                  <Text style={s.proposalPriceLabel}>Traslado</Text>
+                                  <Text style={s.proposalPriceValSub}>+${Number(pd.travel_cost).toLocaleString()}</Text>
+                                </View>
+                              )}
+                              {pd.total_amount != null && (
+                                <View style={[s.proposalPriceRow, s.totalRow]}>
+                                  <Text style={s.totalLabel}>Total</Text>
+                                  <Text style={s.totalVal}>${Number(pd.total_amount).toLocaleString()} MXN</Text>
+                                </View>
+                              )}
+                              {pd.arrival_time ? (
+                                <View style={[s.proposalPriceRow, s.arrivalRow]}>
+                                  <Text style={s.arrivalLabel}>🕐 Llegada del grupo</Text>
+                                  <Text style={s.arrivalVal}>{pd.arrival_time}</Text>
+                                </View>
+                              ) : null}
+                              {pd.start_time ? (
+                                <View style={[s.proposalPriceRow, s.arrivalRow]}>
+                                  <Text style={s.arrivalLabel}>🎵 Inicio de tocada</Text>
+                                  <Text style={s.arrivalVal}>{pd.start_time}</Text>
+                                </View>
+                              ) : null}
+                              {pd.start_time && pd.arrival_time ? (
+                                <View style={s.startTimeNote}>
+                                  <Text style={s.startTimeNoteText}>
+                                    ℹ️ El grupo llega antes para instalar el sonido. La música inicia a las {pd.start_time}.
+                                  </Text>
+                                </View>
+                              ) : null}
+                              {pd.notes ? (
+                                <View style={s.proposalNotesBox}>
+                                  <Text style={s.proposalNotesText}>💬 {pd.notes}</Text>
+                                </View>
+                              ) : null}
+                            </View>
+                          )}
+
+                          {/* Botón contratar este grupo */}
+                          <Pressable
+                            style={[s.acceptProposalBtn, isResponding && { opacity: 0.5 }]}
+                            onPress={() => !isResponding && handleAcceptProposal(req, proposal)}
+                            disabled={isResponding}
+                          >
+                            {isResponding && respondingId === req.id
+                              ? <ActivityIndicator size="small" color={COLORS.bg} />
+                              : <Text style={s.acceptProposalBtnText}>
+                                  ✅ Contratar a {pg?.name?.split(' ')[0] ?? 'este grupo'}
+                                </Text>
+                            }
+                          </Pressable>
                         </View>
-                      )}
-                      <View style={{ flex: 1 }}>
-                        <Text style={s.proposalGroupName}>{grp.name}</Text>
-                        <Text style={s.proposalGroupSub}>{grp.genre} · {grp.city}</Text>
-                      </View>
-                      <Pressable
-                        style={s.viewProfileBtn}
-                        onPress={() => navigation.navigate('GroupDetail', { group: grp })}
-                      >
-                        <Text style={s.viewProfileBtnText}>Ver perfil →</Text>
-                      </Pressable>
-                    </View>
+                      );
+                    })}
 
-                    {/* Banner valor / protección */}
-                    {Number(req.demand_multiplier ?? 1) > 1 && (
-                      <View style={s.demandBanner}>
-                        <Text style={s.demandBannerText}>
-                          ✨ Reserva protegida por la app · Pago seguro y garantía de servicio
-                        </Text>
-                      </View>
-                    )}
-
-                    {/* Resumen de la cotización */}
-                    {req.proposal_data && (
-                      <View style={s.proposalPriceBox}>
-                        {/* Desglose: precio/h × horas = subtotal */}
-                        {req.proposal_data.price_per_hour != null && (
-                          <>
-                            <View style={s.proposalPriceRow}>
-                              <Text style={s.proposalPriceLabel}>Precio por hora</Text>
-                              <Text style={s.proposalPriceValSub}>${Number(req.proposal_data.price_per_hour).toLocaleString()}/h</Text>
-                            </View>
-                            <View style={s.proposalPriceRow}>
-                              <Text style={s.proposalPriceLabel}>Duración</Text>
-                              <Text style={s.proposalPriceValSub}>{req.hours ?? 3} horas</Text>
-                            </View>
-                            <View style={s.proposalPriceRow}>
-                              <Text style={s.proposalPriceLabel}>Subtotal</Text>
-                              <Text style={s.proposalPriceValSub}>
-                                ${(Number(req.proposal_data.price_per_hour) * (req.hours ?? 3)).toLocaleString()} MXN
-                              </Text>
-                            </View>
-                          </>
-                        )}
-                        {req.proposal_data.travel_cost > 0 && (
-                          <View style={s.proposalPriceRow}>
-                            <Text style={s.proposalPriceLabel}>Traslado</Text>
-                            <Text style={s.proposalPriceValSub}>+${Number(req.proposal_data.travel_cost).toLocaleString()}</Text>
-                          </View>
-                        )}
-                        {/* Total en negrita */}
-                        {req.proposal_data.total_amount != null && (
-                          <View style={[s.proposalPriceRow, s.totalRow]}>
-                            <Text style={s.totalLabel}>Total</Text>
-                            <Text style={s.totalVal}>${Number(req.proposal_data.total_amount).toLocaleString()} MXN</Text>
-                          </View>
-                        )}
-                        {req.proposal_data.arrival_time ? (
-                          <View style={[s.proposalPriceRow, s.arrivalRow]}>
-                            <Text style={s.arrivalLabel}>🕐 Llegada del grupo</Text>
-                            <Text style={s.arrivalVal}>{req.proposal_data.arrival_time}</Text>
-                          </View>
-                        ) : null}
-                        {req.proposal_data.start_time ? (
-                          <View style={[s.proposalPriceRow, s.arrivalRow]}>
-                            <Text style={s.arrivalLabel}>🎵 Inicio de tocada</Text>
-                            <Text style={s.arrivalVal}>{req.proposal_data.start_time}</Text>
-                          </View>
-                        ) : null}
-                        {req.proposal_data.start_time && req.proposal_data.arrival_time ? (
-                          <View style={s.startTimeNote}>
-                            <Text style={s.startTimeNoteText}>
-                              ℹ️ El grupo llega antes para instalar el sonido. La música inicia a las {req.proposal_data.start_time}.
-                            </Text>
-                          </View>
-                        ) : null}
-                        {req.proposal_data.notes ? (
-                          <View style={s.proposalNotesBox}>
-                            <Text style={s.proposalNotesText}>💬 {req.proposal_data.notes}</Text>
-                          </View>
-                        ) : null}
-                      </View>
-                    )}
-
-                    <Text style={s.proposalMsg}>
-                      ¿Contratas a este grupo para tu evento?
-                    </Text>
-
-                    <View style={s.proposalBtnRow}>
-                      <Pressable
-                        style={[s.rejectProposalBtn, isResponding && { opacity: 0.5 }]}
-                        onPress={() => !isResponding && handleRejectProposal(req.id, grp.name)}
-                        disabled={isResponding}
-                      >
-                        {isResponding
-                          ? <ActivityIndicator size="small" color="#FF5252" />
-                          : <Text style={s.rejectProposalBtnText}>❌ Buscar otro</Text>
-                        }
-                      </Pressable>
-                      <Pressable
-                        style={[s.acceptProposalBtn, isResponding && { opacity: 0.5 }]}
-                        onPress={() => !isResponding && handleAcceptProposal(req)}
-                        disabled={isResponding}
-                      >
-                        {isResponding
-                          ? <ActivityIndicator size="small" color={COLORS.bg} />
-                          : <Text style={s.acceptProposalBtnText}>✅ Contratar</Text>
-                        }
-                      </Pressable>
-                    </View>
+                    {/* Rechazar todas las propuestas y buscar otro */}
+                    <Pressable
+                      style={[s.rejectProposalBtn, s.rejectAllBtn, isResponding && { opacity: 0.5 }]}
+                      onPress={() => {
+                        const firstName = proposals[0]?.group?.name ?? 'este grupo';
+                        !isResponding && handleRejectProposal(req.id, firstName);
+                      }}
+                      disabled={isResponding}
+                    >
+                      {isResponding
+                        ? <ActivityIndicator size="small" color="#FF5252" />
+                        : <Text style={s.rejectProposalBtnText}>❌ No me interesa ninguno</Text>
+                      }
+                    </Pressable>
                   </View>
                 )}
 
@@ -778,6 +827,12 @@ export default function OpenRequestScreen({ navigation, route }: any) {
                 ))}
               </View>
 
+              <View style={s.extraHoursHint}>
+                <Text style={s.extraHoursHintText}>
+                  💡 Elige bien las horas desde ahora. Si el evento se extiende, cada hora extra se cobra por separado y puede salir más caro que contratarlas de antemano.
+                </Text>
+              </View>
+
               <SectionTitle>Número aproximado de personas *</SectionTitle>
               <TextInput
                 style={s.input}
@@ -874,6 +929,24 @@ export default function OpenRequestScreen({ navigation, route }: any) {
 
               <SectionTitle>¿Necesitas sonido incluido? *</SectionTitle>
               <ChipGrid options={SOUND_OPTIONS as any} selected={needsSound} onSelect={setNeedsSound} />
+
+              {/* Tipo de descanso — oculto: el grupo elige en EventTimerScreen */}
+              {false && (<>
+              <SectionTitle>Tipo de descanso *</SectionTitle>
+              <Text style={s.hintText}>Todos los tipos están incluidos sin costo adicional.</Text>
+              {BREAK_OPTIONS.map(opt => (
+                <Pressable
+                  key={opt.type}
+                  style={[s.breakOpt, breakType === opt.type && s.breakOptActive]}
+                  onPress={() => setBreakType(opt.type)}
+                >
+                  <Text style={[s.breakOptLabel, breakType === opt.type && { color: COLORS.green }]}>
+                    {opt.label}
+                  </Text>
+                  <Text style={s.breakOptDesc}>{opt.desc}</Text>
+                </Pressable>
+              ))}
+              </>)}
 
               <SectionTitle>Comentarios adicionales</SectionTitle>
               <TextInput
@@ -1002,6 +1075,13 @@ const s = StyleSheet.create({
   },
   cancelBtnDisabled: { opacity: 0.5 },
   cancelBtnText: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: '#FF5252' },
+
+  // ── Propuestas de grupos ──────────────────────────────────────────────────
+  proposalsHeader: {
+    fontFamily: FONTS.bodySemiBold, fontSize: 14, color: '#FFB300',
+    marginBottom: 10,
+  },
+  rejectAllBtn: { marginBottom: 4 },
 
   // ── Propuesta de grupo (en_negociacion) ──────────────────────────────────
   mineCardNeg: {
@@ -1292,4 +1372,25 @@ const s = StyleSheet.create({
   wizardNextBtnText: {
     fontFamily: FONTS.bodySemiBold, fontSize: 15, color: COLORS.bg,
   },
+
+  // ── Extra hours hint ──────────────────────────────────────────────────────
+  extraHoursHint: {
+    backgroundColor: 'rgba(255,179,0,0.06)',
+    borderRadius: RADIUS.md,
+    borderWidth: 1, borderColor: 'rgba(255,179,0,0.22)',
+    paddingHorizontal: 12, paddingVertical: 10, marginTop: 4, marginBottom: 10,
+  },
+  extraHoursHintText: {
+    fontFamily: FONTS.body, fontSize: 12, color: '#FFB300', lineHeight: 18,
+  },
+
+  // ── Break options ─────────────────────────────────────────────────────────
+  breakOpt: {
+    backgroundColor: COLORS.card, borderRadius: RADIUS.md,
+    borderWidth: 1, borderColor: COLORS.border,
+    paddingHorizontal: 14, paddingVertical: 12, marginBottom: 8,
+  },
+  breakOptActive: { borderColor: COLORS.green, backgroundColor: 'rgba(0,230,118,0.08)' },
+  breakOptLabel:  { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: COLORS.text, marginBottom: 3 },
+  breakOptDesc:   { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2, lineHeight: 17 },
 });

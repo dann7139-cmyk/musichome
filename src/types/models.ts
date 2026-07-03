@@ -21,7 +21,7 @@ export type ReservationStatus =
   | 'cancelled'
   | 'expired';
 
-export type BreakType = 'A' | 'B' | 'C' | 'D';
+export type BreakType = 'A' | 'B' | 'D';
 
 export type VerificationStatus = 'none' | 'pending' | 'approved' | 'rejected';
 

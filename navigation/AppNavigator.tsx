@@ -16,12 +16,20 @@ import {
 } from 'react-native';
 import { Briefcase, Calendar, CalendarDays, Compass, LayoutDashboard, Megaphone, User, Users } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
+import Reanimated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withRepeat,
+  withSequence,
+  withTiming,
+} from 'react-native-reanimated';
 import { COLORS, FONTS } from '../src/config/theme';
 import { supabase } from '../src/config/supabase';
 import { useAuth } from '../src/context/AuthContext';
 import { GroupBadgesProvider, useGroupBadges } from '../src/context/GroupBadgesContext';
 import { ClientBadgesProvider, useClientBadges } from '../src/context/ClientBadgesContext';
 import { usePushNotifications } from '../src/hooks/usePushNotifications';
+import { useLiveEvent } from '../src/hooks/useLiveEvent';
 import Particles from '../src/components/ui/Particles';
 
 // Auth
@@ -56,7 +64,6 @@ import GroupTalentSearchScreen from '../src/screens/group/TalentSearchScreen';
 import TalentProfileScreen from '../src/screens/group/TalentProfileScreen';
 import GroupSentInvitationsScreen from '../src/screens/group/SentInvitationsScreen';
 import GroupJobBoardScreen from '../src/screens/talent/JobBoardScreen';
-import GroupBenefitsScreen from '../src/screens/group/BenefitsScreen';
 import GroupQuotesScreen from '../src/screens/group/QuotesScreen';
 import GroupQuoteDetailScreen from '../src/screens/group/QuoteDetailScreen';
 import GroupStatsScreen from '../src/screens/group/StatsScreen';
@@ -73,7 +80,9 @@ import RecommendationScreen       from '../src/screens/group/RecommendationScree
 import PlusScreen                 from '../src/screens/group/PlusScreen';
 import IncomingExpressScreen      from '../src/screens/group/IncomingExpressScreen';
 import ExpressCarousel            from '../src/components/express/ExpressCarousel';
-import { ExpressProvider }        from '../src/context/ExpressContext';
+import { ExpressProvider, reviveExpressDispatch, reviveAllExpressDispatches } from '../src/context/ExpressContext';
+import ProposalCarousel           from '../src/components/express/ProposalCarousel';
+import { ClientProposalProvider, reviveClientProposals } from '../src/context/ClientProposalContext';
 
 // Talent
 import TalentStatsScreen from '../src/screens/talent/StatsScreen';
@@ -110,6 +119,8 @@ import EventPayoutsScreen from '../src/screens/shared/EventPayoutsScreen';
 import AdminWithdrawalsScreen from '../src/screens/admin/WithdrawalsScreen';
 import AdminMediaReviewScreen from '../src/screens/admin/MediaReviewScreen';
 import AdApprovalScreen from '../src/screens/admin/AdApprovalScreen';
+import TicketScreen from '../src/screens/shared/TicketScreen';
+import AdminTicketSearchScreen from '../src/screens/admin/AdminTicketSearchScreen';
 
 const Stack = createNativeStackNavigator();
 const Tab   = createBottomTabNavigator();
@@ -356,6 +367,59 @@ function AuthErrorScreen({ error, onRetry, onSignOut }: {
   );
 }
 
+// ─── Live tab dot ────────────────────────────────────────────────────────────
+
+function LiveTabIcon({
+  icon,
+  hasLiveEvent,
+}: {
+  icon: React.ReactNode;
+  hasLiveEvent: boolean;
+}) {
+  const opacity = useSharedValue(0);
+
+  React.useEffect(() => {
+    if (hasLiveEvent) {
+      opacity.value = withRepeat(
+        withSequence(
+          withTiming(0.25, { duration: 550 }),
+          withTiming(1.0, { duration: 550 })
+        ),
+        -1,
+        false
+      );
+    } else {
+      opacity.value = withTiming(0, { duration: 200 });
+    }
+  }, [hasLiveEvent]);
+
+  const dotStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
+
+  return (
+    <View style={{ width: 28, height: 28, alignItems: 'center', justifyContent: 'center' }}>
+      {icon}
+      {hasLiveEvent && (
+        <Reanimated.View
+          style={[
+            {
+              position: 'absolute',
+              top: -1,
+              right: -3,
+              width: 9,
+              height: 9,
+              borderRadius: 5,
+              backgroundColor: COLORS.green,
+              borderWidth: 1.5,
+              borderColor: COLORS.card,
+            },
+            dotStyle,
+          ]}
+        />
+      )}
+    </View>
+  );
+}
+
 // ─── Tab bar options (shared) ─────────────────────────────────────────────────
 
 const TAB_SCREEN_OPTIONS = {
@@ -406,6 +470,7 @@ function ExploreStack() {
 function ClientTabsInner() {
   const { t } = useTranslation();
   const { pendingQuotesCount } = useClientBadges();
+  const { hasLiveEvent } = useLiveEvent();
   return (
     <Tab.Navigator screenOptions={TAB_SCREEN_OPTIONS}>
       <Tab.Screen
@@ -418,7 +483,12 @@ function ClientTabsInner() {
         component={ClientReservationsScreen}
         options={{
           tabBarLabel: t('tabs.reservations'),
-          tabBarIcon: ({ color }) => <Calendar size={20} color={color} />,
+          tabBarIcon: ({ color }) => (
+            <LiveTabIcon
+              icon={<Calendar size={20} color={color} />}
+              hasLiveEvent={hasLiveEvent}
+            />
+          ),
           tabBarBadge: pendingQuotesCount > 0 ? pendingQuotesCount : undefined,
         }}
       />
@@ -447,6 +517,7 @@ function ClientTabs() {
 /** Tabs del talento: Panel | Bolsa | Explorar | Eventos | Perfil */
 function TalentTabs() {
   const { t } = useTranslation();
+  const { hasLiveEvent } = useLiveEvent();
   return (
     <Tab.Navigator screenOptions={TAB_SCREEN_OPTIONS}>
       <Tab.Screen
@@ -467,7 +538,15 @@ function TalentTabs() {
       <Tab.Screen
         name="Eventos"
         component={MemberEventsScreen}
-        options={{ tabBarLabel: t('tabs.events'), tabBarIcon: ({ color }) => <CalendarDays size={20} color={color} /> }}
+        options={{
+          tabBarLabel: t('tabs.events'),
+          tabBarIcon: ({ color }) => (
+            <LiveTabIcon
+              icon={<CalendarDays size={20} color={color} />}
+              hasLiveEvent={hasLiveEvent}
+            />
+          ),
+        }}
       />
       <Tab.Screen
         name="Perfil"
@@ -482,6 +561,7 @@ function TalentTabs() {
 function GroupTabsInner() {
   const { t } = useTranslation();
   const { pendingQuotesCount } = useGroupBadges();
+  const { hasLiveEvent } = useLiveEvent();
   return (
     <Tab.Navigator screenOptions={TAB_SCREEN_OPTIONS}>
       <Tab.Screen
@@ -494,7 +574,12 @@ function GroupTabsInner() {
         component={GroupEventsScreen}
         options={{
           tabBarLabel: t('tabs.events'),
-          tabBarIcon: ({ color }) => <CalendarDays size={20} color={color} />,
+          tabBarIcon: ({ color }) => (
+            <LiveTabIcon
+              icon={<CalendarDays size={20} color={color} />}
+              hasLiveEvent={hasLiveEvent}
+            />
+          ),
           tabBarBadge: pendingQuotesCount > 0 ? pendingQuotesCount : undefined,
         }}
       />
@@ -522,6 +607,18 @@ function GroupTabs() {
     <GroupBadgesProvider>
       <GroupTabsInner />
     </GroupBadgesProvider>
+  );
+}
+
+function ClientHomeWithProposals() {
+  const { user } = useAuth();
+  return (
+    <ClientProposalProvider clientId={user?.id ?? null}>
+      <View style={{ flex: 1 }}>
+        <ClientTabs />
+        <ProposalCarousel />
+      </View>
+    </ClientProposalProvider>
   );
 }
 
@@ -594,30 +691,59 @@ export default function AppNavigator() {
 
   // Holds a dispatchId to navigate once the navigator mounts (cold-start race)
   const pendingExpressId  = useRef<string | null>(null);
-  // True when pendingExpressId was already consumed via initialNavState.
-  // Prevents onReady from navigating a second time on top of the initial state.
   const initialStateUsed  = useRef(false);
+  // Set to true on cold-start when a push with reservation_id was tapped.
+  // Consumed by the useEffect([role]) below once auth resolves.
+  const pendingNotifNavigate = useRef(false);
+  // Reservation ID stored on cold-start when screen='EventTimer' push is tapped.
+  // Consumed by the useEffect([role]) below to navigate directly to EventTimer.
+  const pendingEventTimerReservationId = useRef<string | null>(null);
 
   // ── Deep link desde notificación ───────────────────────────────────────────
   useEffect(() => {
     const sub = ExpoNotifications.addNotificationResponseReceivedListener(response => {
       const data = response.notification.request.content.data as Record<string, unknown>;
 
-      // Express dispatch deep-link — navigate directly to IncomingExpress
-      if (data?.type === 'express_dispatch' && data?.dispatchId) {
-        const id = data.dispatchId as string;
+      // Cualquier notificación de tipo express → revive dispatches y muestra carrusel
+      if (data?.type === 'express_dispatch' || (data?.type as string)?.startsWith('express')) {
+        const id = data?.dispatchId as string | undefined;
+        // Try immediately (works if ExpressProvider is already mounted)
+        void reviveAllExpressDispatches();
         if (navigationRef.isReady()) {
-          (navigationRef as any).navigate('IncomingExpress', { dispatchId: id });
+          (navigationRef as any).navigate('GroupHome');
+          // Retry after navigation settles — ensures Provider has mounted and
+          // registered _reviveAll even if it wasn't ready on first call
+          setTimeout(() => void reviveAllExpressDispatches(), 700);
         } else {
-          pendingExpressId.current = id;
+          pendingExpressId.current = id ?? '__all__';
         }
         return;
       }
 
+      // new_proposal is a CLIENT notification ("grupo quiere tocar en tu evento").
+      // If the same device is also registered as a group, skip it silently.
+      if (data?.type === 'new_proposal' && role !== 'client') return;
+
       const screen = data?.screen as string | undefined;
       if (!navigationRef.isReady()) return;
 
-      if (screen === 'AdvertisingPackages') {
+      if (screen === 'OpenRequest') {
+        // Para clientes: revivir carousel de propuestas (aparece automáticamente sobre cualquier pantalla)
+        void reviveClientProposals();
+        if (role !== 'client' && navigationRef.isReady()) {
+          // Para grupo/talento que también envían solicitudes: navegar a la pantalla
+          (navigationRef as any).navigate('OpenRequest', { tab: 'mine' });
+        }
+      } else if (screen === 'OpenRequests' && role === 'group') {
+        // Notificaciones express al grupo (wave inicial, follow-ups +2min y +5min):
+        // "Tienes una solicitud pendiente" / "Esta solicitud podría irse a otro grupo!"
+        // → abrir dashboard con ExpressCarousel Uber-style
+        void reviveAllExpressDispatches();
+        if (navigationRef.isReady()) {
+          (navigationRef as any).navigate('GroupHome');
+          setTimeout(() => void reviveAllExpressDispatches(), 700);
+        }
+      } else if (screen === 'AdvertisingPackages') {
         navigationRef.navigate('AdvertisingPackages' as never);
       } else if (screen === 'Explorar') {
         navigationRef.navigate('Explorar' as never);
@@ -631,13 +757,56 @@ export default function AppNavigator() {
         navigationRef.navigate('Wallet' as never);
       } else if (screen === 'GroupEarnings' && role === 'group') {
         navigationRef.navigate('GroupEarnings' as never);
-      } else if (!screen && data?.reservation_id) {
+      } else if (screen === 'EventTimer' && role === 'group' && data?.reservation_id) {
+        const resId = data.reservation_id as string;
+        supabase
+          .from('reservations')
+          .select('*, client:profiles!client_id(full_name, phone), group:groups!group_id(id, name, genre, city, profile_image, owner_id), package:packages!package_id(name, duration_hours, extra_hour_price), quote:quotes!quote_id(duration_hours, overtime_1h_price, overtime_2h_price, overtime_3h_price)')
+          .eq('id', resId)
+          .maybeSingle()
+          .then(({ data: res }) => {
+            if (res && navigationRef.isReady()) {
+              (navigationRef as any).navigate('EventTimer', { reservation: res });
+            } else if (navigationRef.isReady()) {
+              navigationRef.navigate('Notifications' as never);
+            }
+          });
+      } else if (data?.reservation_id) {
         navigationRef.navigate('Notifications' as never);
       }
       // Reservas, cotizaciones, etc. se manejan desde NotificationsScreen.handleNavigation
+      console.log('[Push] screen recibido:', JSON.stringify(screen), '| data:', JSON.stringify(data));
     });
     return () => sub.remove();
-  }, []);
+  }, [role]);
+
+  // Cold-start: navigate to Notifications once auth resolves (role known + nav ready)
+  useEffect(() => {
+    if (!role || !pendingNotifNavigate.current) return;
+    if (!navigationRef.isReady()) return;
+    pendingNotifNavigate.current = false;
+    navigationRef.navigate('Notifications' as never);
+  }, [role]);
+
+  // Cold-start: navigate directly to EventTimer once auth resolves
+  useEffect(() => {
+    const resId = pendingEventTimerReservationId.current;
+    if (!role || !resId) return;
+    if (!navigationRef.isReady()) return;
+    pendingEventTimerReservationId.current = null;
+    supabase
+      .from('reservations')
+      .select('*, client:profiles!client_id(full_name, phone), group:groups!group_id(id, name, genre, city, profile_image, owner_id), package:packages!package_id(name, duration_hours, extra_hour_price), quote:quotes!quote_id(duration_hours, overtime_1h_price, overtime_2h_price, overtime_3h_price)')
+      .eq('id', resId)
+      .maybeSingle()
+      .then(({ data: res }) => {
+        if (res && navigationRef.isReady()) {
+          (navigationRef as any).navigate('EventTimer', { reservation: res });
+        } else if (navigationRef.isReady()) {
+          navigationRef.navigate('Notifications' as never);
+        }
+      });
+  }, [role]);
 
   // Cold-start check fires on mount — ~5ms, before auth hydrates
   const [coldStartCheckDone, setColdStartCheckDone] = useState(false);
@@ -646,8 +815,12 @@ export default function AppNavigator() {
       .then(response => {
         if (!response) return;
         const data = response.notification.request.content.data as Record<string, unknown>;
-        if (data?.type === 'express_dispatch' && data?.dispatchId) {
-          pendingExpressId.current = data.dispatchId as string;
+        if (data?.type === 'express_dispatch' || (data?.type as string)?.startsWith('express')) {
+          pendingExpressId.current = '__all__';
+        } else if (data?.screen === 'EventTimer' && data?.reservation_id) {
+          pendingEventTimerReservationId.current = data.reservation_id as string;
+        } else if (data?.reservation_id) {
+          pendingNotifNavigate.current = true;
         }
       })
       .catch(() => {})
@@ -712,35 +885,19 @@ export default function AppNavigator() {
   // AuthContext detecta silenciosamente por GPS o usa 'Guadalajara' como fallback.
   // El usuario puede cambiar su ciudad en Perfil → "Cambiar ciudad".
 
-  // If a cold-start Express push was tapped, start the navigator already at IncomingExpress
-  // so GroupHome never renders first (no dashboard flash).
-  // Mark initialStateUsed so onReady does NOT navigate a second time on top.
-  const hasPendingExpress = role === 'group' && !!pendingExpressId.current;
-  if (hasPendingExpress) initialStateUsed.current = true;
-
-  const initialNavState = hasPendingExpress
-    ? {
-        routes: [
-          { name: 'GroupHome' },
-          { name: 'IncomingExpress', params: { dispatchId: pendingExpressId.current } },
-        ] as any[],
-        index: 1,
-      }
-    : undefined;
-
   return (
     <LocationGate>
     <NavigationContainer
       ref={navigationRef}
-      initialState={initialNavState as any}
       onReady={() => {
-        // Warm-start / OOM race: listener fired before navigator was ready,
-        // stored the id in pendingExpressId but initialNavState was already
-        // rendered as undefined. Replay the navigate now that the ref is ready.
+        // Cold-start: notification tap stored pendingExpressId before navigator
+        // was ready. Navigate to GroupHome and revive dispatches now.
         const id = pendingExpressId.current;
         pendingExpressId.current = null;
-        if (id && role === 'group' && !initialStateUsed.current) {
-          (navigationRef as any).navigate('IncomingExpress', { dispatchId: id });
+        if (id && role === 'group') {
+          (navigationRef as any).navigate('GroupHome');
+          // Delay so ExpressProvider mounts and registers _reviveAll
+          setTimeout(() => void reviveAllExpressDispatches(), 900);
         }
         initialStateUsed.current = false;
       }}
@@ -761,6 +918,8 @@ export default function AppNavigator() {
             <Stack.Screen name="AdminWithdrawals"   component={AdminWithdrawalsScreen} />
             <Stack.Screen name="AdminMediaReview"   component={AdminMediaReviewScreen} />
             <Stack.Screen name="AdApproval"          component={AdApprovalScreen} />
+            <Stack.Screen name="Ticket"              component={TicketScreen} />
+            <Stack.Screen name="AdminTicketSearch"   component={AdminTicketSearchScreen} />
             <Stack.Screen name="Wallet"             component={WalletScreen} />
             <Stack.Screen name="Withdraw"           component={WithdrawScreen} />
             <Stack.Screen name="Notifications"      component={NotificationsScreen} />
@@ -782,7 +941,6 @@ export default function AppNavigator() {
             <Stack.Screen name="GroupAvailability"    component={GroupAvailabilityScreen} />
             <Stack.Screen name="GroupJobBoard"        component={GroupJobBoardScreen} />
             <Stack.Screen name="GroupSentInvitations" component={GroupSentInvitationsScreen} />
-            <Stack.Screen name="GroupBenefits"        component={GroupBenefitsScreen} />
             <Stack.Screen name="GroupQuotes"          component={GroupQuotesScreen} />
             <Stack.Screen name="GroupQuoteDetail"     component={GroupQuoteDetailScreen} />
             <Stack.Screen name="GroupStats"           component={GroupStatsScreen} />
@@ -845,7 +1003,7 @@ export default function AppNavigator() {
 
         {role === 'client' && (
           <>
-            <Stack.Screen name="Home"               component={ClientTabs} />
+            <Stack.Screen name="Home"               component={ClientHomeWithProposals} />
             <Stack.Screen name="GroupDetail"        component={GroupDetailScreen} />
             <Stack.Screen
               name="Booking"
@@ -868,6 +1026,7 @@ export default function AppNavigator() {
             <Stack.Screen name="AdvertisingPackages"   component={AdvertisingPackagesScreen} />
             <Stack.Screen name="Profile"               component={ProfileScreen} />
             <Stack.Screen name="Notifications"         component={NotificationsScreen} />
+            <Stack.Screen name="Ticket"                component={TicketScreen} />
           </>
         )}
 

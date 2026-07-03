@@ -15,6 +15,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import Particles from '../../components/ui/Particles';
+import { useAuth } from '../../context/AuthContext';
+import { reviveAllExpressDispatches } from '../../context/ExpressContext';
+import { reviveClientProposals } from '../../context/ClientProposalContext';
 
 interface Notification {
   id: string;
@@ -23,7 +26,10 @@ interface Notification {
         'booking_received' | 'booking_accepted' | 'booking_confirmed' |
         'booking_rejected' | 'booking_auto_cancelled' |
         'booking_expired_no_payment' | 'deposit_received' | 'payment_received' |
-        'event_completed' | 'event_reminder_24h' | 'payment_released' |
+        'event_completed' | 'event_finalized' | 'event_reminder_24h' | 'payment_released' |
+        // Recordatorios de evento (crons) + auto-inicio
+        'event_reminder_morning' | 'event_reminder_1h' | 'event_reminder_2h' |
+        'event_reminder_15m' | 'event_upcoming_24h' | 'event_auto_started' |
         'job_invitation' |
         'new_quote_request' | 'quote_received' | 'quote_accepted' | 'quote_cancelled' | 'chat' |
         'booking' |
@@ -39,7 +45,7 @@ interface Notification {
         // Anuncios
         'ad_approved' | 'ad_rejected' | 'ad_payment_confirmed' | 'ad_expiring_soon' | 'ad_expired' |
         // Zona / demanda express
-        'zone_demand' |
+        'zone_demand' | 'express_dispatch' | 'new_proposal' |
         // Admin / pagos / KYC
         'payout' | 'wallet' | 'fraud_alert' |
         // Cotización enviada a integrantes del grupo (dueño mandó precio al cliente)
@@ -47,7 +53,14 @@ interface Notification {
         // Proximidad al evento
         'request_expired_proximity' | 'quote_expired_proximity' |
         // Horas extra
-        'extra_hour_proposed' | 'extra_hour_approved_by_client' | 'extra_hour_payment_confirmed';
+        'extra_hours_offer' |
+        'extra_hour_proposed' | 'extra_hour_approved_by_client' | 'extra_hour_payment_confirmed' |
+        'extra_hour_requested' | 'extra_hour_rejected' | 'extra_hour_rejected_by_client' |
+        'extra_hour_payment_required' |
+        'extra_hour_expired' |           // solicitud venció por timeout (cliente/grupo)
+        'extra_hour_payment_expired' |   // cliente no pagó en 20 min (grupo recibe)
+        // Calificaciones recibidas
+        'review_received';
   title: string;
   message?: string;
   body?: string;
@@ -115,13 +128,20 @@ const TYPE_ICONS: Record<string, string> = {
   extra_hour_proposed:           '⏰',
   extra_hour_approved_by_client: '✅',
   extra_hour_payment_confirmed:  '💳',
+  extra_hour_requested:          '⏰',
+  extra_hour_rejected:           '❌',
+  extra_hour_payment_required:   '💳',
+  extra_hour_expired:            '⏰',
+  extra_hour_payment_expired:    '⏰',
 };
 
 export default function NotificationsScreen({ navigation }: any) {
+  const { profile: authProfile } = useAuth();
+  const role = authProfile?.role ?? null;
+
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [role, setRole] = useState<string | null>(null);
 
   useEffect(() => {
     fetchNotifications();
@@ -140,14 +160,6 @@ export default function NotificationsScreen({ navigation }: any) {
       setLoading(false);
       return;
     }
-
-    // Obtener rol del usuario
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', sessionData.session.user.id)
-      .single();
-    setRole(profile?.role ?? null);
 
     // Obtener notificaciones
     const { data, error } = await supabase
@@ -194,7 +206,7 @@ export default function NotificationsScreen({ navigation }: any) {
       if (reservationId) {
         const { data: reservation } = await supabase
           .from('reservations')
-          .select('*, client:profiles(full_name, phone), group:groups(id, name, genre, city, profile_image, owner_id), package:packages(name, duration_hours)')
+          .select('*, client:profiles(full_name, phone), group:groups(id, name, genre, city, profile_image, owner_id)')
           .eq('id', reservationId)
           .single();
 
@@ -242,14 +254,125 @@ export default function NotificationsScreen({ navigation }: any) {
       case 'booking_rejected':
       case 'booking_auto_cancelled':
       case 'booking_expired_no_payment':
-      case 'event_completed':
-        // Client-facing: open reservation detail
         await goToReservation(role === 'group');
+        break;
+
+      case 'event_completed':
+        if (role === 'client' && reservationId) {
+          const { data: resComp } = await supabase
+            .from('reservations')
+            .select('*, client:profiles!client_id(full_name, phone), group:groups!group_id(id, name, genre, city, profile_image, owner_id), quote:quotes!quote_id(duration_hours, overtime_1h_price, overtime_2h_price, overtime_3h_price)')
+            .eq('id', reservationId)
+            .maybeSingle();
+          if (resComp) {
+            navigation.navigate('EventTimer' as any, { reservation: resComp, readOnly: true, userRole: 'client' });
+          } else {
+            await goToReservation(false);
+          }
+        } else {
+          await goToReservation(role === 'group');
+        }
+        break;
+
+      case 'event_finalized':
+        if (reservationId) {
+          const { data: resFin } = await supabase
+            .from('reservations')
+            .select('*, client:profiles!client_id(full_name, phone, avatar_url), group:groups!group_id(id, name, genre, city, profile_image, owner_id), quote:quotes!quote_id(duration_hours, overtime_1h_price, overtime_2h_price, overtime_3h_price)')
+            .eq('id', reservationId)
+            .maybeSingle();
+          if (resFin) {
+            navigation.navigate('EventTimer' as any, {
+              reservation: resFin,
+              ...(role === 'client' ? { readOnly: true, userRole: 'client' } : {}),
+            });
+          } else {
+            await goToReservation(role === 'group');
+          }
+        }
+        break;
+
+      case 'review_received':
+        if (reservationId) {
+          const { data: resRev } = await supabase
+            .from('reservations')
+            .select('*, client:profiles!client_id(full_name, phone, avatar_url), group:groups!group_id(id, name, genre, city, profile_image, owner_id), quote:quotes!quote_id(duration_hours, overtime_1h_price, overtime_2h_price, overtime_3h_price)')
+            .eq('id', reservationId)
+            .maybeSingle();
+          if (resRev) {
+            const extraParams =
+              role === 'client'  ? { readOnly: true, userRole: 'client' }  :
+              role === 'talent'  ? { readOnly: true, userRole: 'talent' }  :
+              {};
+            navigation.navigate('EventTimer' as any, { reservation: resRev, ...extraParams });
+          } else {
+            await goToReservation(role === 'group');
+          }
+        }
+        break;
+
+      case 'chat':
+        // La pantalla Chat solo existe en los stacks de grupo y cliente
+        if (reservationId && role !== 'talent') {
+          const { data: resChat } = await supabase
+            .from('reservations')
+            .select('*, client:profiles!client_id(full_name, phone, avatar_url), group:groups!group_id(id, name, genre, city, profile_image, owner_id)')
+            .eq('id', reservationId)
+            .maybeSingle();
+          if (resChat) {
+            navigation.navigate('Chat' as any, {
+              reservation: resChat,
+              senderRole: role === 'client' ? 'client' : 'group',
+            });
+            break;
+          }
+        }
+        await goToReservation(role === 'group');
+        break;
+
+      // ── Recordatorios de evento + auto-inicio/nudge ────────────────────────
+      case 'event_reminder_morning':
+      case 'event_reminder_1h':
+      case 'event_reminder_2h':
+      case 'event_reminder_15m':
+      case 'event_auto_started':
+      case 'extra_hour_rejected_by_client': {
+        if (reservationId) {
+          const { data: resRem } = await supabase
+            .from('reservations')
+            .select('*, client:profiles!client_id(full_name, phone, avatar_url), group:groups!group_id(id, name, genre, city, profile_image, owner_id), quote:quotes!quote_id(duration_hours, overtime_1h_price, overtime_2h_price, overtime_3h_price)')
+            .eq('id', reservationId)
+            .maybeSingle();
+          if (resRem) {
+            if (role === 'client') {
+              navigation.navigate('LiveEvent' as any, { reservation: resRem });
+            } else {
+              // Owner y talento: EventTimer existe en sus stacks
+              navigation.navigate('EventTimer' as any, {
+                reservation: resRem,
+                ...(role === 'talent' ? { readOnly: true, userRole: 'talent' } : {}),
+              });
+            }
+            break;
+          }
+        }
+        await goToReservation(role === 'group');
+        break;
+      }
+
+      case 'event_upcoming_24h':
+        // 24h antes no hay nada "en vivo": lista/dashboard según rol
+        if (role === 'group') {
+          navigation.navigate('GroupHome' as any);
+        } else if (role === 'client') {
+          navigation.navigate('ClientReservations' as any);
+        } else {
+          await goToReservation(false);
+        }
         break;
 
       case 'deposit_received':
       case 'payment_received':
-      case 'event_reminder_24h':
         await goToReservation(role === 'group');
         break;
 
@@ -264,7 +387,7 @@ export default function NotificationsScreen({ navigation }: any) {
       // ── Other types ────────────────────────────────────────────────────────
       case 'payment':
         if (role === 'group') {
-          navigation.navigate('GroupEarnings');
+          await goToReservation(true);
         }
         break;
 
@@ -365,16 +488,27 @@ export default function NotificationsScreen({ navigation }: any) {
         break;
       }
 
+      case 'new_proposal': {
+        // Grupo cotizó la solicitud express → cliente ve el carousel Uber-style
+        if (role === 'client') {
+          void reviveClientProposals();
+          navigation.navigate('Home');
+        }
+        break;
+      }
+
       case 'booking': {
         if (role === 'talent') {
           // Eventos tab inside TalentHome, not a root stack screen
           navigation.navigate('TalentHome', { screen: 'Eventos' });
         } else if (role === 'group') {
-          // Grupo (dueño): nueva solicitud express disponible
-          navigation.navigate('OpenRequests');
+          // Solicitud express disponible → abrir dashboard con carousel Uber-style
+          void reviveAllExpressDispatches();
+          navigation.navigate('GroupHome');
         } else {
-          // Cliente: propuesta recibida → ir directo a Mis solicitudes
-          navigation.navigate('OpenRequest', { tab: 'mine' });
+          // Cliente: mostrar carousel de propuestas Uber-style
+          void reviveClientProposals();
+          navigation.navigate('Home');
         }
         break;
       }
@@ -404,6 +538,11 @@ export default function NotificationsScreen({ navigation }: any) {
       case 'zone_demand': {
         const reqId = notif.data?.event_request_id as string | undefined;
         navigation.navigate('OpenRequests', reqId ? { requestId: reqId } : undefined);
+        break;
+      }
+
+      case 'express_dispatch': {
+        if (navigation.canGoBack()) navigation.goBack();
         break;
       }
 
@@ -467,20 +606,68 @@ export default function NotificationsScreen({ navigation }: any) {
 
       // ── Horas extra ──────────────────────────────────────────────────────────
       case 'extra_hour_proposed':
-        // Al cliente: lleva a la pantalla de aprobación de hora extra
-        if (role === 'client') {
-          navigation.navigate('ClientExtraHours' as any, {
-            reservation_id: notif.data?.reservation_id,
-          });
+      case 'extra_hours_offer':
+        // Al cliente: llevar al EventTimer readonly para ver/pagar la propuesta integrada
+        if (role === 'client' && reservationId) {
+          const { data: resProp } = await supabase
+            .from('reservations')
+            .select('*, client:profiles!client_id(full_name, phone, avatar_url), group:groups!group_id(id, name, genre, city, profile_image, owner_id), quote:quotes!quote_id(duration_hours, overtime_1h_price, overtime_2h_price, overtime_3h_price)')
+            .eq('id', reservationId)
+            .maybeSingle();
+          if (resProp) {
+            navigation.navigate('EventTimer' as any, { reservation: resProp, readOnly: true, userRole: 'client' });
+          } else {
+            await goToReservation(false);
+          }
+        }
+        break;
+
+      case 'extra_hour_requested':
+        console.log('[Notif] extra_hour_requested — role:', role, '| reservationId:', reservationId);
+        // Al grupo: cliente solicitó hora extra → abrir EventTimer con la reserva cargada
+        if (role === 'group' && reservationId) {
+          const { data: resExtra } = await supabase
+            .from('reservations')
+            .select('*, client:profiles!client_id(full_name, phone), group:groups!group_id(id, name, genre, city, profile_image, owner_id), quote:quotes!quote_id(duration_hours, overtime_1h_price, overtime_2h_price, overtime_3h_price)')
+            .eq('id', reservationId)
+            .maybeSingle();
+          if (resExtra) {
+            navigation.navigate('EventTimer' as any, { reservation: resExtra });
+          } else {
+            navigation.navigate('GroupReservations' as any);
+          }
         }
         break;
 
       case 'extra_hour_approved_by_client':
-        // Al grupo: lleva al EventTimer para confirmar continuación
-        if (role === 'group') {
-          navigation.navigate('EventTimer' as any, {
-            reservation_id: notif.data?.reservation_id,
-          });
+        // Al grupo: cliente pagó las horas extra → abrir EventTimer con la reserva cargada
+        if (role === 'group' && reservationId) {
+          const { data: resApproved } = await supabase
+            .from('reservations')
+            .select('*, client:profiles!client_id(full_name, phone), group:groups!group_id(id, name, genre, city, profile_image, owner_id), quote:quotes!quote_id(duration_hours, overtime_1h_price, overtime_2h_price, overtime_3h_price)')
+            .eq('id', reservationId)
+            .maybeSingle();
+          if (resApproved) {
+            navigation.navigate('EventTimer' as any, { reservation: resApproved });
+          } else {
+            navigation.navigate('GroupReservations' as any);
+          }
+        }
+        break;
+
+      case 'extra_hour_payment_required':
+        // Al cliente: grupo aceptó las horas extra con Stripe → pagar ahora en EventTimer
+        if (role === 'client' && reservationId) {
+          const { data: resPayNow } = await supabase
+            .from('reservations')
+            .select('*, client:profiles!client_id(full_name, phone), group:groups!group_id(id, name, genre, city, profile_image, owner_id), quote:quotes!quote_id(duration_hours, overtime_1h_price, overtime_2h_price, overtime_3h_price)')
+            .eq('id', reservationId)
+            .maybeSingle();
+          if (resPayNow) {
+            navigation.navigate('EventTimer' as any, { reservation: resPayNow, readOnly: true, userRole: 'client' });
+          } else {
+            navigation.navigate('Reservations' as any);
+          }
         }
         break;
 
@@ -489,7 +676,63 @@ export default function NotificationsScreen({ navigation }: any) {
         if (role === 'client') {
           navigation.navigate('ClientExtraHours' as any, {
             reservation_id: notif.data?.reservation_id,
+            extra_hour_id:  notif.data?.extra_hour_id,
           });
+        }
+        break;
+
+      case 'extra_hour_rejected':
+        // Al cliente: grupo (o sistema) rechazó la solicitud → mostrar contexto en EventTimer
+        if (role === 'client' && reservationId) {
+          const { data: resRejected } = await supabase
+            .from('reservations')
+            .select('*, client:profiles!client_id(full_name, phone), group:groups!group_id(id, name, genre, city, profile_image, owner_id), quote:quotes!quote_id(duration_hours, overtime_1h_price, overtime_2h_price, overtime_3h_price)')
+            .eq('id', reservationId)
+            .maybeSingle();
+          if (resRejected) {
+            navigation.navigate('EventTimer' as any, { reservation: resRejected, readOnly: true, userRole: 'client' });
+          } else {
+            navigation.navigate('Reservations' as any);
+          }
+        }
+        break;
+
+      case 'extra_hour_expired':
+        // Al cliente: solicitud de hora extra venció (grupo no respondió O no pagó a tiempo)
+        // Al grupo: solicitud que ignoró ya expiró
+        if (reservationId) {
+          const { data: resExp } = await supabase
+            .from('reservations')
+            .select('*, client:profiles!client_id(full_name, phone), group:groups!group_id(id, name, genre, city, profile_image, owner_id), quote:quotes!quote_id(duration_hours, overtime_1h_price, overtime_2h_price, overtime_3h_price)')
+            .eq('id', reservationId)
+            .maybeSingle();
+          if (resExp) {
+            if (role === 'client') {
+              navigation.navigate('EventTimer' as any, { reservation: resExp, readOnly: true, userRole: 'client' });
+            } else {
+              navigation.navigate('EventTimer' as any, { reservation: resExp });
+            }
+          } else if (role === 'client') {
+            navigation.navigate('Reservations' as any);
+          } else {
+            navigation.navigate('GroupReservations' as any);
+          }
+        }
+        break;
+
+      case 'extra_hour_payment_expired':
+        // Al grupo: cliente no completó el pago en 20 min → volver al EventTimer
+        if (role === 'group' && reservationId) {
+          const { data: resExpPay } = await supabase
+            .from('reservations')
+            .select('*, client:profiles!client_id(full_name, phone), group:groups!group_id(id, name, genre, city, profile_image, owner_id), quote:quotes!quote_id(duration_hours, overtime_1h_price, overtime_2h_price, overtime_3h_price)')
+            .eq('id', reservationId)
+            .maybeSingle();
+          if (resExpPay) {
+            navigation.navigate('EventTimer' as any, { reservation: resExpPay });
+          } else {
+            navigation.navigate('GroupReservations' as any);
+          }
         }
         break;
 

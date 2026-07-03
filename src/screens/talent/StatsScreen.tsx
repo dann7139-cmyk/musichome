@@ -117,7 +117,7 @@ export default function TalentStatsScreen({ navigation }: any) {
 
     if (groupIds.length > 0) {
       const { data: resData } = await supabase.from('reservations')
-        .select('status, event_date, event_time, package_id, created_at')
+        .select('status, event_date, event_time, created_at')
         .in('group_id', groupIds);
       setGroupReservations(resData ?? []);
     }

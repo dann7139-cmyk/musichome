@@ -282,12 +282,18 @@ export default function GuidedRequestScreen({ navigation, route }: any) {
       }
     } catch (_) {}
 
-    // Notificar grupos — ola 1
+    // Notificar grupos — ola 1 (in-app notifications)
     const { data: rpcResult } = await supabase.rpc('notify_wave_1', {
       p_request_id: inserted.id,
       p_event_lat:  eventLat,
       p_event_lng:  eventLng,
       p_radius_km:  50,
+    });
+
+    // Dispatch express → crea express_dispatches → trigger envía push type='express_dispatch'
+    // para que AppNavigator lleve al grupo al dashboard con el carousel Uber-style
+    await supabase.rpc('dispatch_express_request', {
+      p_request_id: inserted.id,
     });
 
     setLoading(false);

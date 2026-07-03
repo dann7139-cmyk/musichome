@@ -32,11 +32,8 @@ import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import {
   AnticipationAdj,
   BREAK_SURCHARGE_FIXED,
-  LABEL_EVENT_BASE,
-  LABEL_SERVICE_FEE,
   SERVICE_FEE_RATE,
   calcDaysUntilEvent,
-  calcGroupEarnings,
   calcMsiFee,
   calcMonthlyMsi,
   calcServiceFee,
@@ -51,9 +48,8 @@ import { useTranslation } from 'react-i18next';
 
 const BREAK_OPTIONS = [
   { type: 'A', label: '15 min cada hora', desc: 'Descanso cada hora de servicio' },
-  { type: 'B', label: '15 min único', desc: 'Un descanso a la mitad del evento', extraLabel: '+$100' },
-  { type: 'C', label: '20 min único', desc: 'Un descanso de 20 min a la mitad — Gratis' },
-  { type: 'D', label: 'Sin descanso', desc: 'Solo para eventos de 3 horas exactas', extraLabel: '+$200' },
+  { type: 'B', label: '15 min único', desc: 'Un descanso a la mitad del evento' },
+  { type: 'D', label: 'Sin descanso', desc: 'Solo para eventos de 3 horas exactas' },
 ];
 
 const MSI_OPTIONS = [
@@ -139,12 +135,8 @@ export default function BookingScreen({ route, navigation }: any) {
     setAdjustedPrice(pkg.price + breakSurcharge + anticipationDelta);
   };
 
-  // ── Precios (tarifa de servicio inclusiva: 10% del total) ──────────────────
-  // El cliente paga `adjustedPrice`. El grupo recibe 90%. El 10% es la tarifa.
-  // El MSI fee es adicional: el grupo nunca lo ve, va íntegro a DARICEFY.
-  const serviceFee    = calcServiceFee(adjustedPrice);          // 10% del total
-  const eventBase     = calcGroupEarnings(adjustedPrice);       // 90% (lo que recibe el grupo)
-  const clientPrice   = adjustedPrice;                          // base sin MSI fee
+  const serviceFee  = calcServiceFee(adjustedPrice);
+  const clientPrice = adjustedPrice;
   const msiFeeAmount  = calcMsiFee(clientPrice, selectedMSI.months);
   const clientTotal   = clientPrice + msiFeeAmount;             // lo que cobra Stripe
   const monthlyAmount = calcMonthlyMsi(clientPrice, selectedMSI.months);
@@ -494,7 +486,7 @@ export default function BookingScreen({ route, navigation }: any) {
                   ⚡ Modo Urgente activado — respuesta garantizada en 2h
                 </Text>
                 <Text style={styles.expressActiveReason}>
-                  Sin costo adicional. La tarifa de servicio ya incluye la atención prioritaria.
+                  Sin costo adicional. La atención prioritaria está incluida.
                 </Text>
               </View>
             )}
@@ -665,10 +657,11 @@ export default function BookingScreen({ route, navigation }: any) {
             )}
           </View>
 
-          {/* TIPO DE DESCANSO */}
+          {/* TIPO DE DESCANSO — oculto: el grupo elige en EventTimerScreen */}
+          {false && (<>
           <Text style={styles.sectionTitle}>Tipo de descanso</Text>
           <Text style={styles.sectionHint}>
-            Descanso único (a la mitad) aplica un recargo sobre el precio base.
+            Todos los tipos de descanso están incluidos sin costo adicional.
           </Text>
           <View style={styles.breakGrid}>
             {BREAK_OPTIONS.map((opt) => {
@@ -694,6 +687,7 @@ export default function BookingScreen({ route, navigation }: any) {
               );
             })}
           </View>
+          </>)}
 
           {/* ── RESUMEN DE PAGO ─────────────────────────────────────────────── */}
           <View style={styles.priceSummary}>
@@ -737,27 +731,12 @@ export default function BookingScreen({ route, navigation }: any) {
               </View>
             )}
 
-            {/* Subtotal evento (90% — lo que recibe el grupo) */}
-            <View style={styles.priceRow}>
-              <Text style={styles.priceRowLabel}>{LABEL_EVENT_BASE}</Text>
-              <Text style={styles.priceRowValue}>${eventBase.toLocaleString()}</Text>
-            </View>
-
-            {/* Tarifa de servicio (10%) */}
-            <View style={styles.priceRow}>
-              <View>
-                <Text style={styles.priceRowLabel}>{LABEL_SERVICE_FEE}</Text>
-                <Text style={styles.priceRowSubLabel}>Cobro por gestión de plataforma</Text>
-              </View>
-              <Text style={styles.priceRowExtra}>+${serviceFee.toLocaleString()}</Text>
-            </View>
-
             {/* Cargo MSI (solo si aplica) */}
             {msiFeeAmount > 0 && (
               <View style={styles.priceRow}>
                 <View>
-                  <Text style={styles.priceRowLabel}>Cargo MSI ({selectedMSI.months} meses)</Text>
-                  <Text style={styles.priceRowSubLabel}>+{selectedMSI.months}% para cubrir financiamiento</Text>
+                  <Text style={styles.priceRowLabel}>{selectedMSI.months} MSI</Text>
+                  <Text style={styles.priceRowSubLabel}>Cargo financiero incluido</Text>
                 </View>
                 <Text style={styles.priceRowExtra}>+${msiFeeAmount.toLocaleString()}</Text>
               </View>
@@ -783,9 +762,8 @@ export default function BookingScreen({ route, navigation }: any) {
 
             <View style={styles.msiOptions}>
               {MSI_OPTIONS.map((opt) => {
-                const isActive  = selectedMSI.key === opt.key;
-                const optFee    = calcMsiFee(clientPrice, opt.months);
-                const monthly   = calcMonthlyMsi(clientPrice, opt.months);
+                const isActive = selectedMSI.key === opt.key;
+                const monthly  = calcMonthlyMsi(clientPrice, opt.months);
                 return (
                   <Pressable
                     key={opt.key}
@@ -797,16 +775,12 @@ export default function BookingScreen({ route, navigation }: any) {
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={[styles.msiOptionLabel, isActive && styles.msiOptionLabelActive]}>
-                        {opt.label}
+                        {opt.months > 1 ? `${opt.label} – $${monthly.toLocaleString()}/mes` : opt.label}
                       </Text>
                       {opt.months > 1 ? (
-                        <Text style={styles.msiOptionAmount}>
-                          ${monthly.toLocaleString()} × {opt.months} meses · cargo +${optFee.toLocaleString()}
-                        </Text>
+                        <Text style={styles.msiOptionAmount}>Cargo financiero incluido</Text>
                       ) : (
-                        <Text style={styles.msiOptionAmount}>
-                          ${clientPrice.toLocaleString()} — sin cargo adicional
-                        </Text>
+                        <Text style={styles.msiOptionAmount}>${clientPrice.toLocaleString()} total</Text>
                       )}
                     </View>
                     {opt.months > 1 && (
@@ -831,7 +805,9 @@ export default function BookingScreen({ route, navigation }: any) {
               <Text style={styles.msiHeroAmount}>
                 ${monthlyAmount.toLocaleString()}
               </Text>
-              <Text style={styles.msiHeroInterests}>Intereses: $0.00 ✅</Text>
+              <Text style={styles.msiHeroInterests}>
+                {selectedMSI.months > 1 ? 'Cargo financiero incluido' : 'Sin cargo adicional'}
+              </Text>
             </View>
           </View>
 

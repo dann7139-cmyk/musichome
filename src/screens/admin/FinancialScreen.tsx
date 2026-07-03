@@ -23,6 +23,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import Particles from '../../components/ui/Particles';
+import { calcGroupEarnings, calcServiceFee } from '../../utils/calculations';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -133,9 +134,9 @@ export default function AdminFinancialScreen({ navigation }: any) {
 
     const totalRevenue  = paid.reduce((s: number, r: any) => s + (r.total_price ?? 0) + (r.msi_fee_amount ?? 0), 0);
     const totalComm     = paid.reduce((s: number, r: any) =>
-      s + (r.service_fee_amount ?? r.commission_amount ?? (r.total_price ?? 0) * 0.10) + (r.msi_fee_amount ?? 0), 0);
+      s + (r.service_fee_amount ?? r.commission_amount ?? calcServiceFee(r.total_price ?? 0)) + (r.msi_fee_amount ?? 0), 0);
     const totalArtists  = paid.reduce((s: number, r: any) =>
-      s + (r.group_earnings ?? r.base_price ?? (r.total_price ?? 0) * 0.9), 0);
+      s + (r.group_earnings ?? r.base_price ?? calcGroupEarnings(r.total_price ?? 0)), 0);
     const totalStripe   = paid.reduce((s: number, r: any) => {
       const total = (r.total_price ?? 0) + (r.msi_fee_amount ?? 0);
       return s + (r.stripe_fee_amount ?? Math.round(total * 0.036 + 3));
@@ -183,7 +184,7 @@ export default function AdminFinancialScreen({ navigation }: any) {
 
     const mapped: EventFinancial[] = (rows ?? []).map((r: any) => {
       const total      = (r.total_price ?? 0) + (r.msi_fee_amount ?? 0);
-      const platFee    = (r.service_fee_amount ?? r.commission_amount ?? (r.total_price ?? 0) * 0.10)
+      const platFee    = (r.service_fee_amount ?? r.commission_amount ?? calcServiceFee(r.total_price ?? 0))
                          + (r.msi_fee_amount ?? 0);
       const stripeFee  = r.stripe_fee_amount ?? Math.round(total * 0.036 + 3);
       return {
@@ -195,7 +196,7 @@ export default function AdminFinancialScreen({ navigation }: any) {
         stripe_fee:          stripeFee,
         mercadopago_fee:     0,
         net_platform_profit: platFee - stripeFee,
-        artists_payout:      r.group_earnings ?? r.base_price ?? (r.total_price ?? 0) * 0.9,
+        artists_payout:      r.group_earnings ?? r.base_price ?? calcGroupEarnings(r.total_price ?? 0),
         created_at:          r.created_at,
       };
     });
@@ -337,7 +338,7 @@ export default function AdminFinancialScreen({ navigation }: any) {
                   icon={<CheckCircle size={16} color={COLORS.green} />}
                   label="Tu Comisión"
                   value={fmt(overview.ganancia_bruta)}
-                  sub="10% cobrado · igual a tu billetera"
+                  sub="20% markup · ganancia plataforma"
                   accent={COLORS.green}
                 />
                 <KpiCard
@@ -389,7 +390,7 @@ export default function AdminFinancialScreen({ navigation }: any) {
               <View style={s.equationCard}>
                 <Text style={s.equationTitle}>Cómo se calcula tu ganancia</Text>
                 <View style={s.equationRow}>
-                  <Text style={s.eqLabel}>Tu comisión cobrada (10%)</Text>
+                  <Text style={s.eqLabel}>Tu comisión cobrada (20% markup)</Text>
                   <Text style={[s.eqValue, { color: COLORS.green }]}>{fmt(overview.ganancia_bruta)}</Text>
                 </View>
                 <View style={s.equationRow}>

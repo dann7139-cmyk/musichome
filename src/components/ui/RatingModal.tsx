@@ -24,10 +24,15 @@ export type RatingSubject =
   | { type: 'client';  targetId: string; targetName: string; reservationId: string }
   | { type: 'talent';  targetId: string; targetName: string; reservationId: string };
 
+export interface ReviewSubmitted {
+  stars: number;
+  comment: string;
+}
+
 interface Props {
   visible: boolean;
   subject: RatingSubject | null;
-  onDone: () => void;
+  onDone: (submitted: ReviewSubmitted | null) => void;
 }
 
 const STARS = [1, 2, 3, 4, 5];
@@ -87,12 +92,12 @@ export default function RatingModal({ visible, subject, onDone }: Props) {
           return;
         }
         if (data.error === 'already_reviewed') {
-          onDone();
+          onDone(null);
           return;
         }
         throw new Error(data.error);
       }
-      onDone();
+      onDone({ stars, comment: comment.trim() });
     } catch (e: any) {
       Alert.alert('Error', e.message ?? 'No se pudo enviar la calificación.');
     } finally {
@@ -153,7 +158,7 @@ export default function RatingModal({ visible, subject, onDone }: Props) {
               : <Text style={s.btnSubmitText}>Enviar calificación ⭐</Text>}
           </Pressable>
 
-          <Pressable style={s.btnSkip} onPress={onDone}>
+          <Pressable style={s.btnSkip} onPress={() => onDone(null)}>
             <Text style={s.btnSkipText}>Omitir</Text>
           </Pressable>
         </View>

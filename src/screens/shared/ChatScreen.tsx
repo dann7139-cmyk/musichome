@@ -40,6 +40,7 @@ export default function ChatScreen({ route, navigation }: any) {
   const [liveRes, setLiveRes] = useState(reservation);
   const listRef = useRef<FlatList>(null);
   const receiverIdRef = useRef<string | null>(null);
+  const violationCountRef = useRef(0);
 
   // Cargar reserva fresca de DB para tener status/payment_status/client_id actualizados
   useEffect(() => {
@@ -149,6 +150,7 @@ export default function ChatScreen({ route, navigation }: any) {
     const filterResult = analyzeMessage(text);
     if (filterResult.blocked) {
       setPhoneWarning(true);
+      violationCountRef.current += 1;
       if (senderId) {
         supabase.from('contact_violation_logs').insert({
           reservation_id:    reservation.id,
@@ -158,6 +160,13 @@ export default function ChatScreen({ route, navigation }: any) {
           violation_type:    filterResult.type!,
           detected_pattern:  filterResult.pattern ?? null,
         });
+        if (violationCountRef.current >= 3) {
+          void supabase.rpc('log_fraud_signal', {
+            p_user_id:    senderId,
+            p_signal_type: 'chat_phone_bypass',
+            p_details:    { reservation_id: reservation.id, attempts: violationCountRef.current },
+          });
+        }
       }
       return;
     }

@@ -143,7 +143,7 @@ export default function MemberEventsScreen({ navigation }: any) {
       // ── Reservas del grupo (join directo a profiles para evitar bloqueos RLS) ──
       const { data: resData, error: resErr } = await supabase
         .from('reservations')
-        .select('id,client_id,group_id,event_date,event_time,address,status,payment_status,total_price,quote_id,package_id,event_started_at,break_type,group_arrived_at,notes,created_at,event_request_id,hours_count,client:profiles!client_id(full_name)')
+        .select('id,client_id,group_id,event_date,event_time,address,status,payment_status,total_price,quote_id,event_started_at,break_type,group_arrived_at,notes,created_at,event_request_id,hours_count,client:profiles!client_id(full_name)')
         .eq('group_id', grp.id)
         .order('event_date', { ascending: true });
 
@@ -167,10 +167,7 @@ export default function MemberEventsScreen({ navigation }: any) {
       // Si resErr (ej. RLS), continuar con array vacío para mostrar cotizaciones
       const resRows = resErr ? [] : (resData ?? []);
 
-      const merged = resRows.map((r: any) => ({
-        ...r,
-        package: r.package_id ? { name: 'Evento', duration_hours: null } : null,
-      }));
+      const merged = resRows.map((r: any) => ({ ...r }));
 
       // ── Convertir cotizaciones aceptadas a formato unificado ───
       // Solo mostramos las que aún NO tienen una reserva asociada (quote_id match)
@@ -440,7 +437,7 @@ function EventCard({ reservation: r, navigation, isPast }: any) {
         // Buscar la reserva real por quote_id para navegar al temporizador
         const { data: res } = await supabase
           .from('reservations')
-          .select('id,client_id,group_id,event_date,event_time,address,status,payment_status,total_price,quote_id,package_id,event_started_at,break_type,group_arrived_at,notes,hours_count,event_request_id')
+          .select('id,client_id,group_id,event_date,event_time,address,status,payment_status,total_price,quote_id,event_started_at,break_type,group_arrived_at,notes,hours_count,event_request_id')
           .eq('quote_id', r._quoteData.id)
           .maybeSingle();
         if (res) {
@@ -503,8 +500,8 @@ function EventCard({ reservation: r, navigation, isPast }: any) {
           </View>
         </View>
         <Text style={styles.pkgName} numberOfLines={1}>
-          {r.package?.name ?? (isExpress ? 'Solicitud express' : '—')}
-          {r.hours_count ? ` · ${r.hours_count}h` : (r.package?.duration_hours ? ` · ${r.package.duration_hours}h` : '')}
+          {isExpress ? 'Solicitud express' : '—'}
+          {r.hours_count ? ` · ${r.hours_count}h` : ''}
         </Text>
         <View style={styles.metaRow}>
           {r.event_time && (

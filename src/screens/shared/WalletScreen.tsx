@@ -155,24 +155,15 @@ export default function WalletScreen({ navigation }: any) {
 
   // Realtime: actualizar wallet y transacciones
   useEffect(() => {
-    let userId: string | null = null;
-    supabase.auth.getUser().then(({ data }) => { userId = data.user?.id ?? null; });
-
     const sub = supabase
       .channel('wallet-realtime')
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'wallets' },
-        (payload: any) => {
-          if (!userId || payload.new?.user_id !== userId) return;
-          setWallet((prev: any) => ({ ...prev, ...payload.new }));
-        })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'group_wallets' },
+        () => load())
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'wallet_transactions' },
-        (payload: any) => {
-          if (!userId || payload.new?.user_id !== userId) return;
-          setTransactions(prev => [payload.new, ...prev].slice(0, 50));
-        })
+        () => load())
       .subscribe();
     return () => { supabase.removeChannel(sub); };
-  }, []);
+  }, [load]);
 
   const onRefresh = () => { setRefreshing(true); load(); };
 

@@ -73,6 +73,7 @@ export default function MapAddressPicker({
   useEffect(() => {
     if (!visible) return;
     if (initialLatitude && initialLongitude) {
+      centerRef.current = { lat: initialLatitude, lng: initialLongitude };
       const r: Region = { latitude: initialLatitude, longitude: initialLongitude, latitudeDelta: 0.01, longitudeDelta: 0.01 };
       setTimeout(() => mapRef.current?.animateToRegion(r, 400), 300);
       doReverseGeocode(initialLatitude, initialLongitude);
@@ -87,6 +88,7 @@ export default function MapAddressPicker({
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') return;
       const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      centerRef.current = { lat: pos.coords.latitude, lng: pos.coords.longitude };
       const r: Region = {
         latitude: pos.coords.latitude,
         longitude: pos.coords.longitude,
@@ -153,6 +155,7 @@ export default function MapAddressPicker({
   const selectSearchResult = useCallback((item: any) => {
     const lat = parseFloat(item.lat);
     const lng = parseFloat(item.lon);
+    centerRef.current = { lat, lng };
     const r: Region = { latitude: lat, longitude: lng, latitudeDelta: 0.01, longitudeDelta: 0.01 };
     mapRef.current?.animateToRegion(r, 600);
     setSearchText(item.display_name?.split(',')[0] ?? '');

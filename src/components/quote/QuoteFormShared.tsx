@@ -1,13 +1,237 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
-  Alert, Image, KeyboardAvoidingView, Platform, Pressable,
+  Alert, Animated, Image, KeyboardAvoidingView, Platform, Pressable,
   ScrollView, StyleSheet, Text, TextInput, View,
 } from 'react-native';
+import MapView, { Circle as MapCircle, Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
+import * as Location from 'expo-location';
 import {
-  CheckCircle, Clock, DollarSign, Info, MapPin, Scale, Truck, XCircle,
+  CheckCircle, Clock, DollarSign, MapPin, Scale, Truck, XCircle,
 } from 'lucide-react-native';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
+import { EARTH_STYLE } from '../../constants/mapStyle';
 import { PHONE_WARNING } from '../../utils/phoneFilter';
+
+// ── Helpers de mapa (privacidad + ruta) ──────────────────────────────────────
+const _CITY_COORDS: Record<string, { lat: number; lng: number }> = {
+  'guadalajara':      { lat: 20.6597, lng: -103.3496 },
+  'zapopan':          { lat: 20.7167, lng: -103.3833 },
+  'tlaquepaque':      { lat: 20.6419, lng: -103.3117 },
+  'tonalá':           { lat: 20.6236, lng: -103.2347 },
+  'tonala':           { lat: 20.6236, lng: -103.2347 },
+  'ciudad de méxico': { lat: 19.4326, lng: -99.1332 },
+  'cdmx':             { lat: 19.4326, lng: -99.1332 },
+  'monterrey':        { lat: 25.6866, lng: -100.3161 },
+  'puebla':           { lat: 19.0414, lng: -98.2063 },
+  'tijuana':          { lat: 32.5149, lng: -117.0382 },
+  'león':             { lat: 21.1221, lng: -101.6826 },
+  'leon':             { lat: 21.1221, lng: -101.6826 },
+  'aguascalientes':   { lat: 21.8818, lng: -102.2916 },
+  'querétaro':        { lat: 20.5888, lng: -100.3899 },
+  'queretaro':        { lat: 20.5888, lng: -100.3899 },
+  'mérida':           { lat: 20.9674, lng: -89.5926 },
+  'merida':           { lat: 20.9674, lng: -89.5926 },
+  'hermosillo':       { lat: 29.0729, lng: -110.9559 },
+  'chihuahua':        { lat: 28.6330, lng: -106.0691 },
+  'oaxaca':           { lat: 17.0732, lng: -96.7266 },
+  'morelia':          { lat: 19.7060, lng: -101.1950 },
+  'saltillo':         { lat: 25.4270, lng: -101.0034 },
+  'mazatlán':         { lat: 23.2494, lng: -106.4111 },
+  'mazatlan':         { lat: 23.2494, lng: -106.4111 },
+  'veracruz':         { lat: 19.1738, lng: -96.1342 },
+  'culiacán':         { lat: 24.8091, lng: -107.3940 },
+  'culiacan':         { lat: 24.8091, lng: -107.3940 },
+};
+function _idHash(id: string) {
+  let h = 5381;
+  for (let i = 0; i < id.length; i++) h = ((h << 5) + h + id.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+function _privacyOffset(id: string, city: string, municipio?: string | null) {
+  const key = (municipio ?? city).toLowerCase().trim();
+  const base = _CITY_COORDS[key] ??
+    Object.entries(_CITY_COORDS).find(([k]) => key.includes(k) || k.includes(key))?.[1] ??
+    { lat: 20.6597, lng: -103.3496 };
+  const h = _idHash(id);
+  return { latitude: base.lat + ((h % 800) - 400) / 100_000, longitude: base.lng + (((h * 31) % 800) - 400) / 100_000 };
+}
+function _buildRoute(o: { latitude: number; longitude: number }, d: { latitude: number; longitude: number }) {
+  const pts = [];
+  for (let i = 0; i <= 8; i++) {
+    const t = i / 8;
+    const lat = o.latitude + (d.latitude - o.latitude) * t;
+    const lng = o.longitude + (d.longitude - o.longitude) * t;
+    const c = Math.sin(t * Math.PI) * 0.0025;
+    pts.push({ latitude: lat - (d.longitude - o.longitude) * c, longitude: lng + (d.latitude - o.latitude) * c });
+  }
+  return pts;
+}
+function _lerpRoute(route: { latitude: number; longitude: number }[], t: number) {
+  const c = Math.max(0, Math.min(1, t));
+  const idx = c * (route.length - 1);
+  const lo = Math.floor(idx), hi = Math.min(route.length - 1, lo + 1);
+  const f = idx - lo;
+  return { latitude: route[lo].latitude + (route[hi].latitude - route[lo].latitude) * f,
+           longitude: route[lo].longitude + (route[hi].longitude - route[lo].longitude) * f };
+}
+
+type LatLng = { latitude: number; longitude: number };
+
+function _RouteParticle({ route, delay, emoji }: { route: LatLng[]; delay: number; emoji: string }) {
+  const [pos, setPos] = useState(_lerpRoute(route, 0));
+  const [started, setStarted] = useState(false);
+  useEffect(() => {
+    if (route.length < 2) return;
+    let startMs: number | null = null;
+    let lastUpd = 0;
+    let fid: number;
+    const beginAt = Date.now() + delay;
+    const tick = () => {
+      fid = requestAnimationFrame(tick);
+      const now = Date.now();
+      if (now < beginAt) return;
+      if (startMs === null) { startMs = now; setStarted(true); }
+      if (now - lastUpd < 120) return;
+      lastUpd = now;
+      setPos(_lerpRoute(route, ((now - startMs) % 4000) / 4000));
+    };
+    fid = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(fid);
+  }, [route, delay]);
+  if (!started) return null;
+  return (
+    <Marker coordinate={pos} anchor={{ x: 0.5, y: 0.5 }} tracksViewChanges>
+      <Text style={qlMapSt.emoji}>{emoji}</Text>
+    </Marker>
+  );
+}
+
+function _DestPin() {
+  const ring1 = useRef(new Animated.Value(1)).current;
+  const ring2 = useRef(new Animated.Value(0.6)).current;
+  const ring3 = useRef(new Animated.Value(0.3)).current;
+  useEffect(() => {
+    const p = (v: Animated.Value, dur: number, del: number) =>
+      Animated.loop(Animated.sequence([
+        Animated.delay(del),
+        Animated.timing(v, { toValue: 1.9, duration: dur, useNativeDriver: true }),
+        Animated.timing(v, { toValue: 1,   duration: dur, useNativeDriver: true }),
+      ]));
+    p(ring1, 1400, 0).start();
+    p(ring2, 1400, 350).start();
+    p(ring3, 1400, 700).start();
+  }, []);
+  return (
+    <View style={qlMapSt.pinWrap}>
+      <Animated.View style={[qlMapSt.pulse, { width: 80, height: 80, borderRadius: 40, opacity: 0.12, transform: [{ scale: ring1 }] }]} />
+      <Animated.View style={[qlMapSt.pulse, { width: 52, height: 52, borderRadius: 26, opacity: 0.25, transform: [{ scale: ring2 }] }]} />
+      <Animated.View style={[qlMapSt.pulse, { width: 28, height: 28, borderRadius: 14, opacity: 0.45, transform: [{ scale: ring3 }] }]} />
+      <View style={qlMapSt.pinCenter} />
+    </View>
+  );
+}
+
+const qlMapSt = StyleSheet.create({
+  pinWrap:   { width: 100, height: 100, alignItems: 'center', justifyContent: 'center' },
+  pulse:     { position: 'absolute', backgroundColor: 'rgba(0,230,118,0.18)', borderWidth: 1, borderColor: 'rgba(0,230,118,0.4)' },
+  pinCenter: { width: 12, height: 12, borderRadius: 6, backgroundColor: '#00E676', shadowColor: '#00E676', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 1, shadowRadius: 10, elevation: 8 },
+  emoji:     { fontSize: 22, lineHeight: 26 },
+  originDot: { width: 18, height: 18, borderRadius: 9, backgroundColor: 'rgba(255,255,255,0.15)', borderWidth: 2, borderColor: '#fff', alignItems: 'center', justifyContent: 'center' },
+  originInner: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#fff' },
+});
+
+// ── QuoteLocationMap ──────────────────────────────────────────────────────────
+function QuoteLocationMap({ quoteId, eventMunicipio, eventEstado, onOpenMaps }: {
+  quoteId: string; eventMunicipio?: string; eventEstado?: string; onOpenMaps?: () => void;
+}) {
+  const mapRef = useRef<MapView>(null);
+  const [groupOrigin, setGroupOrigin] = useState<LatLng | null>(null);
+  const [approxDest,  setApproxDest]  = useState<LatLng | null>(null);
+  const [routePts,    setRoutePts]    = useState<LatLng[]>([]);
+
+  useEffect(() => {
+    const city = eventMunicipio ?? eventEstado ?? 'guadalajara';
+    setApproxDest(_privacyOffset(quoteId, city, eventMunicipio));
+  }, [quoteId, eventMunicipio, eventEstado]);
+
+  useEffect(() => {
+    Location.requestForegroundPermissionsAsync().then(({ status }) => {
+      if (status !== 'granted') return;
+      Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced })
+        .then(loc => setGroupOrigin({ latitude: loc.coords.latitude, longitude: loc.coords.longitude }))
+        .catch(() => {});
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!approxDest) return;
+    const origin = groupOrigin ?? { latitude: approxDest.latitude + 0.015, longitude: approxDest.longitude + 0.01 };
+    const pts = _buildRoute(origin, approxDest);
+    setRoutePts(pts);
+    setTimeout(() => {
+      mapRef.current?.fitToCoordinates([origin, approxDest], {
+        edgePadding: { top: 40, right: 40, bottom: 40, left: 40 }, animated: true,
+      });
+    }, 600);
+  }, [approxDest, groupOrigin]);
+
+  if (!approxDest) return null;
+
+  return (
+    <View>
+      <MapView
+        ref={mapRef}
+        style={qlMapSt2.map}
+        provider={PROVIDER_GOOGLE}
+        customMapStyle={EARTH_STYLE}
+        userInterfaceStyle="dark"
+        initialRegion={{ latitude: approxDest.latitude, longitude: approxDest.longitude, latitudeDelta: 0.018, longitudeDelta: 0.018 }}
+        scrollEnabled={false}
+        zoomEnabled={false}
+        pitchEnabled={false}
+        rotateEnabled={false}
+        showsTraffic={false}
+        showsBuildings={false}
+        showsIndoors={false}
+        showsCompass={false}
+        showsMyLocationButton={false}
+        showsUserLocation={false}
+        toolbarEnabled={false}
+      >
+        <MapCircle center={approxDest} radius={450} fillColor="rgba(0,230,118,0.06)" strokeColor="rgba(0,230,118,0.35)" strokeWidth={1.5} />
+        {routePts.length > 1 && (
+          <Polyline coordinates={routePts} strokeWidth={3} strokeColor="#00E676" />
+        )}
+        {routePts.length > 1 && (
+          <>
+            <_RouteParticle route={routePts} delay={0}    emoji="🎸" />
+            <_RouteParticle route={routePts} delay={1333} emoji="🎺" />
+            <_RouteParticle route={routePts} delay={2666} emoji="🎻" />
+          </>
+        )}
+        <Marker coordinate={approxDest} anchor={{ x: 0.5, y: 0.5 }} tracksViewChanges={false}>
+          <_DestPin />
+        </Marker>
+        {groupOrigin && routePts.length > 1 && (
+          <Marker coordinate={groupOrigin} anchor={{ x: 0.5, y: 0.5 }} tracksViewChanges={false}>
+            <View style={qlMapSt.originDot}><View style={qlMapSt.originInner} /></View>
+          </Marker>
+        )}
+      </MapView>
+      <Text style={qlMapSt2.zone}>
+        📍 {eventMunicipio}{eventEstado ? `, ${eventEstado}` : ''} — Zona aproximada
+      </Text>
+    </View>
+  );
+}
+const qlMapSt2 = StyleSheet.create({
+  map:         { width: '100%', height: 200, borderRadius: RADIUS.lg, overflow: 'hidden', marginBottom: 8 },
+  footer:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  zone:        { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2, flex: 1 },
+  mapsBtn:     { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: RADIUS.md, backgroundColor: COLORS.greenMuted, borderWidth: 1, borderColor: COLORS.green },
+  mapsBtnText: { fontFamily: FONTS.bodySemiBold, fontSize: 12, color: COLORS.green },
+});
+// ─────────────────────────────────────────────────────────────────────────────
 
 // ─── Label maps ───────────────────────────────────────────────────────────────
 
@@ -29,7 +253,23 @@ const VENUE_LABELS: Record<string, string> = {
   escenario_profesional: '🎤 Escenario profesional',
 };
 const SOUND_LABELS: Record<string, string> = {
+  // v1 (backward compat)
   si: 'Sí, necesita sonido', no: 'No necesita sonido', ya_tengo: 'Ya cuenta con sonido',
+  // v2
+  no_group_brings: 'No (grupo trae)',
+  si_50:  'Sí, hasta 50 personas',
+  si_100: 'Sí, hasta 100 personas',
+  si_200: 'Sí, hasta 200 personas',
+  si_300: 'Sí, 300+ personas',
+};
+const LIGHTING_LABELS: Record<string, string> = {
+  no: 'No necesita', simple: 'Sencilla', pro: 'Profesional', premium: 'Premium',
+};
+const STAGE_LABELS: Record<string, string> = {
+  no: 'No necesita', small: 'Chico 3×2m', medium: 'Mediano 4×3m', wedding: 'Grande boda 6×4m',
+};
+const LED_LABELS: Record<string, string> = {
+  no: 'No necesita', medium: 'Mediana', large: 'Grande', xl: 'XL boda',
 };
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -65,7 +305,8 @@ export interface QuoteFormSharedProps {
   numPersonas?: number;
   comments?: string;
 
-  // Location — mode='quote': full address; mode='propose': zone only
+  // Location — mode='quote': map privacidad; mode='propose': zone only
+  quoteId?: string;
   eventAddress?: string;
   eventMunicipio?: string;
   eventEstado?: string;
@@ -78,6 +319,9 @@ export interface QuoteFormSharedProps {
   venueCovered?: string;
   venueSize?: string;
   needsSound?: string;
+  needsLighting?: string | null;
+  needsStage?: string | null;
+  needsLed?: string | null;
 
   // Client card (mode='quote')
   clientName?: string;
@@ -135,12 +379,6 @@ export interface QuoteFormSharedProps {
 // ─── EarningsPanel (fijo fuera del scroll) ────────────────────────────────────
 
 function EarningsPanel(p: QuoteFormSharedProps) {
-  const showComm = () =>
-    Alert.alert(
-      'Tarifa de servicio',
-      `La plataforma cobra ${p.commPct}% por la conexión con clientes, procesamiento de pago, soporte y protección anti-fraude. Tu ganancia ya tiene esta comisión descontada.`,
-    );
-
   // Integrante (no dueño) — panel informativo reducido
   if (p.mode === 'quote' && p.isOwner === false) {
     return (
@@ -188,42 +426,9 @@ function EarningsPanel(p: QuoteFormSharedProps) {
 
   return (
     <View style={ep.panel}>
-      <Pressable style={ep.headerRow} onPress={p.mode === 'quote' ? showComm : undefined}>
-        <Text style={ep.panelLabel}>{label}</Text>
-        {p.mode === 'quote' && <Info size={14} color={COLORS.muted2} />}
-      </Pressable>
+      <Text style={ep.panelLabel}>{label}</Text>
       <Text style={ep.amount}>${p.earnings.toLocaleString()} MXN</Text>
-      {p.mode === 'quote' && p.contadoPublico > 0 && (
-        <View style={ep.subRows}>
-          <View style={ep.subRow}>
-            <Text style={ep.subLabel}>Cliente paga</Text>
-            <Text style={ep.subVal}>${p.contadoPublico.toLocaleString()}</Text>
-          </View>
-          <View style={ep.subRow}>
-            <Text style={ep.subLabel}>Tarifa de servicio {p.commPct}%</Text>
-            <Text style={ep.subFaint}>${p.commission.toLocaleString()}</Text>
-          </View>
-        </View>
-      )}
     </View>
-  );
-}
-
-// ─── CommissionCard (dentro del scroll, modo='quote') ─────────────────────────
-
-function CommissionCard({ commPct }: { commPct: string }) {
-  const onPress = () =>
-    Alert.alert(
-      'Tarifa de servicio',
-      `La plataforma cobra ${commPct}% por la conexión con clientes, procesamiento de pago, soporte y protección anti-fraude. Tu ganancia ya tiene esta comisión descontada.`,
-    );
-  return (
-    <Pressable style={s.commCard} onPress={onPress}>
-      <Info size={15} color={COLORS.blue} style={{ marginTop: 1 }} />
-      <Text style={s.commCardText}>
-        La plataforma cobra {commPct}% por conexión, procesamiento de pago y soporte. Tu ganancia ya lo tiene descontado.
-      </Text>
-    </Pressable>
   );
 }
 
@@ -298,20 +503,16 @@ export default function QuoteFormShared(p: QuoteFormSharedProps) {
             {p.numPersonas != null ? <DetailRow label="Personas" value={`~${p.numPersonas}`} /> : null}
           </View>
 
-          {/* Ubicación */}
-          {p.mode === 'quote' && p.eventAddress ? (
+          {/* Ubicación — mapa de privacidad para quotes, zona para propose */}
+          {p.mode === 'quote' && p.quoteId && (p.eventMunicipio || p.eventEstado) ? (
             <View style={s.section}>
               <Text style={s.sectionTitle}>Ubicación</Text>
-              <Pressable style={s.locationBlock} onPress={p.onOpenMaps}>
-                <View style={{ flex: 1 }}>
-                  <Text style={s.locationAddr}>{p.eventAddress}</Text>
-                  <Text style={s.locationCity}>{p.eventMunicipio}, {p.eventEstado}</Text>
-                </View>
-                <View style={s.mapsBtn}>
-                  <MapPin size={14} color={COLORS.green} />
-                  <Text style={s.mapsBtnText}>Maps</Text>
-                </View>
-              </Pressable>
+              <QuoteLocationMap
+                quoteId={p.quoteId}
+                eventMunicipio={p.eventMunicipio}
+                eventEstado={p.eventEstado}
+                onOpenMaps={p.onOpenMaps}
+              />
             </View>
           ) : p.mode === 'propose' && p.locationEstado ? (
             <View style={s.section}>
@@ -328,9 +529,27 @@ export default function QuoteFormShared(p: QuoteFormSharedProps) {
           {(p.venueCovered || p.venueSize || p.needsSound) ? (
             <View style={s.section}>
               <Text style={s.sectionTitle}>Condiciones del lugar</Text>
-              {p.venueCovered ? <DetailRow label="Techado" value={COVERED_LABELS[p.venueCovered] ?? p.venueCovered} /> : null}
-              {p.venueSize    ? <DetailRow label="Espacio" value={VENUE_LABELS[p.venueSize]     ?? p.venueSize}     /> : null}
-              {p.needsSound   ? <DetailRow label="Sonido"  value={SOUND_LABELS[p.needsSound]   ?? p.needsSound}   /> : null}
+              {p.venueCovered ? <DetailRow label="Techado"    value={COVERED_LABELS[p.venueCovered] ?? p.venueCovered} /> : null}
+              {p.venueSize    ? <DetailRow label="Espacio"    value={VENUE_LABELS[p.venueSize]     ?? p.venueSize}     /> : null}
+              {p.needsSound   ? <DetailRow label="🎵 Sonido" value={SOUND_LABELS[p.needsSound]   ?? p.needsSound}   /> : null}
+            </View>
+          ) : null}
+
+          {/* Equipo solicitado — solo si hay al menos una categoría distinta a null/'no' */}
+          {((p.needsLighting && p.needsLighting !== 'no') ||
+            (p.needsStage    && p.needsStage    !== 'no') ||
+            (p.needsLed      && p.needsLed      !== 'no')) ? (
+            <View style={s.section}>
+              <Text style={s.sectionTitle}>Equipo solicitado</Text>
+              {p.needsLighting && p.needsLighting !== 'no'
+                ? <DetailRow label="💡 Iluminación"  value={LIGHTING_LABELS[p.needsLighting] ?? p.needsLighting} />
+                : null}
+              {p.needsStage && p.needsStage !== 'no'
+                ? <DetailRow label="🎭 Tarima"        value={STAGE_LABELS[p.needsStage] ?? p.needsStage} />
+                : null}
+              {p.needsLed && p.needsLed !== 'no'
+                ? <DetailRow label="📺 Pantalla LED" value={LED_LABELS[p.needsLed] ?? p.needsLed} />
+                : null}
             </View>
           ) : null}
 
@@ -521,8 +740,6 @@ export default function QuoteFormShared(p: QuoteFormSharedProps) {
               </View>
             )}
 
-            {/* Tarifa info card (solo mode='quote') */}
-            {p.mode === 'quote' && <CommissionCard commPct={p.commPct} />}
           </View>
 
           {/* Respaldo garantizado (mode='propose', surge) */}
@@ -569,7 +786,6 @@ export default function QuoteFormShared(p: QuoteFormSharedProps) {
                   {ot.val > 0 && (
                     <Text style={s.otCommNote}>
                       Tú recibirás: ${ot.val.toLocaleString()}
-                      {p.mode === 'quote' && ` · Cliente pagará: $${ot.clientPrice.toLocaleString()}`}
                     </Text>
                   )}
                 </View>
@@ -657,14 +873,8 @@ const ep = StyleSheet.create({
     borderBottomWidth: 1, borderBottomColor: COLORS.border,
     paddingHorizontal: SPACING.xl, paddingTop: 14, paddingBottom: 16,
   },
-  headerRow:  { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
-  panelLabel: { fontFamily: FONTS.bodyMedium, fontSize: 12, color: COLORS.muted2, textTransform: 'uppercase', letterSpacing: 0.6 },
+  panelLabel: { fontFamily: FONTS.bodyMedium, fontSize: 12, color: COLORS.muted2, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 4 },
   amount:     { fontFamily: FONTS.title, fontSize: 34, color: COLORS.green, lineHeight: 42 },
-  subRows:    { marginTop: 8, gap: 3 },
-  subRow:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  subLabel:   { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2 },
-  subVal:     { fontFamily: FONTS.bodyMedium, fontSize: 14, color: COLORS.text },
-  subFaint:   { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2 },
 
   managerLabel: { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2 },
   managerName:  { fontFamily: FONTS.bodySemiBold, fontSize: 15, color: COLORS.text, marginTop: 2 },
@@ -791,14 +1001,6 @@ const s = StyleSheet.create({
     paddingHorizontal: 12, paddingVertical: 9, marginTop: 6,
   },
   contactWarnText: { fontFamily: FONTS.bodyMedium, fontSize: 12, color: '#FFB300', lineHeight: 17 },
-
-  commCard: {
-    flexDirection: 'row', alignItems: 'flex-start', gap: 10,
-    backgroundColor: 'rgba(66,133,244,0.06)', borderRadius: RADIUS.sm,
-    borderWidth: 1, borderColor: 'rgba(66,133,244,0.18)',
-    paddingHorizontal: 12, paddingVertical: 10, marginTop: 14,
-  },
-  commCardText: { fontFamily: FONTS.body, fontSize: 13, color: COLORS.muted2, flex: 1, lineHeight: 19 },
 
   timeSelected: { borderColor: COLORS.green, backgroundColor: 'rgba(0,230,118,0.06)' },
 

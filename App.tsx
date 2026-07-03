@@ -4,6 +4,7 @@ import {
   DMSans_600SemiBold,
 } from '@expo-google-fonts/dm-sans';
 import { Syne_800ExtraBold } from '@expo-google-fonts/syne';
+import { DancingScript_700Bold } from '@expo-google-fonts/dancing-script';
 import { Platform } from 'react-native';
 const StripeProvider = Platform.OS === 'web'
   ? ({ children }: any) => children
@@ -26,6 +27,7 @@ export default function App() {
     DMSans_400Regular,
     DMSans_500Medium,
     DMSans_600SemiBold,
+    DancingScript_700Bold,
   });
 
   const onLayoutRootView = useCallback(async () => {

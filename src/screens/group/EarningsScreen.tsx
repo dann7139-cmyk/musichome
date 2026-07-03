@@ -34,7 +34,7 @@ export default function GroupEarningsScreen({ navigation }: any) {
 
     const { data, error } = await supabase
       .from('reservations')
-      .select('*, package:packages(name, duration_hours)')
+      .select('*, quote:quotes!left(event_type, duration_hours)')
       .eq('group_id', grp.id)
       .eq('status', 'completed')
       .order('event_date', { ascending: false });
@@ -124,14 +124,14 @@ export default function GroupEarningsScreen({ navigation }: any) {
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.rowClient}>{r.client?.full_name ?? 'Cliente'}</Text>
-                    <Text style={styles.rowPkg}>{r.package?.name ?? '—'}</Text>
+                    <Text style={styles.rowPkg}>{r.quote?.event_type ?? '—'}</Text>
                     <Text style={styles.rowDate}>{r.event_date} {r.event_time ? `· ${r.event_time}` : ''}</Text>
                     {r.address ? <Text style={styles.rowAddr} numberOfLines={1}>{r.address}</Text> : null}
                   </View>
                 </View>
                 <View style={styles.rowRight}>
                   <Text style={styles.rowEarnings}>${(r.group_earnings ?? 0).toLocaleString()}</Text>
-                  <Text style={styles.rowHours}>{r.package?.duration_hours ?? '?'}h</Text>
+                  <Text style={styles.rowHours}>{r.hours_count ?? r.quote?.duration_hours ?? '?'}h</Text>
                 </View>
               </View>
             ))

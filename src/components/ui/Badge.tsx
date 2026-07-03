@@ -14,7 +14,7 @@ interface Props {
 const variantColors: Record<BadgeVariant, { bg: string; text: string; dot: string }> = {
   green:  { bg: 'rgba(0,230,118,0.12)',  text: '#00E676', dot: '#00E676' },
   orange: { bg: 'rgba(255,152,0,0.12)',  text: '#FF9800', dot: '#FF9800' },
-  blue:   { bg: 'rgba(66,133,244,0.12)', text: '#4285F4', dot: '#4285F4' },
+  blue:   { bg: 'rgba(96,165,250,0.12)', text: '#60A5FA', dot: '#60A5FA' },
   red:    { bg: 'rgba(239,83,80,0.12)',  text: '#EF5350', dot: '#EF5350' },
   muted:  { bg: 'rgba(85,85,85,0.2)',    text: '#888888', dot: '#555555' },
 };

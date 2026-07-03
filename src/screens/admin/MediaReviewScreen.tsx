@@ -90,13 +90,11 @@ export default function MediaReviewScreen({ navigation }: { navigation: any; rou
   // Photo actions
   const approvePhoto = async (group: PendingGroup) => {
     setProcessingId(group.id + '_photo');
-    const { error } = await supabase
-      .from('groups')
-      .update({ photo_status: 'approved' })
-      .eq('id', group.id);
+    const { data: rpcData, error } = await supabase
+      .rpc('approve_group_photo', { p_group_id: group.id });
 
     setProcessingId(null);
-    if (error) {
+    if (error || (rpcData && rpcData.ok === false)) {
       Alert.alert('Error', 'No se pudo aprobar la foto.');
       return;
     }
@@ -109,16 +107,14 @@ export default function MediaReviewScreen({ navigation }: { navigation: any; rou
 
   const rejectPhotoWithReason = async (group: PendingGroup, reason: string) => {
     setProcessingId(group.id + '_photo');
-    const { error } = await supabase
-      .from('groups')
-      .update({ photo_status: 'rejected', photo_reject_reason: reason })
-      .eq('id', group.id);
+    const { data: rpcData, error } = await supabase
+      .rpc('reject_group_photo', { p_group_id: group.id, p_reason: reason });
 
-    if (!error) {
+    if (!error && !(rpcData && rpcData.ok === false)) {
       await sendNotification(group.owner_id, 'foto', reason);
     }
     setProcessingId(null);
-    if (error) {
+    if (error || (rpcData && rpcData.ok === false)) {
       Alert.alert('Error', 'No se pudo rechazar la foto.');
       return;
     }
@@ -139,7 +135,7 @@ export default function MediaReviewScreen({ navigation }: { navigation: any; rou
           {
             text: 'Rechazar',
             style: 'destructive',
-            onPress: (reason) => {
+            onPress: (reason?: string) => {
               if (reason && reason.trim()) {
                 rejectPhotoWithReason(group, reason.trim());
               }
@@ -163,13 +159,11 @@ export default function MediaReviewScreen({ navigation }: { navigation: any; rou
   // Video actions
   const approveVideo = async (group: PendingGroup) => {
     setProcessingId(group.id + '_video');
-    const { error } = await supabase
-      .from('groups')
-      .update({ video_status: 'approved' })
-      .eq('id', group.id);
+    const { data: rpcData, error } = await supabase
+      .rpc('approve_group_video', { p_group_id: group.id });
 
     setProcessingId(null);
-    if (error) {
+    if (error || (rpcData && rpcData.ok === false)) {
       Alert.alert('Error', 'No se pudo aprobar el video.');
       return;
     }
@@ -182,16 +176,14 @@ export default function MediaReviewScreen({ navigation }: { navigation: any; rou
 
   const rejectVideoWithReason = async (group: PendingGroup, reason: string) => {
     setProcessingId(group.id + '_video');
-    const { error } = await supabase
-      .from('groups')
-      .update({ video_status: 'rejected', video_reject_reason: reason })
-      .eq('id', group.id);
+    const { data: rpcData, error } = await supabase
+      .rpc('reject_group_video', { p_group_id: group.id, p_reason: reason });
 
-    if (!error) {
+    if (!error && !(rpcData && rpcData.ok === false)) {
       await sendNotification(group.owner_id, 'video', reason);
     }
     setProcessingId(null);
-    if (error) {
+    if (error || (rpcData && rpcData.ok === false)) {
       Alert.alert('Error', 'No se pudo rechazar el video.');
       return;
     }
@@ -212,7 +204,7 @@ export default function MediaReviewScreen({ navigation }: { navigation: any; rou
           {
             text: 'Rechazar',
             style: 'destructive',
-            onPress: (reason) => {
+            onPress: (reason?: string) => {
               if (reason && reason.trim()) {
                 rejectVideoWithReason(group, reason.trim());
               }
@@ -327,7 +319,13 @@ export default function MediaReviewScreen({ navigation }: { navigation: any; rou
                 <View style={styles.section}>
                   <Text style={styles.sectionLabel}>VIDEO PROMOCIONAL</Text>
                   {group.promo_video ? (
-                    <VideoPlayer uri={group.promo_video} style={styles.videoPreview} />
+                    <VideoPlayer
+                      uri={group.promo_video}
+                      style={styles.videoPreview}
+                      nativeControls
+                      autoPlay
+                      muted
+                    />
                   ) : (
                     <View style={[styles.videoPreview, styles.noMedia]}>
                       <Text style={styles.noMediaText}>Sin video</Text>

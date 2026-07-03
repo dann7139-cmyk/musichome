@@ -63,15 +63,39 @@ function idHash(id: string): number {
   return Math.abs(h);
 }
 
-function privacyOffset(id: string, city: string, municipio?: string | null) {
-  const key = (municipio ?? city).toLowerCase().trim();
+// Returns event destination with a small privacy offset so the group sees
+// approximately where the event is without revealing the exact address.
+// Priority: (1) address pin from map picker → (2) client GPS at creation time
+//           → (3) city-name dictionary lookup (last resort, least accurate).
+function privacyOffset(
+  id:         string,
+  city:       string,
+  municipio?: string | null,
+  lat?:       number | null,   // event_requests.latitude  (map picker)
+  lng?:       number | null,   // event_requests.longitude (map picker)
+  eventLat?:  number | null,   // event_requests.event_lat (client GPS)
+  eventLng?:  number | null,   // event_requests.event_lng (client GPS)
+) {
+  const h    = idHash(id);
+  const dlat = ((h % 800) - 400) / 50_000;   // ±~890 m
+  const dlng = (((h * 31) % 800) - 400) / 50_000;
+
+  // 1. Event address from map picker — most accurate
+  if (lat != null && lng != null) {
+    return { latitude: lat + dlat, longitude: lng + dlng };
+  }
+
+  // 2. Client's GPS position when creating the request — reasonably close
+  if (eventLat != null && eventLng != null) {
+    return { latitude: eventLat + dlat, longitude: eventLng + dlng };
+  }
+
+  // 3. Last resort: city-name lookup dictionary
+  const key  = (municipio ?? city).toLowerCase().trim();
   const base =
     CITY_COORDS[key] ??
     Object.entries(CITY_COORDS).find(([k]) => key.includes(k) || k.includes(key))?.[1] ??
     { lat: 20.6597, lng: -103.3496 };
-  const h = idHash(id);
-  const dlat = ((h % 800) - 400) / 100_000;
-  const dlng = (((h * 31) % 800) - 400) / 100_000;
   return { latitude: base.lat + dlat, longitude: base.lng + dlng };
 }
 
@@ -488,7 +512,7 @@ export default function IncomingExpressScreen({ route, navigation }: any) {
 
       const { data: r } = await Promise.race([
         supabase.from('event_requests')
-          .select('id,event_type,genre,event_date,event_time,hours,guest_count,location_city,location_municipio,location_estado,venue_covered,needs_sound,comments')
+          .select('id,event_type,genre,event_date,event_time,hours,guest_count,location_city,location_municipio,location_estado,latitude,longitude,event_lat,event_lng,venue_covered,needs_sound,comments')
           .eq('id', d.request_id).single(),
         timeout.then(() => ({ data: null, error: null })),
       ]) as any;
@@ -500,7 +524,7 @@ export default function IncomingExpressScreen({ route, navigation }: any) {
       supabase.rpc('view_express_dispatch', { p_dispatch_id: dispatchId });
 
       // Show map immediately with fallback origin — GPS refines in background
-      const privDest = r ? privacyOffset(r.id, r.location_city, r.location_municipio) : null;
+      const privDest = r ? privacyOffset(r.id, r.location_city, r.location_municipio, r.latitude, r.longitude, r.event_lat, r.event_lng) : null;
       const fallbackOrigin = privDest
         ? { latitude: privDest.latitude + 0.015, longitude: privDest.longitude + 0.01 }
         : null;
@@ -522,9 +546,9 @@ export default function IncomingExpressScreen({ route, navigation }: any) {
       if (fallbackOrigin && privDest) {
         setTimeout(() => {
           mapRef.current?.fitToCoordinates([fallbackOrigin, privDest], {
-            edgePadding: { top: 120, right: 50, bottom: 380, left: 50 }, animated: true,
+            edgePadding: { top: 120, right: 50, bottom: 420, left: 50 }, animated: true,
           });
-        }, 500);
+        }, 900);
       }
 
       // Stagger sheet elements after sheet slides up
@@ -546,7 +570,7 @@ export default function IncomingExpressScreen({ route, navigation }: any) {
               setOrigin(gpsOrigin);
               setRoutePts(buildRoute(gpsOrigin, privDest));
               mapRef.current?.fitToCoordinates([gpsOrigin, privDest], {
-                edgePadding: { top: 120, right: 50, bottom: 380, left: 50 }, animated: true,
+                edgePadding: { top: 120, right: 50, bottom: 420, left: 50 }, animated: true,
               });
             }
           } catch {}
@@ -673,21 +697,27 @@ export default function IncomingExpressScreen({ route, navigation }: any) {
         provider={PROVIDER_GOOGLE}
         customMapStyle={DARK_MAP_STYLE}
         initialRegion={region}
-        scrollEnabled={false} zoomEnabled={false} rotateEnabled={false}
+        scrollEnabled={true} zoomEnabled={true} rotateEnabled={false}
         pitchEnabled={false}  showsUserLocation={false}
         showsCompass={false}  showsMyLocationButton={false}
+        onMapReady={() => {
+          mapRef.current?.fitToCoordinates(
+            [origin ?? { latitude: dest.latitude + 0.015, longitude: dest.longitude + 0.01 }, dest],
+            { edgePadding: { top: 120, right: 50, bottom: 420, left: 50 }, animated: false },
+          );
+        }}
       >
-        <Circle center={dest} radius={450}
-          fillColor="rgba(0,230,118,0.06)" strokeColor="rgba(0,230,118,0.35)" strokeWidth={1.5} />
+        <Circle center={dest} radius={900}
+          fillColor="rgba(0,230,118,0.05)" strokeColor="rgba(0,230,118,0.28)" strokeWidth={1.5} />
 
         {routePts.length > 1 && (
-          <Polyline coordinates={routePts} strokeWidth={12} strokeColor="rgba(0,230,118,0.20)" />
+          <Polyline coordinates={routePts} strokeWidth={12} strokeColor="rgba(255,255,255,0.10)" />
         )}
         {routePts.length > 1 && (
           <Polyline
             coordinates={routePts}
             strokeWidth={3}
-            strokeColor="rgba(0,230,118,0.88)"
+            strokeColor="rgba(255,255,255,0.70)"
             {...(Platform.OS === 'ios' ? { lineDashPattern: [8, 5] } : {})}
           />
         )}
@@ -699,10 +729,6 @@ export default function IncomingExpressScreen({ route, navigation }: any) {
             <RouteParticle route={routePts} delay={1200} />
           </>
         )}
-
-        <Marker coordinate={dest} anchor={{ x: 0.5, y: 0.5 }} tracksViewChanges={false}>
-          <DestinationMarker />
-        </Marker>
 
         {origin && (
           <Marker coordinate={origin} anchor={{ x: 0.5, y: 0.5 }} tracksViewChanges={false}>
@@ -735,7 +761,7 @@ export default function IncomingExpressScreen({ route, navigation }: any) {
         style={s.bottomGrad} pointerEvents="none" />
 
       {/* ── Top bar ── */}
-      <Animated.View style={[s.topBar, { opacity: topFade }]}>
+      <View style={s.topBar}>
         <SafeAreaView edges={['top']}>
           <View style={s.topRow}>
             <Pressable style={s.backBtn} onPress={handleIgnorar}>
@@ -749,7 +775,7 @@ export default function IncomingExpressScreen({ route, navigation }: any) {
             <View style={{ width: 40 }} />
           </View>
         </SafeAreaView>
-      </Animated.View>
+      </View>
 
       {/* ── Bottom sheet ── */}
       <Animated.View style={[s.sheet, { transform: [{ translateY: sheetY }] }]}>

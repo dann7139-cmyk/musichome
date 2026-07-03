@@ -2,6 +2,17 @@ import React, { createContext, useCallback, useContext, useEffect, useRef, useSt
 import { AppState } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { supabase } from '../config/supabase';
+
+// ── Imperativo: AppNavigator puede revivir dispatches desde fuera del Provider ──
+let _reviveDispatch: ((id: string) => Promise<void>) | null = null;
+let _reviveAll:      (() => Promise<void>) | null = null;
+
+export async function reviveExpressDispatch(id: string) {
+  await _reviveDispatch?.(id);
+}
+export async function reviveAllExpressDispatches() {
+  await _reviveAll?.();
+}
 import {
   loadExpressSounds,
   unloadExpressSounds,
@@ -27,18 +38,26 @@ export interface ExpressDispatch {
     location_city: string;
     location_municipio: string | null;
     location_estado: string;
+    latitude: number | null;
+    longitude: number | null;
+    event_lat: number | null;
+    event_lng: number | null;
     comments: string | null;
   };
 }
 
 interface ExpressCtx {
-  dispatches: ExpressDispatch[];
-  dismiss: (id: string) => void;
+  dispatches:   ExpressDispatch[];
+  hasDismissed: boolean;
+  dismiss:      (id: string) => void;
+  reviveAll:    () => Promise<void>;
 }
 
 const ExpressContext = createContext<ExpressCtx>({
-  dispatches: [],
-  dismiss: () => {},
+  dispatches:   [],
+  hasDismissed: false,
+  dismiss:      () => {},
+  reviveAll:    async () => {},
 });
 
 export function ExpressProvider({
@@ -48,7 +67,8 @@ export function ExpressProvider({
   children: React.ReactNode;
   groupId: string | null;
 }) {
-  const [dispatches, setDispatches] = useState<ExpressDispatch[]>([]);
+  const [dispatches,   setDispatches]   = useState<ExpressDispatch[]>([]);
+  const [hasDismissed, setHasDismissed] = useState(false);
 
   useEffect(() => {
     loadExpressSounds();
@@ -59,7 +79,15 @@ export function ExpressProvider({
   const dispatchesRef   = useRef<ExpressDispatch[]>([]);
   const dismissedIdsRef = useRef(new Set<string>());
   const removingRef     = useRef(new Set<string>());
+  const groupGenreRef   = useRef<string | null>(null);
   dispatchesRef.current = dispatches;
+
+  // Fetch the group's genre once so we can filter dispatches by matching genre
+  useEffect(() => {
+    if (!groupId) return;
+    supabase.from('groups').select('genre').eq('id', groupId).single()
+      .then(({ data }) => { groupGenreRef.current = data?.genre ?? null; });
+  }, [groupId]);
 
   const remove = useCallback((id: string) => {
     setDispatches(prev => prev.filter(d => d.id !== id));
@@ -69,6 +97,11 @@ export function ExpressProvider({
     if (dismissedIdsRef.current.has(dispatch.id)) return;
     if (dispatchesRef.current.some(d => d.id === dispatch.id)) return;
     if (dispatchesRef.current.length >= 5) return;
+    // Only show dispatches whose genre matches this group's genre
+    const grpGenre = groupGenreRef.current;
+    if (grpGenre && dispatch.request?.genre) {
+      if (dispatch.request.genre.toLowerCase().trim() !== grpGenre.toLowerCase().trim()) return;
+    }
 
     const isFirst = dispatchesRef.current.length === 0;
 
@@ -92,7 +125,7 @@ export function ExpressProvider({
   const loadPending = useCallback(async (gid: string, silent = false) => {
     const { data: rows } = await supabase
       .from('express_dispatches')
-      .select('*, request:event_requests(id,event_type,genre,event_date,event_time,hours,guest_count,location_city,location_municipio,location_estado,comments)')
+      .select('*, request:event_requests(id,event_type,genre,event_date,event_time,hours,guest_count,location_city,location_municipio,location_estado,latitude,longitude,event_lat,event_lng,comments)')
       .eq('group_id', gid)
       .in('status', ['pending_broadcast', 'quoting'])
       .order('created_at', { ascending: true });
@@ -124,7 +157,7 @@ export function ExpressProvider({
 
           const { data: req } = await supabase
             .from('event_requests')
-            .select('id,event_type,genre,event_date,event_time,hours,guest_count,location_city,location_municipio,location_estado,comments')
+            .select('id,event_type,genre,event_date,event_time,hours,guest_count,location_city,location_municipio,location_estado,latitude,longitude,event_lat,event_lng,comments')
             .eq('id', dispatch.request_id)
             .single();
 
@@ -165,12 +198,46 @@ export function ExpressProvider({
 
   const dismiss = useCallback((id: string) => {
     dismissedIdsRef.current.add(id);
+    setHasDismissed(true);
     remove(id);
     void supabase.rpc('ignore_express_dispatch', { p_dispatch_id: id });
   }, [remove]);
 
+  const reviveAll = useCallback(async () => {
+    if (!groupId) return;
+    dismissedIdsRef.current.clear();
+    // hasDismissed stays true while network request is in-flight so the banner
+    // remains visible. We clear it only after dispatches are added, so the user
+    // never sees a 1-2 s gap where both the banner and the carousel are gone.
+    const { data: rows } = await supabase
+      .from('express_dispatches')
+      .select('*, request:event_requests(id,event_type,genre,event_date,event_time,hours,guest_count,location_city,location_municipio,location_estado,latitude,longitude,event_lat,event_lng,comments)')
+      .eq('group_id', groupId)
+      .in('status', ['pending_broadcast', 'quoting', 'ignored'])
+      .order('created_at', { ascending: true });
+    rows?.forEach(d => add({ ...d, request: (d as any).request ?? undefined }, true));
+    setHasDismissed(false);
+  }, [groupId, add]);
+
+  // Registro de handlers imperativos para AppNavigator (fuera del Provider)
+  useEffect(() => {
+    if (!groupId) return;
+    _reviveDispatch = async (id: string) => {
+      dismissedIdsRef.current.delete(id);
+      const { data } = await supabase
+        .from('express_dispatches')
+        .select('*, request:event_requests(id,event_type,genre,event_date,event_time,hours,guest_count,location_city,location_municipio,location_estado,latitude,longitude,event_lat,event_lng,comments)')
+        .eq('id', id)
+        .in('status', ['pending_broadcast', 'quoting', 'ignored'])
+        .single();
+      if (data) add({ ...data, request: (data as any).request ?? undefined }, true);
+    };
+    _reviveAll = reviveAll;
+    return () => { _reviveDispatch = null; _reviveAll = null; };
+  }, [groupId, add, reviveAll]);
+
   return (
-    <ExpressContext.Provider value={{ dispatches, dismiss }}>
+    <ExpressContext.Provider value={{ dispatches, hasDismissed, dismiss, reviveAll }}>
       {children}
     </ExpressContext.Provider>
   );

@@ -178,6 +178,46 @@ Deno.serve(async (req) => {
       return new Response('OK', { status: 200 });
     }
 
+    // ── ¿Es pago de hora extra? ──────────────────────────────────
+    const extraHourId = pi.metadata?.extra_hour_id;
+    if (extraHourId) {
+      let stripeFee: number | null = null;
+      try {
+        const chargeId = typeof pi.latest_charge === 'string'
+          ? pi.latest_charge
+          : (pi.latest_charge as any)?.id ?? null;
+        if (chargeId) {
+          const charge = await stripe.charges.retrieve(chargeId, {
+            expand: ['balance_transaction'],
+          });
+          const bt = charge.balance_transaction as any;
+          if (bt && typeof bt.fee === 'number') {
+            stripeFee = bt.fee / 100;
+          }
+        }
+      } catch (e: any) {
+        console.warn('[Webhook] No se pudo obtener stripe fee extra_hour:', e.message);
+      }
+
+      const { error: extraErr } = await supabase.rpc(
+        'confirm_extra_hour_stripe_payment',
+        {
+          p_extra_id:          extraHourId,
+          p_stripe_payment_id: pi.id,
+          p_amount_paid:       pi.amount / 100,
+          p_stripe_fee:        stripeFee,
+        },
+      );
+
+      if (extraErr) {
+        console.error('[Webhook] confirm_extra_hour_stripe_payment error:', extraErr.message);
+        return new Response('DB Error', { status: 500 });
+      }
+
+      console.log(`[Webhook] Extra hour paid: ${extraHourId}`);
+      return new Response('OK', { status: 200 });
+    }
+
     // ── ¿Es pago de reserva? ──────────────────────────────────────
     const reservationId = pi.metadata?.reservation_id;
 
@@ -270,11 +310,11 @@ Deno.serve(async (req) => {
       if (groupId && ownerId) {
         const amountFmt = amount.toLocaleString('es-MX');
         const currLabel = currency === 'USD' ? 'USD' : 'MXN';
-        const notifBody = `Pago confirmado de $${amountFmt} ${currLabel} para tu evento del ${evDate}. Las ganancias se liberarán al finalizar.`;
+        const notifBody = `El cliente pagó $${amountFmt} ${currLabel} para el evento del ${evDate}. Tu ganancia queda reservada y se libera 12h después del evento.`;
         const notifData = { reservation_id: reservationId, screen: 'GroupReservations' };
 
         const notifications: any[] = [
-          { user_id: ownerId, type: 'payment', title: '💰 Pago recibido', body: notifBody, data: notifData },
+          { user_id: ownerId, type: 'payment', title: '✅ Cliente confirmó el pago', body: notifBody, data: notifData },
         ];
 
         const { data: members } = await supabase
@@ -285,7 +325,7 @@ Deno.serve(async (req) => {
           .eq('status', 'accepted');
 
         (members ?? []).forEach((m: any) => {
-          notifications.push({ user_id: m.invited_user_id, type: 'payment', title: '💰 Pago recibido', body: notifBody, data: notifData });
+          notifications.push({ user_id: m.invited_user_id, type: 'payment', title: '✅ Cliente confirmó el pago', body: notifBody, data: notifData });
         });
 
         await supabase.from('notifications').insert(notifications);

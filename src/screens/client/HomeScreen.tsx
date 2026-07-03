@@ -88,7 +88,6 @@ export default function HomeScreen({ navigation }: any) {
   const [pendingPayment, setPendingPayment] = useState<any>(null);
   const [paymentFailed, setPaymentFailed] = useState<any>(null);
   const [pendingQuotes, setPendingQuotes] = useState<any[]>([]);
-  const [pendingExpressProposals, setPendingExpressProposals] = useState<any[]>([]);
   const [myOpenRequests, setMyOpenRequests] = useState<any[]>([]);
   const [promotions, setPromotions] = useState<Promotion[]>([]);
   const [bannerAds, setBannerAds] = useState<any[]>([]);
@@ -140,15 +139,16 @@ export default function HomeScreen({ navigation }: any) {
     if (ad?.id) supabase.rpc('track_ad_impression', { p_ad_id: ad.id }).then(() => {});
   }, [currentAdIndex, bannerAds.length]);
 
-  // Carousel automático — duración por anuncio:
-  // imagen 5s · video 25s (que alcance a verse/escucharse) · o duration_seconds del anuncio
+  // Carousel automático para imágenes — 5 s por defecto (o duration_seconds).
+  // Videos: no hay timer aquí; el carousel avanza vía onEnd del VideoPlayer
+  // cuando el video termina de reproducirse completamente.
   useEffect(() => {
     const list: any[] = bannerAds.length > 0 ? bannerAds : promotions;
     const total = list.length;
     if (total <= 1) return;
     const current = list[currentAdIndex % total];
-    const secs = current?.duration_seconds
-      ?? (current?.media_type === 'video' ? 25 : 5);
+    if (current?.media_type === 'video') return;
+    const secs = current?.duration_seconds ?? 5;
     const timer = setTimeout(() => {
       Animated.timing(adFade, { toValue: 0, duration: 280, useNativeDriver: true }).start(() => {
         setCurrentAdIndex(prev => (prev + 1) % total);
@@ -160,15 +160,6 @@ export default function HomeScreen({ navigation }: any) {
   }, [bannerAds.length, promotions.length, currentAdIndex]);
 
 
-  // Banner de demanda: se muestra una sola vez por sesión (5 s) y desaparece
-  useEffect(() => {
-    if (!cityDemand || demandShown.current) return;
-    demandShown.current = true;
-    const t = setTimeout(() => {
-      Animated.timing(demandFade, { toValue: 0, duration: 600, useNativeDriver: true }).start(() => setDemandVisible(false));
-    }, 5000);
-    return () => clearTimeout(t);
-  }, [cityDemand]);
 
   // Realtime: cuando el evento pasa a completed, quitar el banner del home
   useEffect(() => {
@@ -252,7 +243,7 @@ export default function HomeScreen({ navigation }: any) {
 
       const { data: live } = await supabase
         .from('reservations')
-        .select('*, group:groups(id, name, genre, city, profile_image, owner_id), package:packages(name, duration_hours)')
+        .select('*, group:groups(id, name, genre, city, profile_image, owner_id), quote:quotes(duration_hours, overtime_1h_price, overtime_2h_price, overtime_3h_price)')
         .eq('client_id', sessionData.session.user.id)
         .eq('status', 'in_progress')
         .limit(1)
@@ -262,7 +253,7 @@ export default function HomeScreen({ navigation }: any) {
       // Reserva aceptada/pendiente sin pago (incluye 'accepted' que es el estado post-cotización)
       const { data: pendPay } = await supabase
         .from('reservations')
-        .select('*, group:groups(id, name, profile_image), package:packages(name, duration_hours)')
+        .select('*, group:groups(id, name, profile_image)')
         .eq('client_id', sessionData.session.user.id)
         .in('status', ['accepted', 'confirmed', 'pending_payment'])
         .not('payment_status', 'in', '("paid","deposit_paid","fully_paid")')
@@ -291,19 +282,6 @@ export default function HomeScreen({ navigation }: any) {
         .in('status', ['pending', 'quoted'])
         .order('updated_at', { ascending: false });
       setPendingQuotes(quotesData ?? []);
-
-      // Todas las propuestas express recibidas (en negociación)
-      const { data: exprData } = await supabase
-        .from('event_requests')
-        .select('*, _group:groups!inner(id, name, profile_image, owner_id)')
-        .eq('client_id', sessionData.session.user.id)
-        .eq('status', 'en_negociacion')
-        .order('created_at', { ascending: false });
-      const normalizedProposals = (exprData ?? []).map((r: any) => {
-        const grpRaw = r._group;
-        return { ...r, _group: Array.isArray(grpRaw) ? grpRaw[0] : grpRaw };
-      });
-      setPendingExpressProposals(normalizedProposals);
 
       // Solicitudes express/programadas enviadas y aún abiertas
       const { data: myReqData } = await supabase
@@ -538,7 +516,6 @@ export default function HomeScreen({ navigation }: any) {
         <Animated.View style={[styles.header, { opacity: headerOpacity }]}>
           <View>
             <Text style={styles.logoText}>Darice<Text style={styles.logoGreen}>fy</Text></Text>
-            <Text style={styles.subGreeting}>{greeting} 👋</Text>
           </View>
           <Pressable style={styles.iconBtn} onPress={() => navigation.navigate('Notifications')}>
             <Bell size={18} color={COLORS.muted2} />
@@ -712,49 +689,17 @@ export default function HomeScreen({ navigation }: any) {
           );
         })()}
 
-        {/* EXPRESS PROPOSAL BANNER — acumulativo */}
-        {pendingExpressProposals.length > 0 && !liveEvent && (() => {
-          const first = pendingExpressProposals[0];
-          const count = pendingExpressProposals.length;
-          const groupName = first._group?.name ?? 'Un grupo';
-          const subText = count === 1
-            ? `${groupName} quiere tocar en tu evento${first.proposal_data?.arrival_time ? ` · Llegan a las ${first.proposal_data.arrival_time}` : ''}`
-            : `${groupName} y ${count - 1} más han propuesto`;
-          const onPress = () => navigation.navigate('OpenRequest', { tab: 'mine' });
-          return (
-            <Pressable style={styles.expressBanner} onPress={onPress}>
-              <LinearGradient
-                colors={['rgba(0,230,118,0.18)', 'rgba(0,200,83,0.05)']}
-                style={StyleSheet.absoluteFillObject}
-                start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-              />
-              <Text style={styles.expressBannerIcon}>⚡</Text>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.expressBannerTitle}>
-                  {count === 1 ? '¡Recibiste una propuesta!' : `¡${count} propuestas recibidas!`}
-                </Text>
-                <Text style={styles.expressBannerGroup}>{subText}</Text>
-              </View>
-              <View style={styles.expressBannerBtn}>
-                <Text style={styles.expressBannerBtnText}>{count > 1 ? 'Ver todas →' : 'Ver →'}</Text>
-              </View>
-            </Pressable>
-          );
-        })()}
-
         {/* SOLICITAR GRUPO — botón express */}
         <Pressable
           style={styles.expressCtaBtn}
           onPress={() => navigation.navigate('GuidedRequest')}
         >
-          <View style={styles.expressCtaIcon}>
-            <Zap size={18} color={COLORS.green} />
+          <View style={styles.expressSectionChip}>
+            <Zap size={9} color={COLORS.gold} />
+            <Text style={styles.expressSectionChipText}>EXPRÉS · HOY</Text>
           </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.expressCtaTitle}>Solicitar grupo ahora</Text>
-            <Text style={styles.expressCtaSub}>Recibe propuestas en minutos</Text>
-          </View>
-          <ChevronRight size={18} color={COLORS.green} />
+          <Text style={styles.expressCtaTitle}>Solicitar grupo ahora</Text>
+          <ChevronRight size={15} color={COLORS.muted2} />
         </Pressable>
 
         <ScrollView
@@ -810,33 +755,6 @@ export default function HomeScreen({ navigation }: any) {
             />
           )}
 
-          {/* DEMANDA CIUDAD — aparece 5 s y se desvanece */}
-          {demandVisible && cityDemand && (cityDemand.demand_level === 'very_high' || cityDemand.demand_level === 'high') && (
-            <Animated.View style={{ opacity: demandFade }}>
-              <View style={[
-                styles.demandBanner,
-                cityDemand.demand_level === 'very_high' && styles.demandBannerHot,
-              ]}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.demandBannerTitle}>
-                    {cityDemand.demand_level === 'very_high'
-                      ? `🔥 Alta demanda en ${cityDemand.city}`
-                      : `⚡ Buen momento en ${cityDemand.city}`}
-                  </Text>
-                  <Text style={styles.demandBannerSub}>
-                    {profile?.role === 'group'
-                      ? 'Alta demanda, promociónate ahora y consigue más eventos'
-                      : profile?.role === 'talent'
-                      ? 'Alta demanda en tu zona · Más oportunidades de trabajo'
-                      : cityDemand.demand_level === 'very_high'
-                      ? 'Pocos espacios disponibles · Agenda antes de que se llenen'
-                      : 'Alta competencia entre grupos · Mejores precios ahora'}
-                  </Text>
-                </View>
-                <Zap size={18} color={cityDemand.demand_level === 'very_high' ? '#FF6D00' : COLORS.green} />
-              </View>
-            </Animated.View>
-          )}
 
           {/* RECOMENDADOS + DESTACADOS — solo grupos del estado del cliente */}
           {!search && !selectedCategoryId && !nearbyCity && (() => {
@@ -929,7 +847,15 @@ export default function HomeScreen({ navigation }: any) {
                           style={styles.promoBannerBg}
                           contentFit="cover"
                           startTime={item.video_start_seconds ?? 0}
-                          autoPlay loop
+                          autoPlay
+                          loop={total <= 1}
+                          onEnd={total > 1 ? () => {
+                            Animated.timing(adFade, { toValue: 0, duration: 280, useNativeDriver: true }).start(() => {
+                              setCurrentAdIndex(prev => (prev + 1) % total);
+                              setBannerImgError(false);
+                              Animated.timing(adFade, { toValue: 1, duration: 280, useNativeDriver: true }).start();
+                            });
+                          } : undefined}
                         />
                       ) : item.media_url && !bannerImgError ? (
                         <Image
@@ -1036,6 +962,12 @@ export default function HomeScreen({ navigation }: any) {
               </>
             );
           })()}
+
+          {/* HEADER — SECCIÓN PROGRAMADA */}
+          <View style={styles.scheduledHeader}>
+            <Text style={styles.scheduledTag}>FECHA PROGRAMADA</Text>
+            <Text style={styles.scheduledTitle}>Reserva tu grupo</Text>
+          </View>
 
           {/* CATEGORÍAS */}
           <ScrollView
@@ -1471,23 +1403,6 @@ const styles = StyleSheet.create({
   },
   quoteBannerBtnText: { fontFamily: FONTS.bodySemiBold, fontSize: 12, color: '#4285F4' },
 
-  // Express proposal banner
-  expressBanner: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    marginHorizontal: SPACING.xl, marginBottom: 10,
-    borderRadius: RADIUS.xl, overflow: 'hidden',
-    borderWidth: 1.5, borderColor: COLORS.green,
-    paddingHorizontal: 16, paddingVertical: 12,
-  },
-  expressBannerIcon:    { fontSize: 22 },
-  expressBannerTitle:   { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.green, marginBottom: 2 },
-  expressBannerGroup:   { fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted2 },
-  expressBannerBtn: {
-    paddingHorizontal: 10, paddingVertical: 6,
-    borderRadius: RADIUS.md, backgroundColor: 'rgba(0,230,118,0.18)',
-  },
-  expressBannerBtnText: { fontFamily: FONTS.bodySemiBold, fontSize: 12, color: COLORS.green },
-
   // My open requests banner
   myRequestBanner: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
@@ -1527,14 +1442,12 @@ const styles = StyleSheet.create({
   // Solicitar ahora banner
   // ── Botón Propuestas (hero) ──
   expressCtaBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 14,
+    flexDirection: 'row', alignItems: 'center', gap: 10,
     marginHorizontal: SPACING.xl, marginBottom: 10,
-    backgroundColor: COLORS.card,
-    borderWidth: 1.5, borderColor: COLORS.green,
-    borderRadius: RADIUS.xl,
-    paddingHorizontal: 16, paddingVertical: 14,
-    shadowColor: COLORS.green, shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.12, shadowRadius: 8, elevation: 3,
+    backgroundColor: 'rgba(0,230,118,0.11)',
+    borderWidth: 1, borderColor: 'rgba(0,230,118,0.45)',
+    borderRadius: RADIUS.lg,
+    paddingHorizontal: 14, paddingVertical: 12,
   },
   expressCtaIcon: {
     width: 38, height: 38, borderRadius: 12,
@@ -1543,7 +1456,7 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
     flexShrink: 0,
   },
-  expressCtaTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: COLORS.text },
+  expressCtaTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: COLORS.text, flex: 1 },
   expressCtaSub:   { fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted2, marginTop: 2 },
 
   // ── Botón Mapa ──
@@ -2027,6 +1940,35 @@ const styles = StyleSheet.create({
   },
   failedChargeBtnText: {
     fontFamily: FONTS.bodySemiBold, fontSize: 12, color: '#fff',
+  },
+
+  // ── Chip "EXPRÉS · PARA HOY" ──────────────────────────────────────────────
+  expressSectionChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(255,179,0,0.10)',
+    borderWidth: 1, borderColor: 'rgba(255,179,0,0.35)',
+    borderRadius: RADIUS.full, paddingHorizontal: 10, paddingVertical: 4,
+  },
+  expressSectionChipText: {
+    fontFamily: FONTS.bodySemiBold, fontSize: 10,
+    color: COLORS.gold, letterSpacing: 1.2,
+  },
+
+  // ── Header sección programada ─────────────────────────────────────────────
+  scheduledHeader: { marginBottom: 14 },
+  scheduledTag: {
+    fontFamily: FONTS.bodySemiBold, fontSize: 10,
+    color: COLORS.gold, letterSpacing: 1.4, marginBottom: 6,
+  },
+  scheduledTitle: {
+    fontFamily: FONTS.title, fontSize: 17,
+    color: COLORS.text, marginBottom: 3,
+  },
+  scheduledSub: {
+    fontFamily: FONTS.body, fontSize: 13,
+    color: COLORS.gold,
+    opacity: 0.75,
   },
 
 });

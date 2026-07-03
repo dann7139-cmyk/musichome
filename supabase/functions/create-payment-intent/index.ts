@@ -10,6 +10,7 @@
 // ═══════════════════════════════════════════════════════════════════
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { MSI_FEE_RATES } from '../_shared/constants.ts';
 
 const supabase = createClient(
   Deno.env.get('SUPABASE_URL')!,
@@ -29,8 +30,6 @@ function jsonResponse(body: Record<string, unknown>, status = 200) {
   });
 }
 
-/** Tasas MSI — deben coincidir exactamente con PUBLIC_MSI_FEE_RATES en publicPricing.ts */
-const MSI_FEE_RATES: Record<number, number> = { 1: 0, 3: 0.05, 6: 0.08, 9: 0.11, 12: 0.14 };
 
 function calcMsiFee(totalPrice: number, months: number): number {
   if (months <= 1) return 0;

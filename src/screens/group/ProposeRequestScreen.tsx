@@ -3,8 +3,8 @@
  * Lógica: propose_event_request RPC, time pickers, surge multiplier.
  * UI delegada a QuoteFormShared (mode='propose').
  */
-import React, { useEffect, useState } from 'react';
-import { Alert, Platform, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { Alert, Animated, Platform, StyleSheet, Text, View } from 'react-native';
 import { Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ArrowLeft } from 'lucide-react-native';
@@ -12,6 +12,7 @@ import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import TimePickerModal from '../../components/ui/TimePickerModal';
 import { analyzeMessage, PHONE_WARNING } from '../../utils/phoneFilter';
+import { calcClientPrice, calcPlatformFee, getCommissionRate } from '../../utils/calculations';
 import i18n from '../../i18n';
 import QuoteFormShared, { GroupMember } from '../../components/quote/QuoteFormShared';
 
@@ -32,6 +33,8 @@ export default function ProposeRequestScreen({ route, navigation }: any) {
   const [memberAmounts, setMemberAmounts] = useState<string[]>([]);
   const [groupMembers, setGroupMembers]   = useState<GroupMember[]>([]);
   const [loading, setLoading] = useState(false);
+  const [sent,    setSent]    = useState(false);
+  const sentOpacity = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     (async () => {
@@ -90,6 +93,9 @@ export default function ProposeRequestScreen({ route, navigation }: any) {
   const hasSurge   = multiplier > 1 && total > 0;
 
   const earnings      = adjTotal;
+  const platformFee   = adjTotal > 0 ? calcPlatformFee(adjTotal) : 0;
+  const clientPrice   = adjTotal > 0 ? calcClientPrice(adjTotal) : 0;
+  const commRate      = adjTotal > 0 ? Math.round(getCommissionRate(adjTotal) * 100) : 10;
   const numAdditional = Math.max(0, groupMembers.length - 1);
   const memberTotal   = memberAmounts.reduce((sum, v) => sum + (parseFloat(v) || 0), 0);
   const ownerNet      = Math.max(earnings - memberTotal, 0);
@@ -97,6 +103,11 @@ export default function ProposeRequestScreen({ route, navigation }: any) {
   const ot1Val = parseFloat(overtime1h) || 0;
   const ot2Val = parseFloat(overtime2h) || 0;
   const ot3Val = parseFloat(overtime3h) || 0;
+
+  // Precio que pagaría el cliente (la plataforma añade su comisión encima)
+  const ot1ClientPrice = ot1Val > 0 ? calcClientPrice(ot1Val) : 0;
+  const ot2ClientPrice = ot2Val > 0 ? calcClientPrice(ot2Val) : 0;
+  const ot3ClientPrice = ot3Val > 0 ? calcClientPrice(ot3Val) : 0;
 
   const updateMemberAmount = (idx: number, val: string) => {
     setMemberAmounts(prev => {
@@ -132,7 +143,9 @@ export default function ProposeRequestScreen({ route, navigation }: any) {
     setGroupNotes(clean);
   };
 
-  const canSend = () => pph > 0 && !!arrivalTime && !notesWarn;
+  const canSend = () =>
+    pph > 0 && !!arrivalTime && !notesWarn &&
+    !!overtime1h && !!overtime2h && !!overtime3h;
 
   const handleSend = async () => {
     if (!canSend()) {
@@ -173,22 +186,25 @@ export default function ProposeRequestScreen({ route, navigation }: any) {
               p_member_dist:    memberDistribution.length > 0 ? memberDistribution : null,
               p_arrival_time:   arrivalTime,
               p_start_time:     startTime || null,
+              p_dispatch_id:    dispatchId ?? null,
             });
             setLoading(false);
 
             if (error || !data?.ok) {
               const code = data?.error ?? error?.message ?? '';
               const msg =
-                code === 'not_available'      ? 'Otro grupo ya entró en negociación con este cliente.' :
-                code === 'request_expired'   ? 'Esta solicitud ya expiró.' :
-                code === 'genre_mismatch'    ? 'El género no coincide con tu grupo.' :
-                code === 'too_close_to_event'? 'Esta solicitud es muy próxima al evento. Ya no es posible cotizar (necesita al menos 2 horas de margen).' :
+                code === 'not_available'      ? 'Esta solicitud ya no está disponible — otro grupo llegó primero.' :
+                code === 'request_expired'    ? 'Esta solicitud ya venció. El cliente tendrá que crear una nueva.' :
+                code === 'genre_mismatch'     ? 'El género no coincide con tu grupo.' :
+                code === 'too_close_to_event' ? 'Esta solicitud es muy próxima al evento. Ya no es posible cotizar (necesita al menos 2 horas de margen).' :
                 `Error: ${code || 'No se pudo enviar. Inténtalo de nuevo.'}`;
               Alert.alert('No disponible', msg);
             } else {
               if (dispatchId) {
                 await supabase.rpc('complete_express_dispatch', { p_dispatch_id: dispatchId });
-                navigation.navigate('IncomingExpress', { dispatchId, quotedSuccess: true });
+                setSent(true);
+                Animated.timing(sentOpacity, { toValue: 1, duration: 280, useNativeDriver: true }).start();
+                setTimeout(() => navigation.goBack(), 2200);
               } else {
                 navigation.goBack();
               }
@@ -214,11 +230,11 @@ export default function ProposeRequestScreen({ route, navigation }: any) {
 
       <QuoteFormShared
         mode="propose"
-        // Financial (no platform fee deducted en propose mode)
+        // Financial: grupo gana adjTotal; cliente paga clientPrice (tarifa añadida encima)
         earnings={earnings}
-        contadoPublico={adjTotal}
-        commission={0}
-        commPct="0"
+        contadoPublico={clientPrice}
+        commission={platformFee}
+        commPct={String(commRate)}
         ownerNet={ownerNet}
         // Event info
         eventType={request.event_type}
@@ -257,9 +273,9 @@ export default function ProposeRequestScreen({ route, navigation }: any) {
         ot1Val={ot1Val}
         ot2Val={ot2Val}
         ot3Val={ot3Val}
-        ot1ClientPrice={0}
-        ot2ClientPrice={0}
-        ot3ClientPrice={0}
+        ot1ClientPrice={ot1ClientPrice}
+        ot2ClientPrice={ot2ClientPrice}
+        ot3ClientPrice={ot3ClientPrice}
         // Members
         groupMembers={groupMembers}
         memberAmounts={memberAmounts}
@@ -272,7 +288,7 @@ export default function ProposeRequestScreen({ route, navigation }: any) {
         startTime={startTime}
         onStartTimePress={() => setShowStartPicker(true)}
         hasSurge={hasSurge}
-        isOvertimeRequired={false}
+        isOvertimeRequired={true}
         // Actions
         canSend={canSend()}
         loading={loading}
@@ -291,6 +307,14 @@ export default function ProposeRequestScreen({ route, navigation }: any) {
         onConfirm={(t) => { setStartTime(t); setShowStartPicker(false); }}
         onClose={() => setShowStartPicker(false)}
       />
+
+      {sent && (
+        <Animated.View style={[s.sentOverlay, { opacity: sentOpacity }]} pointerEvents="none">
+          <Text style={s.sentCheck}>✓</Text>
+          <Text style={s.sentTitle}>Cotización enviada.</Text>
+          <Text style={s.sentBody}>El cliente la está revisando ahora.</Text>
+        </Animated.View>
+      )}
     </View>
   );
 }
@@ -308,4 +332,15 @@ const s = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   headerTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 16, color: COLORS.text },
+
+  sentOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: COLORS.bg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 14,
+  },
+  sentCheck: { fontSize: 60, color: COLORS.green },
+  sentTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 22, color: COLORS.text },
+  sentBody:  { fontFamily: FONTS.body, fontSize: 14, color: COLORS.muted },
 });

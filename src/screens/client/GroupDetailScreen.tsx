@@ -124,8 +124,12 @@ export default function GroupDetailScreen({ route, navigation }: any) {
 
   useEffect(() => {
     if (!initialGroup) return;
-    // Si el objeto recibido es incompleto (viene del mapa o deep link), cargar datos completos
-    if (!initialGroup.description && !initialGroup.promo_video) {
+    // Si el objeto recibido es incompleto (viene del mapa, RPC o deep link), cargar datos completos.
+    // También recarga si video_status no vino en los params (RPC no lo retorna).
+    const needsFullLoad = !initialGroup.description
+      || !initialGroup.promo_video
+      || initialGroup.video_status === undefined;
+    if (needsFullLoad) {
       supabase
         .from('groups')
         .select('*')

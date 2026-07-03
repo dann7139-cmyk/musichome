@@ -13,8 +13,7 @@ import { containsBlockedContact } from '../../utils/contentModeration';
 import { analyzeMessage } from '../../utils/phoneFilter';
 import i18n from '../../i18n';
 import QuoteFormShared, { GroupMember } from '../../components/quote/QuoteFormShared';
-
-const PLATFORM_FEE_RATE = 0.10;
+import { calcClientPrice } from '../../utils/calculations';
 
 export default function GroupQuoteDetailScreen({ route, navigation }: any) {
   const { quote: initialQuote } = route.params as { quote: any };
@@ -22,9 +21,15 @@ export default function GroupQuoteDetailScreen({ route, navigation }: any) {
 
   const [pricePerHour, setPricePerHour] = useState(quote.price_per_hour?.toString() ?? '');
   const [travelCost,   setTravelCost]   = useState(quote.travel_cost?.toString() ?? '0');
-  const [overtime1h,   setOvertime1h]   = useState(quote.overtime_1h_price?.toString() ?? '');
-  const [overtime2h,   setOvertime2h]   = useState(quote.overtime_2h_price?.toString() ?? '');
-  const [overtime3h,   setOvertime3h]   = useState(quote.overtime_3h_price?.toString() ?? '');
+  const [overtime1h,   setOvertime1h]   = useState(
+    quote.overtime_1h_price ? Math.round(quote.overtime_1h_price / 1.20).toString() : ''
+  );
+  const [overtime2h,   setOvertime2h]   = useState(
+    quote.overtime_2h_price ? Math.round(quote.overtime_2h_price / 1.20).toString() : ''
+  );
+  const [overtime3h,   setOvertime3h]   = useState(
+    quote.overtime_3h_price ? Math.round(quote.overtime_3h_price / 1.20).toString() : ''
+  );
   const [groupNotes,   setGroupNotes]   = useState(quote.group_notes ?? '');
   const [notesWarn,    setNotesWarn]    = useState(false);
   const [numIntegrantes, setNumIntegrantes] = useState(
@@ -98,9 +103,9 @@ export default function GroupQuoteDetailScreen({ route, navigation }: any) {
   const hours   = quote.duration_hours ?? 3;
   const base    = pph * hours;
   const total   = base + travel;
-  const contadoPublico = total > 0 ? Math.round(total / (1 - PLATFORM_FEE_RATE)) : 0;
+  const contadoPublico = total > 0 ? calcClientPrice(total) : 0;
   const commission     = contadoPublico - total;
-  const commPct        = (PLATFORM_FEE_RATE * 100).toFixed(0);
+  const commPct        = '20';
   const earnings       = total;
 
   const numIntegrantesNum = parseInt(numIntegrantes) || 1;
@@ -111,9 +116,9 @@ export default function GroupQuoteDetailScreen({ route, navigation }: any) {
   const ot1Val = parseFloat(overtime1h) || 0;
   const ot2Val = parseFloat(overtime2h) || 0;
   const ot3Val = parseFloat(overtime3h) || 0;
-  const ot1ClientPrice = ot1Val > 0 ? Math.round(ot1Val / (1 - PLATFORM_FEE_RATE)) : 0;
-  const ot2ClientPrice = ot2Val > 0 ? Math.round(ot2Val / (1 - PLATFORM_FEE_RATE)) : 0;
-  const ot3ClientPrice = ot3Val > 0 ? Math.round(ot3Val / (1 - PLATFORM_FEE_RATE)) : 0;
+  const ot1ClientPrice = ot1Val > 0 ? calcClientPrice(ot1Val) : 0;
+  const ot2ClientPrice = ot2Val > 0 ? calcClientPrice(ot2Val) : 0;
+  const ot3ClientPrice = ot3Val > 0 ? calcClientPrice(ot3Val) : 0;
 
   const openInMaps = () => {
     const addr = encodeURIComponent(
@@ -136,11 +141,7 @@ export default function GroupQuoteDetailScreen({ route, navigation }: any) {
     setMemberAmounts(Array.from({ length: numAdditional }, () => String(perMember)));
   };
 
-  const canSend = () =>
-    pph > 0 &&
-    parseFloat(overtime1h) > 0 &&
-    parseFloat(overtime2h) > 0 &&
-    parseFloat(overtime3h) > 0;
+  const canSend = () => pph > 0 && !!overtime1h && !!overtime2h && !!overtime3h;
 
   const handleSendQuote = async () => {
     if (notesWarn || containsBlockedContact(groupNotes)) {
@@ -148,11 +149,7 @@ export default function GroupQuoteDetailScreen({ route, navigation }: any) {
       return;
     }
     if (!canSend()) {
-      if (!parseFloat(overtime1h) || !parseFloat(overtime2h) || !parseFloat(overtime3h)) {
-        Alert.alert('Paquetes requeridos', 'Debes llenar el precio de los 3 paquetes de horas extra para continuar.');
-      } else {
-        Alert.alert('Precio requerido', 'Ingresa el precio por hora del servicio.');
-      }
+      Alert.alert('Precio requerido', 'Ingresa el precio por hora del servicio.');
       return;
     }
 
@@ -162,7 +159,7 @@ export default function GroupQuoteDetailScreen({ route, navigation }: any) {
 
     Alert.alert(
       'Confirmar cotización',
-      `Tu ganancia neta: $${total.toLocaleString()}\nTotal al cliente: $${contadoPublico.toLocaleString()}\n\n¿Enviar esta cotización?`,
+      `Tu ganancia neta: $${total.toLocaleString()} MXN\n\nEsta cotización se enviará al cliente.`,
       [
         { text: 'Cancelar', style: 'cancel' },
         {
@@ -298,6 +295,7 @@ export default function GroupQuoteDetailScreen({ route, navigation }: any) {
         numPersonas={quote.num_personas}
         comments={quote.comments}
         // Location
+        quoteId={quote.id}
         eventAddress={quote.event_address}
         eventMunicipio={quote.event_municipio}
         eventEstado={quote.event_estado}
@@ -306,6 +304,9 @@ export default function GroupQuoteDetailScreen({ route, navigation }: any) {
         venueCovered={quote.venue_covered}
         venueSize={quote.venue_size}
         needsSound={quote.needs_sound}
+        needsLighting={quote.needs_lighting}
+        needsStage={quote.needs_stage}
+        needsLed={quote.needs_led}
         // Client card
         clientName={quote.client?.full_name ?? 'Cliente'}
         clientCreatedAt={clientCreatedAt}
@@ -341,7 +342,7 @@ export default function GroupQuoteDetailScreen({ route, navigation }: any) {
         onAutoDistribute={autoDistributeEqual}
         numAdditional={numAdditional}
         // Overtime
-        isOvertimeRequired={true}
+        isOvertimeRequired={false}
         // Actions
         canSend={canSend()}
         loading={loading}

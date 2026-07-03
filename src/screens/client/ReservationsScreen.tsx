@@ -1,8 +1,9 @@
 import { Calendar as CalendarIcon, Clock, CreditCard, FileText, Share2, Star, Trash2, X } from 'lucide-react-native';
 import { Calendar } from 'react-native-calendars';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import {
+  Animated,
   ActivityIndicator,
   Alert,
   Image,
@@ -22,7 +23,6 @@ import { supabase } from '../../config/supabase';
 import { isPaid } from '../../utils/calculations';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import Badge from '../../components/ui/Badge';
-import { analyzeMessage } from '../../utils/phoneFilter';
 
 const STATUS_MAP: Record<string, { label: string; variant: any }> = {
   pending:                    { label: 'Pendiente',        variant: 'orange' },
@@ -58,11 +58,6 @@ export default function ClientReservationsScreen({ navigation, route }: any) {
   const [resHasMore,       setResHasMore]       = useState(true);
   const RES_PAGE_SIZE = 50;
   const [reviewedIds,      setReviewedIds]      = useState<Set<string>>(new Set());
-  const [ratingModal,      setRatingModal]      = useState<{ reservationId: string; groupName: string } | null>(null);
-  const [ratingValue,      setRatingValue]      = useState(0);
-  const [ratingComment,    setRatingComment]    = useState('');
-  const [ratingSaving,     setRatingSaving]     = useState(false);
-  const [reviewWarning,    setReviewWarning]    = useState(false);
 
   // useFocusEffect ya dispara en el mount inicial — no necesitamos useEffect separado
   useFocusEffect(useCallback(() => { fetchAll(0); }, []));
@@ -103,7 +98,7 @@ export default function ClientReservationsScreen({ navigation, route }: any) {
     const [resData, quoteData, exprData] = await Promise.all([
       supabase
         .from('reservations')
-        .select('*, group:groups(id, name, genre, city, profile_image, owner_id), package:packages(name, duration_hours), event_request_id, hours_count')
+        .select('*, group:groups(id, name, genre, city, profile_image, owner_id), quote:quotes(duration_hours, overtime_1h_price, overtime_2h_price, overtime_3h_price, event_type), event_request_id, hours_count')
         .eq('client_id', uid)
         .order('created_at', { ascending: false })
         .range(from, to),
@@ -150,7 +145,7 @@ export default function ClientReservationsScreen({ navigation, route }: any) {
       if (acceptedIds.length > 0) {
         const { data: linkedRes } = await supabase
           .from('reservations')
-          .select('id,quote_id,event_date,event_time,address,status,payment_status,total_price,event_started_at,break_type,group_id,client_id,notes,platform_commission,group_earnings')
+          .select('id,quote_id,folio,event_date,event_time,address,status,payment_status,total_price,event_started_at,break_type,group_id,client_id,notes,platform_commission,group_earnings')
           .in('quote_id', acceptedIds);
         linkedRes?.forEach(r => {
           if (r.quote_id) reservationByQuote[r.quote_id] = r;
@@ -184,32 +179,6 @@ export default function ClientReservationsScreen({ navigation, route }: any) {
       ...r,
       _group: r.negotiating_group_id ? (exprGroupMap[r.negotiating_group_id] ?? null) : null,
     })));
-  };
-
-  const submitRating = async () => {
-    if (!ratingModal || ratingValue === 0) return;
-
-    if (ratingComment.trim() && analyzeMessage(ratingComment).blocked) {
-      setReviewWarning(true);
-      return;
-    }
-    setReviewWarning(false);
-    setRatingSaving(true);
-    const { data, error } = await supabase.rpc('submit_review', {
-      p_reservation_id: ratingModal.reservationId,
-      p_rating:         ratingValue,
-      p_comment:        ratingComment.trim() || null,
-    });
-    setRatingSaving(false);
-    if (error || data?.ok === false) {
-      Alert.alert('Error', data?.error ?? error?.message ?? 'No se pudo enviar la reseña.');
-      return;
-    }
-    setReviewedIds(prev => new Set([...prev, ratingModal.reservationId]));
-    setRatingModal(null);
-    setRatingValue(0);
-    setRatingComment('');
-    Alert.alert('¡Gracias!', 'Tu reseña fue enviada correctamente.');
   };
 
   const loadMoreReservations = () => {
@@ -394,11 +363,11 @@ export default function ClientReservationsScreen({ navigation, route }: any) {
                     onUpdate={() => fetchAll(0)}
                     isReviewed={reviewedIds.has(r.id)}
                     isJustPaid={justPaidId === r.id}
-                    onRate={(reservationId: string, groupName: string) => {
-                      setRatingValue(0);
-                      setRatingComment('');
-                      setReviewWarning(false);
-                      setRatingModal({ reservationId, groupName });
+                    onRate={(reservationId: string) => {
+                      const res = reservations.find(r => r.id === reservationId);
+                      if (res) {
+                        navigation.navigate('EventTimer' as any, { reservation: res, readOnly: true, userRole: 'client' });
+                      }
                     }}
                   />
                 ))}
@@ -551,76 +520,6 @@ export default function ClientReservationsScreen({ navigation, route }: any) {
         </ScrollView>
       </SafeAreaView>
 
-      {/* ── Modal de calificación ── */}
-      <Modal
-        visible={ratingModal !== null}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setRatingModal(null)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>{t('reservations.rate_title')}</Text>
-            {ratingModal && (
-              <Text style={styles.modalSubtitle}>{ratingModal.groupName}</Text>
-            )}
-
-            {/* Estrellas */}
-            <View style={styles.starsRow}>
-              {[1, 2, 3, 4, 5].map(i => (
-                <Pressable key={i} onPress={() => setRatingValue(i)} hitSlop={8}>
-                  <Star
-                    size={36}
-                    color={COLORS.gold}
-                    fill={i <= ratingValue ? COLORS.gold : 'transparent'}
-                  />
-                </Pressable>
-              ))}
-            </View>
-            {ratingValue > 0 && (
-              <Text style={styles.ratingLabel}>
-                {['', 'Muy malo', 'Malo', 'Regular', 'Bueno', 'Excelente'][ratingValue]}
-              </Text>
-            )}
-
-            {/* Comentario */}
-            <TextInput
-              style={styles.commentInput}
-              placeholder="Comentario opcional..."
-              placeholderTextColor={COLORS.muted}
-              multiline
-              numberOfLines={3}
-              value={ratingComment}
-              onChangeText={t => { setRatingComment(t); setReviewWarning(false); }}
-            />
-            {reviewWarning && (
-              <Text style={styles.reviewWarningText}>
-                Por seguridad, no puedes incluir datos de contacto en la reseña.
-              </Text>
-            )}
-
-            {/* Acciones */}
-            <View style={styles.modalActions}>
-              <Pressable
-                style={styles.modalCancelBtn}
-                onPress={() => setRatingModal(null)}
-              >
-                <Text style={styles.modalCancelText}>Cancelar</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.modalSubmitBtn, (ratingSaving || ratingValue === 0) && { opacity: 0.5 }]}
-                onPress={submitRating}
-                disabled={ratingSaving || ratingValue === 0}
-              >
-                {ratingSaving
-                  ? <ActivityIndicator size="small" color={COLORS.bg} />
-                  : <Text style={styles.modalSubmitText}>Enviar reseña</Text>
-                }
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
     </View>
   );
 }
@@ -631,6 +530,20 @@ function ReservationCard({ reservation: r, navigation, onUpdate, isReviewed, isJ
   // Solo mostrar faded si el evento está completado/cancelado Y la fecha ya pasó
   const isFinished = r.status === 'completed' || r.status === 'cancelled' || r.status === 'rejected';
   const isPast = isFinished && r.event_date && r.event_date < todayLocal;
+
+  // Pulso del punto EN VIVO
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    if (r.status !== 'in_progress') return;
+    const anim = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 0.3, duration: 600, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 1.0, duration: 600, useNativeDriver: true }),
+      ])
+    );
+    anim.start();
+    return () => anim.stop();
+  }, [r.status]);
 
   // Cuando el grupo acepta pero el cliente aún no pagó → badge naranja con CTA
   const isPaidStatus = isPaid(r.payment_status);
@@ -883,7 +796,15 @@ function ReservationCard({ reservation: r, navigation, onUpdate, isReviewed, isJ
   const isExpress = !!r.event_request_id;
 
   return (
-    <View style={[styles.card, isPast && { opacity: 0.5 }, isExpress && styles.cardExpress]}>
+    <View style={[styles.card, isPast && { opacity: 0.5 }, isExpress && styles.cardExpress, isLive && styles.cardLive]}>
+      {/* ── Banner EN VIVO ── */}
+      {isLive && (
+        <View style={styles.liveBanner}>
+          <Animated.View style={[styles.liveDot, { opacity: pulseAnim }]} />
+          <Text style={styles.liveBannerText}>EN VIVO AHORA</Text>
+        </View>
+      )}
+
       {/* ── Info card ── */}
       <Pressable
         style={styles.cardPressable}
@@ -907,7 +828,7 @@ function ReservationCard({ reservation: r, navigation, onUpdate, isReviewed, isJ
           <View style={styles.cardLeft}>
             <Text style={styles.groupName}>{r.group?.name ?? 'Grupo'}</Text>
             <Text style={[styles.packageName, isExpress && { marginTop: 2 }]}>
-              {isExpress ? `Solicitud express · ${r.hours_count ?? '?'}h` : (r.package?.name ?? 'Paquete')}
+              {isExpress ? `Solicitud express · ${r.hours_count ?? '?'}h` : (r.quote?.event_type ?? 'Cotización')}
             </Text>
           </View>
           <View style={{ alignItems: 'flex-end', gap: 6 }}>
@@ -942,6 +863,11 @@ function ReservationCard({ reservation: r, navigation, onUpdate, isReviewed, isJ
           </View>
         </View>
 
+        {/* Folio */}
+        {r.folio && (
+          <Text style={styles.folioText}>{r.folio}</Text>
+        )}
+
         {/* Payment status badge */}
         {isPaidReservation && (
           <View style={[styles.paidBadge, { backgroundColor: 'rgba(0,230,118,0.12)', borderColor: COLORS.green }]}>
@@ -970,25 +896,31 @@ function ReservationCard({ reservation: r, navigation, onUpdate, isReviewed, isJ
         ) : null}
       </Pressable>
 
-      {/* Ver evento (aceptada / confirmada / pagada / completada, aún no inicia) */}
-      {(isPaidReservation || r.status === 'accepted' || r.status === 'confirmed' || r.status === 'completed') && !isLive && (
+      {/* Ver evento / EN VIVO */}
+      {(isPaidReservation || isLive || r.status === 'accepted' || r.status === 'confirmed' || r.status === 'completed') && (
         <Pressable
-          style={styles.timerBtn}
+          style={[styles.timerBtn, isLive && styles.timerBtnLive]}
           onPress={() => navigation.navigate('EventTimer', { reservation: r, readOnly: true, userRole: 'client' })}
         >
-          <Text style={styles.timerBtnText}>
-            {r.status === 'completed' ? '✅ Ver resumen del evento' : isPaidReservation ? '🕐 Ver temporizador del evento' : '📅 Ver detalles del evento'}
+          <Text style={[styles.timerBtnText, isLive && styles.timerBtnTextLive]}>
+            {isLive
+              ? '🔴 Ver evento en vivo'
+              : r.status === 'completed'
+                ? '✅ Ver resumen del evento'
+                : isPaidReservation
+                  ? '🕐 Ver temporizador del evento'
+                  : '📅 Ver detalles del evento'}
           </Text>
         </Pressable>
       )}
 
-      {/* Ver evento en vivo */}
-      {isLive && (
+      {/* Ver ticket */}
+      {isPaidReservation && r.folio && (
         <Pressable
-          style={styles.liveBtn}
-          onPress={() => navigation.navigate('EventTimer', { reservation: r, readOnly: true, userRole: 'client' })}
+          style={styles.ticketBtn}
+          onPress={() => navigation.navigate('Ticket', { reservation: r })}
         >
-          <Text style={styles.liveBtnText}>🔴 Ver evento en vivo</Text>
+          <Text style={styles.ticketBtnText}>🎟 Ver ticket</Text>
         </Pressable>
       )}
 
@@ -1306,21 +1238,62 @@ const styles = StyleSheet.create({
   eventCountdownText: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.green },
 
   // ── Timer button ──
+  // ── Folio ──
+  folioText: {
+    fontFamily: FONTS.bodyMedium, fontSize: 11, color: COLORS.muted,
+    letterSpacing: 0.5, paddingHorizontal: SPACING.lg, paddingTop: 4, paddingBottom: 2,
+  },
+
+  // ── Ticket button ──
+  ticketBtn: {
+    borderTopWidth: 1, borderTopColor: COLORS.border,
+    paddingVertical: 12, paddingHorizontal: SPACING.lg,
+    alignItems: 'center',
+  },
+  ticketBtnText: { fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.muted2 },
+
   timerBtn: {
     borderTopWidth: 1, borderTopColor: COLORS.border,
     paddingVertical: 14, paddingHorizontal: SPACING.lg,
     alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8,
   },
   timerBtnText: { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: COLORS.green },
-
-  // ── Live button ──
-  liveBtn: {
-    backgroundColor: 'rgba(239,83,80,0.1)',
-    borderTopWidth: 1, borderTopColor: 'rgba(239,83,80,0.2)',
-    paddingVertical: 14, paddingHorizontal: SPACING.lg,
-    alignItems: 'center',
+  timerBtnLive: {
+    backgroundColor: '#10b981',
+    borderTopWidth: 0,
+    borderWidth: 0,
   },
-  liveBtnText: { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: '#EF5350' },
+  timerBtnTextLive: { color: '#fff', fontFamily: FONTS.bodySemiBold, fontSize: 14 },
+
+  // ── Live card ──
+  cardLive: {
+    borderWidth: 2,
+    borderColor: '#10b981',
+  },
+  liveBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#dcfce7',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderTopLeftRadius: 12,
+    borderTopRightRadius: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#86efac',
+  },
+  liveDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#dc2626',
+  },
+  liveBannerText: {
+    fontFamily: FONTS.bodySemiBold,
+    color: '#15803d',
+    fontSize: 12,
+    letterSpacing: 0.5,
+  },
 
   // ── Quote card ──
   quoteCard: {

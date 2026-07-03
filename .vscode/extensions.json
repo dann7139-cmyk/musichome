@@ -1,6 +1,11 @@
 {
   "recommendations": [
     "expo.vscode-expo-tools",
-    "denoland.vscode-deno"
+    "denoland.vscode-deno",
+    "dbaeumer.vscode-eslint",
+    "esbenp.prettier-vscode",
+    "eamodio.gitlens",
+    "usernamehw.errorlens",
+    "pmneo.tsimporter"
   ]
 }

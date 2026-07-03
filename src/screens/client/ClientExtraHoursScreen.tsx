@@ -11,6 +11,7 @@
 import { ArrowLeft, Banknote, CheckCircle, DollarSign, XCircle } from 'lucide-react-native';
 import React, { useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Pressable,
   ScrollView,
@@ -23,7 +24,7 @@ import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import Button from '../../components/ui/Button';
 import Particles from '../../components/ui/Particles';
-import { formatCurrency, SERVICE_FEE_RATE } from '../../utils/calculations';
+import { calcServiceFee, formatCurrency, SERVICE_FEE_RATE } from '../../utils/calculations';
 import { formatExtraHourRange, formatProposedAt } from '../../utils/extraHoursFormatter';
 
 // ─── Barra de progreso de saldo ───────────────────────────────────────────────
@@ -63,35 +64,66 @@ const bar = StyleSheet.create({
 // ─── Pantalla principal ────────────────────────────────────────────────────────
 
 export default function ClientExtraHoursScreen({ route, navigation }: any) {
-  const { reservation, extraHour } = route.params;
+  const params = route.params ?? {};
 
-  const [loading, setLoading]           = useState(false);
-  const [rejectLoading, setRejectLoading] = useState(false);
-  const [approved, setApproved]         = useState(false);
-  const [rejected, setRejected]         = useState(false);
+  // Soporte doble: { reservation, extraHour } (desde EventTimer) o { reservation_id, extra_hour_id } (desde notificaciones)
+  const [reservation, setReservation] = useState<any>(params.reservation ?? null);
+  const [extraHour, setExtraHour]     = useState<any>(params.extraHour ?? null);
+  const [loadingData, setLoadingData] = useState<boolean>(!params.reservation || !params.extraHour);
+
+  const [loading, setLoading]              = useState(false);
+  const [rejectLoading, setRejectLoading]  = useState(false);
+  const [approved, setApproved]            = useState(false);
+  const [rejected, setRejected]            = useState(false);
 
   // Saldo del cliente
-  const [totalPaid, setTotalPaid]           = useState<number>(reservation.total_price ?? 0);
-  const [serviceFee, setServiceFee]         = useState<number>(reservation.service_fee_amount ?? 0);
+  const [totalPaid, setTotalPaid]           = useState<number>(params.reservation?.total_price ?? 0);
+  const [serviceFee, setServiceFee]         = useState<number>(params.reservation?.service_fee_amount ?? 0);
   const [clientBalance, setClientBalance]   = useState<number | null>(null);
   const [loadingBalance, setLoadingBalance] = useState(true);
 
-  useEffect(() => { fetchBalance(); }, []);
+  // Cargar datos desde IDs si llegan de NotificationsScreen
+  useEffect(() => {
+    if (!loadingData) return;
+    const { reservation_id, extra_hour_id } = params;
+    if (!reservation_id || !extra_hour_id) { navigation.goBack(); return; }
+    Promise.all([
+      supabase.from('reservations').select('*').eq('id', reservation_id).single(),
+      supabase.from('extra_hours').select('*').eq('id', extra_hour_id).single(),
+    ]).then(([{ data: res }, { data: extra }]) => {
+      if (!res || !extra) { navigation.goBack(); return; }
+      setReservation(res);
+      setExtraHour(extra);
+      setLoadingData(false);
+    });
+  }, []);
+
+  useEffect(() => { if (reservation) fetchBalance(); }, [reservation?.id]);
 
   const fetchBalance = async () => {
+    if (!reservation) return;
     setLoadingBalance(true);
-    // Calcular saldo: total_paid - service_fee (valor inicial)
-    const fee     = reservation.service_fee_amount ?? Math.round((reservation.total_price ?? 0) * 0.10);
+    const fee     = reservation.service_fee_amount ?? calcServiceFee(reservation.total_price ?? 0);
     const initial = (reservation.total_price ?? 0) - fee;
+    setTotalPaid(reservation.total_price ?? 0);
     setServiceFee(fee);
-
-    // Saldo actual (descontando extras ya aprobadas)
     const { data } = await supabase.rpc('get_client_available_balance', {
       p_reservation_id: reservation.id,
     });
     setClientBalance(typeof data === 'number' ? data : initial);
     setLoadingBalance(false);
   };
+
+  // Spinner mientras se cargan datos por ID
+  if (loadingData || !reservation || !extraHour) {
+    return (
+      <View style={styles.container}>
+        <SafeAreaView style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <ActivityIndicator color={COLORS.green} size="large" />
+        </SafeAreaView>
+      </View>
+    );
+  }
 
   const extraTotal   = extraHour.total_extra_cost ?? 0;
   const isCash       = extraHour.is_cash_payment ?? false;

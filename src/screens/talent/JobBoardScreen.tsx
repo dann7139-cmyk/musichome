@@ -96,7 +96,8 @@ interface Invitation {
     address: string;
     reservations: Array<{
       event_time: string | null;
-      package: { name: string; duration_hours: number } | null;
+      hours_count: number | null;
+      quote: { event_type: string | null; duration_hours: number | null } | null;
     }>;
   } | null;
 }
@@ -114,7 +115,8 @@ interface GroupReservation {
   event_id: string | null;
   event_started_at: string | null;
   break_type: string | null;
-  package: { name: string; duration_hours: number } | null;
+  hours_count: number | null;
+  quote: { event_type: string | null; duration_hours: number | null } | null;
 }
 
 interface GroupQuote {
@@ -232,8 +234,8 @@ export default function TalentJobBoardScreen({ navigation }: any) {
             .from('reservations')
             .select(`
               id, status, event_date, event_time, address, total_price, group_id,
-              event_id, event_started_at, break_type,
-              package:packages(name, duration_hours)
+              event_id, event_started_at, break_type, hours_count, quote_id,
+              quote:quotes!left(event_type, duration_hours)
             `)
             .eq('group_id', groupId)
             .in('status', ['pending', 'pending_group_confirmation', 'confirmed', 'in_progress'])
@@ -876,7 +878,7 @@ export default function TalentJobBoardScreen({ navigation }: any) {
                   }]} />
                   <View style={s.resContent}>
                     <View style={s.resTopRow}>
-                      <Text style={s.resPkgName}>{res.package?.name ?? 'Reserva'}</Text>
+                      <Text style={s.resPkgName}>{res.quote?.event_type ?? 'Reserva'}</Text>
                       <View style={[s.resStatusChip, {
                         backgroundColor:
                           res.status === 'in_progress' ? 'rgba(66,133,244,0.12)' :
@@ -909,12 +911,12 @@ export default function TalentJobBoardScreen({ navigation }: any) {
                       <MapPin size={12} color={COLORS.muted2} />
                       <Text style={s.resInfoText} numberOfLines={1}>{res.address}</Text>
                     </View>
-                    {res.package?.duration_hours && (
+                    {(res.hours_count ?? res.quote?.duration_hours) ? (
                       <View style={s.resInfoRow}>
                         <Clock size={12} color={COLORS.muted2} />
-                        <Text style={s.resInfoText}>{res.package.duration_hours}h de servicio</Text>
+                        <Text style={s.resInfoText}>{res.hours_count ?? res.quote?.duration_hours}h de servicio</Text>
                       </View>
-                    )}
+                    ) : null}
                   </View>
                   <ChevronRight size={16} color={COLORS.muted} />
                 </Pressable>
@@ -1095,12 +1097,12 @@ function InvitationCard({ inv, onAccept, onReject }: { inv: Invitation; onAccept
               <MapPin size={12} color={COLORS.muted} />
               <Text style={[ic.eventText, { flex: 1 }]} numberOfLines={2}>{inv.event.address}</Text>
             </View>
-            {res?.package && (
+            {(res?.hours_count ?? res?.quote?.duration_hours) ? (
               <View style={ic.eventRow}>
                 <Music2 size={12} color={COLORS.muted} />
-                <Text style={ic.eventText}>{res.package.name} · {res.package.duration_hours}h</Text>
+                <Text style={ic.eventText}>{res?.quote?.event_type ?? 'Cotización'} · {res?.hours_count ?? res?.quote?.duration_hours}h</Text>
               </View>
-            )}
+            ) : null}
           </View>
         );
       })()}

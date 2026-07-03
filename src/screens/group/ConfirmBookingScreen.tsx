@@ -16,8 +16,8 @@ import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import Badge from '../../components/ui/Badge';
 import Button from '../../components/ui/Button';
-import FinancialBreakdown from '../../components/financial/FinancialBreakdown';
 import Particles from '../../components/ui/Particles';
+import { breakTypeLabel } from '../../utils/calculations';
 
 const STATUS_MAP: Record<string, { label: string; variant: any }> = {
   pending:                     { label: 'Pendiente',      variant: 'orange' },
@@ -77,7 +77,7 @@ export default function GroupConfirmBookingScreen({ route, navigation }: any) {
     // Se intenta unir con quotes para que el temporizador tenga la duración correcta en reservas de cotización
     const { data: freshRes } = await supabase
       .from('reservations')
-      .select('*, client:profiles(full_name), package:packages(name, duration_hours), quote:quotes(duration_hours, overtime_1h_price, overtime_2h_price, overtime_3h_price, event_address, event_municipio, event_estado, comments)')
+      .select('*, client:profiles(full_name), quote:quotes(duration_hours, overtime_1h_price, overtime_2h_price, overtime_3h_price, event_address, event_municipio, event_estado, comments)')
       .eq('id', initialReservation.id)
       .single();
     if (freshRes) setReservation({ ...initialReservation, ...freshRes });
@@ -533,10 +533,23 @@ export default function GroupConfirmBookingScreen({ route, navigation }: any) {
 
           {/* PACKAGE */}
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>Paquete contratado</Text>
-            <Text style={styles.pkgName}>{reservation.package?.name ?? '—'}</Text>
-            {reservation.package?.duration_hours && (
-              <Text style={styles.pkgDuration}>{reservation.package.duration_hours}h de servicio</Text>
+            <Text style={styles.cardTitle}>Detalles del evento</Text>
+            <Text style={styles.pkgName}>
+              {reservation.quote?.duration_hours ? `${reservation.quote.duration_hours}h de servicio` : '—'}
+            </Text>
+            {false && reservation.break_type && (
+              <View style={styles.breakBox}>
+                <Text style={styles.breakBoxIcon}>☕</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.breakBoxLabel}>Tipo de descanso elegido</Text>
+                  <Text style={styles.breakBoxValue}>{breakTypeLabel(reservation.break_type)}</Text>
+                  {reservation.break_type === 'D' && (
+                    <Text style={styles.breakBoxNote}>
+                      Sin pausas — asegúrate de que el equipo esté preparado para tocar corrido
+                    </Text>
+                  )}
+                </View>
+              </View>
             )}
           </View>
 
@@ -553,13 +566,13 @@ export default function GroupConfirmBookingScreen({ route, navigation }: any) {
             </View>
           )}
 
-          {/* WHAT THE CLIENT PAID */}
+          {/* GANANCIA DEL GRUPO */}
           {!readOnly && (
             <View style={styles.clientPriceSummary}>
-              <Text style={styles.clientPriceTitle}>Lo que pagó el cliente</Text>
+              <Text style={styles.clientPriceTitle}>Tu ganancia</Text>
               <View style={styles.clientPriceTotalRow}>
-                <Text style={styles.clientPriceTotalLabel}>Total</Text>
-                <Text style={styles.clientPriceTotalValue}>${(reservation.total_price ?? 0).toLocaleString()}</Text>
+                <Text style={styles.clientPriceTotalLabel}>Ganarás</Text>
+                <Text style={styles.clientPriceTotalValue}>${(reservation.group_earnings ?? 0).toLocaleString()} MXN</Text>
               </View>
             </View>
           )}
@@ -575,20 +588,6 @@ export default function GroupConfirmBookingScreen({ route, navigation }: any) {
                 </Text>
               </View>
             </View>
-          )}
-
-          {/* FINANCIAL (sólo para el dueño del grupo) */}
-          {!readOnly && (
-            <>
-              <Text style={styles.sectionTitle}>Desglose financiero</Text>
-              <FinancialBreakdown
-                totalPrice={reservation.total_price}
-                groupEarnings={reservation.group_earnings}
-                commissionAmount={reservation.commission_amount}
-                durationHours={reservation.package?.duration_hours}
-                memberCount={totalMembers > 0 ? totalMembers : undefined}
-              />
-            </>
           )}
 
           {/* DISTRIBUCIÓN EXPRESS — solo para el dueño, solo en cotizaciones express */}
@@ -660,11 +659,7 @@ export default function GroupConfirmBookingScreen({ route, navigation }: any) {
               <View style={{ flex: 1 }}>
                 <Text style={styles.payWaitTitle}>Esperando pago del cliente</Text>
                 <Text style={styles.payWaitDesc}>
-                  El cliente debe completar el pago
-                  {reservation.total_price
-                    ? ` ($${reservation.total_price.toLocaleString()} MXN)`
-                    : ''
-                  } para confirmar el evento.
+                  El cliente debe completar el pago para confirmar el evento.
                 </Text>
               </View>
             </View>

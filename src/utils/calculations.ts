@@ -1,11 +1,10 @@
 // ── Tarifa de servicio (comisión plataforma) ──────────────────────────────────
 //
-// CAMBIO: Tarifa unificada al 10% visible (antes Express era 15% oculto).
-// La tarifa es INCLUSIVA: se toma del precio total, el grupo recibe el 90%.
-// Siempre mostrar como "Tarifa de servicio" en UI, nunca "comisión DARICEFY".
+// Modelo markup 20%: cliente paga grupoNeto × 1.20; grupo recibe 100% de su precio neto.
+// La comisión es interna — nunca mostrar montos ni porcentajes en UI cliente/grupo.
 
-/** Tarifa de servicio fija: 10% del total (inclusive) */
-export const SERVICE_FEE_RATE = 0.10;
+/** Markup de plataforma: 20% sobre precio neto del grupo. */
+export const SERVICE_FEE_RATE = 0.20;
 
 // ── MSI (Meses Sin Intereses) ─────────────────────────────────────────────────
 //
@@ -27,13 +26,13 @@ export interface MsiOption {
 export const MSI_OPTIONS: MsiOption[] = [
   { months: 1,  label: '1 pago',  key: '1_pago',  feeRate: 0    },
   { months: 3,  label: '3 MSI',   key: '3_msi',   feeRate: 0.05 },
-  { months: 6,  label: '6 MSI',   key: '6_msi',   feeRate: 0.08 },
-  { months: 9,  label: '9 MSI',   key: '9_msi',   feeRate: 0.11 },
-  { months: 12, label: '12 MSI',  key: '12_msi',  feeRate: 0.14 },
+  { months: 6,  label: '6 MSI',   key: '6_msi',   feeRate: 0.06 },
+  { months: 9,  label: '9 MSI',   key: '9_msi',   feeRate: 0.09 },
+  { months: 12, label: '12 MSI',  key: '12_msi',  feeRate: 0.12 },
 ];
 
 // Tasas MSI — espejo de PUBLIC_MSI_FEE_RATES (publicPricing.ts) para uso interno.
-const _MSI_RATES: Record<number, number> = { 1: 0, 3: 0.05, 6: 0.08, 9: 0.11, 12: 0.14 };
+const _MSI_RATES: Record<number, number> = { 1: 0, 3: 0.05, 6: 0.06, 9: 0.09, 12: 0.12 };
 
 /**
  * Calcula el cargo MSI adicional que paga el cliente.
@@ -51,14 +50,15 @@ export function calcMonthlyMsi(baseAmount: number, months: number): number {
   return Math.ceil((baseAmount + calcMsiFee(baseAmount, months)) / months);
 }
 
-/** Calcula la tarifa de servicio a partir del precio total del cliente. */
-export function calcServiceFee(totalPrice: number): number {
-  return Math.round(totalPrice * SERVICE_FEE_RATE * 100) / 100;
+/** Comisión de plataforma dado el precio total que paga el cliente.
+ *  Modelo markup 20%: plataforma = clienteTotal − grupoNeto = clienteTotal − clienteTotal/1.20. */
+export function calcServiceFee(clientTotal: number): number {
+  return clientTotal - calcGroupEarnings(clientTotal);
 }
 
-/** Calcula las ganancias netas del grupo (90% del total). */
-export function calcGroupEarnings(totalPrice: number): number {
-  return totalPrice - calcServiceFee(totalPrice);
+/** Precio neto del grupo dado el precio total del cliente (grupo recibe 100% de su precio neto). */
+export function calcGroupEarnings(clientTotal: number): number {
+  return Math.round(clientTotal / 1.20);
 }
 
 /** Etiqueta UI que siempre se debe mostrar en lugar de "comisión". */
@@ -131,54 +131,37 @@ export function getAnticipationAdj(days: number, basePrice: number): Anticipatio
   };
 }
 
-/** Tasa base de comisión — fallback cuando el precio es 0 o no encaja. */
+/** @deprecated Usar SERVICE_FEE_RATE (0.20). */
 export const PLATFORM_FEE_RATE = 0.07;
 
-/**
- * Tiers de comisión dinámica según precio base del grupo.
- * Deben coincidir exactamente con la tabla commission_tiers en Supabase.
- */
+/** @deprecated Comisión ahora es fija al 20% markup. */
 export const COMMISSION_TIERS: Array<{ maxPrice: number; rate: number }> = [
-  { maxPrice: 3_000,    rate: 0.07 },
-  { maxPrice: 6_000,    rate: 0.08 },
-  { maxPrice: 10_000,   rate: 0.09 },
-  { maxPrice: Infinity, rate: 0.10 },
+  { maxPrice: Infinity, rate: SERVICE_FEE_RATE },
 ];
 
-/**
- * Retorna el rate de comisión según el precio base del grupo.
- * $0–$3,000 → 7%  |  $3,001–$6,000 → 8%
- * $6,001–$10,000 → 9%  |  $10,001+ → 10%
- */
-export function getCommissionRate(basePrice: number): number {
-  return COMMISSION_TIERS.find(t => basePrice <= t.maxPrice)?.rate ?? PLATFORM_FEE_RATE;
+/** @deprecated Usar SERVICE_FEE_RATE (0.20) directamente. */
+export function getCommissionRate(_basePrice: number): number {
+  return SERVICE_FEE_RATE;
 }
 
-/**
- * Calcula el precio que paga el cliente (precio del grupo + comisión dinámica).
- * El grupo siempre recibe su precio base completo.
- */
-export function calcClientPrice(groupPrice: number): number {
-  return Math.round(groupPrice * (1 + getCommissionRate(groupPrice)));
+/** Precio al cliente dado el precio neto del grupo (markup 20%). */
+export function calcClientPrice(groupNet: number): number {
+  return Math.round(groupNet * 1.20);
 }
 
-/**
- * Calcula la comisión de plataforma según el tier del precio base.
- */
-export function calcPlatformFee(groupPrice: number): number {
-  return Math.round(groupPrice * getCommissionRate(groupPrice));
+/** Comisión de plataforma dado el precio neto del grupo (20% del neto). */
+export function calcPlatformFee(groupNet: number): number {
+  return Math.round(groupNet * SERVICE_FEE_RATE);
 }
 
-/**
- * Calcula costo, comisión y ganancia de horas extra con comisión dinámica.
- */
+/** Costo, comisión y ganancia de horas extra (modelo markup 20%).
+ *  pricePerHour = precio neto del grupo por hora. */
 export function calcExtraHour(pricePerHour: number, hours: number, _legacyRate?: number) {
-  const totalExtra    = pricePerHour * hours;
-  const rate          = getCommissionRate(pricePerHour);
-  const commission    = Math.round(totalExtra * rate);
-  const groupEarnings = totalExtra;
-  const clientTotal   = Math.round(totalExtra * (1 + rate));
-  return { totalExtra, commission, groupEarnings, clientTotal };
+  const groupNet      = pricePerHour * hours;
+  const clientTotal   = Math.round(groupNet * 1.20);
+  const commission    = clientTotal - groupNet;
+  const groupEarnings = groupNet;
+  return { totalExtra: groupNet, commission, groupEarnings, clientTotal };
 }
 
 /** @deprecated */
@@ -244,7 +227,6 @@ export function breakTypeLabel(type: string): string {
   const map: Record<string, string> = {
     A: '15 min cada hora',
     B: '15 min único (a la mitad)',
-    C: '20 min único (a la mitad)',
     D: 'Sin descanso (3h exactas)',
   };
   return map[type] ?? type;
@@ -253,9 +235,8 @@ export function breakTypeLabel(type: string): string {
 /** Recargo fijo en $ según tipo de descanso */
 export const BREAK_SURCHARGE_FIXED: Record<string, number> = {
   A: 0,
-  B: 100,
-  C: 0,
-  D: 200,
+  B: 0,
+  D: 0,
 };
 
 /** Precio ajustado sumando el recargo fijo */
@@ -278,6 +259,7 @@ export type ScheduleSegment = {
   toMin: number;
   fromTime: string;  // "8:00 PM"
   toTime: string;
+  isExtra?: boolean;
 };
 
 function formatClock(date: Date): string {
@@ -293,7 +275,7 @@ function formatClock(date: Date): string {
  * Genera el horario de segmentos (música / descanso) para el evento.
  * @param startTime - Hora de inicio real del evento
  * @param contractHours - Horas contratadas (ej: 3)
- * @param breakType - Tipo de descanso: A, B, C, D
+ * @param breakType - Tipo de descanso: A, B, D
  */
 export function generateBreakSchedule(
   startTime: Date,
@@ -304,7 +286,7 @@ export function generateBreakSchedule(
   const segments: ScheduleSegment[] = [];
   let cursor = 0; // minutos desde inicio
 
-  const addSeg = (type: 'music' | 'break', durationMin: number) => {
+  const addSeg = (type: 'music' | 'break', durationMin: number, isExtra = false) => {
     const from = new Date(startTime.getTime() + cursor * 60000);
     const to = new Date(startTime.getTime() + (cursor + durationMin) * 60000);
     segments.push({
@@ -313,6 +295,7 @@ export function generateBreakSchedule(
       toMin: cursor + durationMin,
       fromTime: formatClock(from),
       toTime: formatClock(to),
+      ...(isExtra ? { isExtra: true } : {}),
     });
     cursor += durationMin;
   };
@@ -338,16 +321,6 @@ export function generateBreakSchedule(
       }
       break;
 
-    case 'C':
-      // Un descanso de 20 min a la mitad
-      {
-        const halfMusic = (contractHours * 60 - 20) / 2;
-        addSeg('music', halfMusic);
-        addSeg('break', 20);
-        addSeg('music', halfMusic);
-      }
-      break;
-
     case 'D':
     default:
       // Sin descanso
@@ -357,8 +330,8 @@ export function generateBreakSchedule(
 
   // Horas extra: siempre 15 min descanso + 60 min música por cada hora extra
   for (let i = 0; i < extraHours; i++) {
-    addSeg('break', 15);  // descanso antes de hora extra
-    addSeg('music', 60);  // la hora extra
+    addSeg('break', 15, true);  // descanso antes de hora extra
+    addSeg('music', 60, true);  // la hora extra
   }
 
   return segments;

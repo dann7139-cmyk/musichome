@@ -1,6 +1,6 @@
 import { Audio } from 'expo-av';
-import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, StyleProp, StyleSheet, Text, View, ViewStyle } from 'react-native';
 import { VideoView, useVideoPlayer } from 'expo-video';
 
 interface Props {
@@ -12,6 +12,7 @@ interface Props {
   muted?: boolean;
   loop?: boolean;
   startTime?: number;   // segundos — el player busca este punto al arrancar
+  onEnd?: () => void;   // se llama cuando el video termina (solo sin loop)
 }
 
 export default function VideoPlayer({
@@ -23,8 +24,19 @@ export default function VideoPlayer({
   muted = false,
   loop = false,
   startTime = 0,
+  onEnd,
 }: Props) {
   const [loading, setLoading] = useState(true);
+  const [hasError, setHasError] = useState(false);
+
+  // Ref para evitar re-registrar el listener cuando el padre re-renderiza
+  const onEndRef = useRef(onEnd);
+  useEffect(() => { onEndRef.current = onEnd; }, [onEnd]);
+
+  useEffect(() => {
+    setLoading(true);
+    setHasError(false);
+  }, [uri]);
 
   // Activa el modo de audio para que el video suene aunque el teléfono
   // esté en silencio (iOS) o el canal de audio esté en media (Android).
@@ -45,10 +57,20 @@ export default function VideoPlayer({
   });
 
   useEffect(() => {
-    const sub = player.addListener('statusChange', ({ status }) => {
+    const statusSub = player.addListener('statusChange', ({ status }) => {
+      if (status === 'error') {
+        console.warn('VideoPlayer: failed to load', uri);
+        setHasError(true);
+      }
       if (status !== 'loading') setLoading(false);
     });
-    return () => sub.remove();
+    const endSub = player.addListener('playToEnd', () => {
+      onEndRef.current?.();
+    });
+    return () => {
+      statusSub.remove();
+      endSub.remove();
+    };
   }, [player]);
 
   return (
@@ -59,9 +81,14 @@ export default function VideoPlayer({
         contentFit={contentFit}
         nativeControls={nativeControls}
       />
-      {loading && (
+      {loading && !hasError && (
         <View style={st.loader} pointerEvents="none">
           <ActivityIndicator size="large" color="#00E676" />
+        </View>
+      )}
+      {hasError && (
+        <View style={st.error} pointerEvents="none">
+          <Text style={st.errorText}>No se pudo cargar el video</Text>
         </View>
       )}
     </View>
@@ -73,5 +100,14 @@ const st = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center', justifyContent: 'center',
     backgroundColor: 'rgba(0,0,0,0.55)',
+  },
+  error: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.7)',
+  },
+  errorText: {
+    color: '#ff5252',
+    fontSize: 13,
   },
 });

@@ -21,7 +21,7 @@ export interface FilterResult {
 
 // ── Capa 3: Separadores y dígitos consecutivos ────────────────────────────────
 const STRIP_SEPARATORS = /[\s\-\(\)\+\.\,]/g;
-const DIGITS_REGEX      = /\d{7,}/;
+const DIGITS_REGEX      = /\d{3,}/;
 
 // ── Capa 5: Ventana de 30 chars — cuenta dígitos totales (bypass con espacios) ─
 // "55 5123 4567" tiene 10 dígitos en 12 chars → bloqueado
@@ -106,7 +106,7 @@ export function analyzeMessage(text: string): FilterResult {
   // Capa 3 — Dígitos consecutivos (quita separadores)
   const stripped = text.replace(STRIP_SEPARATORS, '');
   if (DIGITS_REGEX.test(stripped)) {
-    return { blocked: true, type: 'phone', pattern: '7+ dígitos consecutivos' };
+    return { blocked: true, type: 'phone', pattern: '3+ dígitos consecutivos' };
   }
 
   // Capa 4 — Números en palabras ("nueve uno dos tres cuatro cinco cinco")
@@ -142,5 +142,4 @@ export function containsBlockedContact(text: string): boolean {
  * Mensaje de advertencia al usuario.
  */
 export const PHONE_WARNING =
-  'Por seguridad, no puedes compartir datos de contacto en el chat. '
-  + 'Usa la app para coordinar los detalles del evento.';
+  'No puedes compartir números de teléfono. Esto va contra los términos de servicio.';

@@ -15,6 +15,7 @@ import {
 } from 'lucide-react-native';
 import React, { useEffect, useState } from 'react';
 import {
+  Alert,
   Dimensions,
   Pressable,
   RefreshControl,
@@ -61,6 +62,10 @@ export default function AdminDashboardScreen({ navigation }: any) {
   const [openDisputes,  setOpenDisputes]  = useState<any[]>([]);
   const [pendingMedia,  setPendingMedia]  = useState(0);
   const [pendingAds,    setPendingAds]    = useState(0);
+  const [noShows,       setNoShows]       = useState<any[]>([]);
+  const [noShowsHistory,setNoShowsHistory]= useState<any[]>([]);
+  const [noShowsTab,    setNoShowsTab]    = useState<'pending' | 'history'>('pending');
+  const [resolvingId,   setResolvingId]   = useState<string | null>(null);
 
   useEffect(() => { fetchAll(); }, []);
   useEffect(() => {
@@ -164,14 +169,100 @@ export default function AdminDashboardScreen({ navigation }: any) {
     setTodayEvents(todayData.data ?? []);
     setPendingVerif(verData.data ?? []);
     setOpenDisputes(disputeData.data ?? []);
+
+    const { data: nsData }     = await supabase.rpc('admin_get_no_shows',         { p_limit: 50 });
+    const { data: nsHistData } = await supabase.rpc('admin_get_no_shows_history', { p_limit: 50 });
+    setNoShows(nsData?.items ?? []);
+    setNoShowsHistory(nsHistData?.items ?? []);
   };
 
   const onRefresh = async () => { setRefreshing(true); await fetchAll(); setRefreshing(false); };
 
+  const resolveNoShow = async (
+    reservationId: string,
+    groupId: string,
+    resolution: 'refunded_100' | 'no_refund' | 'reviewed',
+    applyStrike: boolean,
+  ) => {
+    setResolvingId(reservationId);
+    try {
+      if (resolution === 'refunded_100') {
+        const { error: refundErr } = await supabase.functions.invoke('process-refund', {
+          body: { reservation_id: reservationId },
+        });
+        if (refundErr) {
+          Alert.alert('Error en reembolso', 'No se pudo procesar el reembolso. Verifica en el panel de MercadoPago.');
+          return;
+        }
+      }
+      if (applyStrike) {
+        await supabase.rpc('admin_apply_strike', {
+          p_group_id:       groupId,
+          p_strike_type:    'no_show',
+          p_reservation_id: reservationId,
+          p_note:           resolution === 'no_refund'
+            ? 'Strike fuerte — sin reembolso al cliente'
+            : 'Strike por no presentación al evento',
+        });
+      }
+      await supabase.rpc('admin_resolve_no_show', {
+        p_reservation_id: reservationId,
+        p_resolution:     resolution,
+      });
+      Alert.alert(
+        'Resuelto',
+        resolution === 'refunded_100' ? 'Reembolso procesado y strike aplicado.' :
+        resolution === 'no_refund'    ? 'Strike aplicado. Sin reembolso al cliente.' :
+                                        'No-show marcado como revisado.',
+      );
+      await fetchAll();
+    } finally {
+      setResolvingId(null);
+    }
+  };
+
+  const handleNoShowMenu = (ns: any) => {
+    const precio = `$${(ns.total_price ?? 0).toLocaleString('es-MX', { maximumFractionDigits: 0 })}`;
+    Alert.alert(
+      '¿Cómo resolver este no-show?',
+      `${ns.group_name ?? 'Grupo'} · ${ns.folio ?? ns.id.substring(0, 8)}\nCliente: ${ns.client_name ?? '—'} · ${precio}`,
+      [
+        {
+          text: '✅ Reembolsar 100% + Strike',
+          onPress: () => Alert.alert(
+            'Confirmar reembolso',
+            `Se reembolsarán ${precio} al cliente y se aplicará un strike al grupo.`,
+            [
+              { text: 'Cancelar', style: 'cancel' },
+              { text: 'Confirmar', onPress: () => resolveNoShow(ns.id, ns.group_id, 'refunded_100', true) },
+            ]
+          ),
+        },
+        {
+          text: '⛔ Sin reembolso + Strike',
+          style: 'destructive',
+          onPress: () => Alert.alert(
+            'Confirmar sin reembolso',
+            'Se aplicará un strike al grupo. El cliente NO recibirá reembolso.',
+            [
+              { text: 'Cancelar', style: 'cancel' },
+              { text: 'Aplicar', style: 'destructive', onPress: () => resolveNoShow(ns.id, ns.group_id, 'no_refund', true) },
+            ]
+          ),
+        },
+        {
+          text: '❌ Cerrar sin acción',
+          style: 'cancel',
+          onPress: () => resolveNoShow(ns.id, ns.group_id, 'reviewed', false),
+        },
+      ]
+    );
+  };
+
   const maxBar = Math.max(...monthlyBars.map(b => b.count), 1);
   const maxTopCount = Math.max(...topGroups.map(g => g.count), 1);
   const totalRes = Object.values(statusCounts).reduce((a, b) => a + b, 0);
-  const hasAlerts = pendingVerif.length > 0 || openDisputes.length > 0 || statusCounts.pending > 0 || pendingMedia > 0 || pendingAds > 0;
+  const hasAlerts = pendingVerif.length > 0 || openDisputes.length > 0 || statusCounts.pending > 0 || pendingMedia > 0 || pendingAds > 0 || noShows.length > 0;
 
   const today = new Date();
   const dateStr = today.toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long' });
@@ -320,6 +411,12 @@ export default function AdminDashboardScreen({ navigation }: any) {
                     <Text style={s.alertChipLbl}>Anuncios</Text>
                   </Pressable>
                 )}
+                {noShows.length > 0 && (
+                  <View style={[s.alertChip, { borderColor: 'rgba(255,82,82,0.5)' }]}>
+                    <Text style={[s.alertChipNum, { color: COLORS.red }]}>{noShows.length}</Text>
+                    <Text style={s.alertChipLbl}>No-Shows</Text>
+                  </View>
+                )}
               </View>
             </View>
           )}
@@ -453,6 +550,114 @@ export default function AdminDashboardScreen({ navigation }: any) {
                   <Badge label="Pendiente" variant="orange" />
                 </Pressable>
               ))}
+            </View>
+          )}
+
+          {/* ── NO-SHOWS ──────────────────────────────────────────────────── */}
+          {(noShows.length > 0 || noShowsHistory.length > 0) && (
+            <View style={[s.section, noShows.length > 0 && s.noShowSection]}>
+              <View style={s.sectionHeader}>
+                <AlertCircle size={14} color={noShows.length > 0 ? COLORS.red : COLORS.muted2} />
+                <Text style={[s.sectionTitle, noShows.length > 0 && { color: COLORS.red }]}>
+                  No-Shows
+                </Text>
+              </View>
+
+              {/* Toggle pendientes / historial */}
+              <View style={s.nsTabRow}>
+                <Pressable
+                  style={[s.nsTab, noShowsTab === 'pending' && s.nsTabActive]}
+                  onPress={() => setNoShowsTab('pending')}
+                >
+                  <Text style={[s.nsTabText, noShowsTab === 'pending' && s.nsTabTextActive]}>
+                    ⚠️ Pendientes ({noShows.length})
+                  </Text>
+                </Pressable>
+                <Pressable
+                  style={[s.nsTab, noShowsTab === 'history' && s.nsTabActive]}
+                  onPress={() => setNoShowsTab('history')}
+                >
+                  <Text style={[s.nsTabText, noShowsTab === 'history' && s.nsTabTextActive]}>
+                    📋 Historial ({noShowsHistory.length})
+                  </Text>
+                </Pressable>
+              </View>
+
+              {/* ── Pendientes ── */}
+              {noShowsTab === 'pending' && (
+                noShows.length === 0
+                  ? <Text style={s.nsEmpty}>Sin no-shows pendientes.</Text>
+                  : noShows.map((ns: any) => (
+                      <View key={ns.id} style={s.noShowRow}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={s.noShowFolio}>{ns.folio ?? ns.id.substring(0, 8)}</Text>
+                          <Text style={s.noShowGroup}>{ns.group_name ?? '—'}</Text>
+                          <Text style={s.noShowMeta}>
+                            {ns.client_name ?? '—'}  ·  {ns.event_date}{ns.event_time ? `  ${ns.event_time}` : ''}
+                          </Text>
+                          <Text style={s.noShowMeta}>
+                            ${(ns.total_price ?? 0).toLocaleString('es-MX', { maximumFractionDigits: 0 })}  ·  payout: {ns.payout_status}{ns.has_strike ? '  · ⚡ Strike previo' : ''}
+                          </Text>
+                        </View>
+                        <View style={s.noShowActions}>
+                          <Pressable
+                            style={[s.resolveBtn, resolvingId === ns.id && { opacity: 0.45 }]}
+                            onPress={() => handleNoShowMenu(ns)}
+                            disabled={resolvingId === ns.id}
+                          >
+                            <Text style={s.resolveBtnText}>
+                              {resolvingId === ns.id ? '…' : 'Resolver →'}
+                            </Text>
+                          </Pressable>
+                          <Pressable
+                            style={s.detailBtn}
+                            onPress={() => navigation.navigate('AdminTicketSearch', { reservationId: ns.id })}
+                          >
+                            <Text style={s.detailBtnText}>Ver</Text>
+                          </Pressable>
+                        </View>
+                      </View>
+                    ))
+              )}
+
+              {/* ── Historial ── */}
+              {noShowsTab === 'history' && (
+                noShowsHistory.length === 0
+                  ? <Text style={s.nsEmpty}>Sin no-shows resueltos aún.</Text>
+                  : noShowsHistory.map((ns: any) => {
+                      const res      = ns.admin_no_show_resolution as string;
+                      const resIcon  = res === 'refunded_100' ? '💚' : res === 'no_refund' ? '⛔' : '❌';
+                      const resLabel = res === 'refunded_100' ? 'Reembolsado' : res === 'no_refund' ? 'Sin reembolso' : 'Cerrado';
+                      const resolvedDate = ns.admin_no_show_resolved_at
+                        ? new Date(ns.admin_no_show_resolved_at).toLocaleDateString('es-MX', {
+                            day: '2-digit', month: '2-digit', year: '2-digit',
+                          })
+                        : '—';
+                      return (
+                        <View key={ns.id} style={[s.noShowRow, s.nsHistoryRow]}>
+                          <View style={{ flex: 1 }}>
+                            <View style={s.nsHistHeader}>
+                              <Text style={s.noShowFolio}>{ns.folio ?? ns.id.substring(0, 8)}</Text>
+                              <View style={s.nsResolutionBadge}>
+                                <Text style={s.nsResolutionText}>{resIcon} {resLabel}</Text>
+                              </View>
+                            </View>
+                            <Text style={s.noShowGroup}>{ns.group_name ?? '—'}</Text>
+                            <Text style={s.noShowMeta}>
+                              {ns.client_name ?? '—'}  ·  {ns.event_date}
+                              {ns.has_strike ? '  · ⚡ Strike' : ''}
+                            </Text>
+                            <Text style={s.noShowMeta}>
+                              ${(ns.total_price ?? 0).toLocaleString('es-MX', { maximumFractionDigits: 0 })}
+                            </Text>
+                            <Text style={s.nsResolvedBy}>
+                              Resolvió: {ns.resolver_name ?? 'Admin'}  ·  {resolvedDate}
+                            </Text>
+                          </View>
+                        </View>
+                      );
+                    })
+              )}
             </View>
           )}
 
@@ -615,6 +820,48 @@ const s = StyleSheet.create({
     paddingHorizontal: 16, paddingVertical: 9,
   },
   walletWithdrawText: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.bg },
+
+  // No-shows
+  noShowSection: { borderColor: 'rgba(255,82,82,0.35)' },
+  noShowRow: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: COLORS.border, gap: 10,
+  },
+  noShowFolio:   { fontFamily: FONTS.bodySemiBold, fontSize: 12, color: COLORS.text },
+  noShowGroup:   { fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.text, marginTop: 2 },
+  noShowMeta:    { fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted2, marginTop: 1 },
+  noShowActions: { flexDirection: 'row', gap: 6 },
+  resolveBtn: {
+    backgroundColor: 'rgba(0,230,118,0.10)', borderRadius: RADIUS.md,
+    paddingHorizontal: 10, paddingVertical: 7,
+    borderWidth: 1, borderColor: 'rgba(0,230,118,0.35)',
+  },
+  resolveBtnText: { fontFamily: FONTS.bodySemiBold, fontSize: 11, color: COLORS.green },
+  detailBtn: {
+    backgroundColor: COLORS.card2, borderRadius: RADIUS.md,
+    paddingHorizontal: 10, paddingVertical: 7,
+    borderWidth: 1, borderColor: COLORS.border,
+  },
+  detailBtnText: { fontFamily: FONTS.bodyMedium, fontSize: 11, color: COLORS.muted2 },
+
+  // No-show tabs & history
+  nsTabRow: { flexDirection: 'row', gap: 8, marginBottom: 14 },
+  nsTab: {
+    flex: 1, paddingVertical: 8, borderRadius: RADIUS.md,
+    borderWidth: 1, borderColor: COLORS.border, alignItems: 'center',
+  },
+  nsTabActive:     { borderColor: COLORS.green, backgroundColor: 'rgba(0,230,118,0.08)' },
+  nsTabText:       { fontFamily: FONTS.bodyMedium, fontSize: 12, color: COLORS.muted2 },
+  nsTabTextActive: { color: COLORS.green },
+  nsEmpty:         { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2, textAlign: 'center', paddingVertical: 12 },
+  nsHistoryRow:    { opacity: 0.85 },
+  nsHistHeader:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 },
+  nsResolutionBadge: {
+    backgroundColor: 'rgba(176,190,197,0.08)', borderRadius: RADIUS.sm,
+    paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: COLORS.border,
+  },
+  nsResolutionText: { fontFamily: FONTS.bodyMedium, fontSize: 11, color: COLORS.muted2 },
+  nsResolvedBy:     { fontFamily: FONTS.body, fontSize: 10, color: COLORS.muted, marginTop: 3 },
 
   // Actions
   actionGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },

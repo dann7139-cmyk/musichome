@@ -68,7 +68,7 @@ export default function GroupCalendarScreen({ navigation }: any) {
     // Reservaciones activas
     const { data: resData } = await supabase
       .from('reservations')
-      .select('event_date, status, group_earnings, event_time, address, client_id, package:packages(name, duration_hours)')
+      .select('event_date, status, group_earnings, event_time, address, client_id, quote_id, hours_count, quote:quotes!left(event_type, duration_hours)')
       .eq('group_id', grp.id)
       .in('status', ['pending', 'confirmed', 'in_progress']);
 
@@ -231,7 +231,7 @@ export default function GroupCalendarScreen({ navigation }: any) {
                     </View>
                     <View style={styles.resInfo}>
                       <Text style={styles.resClient}>{r.client?.full_name ?? 'Cliente'}</Text>
-                      <Text style={styles.resPkg}>{r.package?.name ?? '—'}</Text>
+                      <Text style={styles.resPkg}>{r.quote?.event_type ?? '—'}</Text>
                       {r.event_time && <Text style={styles.resMeta}>{r.event_time}</Text>}
                     </View>
                     <Badge label={s.label} variant={s.variant} />
@@ -279,7 +279,7 @@ export default function GroupCalendarScreen({ navigation }: any) {
                     <Badge label={s.label} variant={s.variant} dot />
                   </View>
                   <DetailRow label="Cliente" value={r.client?.full_name ?? '—'} />
-                  <DetailRow label="Paquete" value={`${r.package?.name ?? '—'}${r.package?.duration_hours ? ` · ${r.package.duration_hours}h` : ''}`} />
+                  <DetailRow label="Tipo de evento" value={`${r.quote?.event_type ?? '—'}${r.quote?.duration_hours ? ` · ${r.quote.duration_hours}h` : ''}`} />
                   <DetailRow label="Fecha" value={r.event_date ?? '—'} />
                   {r.event_time && <DetailRow label="Hora" value={r.event_time} />}
                   {r.address && <DetailRow label="Lugar" value={r.address} />}

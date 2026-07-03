@@ -12,7 +12,9 @@ import {
   View,
 } from 'react-native';
 import { useNavigation, useNavigationState } from '@react-navigation/native';
+import * as Location from 'expo-location';
 import { useExpress, ExpressDispatch } from '../../context/ExpressContext';
+import { supabase } from '../../config/supabase';
 import { COLORS, FONTS } from '../../config/theme';
 import ExpressCard, { CARD_WIDTH, CARD_GAP, LIST_PADDING } from './ExpressCard';
 
@@ -41,17 +43,20 @@ const LiveDot = React.memo(function LiveDot() {
 });
 
 // ── Per-card Animated wrapper ─────────────────────────────────────────────────
+type UserLoc = { latitude: number; longitude: number } | null;
+
 const AnimatedCard = React.memo(function AnimatedCard({
-  item, index, scrollX, isBlocked, isFocused, onCotizar, onDetails, onDismiss,
+  item, index, scrollX, isBlocked, isFocused, onCotizar, onDismiss, userLocation, groupPhotoUrl,
 }: {
-  item:      ExpressDispatch;
-  index:     number;
-  scrollX:   Animated.Value;
-  isBlocked: boolean;
-  isFocused: boolean;
-  onCotizar: (id: string) => void;
-  onDetails: (id: string) => void;
-  onDismiss: (id: string) => void;
+  item:           ExpressDispatch;
+  index:          number;
+  scrollX:        Animated.Value;
+  isBlocked:      boolean;
+  isFocused:      boolean;
+  onCotizar:      (id: string) => void;
+  onDismiss:      (id: string) => void;
+  userLocation:   UserLoc;
+  groupPhotoUrl:  string | null;
 }) {
   const iRange = [
     (index - 1) * SNAP_INTERVAL,
@@ -68,8 +73,9 @@ const AnimatedCard = React.memo(function AnimatedCard({
         isBlocked={isBlocked}
         isFocused={isFocused}
         onCotizar={onCotizar}
-        onDetails={onDetails}
         onDismiss={onDismiss}
+        userLocation={userLocation}
+        groupPhotoUrl={groupPhotoUrl}
       />
     </Animated.View>
   );
@@ -85,6 +91,38 @@ export default function ExpressCarousel() {
   const isExpressScreenOpen = useNavigationState(
     state => state?.routes?.some(r => r.name === 'IncomingExpress') ?? false
   );
+
+  // After closing IncomingExpress, wait 5 s before re-showing the carousel.
+  const prevExpressOpenRef  = useRef(false);
+  const [reshowBlocked, setReshowBlocked] = useState(false);
+  useEffect(() => {
+    const wasOpen = prevExpressOpenRef.current;
+    prevExpressOpenRef.current = isExpressScreenOpen;
+    if (wasOpen && !isExpressScreenOpen) {
+      setReshowBlocked(true);
+      const t = setTimeout(() => setReshowBlocked(false), 5_000);
+      return () => clearTimeout(t);
+    }
+  }, [isExpressScreenOpen]);
+
+  const [userLocation, setUserLocation]   = useState<UserLoc>(null);
+  const [groupPhotoUrl, setGroupPhotoUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    Location.getLastKnownPositionAsync({}).then(loc => {
+      if (loc) setUserLocation({ latitude: loc.coords.latitude, longitude: loc.coords.longitude });
+    }).catch(() => {});
+
+    supabase.auth.getUser().then(({ data }) => {
+      if (!data.user) return;
+      supabase
+        .from('groups')
+        .select('profile_image')
+        .eq('owner_id', data.user.id)
+        .single()
+        .then(({ data: g }) => { if (g?.profile_image) setGroupPhotoUrl(g.profile_image); });
+    });
+  }, []);
 
   const [visible, setVisible]       = useState(false);
   const [quotingId, setQuotingId]   = useState<string | null>(null);
@@ -156,9 +194,6 @@ export default function ExpressCarousel() {
     navigation.navigate('ProposeRequest', { dispatchId: id, request: d?.request });
   }, [navigation, dispatches]);
 
-  const handleDetails = useCallback((id: string) => {
-    navigation.navigate('IncomingExpress', { dispatchId: id });
-  }, [navigation]);
 
   // Update focused card when scroll settles on a snap point
   const handleMomentumScrollEnd = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -176,10 +211,11 @@ export default function ExpressCarousel() {
       isBlocked={quotingId !== null && quotingId !== item.id}
       isFocused={focusedIndex === index}
       onCotizar={handleCotizar}
-      onDetails={handleDetails}
       onDismiss={dismiss}
+      userLocation={userLocation}
+      groupPhotoUrl={groupPhotoUrl}
     />
-  ), [scrollX, quotingId, focusedIndex, handleCotizar, handleDetails, dismiss]);
+  ), [scrollX, quotingId, focusedIndex, handleCotizar, dismiss, userLocation, groupPhotoUrl]);
 
   const keyExtractor  = useCallback((item: ExpressDispatch) => item.id, []);
   const getItemLayout = useCallback((_: any, index: number) => ({
@@ -188,7 +224,7 @@ export default function ExpressCarousel() {
     index,
   }), []);
 
-  if (isExpressScreenOpen) return null;
+  if (isExpressScreenOpen || reshowBlocked) return null;
   if (!visible && dispatches.length === 0) return null;
 
   const count = dispatches.length;
@@ -219,8 +255,8 @@ export default function ExpressCarousel() {
           {count > 1 && <Text style={st.swipeTx}>desliza ›</Text>}
         </View>
 
-        <FlatList
-          ref={flatListRef}
+        <Animated.FlatList
+          ref={flatListRef as any}
           data={dispatches}
           keyExtractor={keyExtractor}
           renderItem={renderItem}

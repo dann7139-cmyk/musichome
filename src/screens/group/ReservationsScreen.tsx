@@ -157,7 +157,7 @@ export default function GroupReservationsScreen({ route, navigation }: any) {
 
       const { data, error } = await supabase
         .from('reservations')
-        .select('*,quote:quotes!quote_id(duration_hours,overtime_1h_price,overtime_2h_price,overtime_3h_price,event_type,guests_count,notes),package:packages!package_id(duration_hours,extra_hour_price),client:profiles!client_id(full_name)')
+        .select('*,quote:quotes!quote_id(duration_hours,overtime_1h_price,overtime_2h_price,overtime_3h_price,event_type,notes),client:profiles!client_id(full_name)')
         .eq('group_id', grp.id)
         .order('event_date', { ascending: false })
         .range(from, to);
@@ -171,19 +171,6 @@ export default function GroupReservationsScreen({ route, navigation }: any) {
       if (!data || data.length === 0) {
         if (pageNum === 0) setReservations([]);
         return;
-      }
-
-      const packageIds = [...new Set(data.map((r: any) => r.package_id).filter(Boolean))];
-      let packageMap: Record<string, { name: string; duration_hours: number | null }> = {};
-
-      if (packageIds.length > 0) {
-        const { data: pkgs } = await supabase
-          .from('packages')
-          .select('id, name, duration_hours')
-          .in('id', packageIds);
-        if (pkgs) {
-          pkgs.forEach((p: any) => { packageMap[p.id] = { name: p.name, duration_hours: p.duration_hours }; });
-        }
       }
 
       const clientIds = [...new Set(data.map((r: any) => r.client_id).filter(Boolean))];
@@ -202,7 +189,6 @@ export default function GroupReservationsScreen({ route, navigation }: any) {
       const merged = data.map((r: any) => ({
         ...r,
         client:  clientMap[r.client_id]  ?? null,
-        package: packageMap[r.package_id] ?? null,
       }));
 
       if (pageNum === 0) {
@@ -411,10 +397,10 @@ function ReservationCard({ reservation: r, navigation, isHistory }: any) {
         </View>
       ) : null}
 
-      {/* Fila 5: paquete */}
-      {r.package?.name ? (
+      {/* Fila 5: tipo de evento */}
+      {(r.quote?.event_type || r.quote?.duration_hours) ? (
         <Text style={styles.pkgName} numberOfLines={1}>
-          {r.package.name}{r.package.duration_hours ? ` · ${r.package.duration_hours}h` : ''}
+          {r.quote.event_type ?? 'Cotización'}{r.quote.duration_hours ? ` · ${r.quote.duration_hours}h` : ''}
         </Text>
       ) : null}
     </Pressable>
