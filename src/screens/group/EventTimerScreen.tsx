@@ -29,7 +29,7 @@ import { EARTH_STYLE } from '../../constants/mapStyle';
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
 import RatingModal, { type RatingSubject } from '../../components/ui/RatingModal';
-import { generateBreakSchedule, isPaid } from '../../utils/calculations';
+import { generateBreakSchedule, isPaid, parseEventDateMX } from '../../utils/calculations';
 
 const RING_R    = 145;
 const RING_SW   = 14;
@@ -680,11 +680,8 @@ export default function EventTimerScreen({ route, navigation }: any) {
     ? selectedBreak.totalMinutes(contractHours) * 60 + extraHoursAdded * 75 * 60
     : contractHours * 3600 + extraHoursAdded * 75 * 60;
 
-  // México eliminó DST en 2022. La app opera bajo horario fijo UTC-6.
-  // NO quitar el offset -06:00: sin él, el parsing usa la TZ del dispositivo y rompe auto-start.
-  const eventDateTime = reservation.event_date && reservation.event_time
-    ? new Date(`${reservation.event_date}T${normalizeHHMM(reservation.event_time)}:00-06:00`)
-    : null;
+  // Instante del evento en hora MX — implementación canónica compartida
+  const eventDateTime = parseEventDateMX(reservation.event_date, reservation.event_time);
 
   // El grupo puede iniciar hasta 30 min antes de la hora acordada.
   // Una vez pasada la hora exacta el inicio manual se bloquea — el auto-start lo cubre.
@@ -697,12 +694,8 @@ export default function EventTimerScreen({ route, navigation }: any) {
 
   // Schedule & current segment
   const schedule = useMemo(() => {
-    // México eliminó DST en 2022. La app opera bajo horario fijo UTC-6.
-    const effectiveStart = startedAt ?? (
-      reservation.event_date && reservation.event_time
-        ? new Date(`${reservation.event_date}T${normalizeHHMM(reservation.event_time)}:00-06:00`)
-        : null
-    );
+    const effectiveStart =
+      startedAt ?? parseEventDateMX(reservation.event_date, reservation.event_time);
     if (!effectiveStart || !breakType) return [];
     return generateBreakSchedule(effectiveStart, contractHours, breakType, extraHoursAdded);
   }, [startedAt, breakType, contractHours, extraHoursAdded, reservation.event_date, reservation.event_time]);
@@ -797,8 +790,8 @@ export default function EventTimerScreen({ route, navigation }: any) {
   useEffect(() => {
     if (startedAt || !reservation.event_date) return;
     const tick = () => {
-      // México eliminó DST en 2022. La app opera bajo horario fijo UTC-6.
-      const target = new Date(`${reservation.event_date}T${normalizeHHMM(reservation.event_time)}:00-06:00`);
+      const target = parseEventDateMX(reservation.event_date, reservation.event_time ?? '00:00');
+      if (!target) { setPreEventCountdown(''); return; }
       const diff = target.getTime() - Date.now();
       if (diff <= 0) { setPreEventCountdown(''); return; }
       const d = Math.floor(diff / 86_400_000);

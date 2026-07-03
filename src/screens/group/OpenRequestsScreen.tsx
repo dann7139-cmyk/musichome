@@ -38,6 +38,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
+import { parseEventDateMX } from '../../utils/calculations';
 import { EARTH_STYLE } from '../../constants/mapStyle';
 
 const { height: SH } = Dimensions.get('window');
@@ -699,11 +700,8 @@ export default function OpenRequestsScreen({ navigation, route }: any) {
             const isHighlighted    = req.id === highlightId;
 
             // Evento urgente: comienza en menos de 6 horas
-            const eventStart = req.event_date && req.event_time
-              ? new Date(`${req.event_date}T${req.event_time}`).getTime()
-              : req.event_date
-                ? new Date(`${req.event_date}T20:00:00`).getTime()
-                : null;
+            const eventStart =
+              parseEventDateMX(req.event_date, req.event_time ?? '20:00')?.getTime() ?? null;
             const isEventUrgent = eventStart !== null && eventStart - Date.now() < 6 * 3_600_000 && eventStart > Date.now();
 
             const viewers = req.notified_count ?? 0;

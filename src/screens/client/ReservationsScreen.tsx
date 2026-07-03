@@ -20,7 +20,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 import { supabase } from '../../config/supabase';
-import { isPaid } from '../../utils/calculations';
+import { isPaid, parseEventDateMX } from '../../utils/calculations';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import Badge from '../../components/ui/Badge';
 
@@ -677,8 +677,8 @@ function ReservationCard({ reservation: r, navigation, onUpdate, isReviewed, isJ
   useEffect(() => {
     if (!isPaidReservation || isLive || !r.event_date) return;
     const tick = () => {
-      const timeStr = (r.event_time ?? '00:00').substring(0, 5); // recorta a HH:mm
-      const target = new Date(`${r.event_date}T${timeStr}:00`);
+      const target = parseEventDateMX(r.event_date, r.event_time ?? '00:00');
+      if (!target) { setEventCountdown(''); return; }
       const diff = target.getTime() - Date.now();
       if (diff <= 0) { setEventCountdown(''); return; }
       const d = Math.floor(diff / 86_400_000);

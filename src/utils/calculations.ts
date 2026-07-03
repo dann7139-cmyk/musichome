@@ -196,8 +196,12 @@ export function nowMexicoCity(): Date {
 }
 
 /**
- * Parsea una fecha+hora de evento (event_date + event_time de la DB) como
- * si estuviera en America/Mexico_City, retorna un Date comparable con nowMexicoCity().
+ * IMPLEMENTACIÓN CANÓNICA del instante de un evento en el frontend.
+ * Parsea event_date + event_time (de la DB) como hora America/Mexico_City
+ * y retorna el instante ABSOLUTO correcto en cualquier dispositivo/zona
+ * (comparable con Date.now() / new Date(), NO con nowMexicoCity()).
+ * Espejo del parse de los crons SQL:
+ *   (date||'T'||HH:MM)::TIMESTAMP AT TIME ZONE 'America/Mexico_City'
  *
  * Retorna null ante cualquier input inválido — nunca lanza ni devuelve Invalid Date.
  *
