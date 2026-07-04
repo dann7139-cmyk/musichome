@@ -199,10 +199,10 @@ export default function ProposalCarousel() {
           void reviveAll();
           return;
         }
-        if (code === 'group_unavailable') {
+        if (code === 'group_unavailable' || code.includes('date_blocked') || code.includes('date_taken')) {
           Alert.alert(
             'Fecha no disponible',
-            'El grupo ya tiene otro evento programado para esa fecha. Esta propuesta fue descartada.',
+            'El grupo ya tiene otro evento o bloqueó esa fecha. Esta propuesta fue descartada.',
             [{ text: 'Entendido', onPress: () => dismiss(proposal.id) }],
           );
           return;

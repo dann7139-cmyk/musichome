@@ -144,7 +144,14 @@ export default function ClientQuoteDetailScreen({ route, navigation }: any) {
         })
         .select('id')
         .single();
-      if (resErr || !resData?.id) throw new Error('No se pudo crear la reserva. Intenta de nuevo.');
+      if (resErr || !resData?.id) {
+        // Candado universal (trigger sql/431): la fecha se bloqueó/ocupó en el camino
+        const code = resErr?.message ?? '';
+        if (code.includes('date_blocked') || code.includes('date_taken')) {
+          throw new Error('Esa fecha ya no está disponible para el grupo (se ocupó o la bloqueó). Coordina otra fecha antes de aceptar.');
+        }
+        throw new Error('No se pudo crear la reserva. Intenta de nuevo.');
+      }
 
       // 3. Marcar cotización como aceptada
       await supabase.from('quotes').update({ status: 'accepted' }).eq('id', quote.id);

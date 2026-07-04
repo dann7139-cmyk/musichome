@@ -368,6 +368,15 @@ export interface QuoteFormSharedProps {
   onStartTimePress?: () => void;
   hasSurge?: boolean;
   isOvertimeRequired?: boolean;
+  /** Perfil PÚBLICO del cliente (get_client_public_profile — sin teléfono/email) */
+  clientProfile?: {
+    full_name: string | null;
+    avatar_url: string | null;
+    city: string | null;
+    rating: number | null;
+    reviews_count: number;
+    member_since: string | null;
+  } | null;
 
   // Actions
   canSend: boolean;
@@ -489,6 +498,31 @@ export default function QuoteFormShared(p: QuoteFormSharedProps) {
               <View>
                 <Text style={s.clientName}>{p.clientName}</Text>
                 {p.clientCreatedAt ? <Text style={s.clientSub}>{p.clientCreatedAt}</Text> : null}
+              </View>
+            </View>
+          )}
+
+          {/* Cliente (mode='propose') — perfil público, sin datos de contacto */}
+          {p.mode === 'propose' && p.clientProfile && (
+            <View style={s.clientCard}>
+              {p.clientProfile.avatar_url ? (
+                <Image source={{ uri: p.clientProfile.avatar_url }} style={s.clientAvatar} />
+              ) : (
+                <Text style={s.clientEmoji}>👤</Text>
+              )}
+              <View style={{ flex: 1 }}>
+                <Text style={s.clientName}>{p.clientProfile.full_name ?? 'Cliente'}</Text>
+                <Text style={s.clientSub}>
+                  {p.clientProfile.rating != null
+                    ? `⭐ ${p.clientProfile.rating} (${p.clientProfile.reviews_count} reseña${p.clientProfile.reviews_count === 1 ? '' : 's'})`
+                    : 'Sin reseñas todavía'}
+                  {p.clientProfile.city ? ` · ${p.clientProfile.city}` : ''}
+                </Text>
+                {p.clientProfile.member_since ? (
+                  <Text style={s.clientSub}>
+                    Miembro desde {new Date(p.clientProfile.member_since).toLocaleDateString('es-MX', { month: 'long', year: 'numeric' })}
+                  </Text>
+                ) : null}
               </View>
             </View>
           )}
@@ -906,6 +940,7 @@ const s = StyleSheet.create({
     padding: SPACING.lg, marginBottom: 20,
   },
   clientEmoji: { fontSize: 32 },
+  clientAvatar: { width: 42, height: 42, borderRadius: 21 },
   clientName:  { fontFamily: FONTS.title, fontSize: 20, color: COLORS.text },
   clientSub:   { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2 },
 

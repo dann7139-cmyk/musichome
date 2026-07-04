@@ -185,6 +185,48 @@ export default function QuoteFormScreen({ route, navigation }: any) {
   const [municipio,    setMunicipio]    = useState('');
   const [estado,       setEstado]       = useState('');
   const [eventDate,    setEventDate]    = useState('');   // 'YYYY-MM-DD'
+
+  // [Lote 2] Días bloqueados/ocupados del grupo — mismo patrón que BookingScreen
+  const [unavailMarked, setUnavailMarked] = useState<any>({});
+  useEffect(() => {
+    (async () => {
+      const today = new Date();
+      const inOneYear = new Date(today);
+      inOneYear.setFullYear(inOneYear.getFullYear() + 1);
+      const ds = (d: Date) =>
+        `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      const [{ data: busy }, { data: blocked }] = await Promise.all([
+        supabase.rpc('get_group_busy_days', {
+          p_group_id: group.id, p_from: ds(today), p_to: ds(inOneYear),
+        }),
+        supabase.from('group_unavailability').select('date').eq('group_id', group.id),
+      ]);
+      const marked: any = {};
+      (busy ?? []).forEach((r: any) => {
+        if (r.event_date) {
+          marked[r.event_date] = {
+            disabled: true, disableTouchEvent: true,
+            customStyles: {
+              container: { backgroundColor: 'rgba(239,83,80,0.2)' },
+              text: { color: COLORS.red },
+            },
+          };
+        }
+      });
+      (blocked ?? []).forEach((b: any) => {
+        if (b.date && !marked[b.date]) {
+          marked[b.date] = {
+            disabled: true, disableTouchEvent: true,
+            customStyles: {
+              container: { backgroundColor: COLORS.card2 },
+              text: { color: COLORS.muted },
+            },
+          };
+        }
+      });
+      setUnavailMarked(marked);
+    })();
+  }, [group.id]);
   const [eventTime,    setEventTime]    = useState('');   // 'HH:MM'
   const [duration,     setDuration]     = useState<number | null>(null);
   const [numPersonas,  setNumPersonas]  = useState('');
@@ -821,10 +863,17 @@ export default function QuoteFormScreen({ route, navigation }: any) {
             <Text style={s.calTitle}>Selecciona la fecha</Text>
             <Calendar
               onDayPress={(day: any) => {
+                if (unavailMarked[day.dateString]?.disabled) {
+                  Alert.alert('Fecha no disponible', 'El grupo no está disponible ese día. Elige otra fecha.');
+                  return;
+                }
                 setEventDate(day.dateString);
                 setCalendarOpen(false);
               }}
-              markedDates={eventDate ? { [eventDate]: { selected: true, selectedColor: COLORS.green } } : {}}
+              markedDates={{
+                ...unavailMarked,
+                ...(eventDate ? { [eventDate]: { selected: true, selectedColor: COLORS.green } } : {}),
+              }}
               minDate={(() => { const d = new Date(); d.setDate(d.getDate() - 1); return d.toISOString().split('T')[0]; })()}
               theme={{
                 backgroundColor: COLORS.card,

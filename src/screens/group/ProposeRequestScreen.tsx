@@ -34,7 +34,16 @@ export default function ProposeRequestScreen({ route, navigation }: any) {
   const [groupMembers, setGroupMembers]   = useState<GroupMember[]>([]);
   const [loading, setLoading] = useState(false);
   const [sent,    setSent]    = useState(false);
+  const [clientProfile, setClientProfile] = useState<any>(null);
   const sentOpacity = useRef(new Animated.Value(0)).current;
+
+  // Perfil PÚBLICO del cliente (sin teléfono/email — sql/435)
+  useEffect(() => {
+    if (!request?.client_id) return;
+    supabase
+      .rpc('get_client_public_profile', { p_client_id: request.client_id })
+      .then(({ data }) => { if (data?.ok) setClientProfile(data); });
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -243,6 +252,7 @@ export default function ProposeRequestScreen({ route, navigation }: any) {
         durationLabel={`${hours} hora${hours !== 1 ? 's' : ''}`}
         numPersonas={request.guest_count}
         comments={request.comments}
+        clientProfile={clientProfile}
         // Location (zona, no dirección exacta)
         locationCity={request.location_city}
         locationMunicipio={request.location_municipio}

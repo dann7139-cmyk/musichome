@@ -280,6 +280,13 @@ export default function OpenRequestScreen({ navigation, route }: any) {
           );
           return;
         }
+        if (code.includes('date_blocked') || code.includes('date_taken')) {
+          Alert.alert(
+            'Fecha no disponible',
+            'El grupo ya tiene otro evento o bloqueó esa fecha. La propuesta no puede confirmarse.',
+          );
+          return;
+        }
         Alert.alert('Error', `No se pudo confirmar. ${code || 'Inténtalo de nuevo.'}`);
         return;
       }
