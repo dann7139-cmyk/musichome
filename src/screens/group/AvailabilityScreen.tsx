@@ -19,8 +19,8 @@ import Particles from '../../components/ui/Particles';
 
 interface BlockedDate {
   id: string;
-  blocked_date: string;
-  reason: string | null;
+  date: string;          // columna real de group_unavailability
+  reason: string | null; // agregada en sql/430
 }
 
 export default function GroupAvailabilityScreen({ navigation }: any) {
@@ -54,7 +54,8 @@ export default function GroupAvailabilityScreen({ navigation }: any) {
       .from('groups')
       .select('id')
       .eq('owner_id', sessionData.session.user.id)
-      .single();
+      .limit(1)
+      .maybeSingle();  // .single() truena si el owner tiene >1 grupo
 
     if (grp) {
       setGroupId(grp.id);
@@ -68,17 +69,19 @@ export default function GroupAvailabilityScreen({ navigation }: any) {
       .from('group_unavailability')
       .select('*')
       .eq('group_id', gid)
-      .order('blocked_date', { ascending: true });
+      .order('date', { ascending: true });
 
     if (error) {
+      // Visible: si esto falla en silencio, el calendario pinta TODO libre y miente
       console.log('Error fetching blocked dates:', error.message);
+      Alert.alert('Error al cargar bloqueos', 'No se pudieron cargar tus fechas bloqueadas. Vuelve a entrar a la pantalla.');
       return;
     }
 
     setBlockedDates((data ?? []) as BlockedDate[]);
     const marked: any = {};
     (data ?? []).forEach((bd: BlockedDate) => {
-      marked[bd.blocked_date] = {
+      marked[bd.date] = {
         selected: true,
         selectedColor: COLORS.red,
         selectedTextColor: '#fff',
@@ -89,7 +92,7 @@ export default function GroupAvailabilityScreen({ navigation }: any) {
 
   const openBlockModal = (dateStr: string) => {
     // Si ya está bloqueada, preguntar si quiere desbloquear
-    const existing = blockedDates.find(b => b.blocked_date === dateStr);
+    const existing = blockedDates.find(b => b.date === dateStr);
     if (existing) {
       Alert.alert(
         'Fecha bloqueada',
@@ -115,14 +118,41 @@ export default function GroupAvailabilityScreen({ navigation }: any) {
       .from('group_unavailability')
       .insert([{
         group_id: groupId,
-        blocked_date: selectedDate,
+        date: selectedDate,
         reason: reason.trim() || null,
       }]);
 
     setSaving(false);
 
     if (error) {
-      Alert.alert('Error', error.message);
+      if ((error as any)?.code === '23505') {
+        // Ya estaba bloqueada (p.ej. creada desde CalendarScreen o estado
+        // desincronizado) — sincronizar el calendario y ofrecer el toggle
+        setModalVisible(false);
+        await fetchBlockedDates(groupId);
+        Alert.alert(
+          'Fecha ya bloqueada',
+          `${selectedDate} ya estaba bloqueada. ¿Quieres desbloquearla?`,
+          [
+            { text: 'Dejarla bloqueada', style: 'cancel' },
+            {
+              text: 'Desbloquear',
+              style: 'destructive',
+              onPress: async () => {
+                const { data: row } = await supabase
+                  .from('group_unavailability')
+                  .select('id')
+                  .eq('group_id', groupId)
+                  .eq('date', selectedDate)
+                  .maybeSingle();
+                if (row?.id) await removeBlock(row.id);
+              },
+            },
+          ]
+        );
+      } else {
+        Alert.alert('Error', error.message);
+      }
     } else {
       setModalVisible(false);
       await fetchBlockedDates(groupId);
@@ -215,7 +245,7 @@ export default function GroupAvailabilityScreen({ navigation }: any) {
               {blockedDates.map((bd) => (
                 <View key={bd.id} style={s.blockedRow}>
                   <View style={{ flex: 1 }}>
-                    <Text style={s.blockedDate}>{bd.blocked_date}</Text>
+                    <Text style={s.blockedDate}>{bd.date}</Text>
                     {bd.reason && <Text style={s.blockedReason}>{bd.reason}</Text>}
                   </View>
                   <Pressable
@@ -223,7 +253,7 @@ export default function GroupAvailabilityScreen({ navigation }: any) {
                     onPress={() => {
                       Alert.alert(
                         'Desbloquear fecha',
-                        `¿Desbloquear ${bd.blocked_date}?`,
+                        `¿Desbloquear ${bd.date}?`,
                         [
                           { text: 'Cancelar', style: 'cancel' },
                           { text: 'Desbloquear', style: 'destructive', onPress: () => removeBlock(bd.id) },

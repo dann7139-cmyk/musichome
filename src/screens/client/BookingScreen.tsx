@@ -143,15 +143,22 @@ export default function BookingScreen({ route, navigation }: any) {
 
   const fetchUnavailableDates = async () => {
     setLoadingDates(true);
-    const { data: reservations } = await supabase
-      .from('reservations')
-      .select('event_date')
-      .eq('group_id', group.id)
-      .in('status', ['pending', 'pending_payment', 'pending_group_confirmation', 'confirmed', 'in_progress']);
+    // Días ocupados vía RPC (la RLS de reservations bloquea —correctamente—
+    // la lectura directa de reservas ajenas; el RPC devuelve solo fecha/hora)
+    const today = new Date();
+    const inOneYear = new Date(today);
+    inOneYear.setFullYear(inOneYear.getFullYear() + 1);
+    const toDateStr = (d: Date) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const { data: reservations } = await supabase.rpc('get_group_busy_days', {
+      p_group_id: group.id,
+      p_from: toDateStr(today),
+      p_to: toDateStr(inOneYear),
+    });
 
     const { data: blocked } = await supabase
       .from('group_unavailability')
-      .select('blocked_date')
+      .select('date')
       .eq('group_id', group.id);
 
     const marked: any = {};
@@ -171,8 +178,8 @@ export default function BookingScreen({ route, navigation }: any) {
     }
     if (blocked) {
       blocked.forEach((b: any) => {
-        if (b.blocked_date && !marked[b.blocked_date]) {
-          marked[b.blocked_date] = {
+        if (b.date && !marked[b.date]) {
+          marked[b.date] = {
             disabled: true, disableTouchEvent: true,
             customStyles: {
               container: { backgroundColor: COLORS.card2 },
@@ -328,16 +335,15 @@ export default function BookingScreen({ route, navigation }: any) {
       return;
     }
 
-    // Verificar disponibilidad en tiempo real
-    const { data: existing } = await supabase
-      .from('reservations')
-      .select('id')
-      .eq('group_id', group.id)
-      .eq('event_date', selectedDate)
-      .in('status', ['pending', 'pending_payment', 'pending_group_confirmation', 'confirmed', 'in_progress'])
-      .maybeSingle();
+    // Verificar disponibilidad en tiempo real (vía RPC — el select directo
+    // lo bloqueaba la RLS; el candado definitivo vive en el RPC de reserva)
+    const { data: busyToday } = await supabase.rpc('get_group_busy_days', {
+      p_group_id: group.id,
+      p_from: selectedDate,
+      p_to: selectedDate,
+    });
 
-    if (existing) {
+    if (busyToday && busyToday.length > 0) {
       Alert.alert(t('common.error'), t('booking.error_date_taken'));
       setLoading(false);
       await fetchUnavailableDates();
@@ -397,6 +403,13 @@ export default function BookingScreen({ route, navigation }: any) {
     }
 
     setLoading(false);
+
+    // Candado server-side (sql/430): el RPC rechaza días bloqueados/ocupados
+    if (bookingResult?.error === 'date_blocked' || bookingResult?.error === 'date_taken') {
+      Alert.alert(t('booking.error_date_unavailable'), t('booking.error_date_taken'));
+      await fetchUnavailableDates();
+      return;
+    }
 
     if (error || !bookingResult?.reservation_id) {
       Alert.alert(t('common.error'), error?.message ?? t('booking.error_create'));

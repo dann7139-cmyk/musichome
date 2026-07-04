@@ -1144,7 +1144,7 @@ export default function GroupDashboardScreen({ navigation }: any) {
 
               <Pressable style={s.controlCalBtn} onPress={() => navigation.navigate('GroupCalendar')}>
                 <CalendarDays size={17} color={COLORS.text} />
-                <Text style={s.controlCalText}>Mi Calendario</Text>
+                <Text style={s.controlCalText}>Mi Disponibilidad</Text>
               </Pressable>
             </View>
 

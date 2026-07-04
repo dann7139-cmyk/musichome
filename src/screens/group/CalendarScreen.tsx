@@ -45,6 +45,12 @@ export default function GroupCalendarScreen({ navigation }: any) {
 
   useEffect(() => { fetchData(); }, []);
 
+  // Refrescar al volver a la pantalla (los bloqueos pueden cambiar en otra vista)
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => { fetchData(); });
+    return unsubscribe;
+  }, [navigation]);
+
   const fetchData = async () => {
     const { data: sessionData } = await supabase.auth.getSession();
     if (!sessionData.session) return;
@@ -53,17 +59,22 @@ export default function GroupCalendarScreen({ navigation }: any) {
       .from('groups')
       .select('id')
       .eq('owner_id', sessionData.session.user.id)
-      .single();
+      .limit(1)
+      .maybeSingle();
 
     if (!grp) return;
     groupIdRef.current = grp.id;
 
-    // Fechas bloqueadas manualmente
-    const { data: unavData } = await supabase
+    // Fechas bloqueadas manualmente (la columna real es `date`)
+    const { data: unavData, error: unavError } = await supabase
       .from('group_unavailability')
-      .select('blocked_date')
+      .select('date')
       .eq('group_id', grp.id);
-    if (unavData) setBlockedDates(new Set(unavData.map((d: any) => d.blocked_date)));
+    if (unavError) {
+      Alert.alert('Error al cargar disponibilidad', 'No se pudieron cargar tus días bloqueados.');
+    } else if (unavData) {
+      setBlockedDates(new Set(unavData.map((d: any) => d.date)));
+    }
 
     // Reservaciones activas
     const { data: resData } = await supabase
@@ -111,22 +122,44 @@ export default function GroupCalendarScreen({ navigation }: any) {
     const gid = groupIdRef.current;
     if (!gid) { Alert.alert('Error', 'No se encontró tu grupo. Sal y vuelve a entrar.'); return; }
 
-    // Actualización optimista
-    const newSet = new Set(blockedDates);
-    const wasBlocked = newSet.has(dateStr);
-    if (wasBlocked) { newSet.delete(dateStr); } else { newSet.add(dateStr); }
-    setBlockedDates(newSet);
+    const wasBlocked = blockedDates.has(dateStr);
 
-    setSaving(true);
-    const { error: dbError } = wasBlocked
-      ? await supabase.from('group_unavailability').delete().eq('group_id', gid).eq('date', dateStr)
-      : await supabase.from('group_unavailability').insert([{ group_id: gid, date: dateStr }]);
-    setSaving(false);
+    // Confirmación simple antes del toggle
+    Alert.alert(
+      wasBlocked ? '¿Volver a trabajar este día?' : '¿Bloquear este día?',
+      wasBlocked
+        ? `${dateStr} volverá a estar disponible para reservas.`
+        : `${dateStr} dejará de estar disponible para reservas.`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: wasBlocked ? 'Sí, desbloquear' : 'Sí, bloquear',
+          style: wasBlocked ? 'default' : 'destructive',
+          onPress: async () => {
+            // Actualización optimista
+            const newSet = new Set(blockedDates);
+            if (wasBlocked) { newSet.delete(dateStr); } else { newSet.add(dateStr); }
+            setBlockedDates(newSet);
 
-    if (dbError) {
-      setBlockedDates(new Set(blockedDates)); // revert
-      Alert.alert('Error al guardar', dbError.message ?? 'No se pudo guardar.');
-    }
+            setSaving(true);
+            const { error: dbError } = wasBlocked
+              ? await supabase.from('group_unavailability').delete().eq('group_id', gid).eq('date', dateStr)
+              : await supabase.from('group_unavailability').insert([{ group_id: gid, date: dateStr }]);
+            setSaving(false);
+
+            if (dbError) {
+              if ((dbError as any)?.code === '23505') {
+                // Ya estaba bloqueado en la DB (estado desincronizado) — resincronizar
+                await fetchData();
+              } else {
+                setBlockedDates(new Set(blockedDates)); // revert
+                Alert.alert('Error al guardar', dbError.message ?? 'No se pudo guardar.');
+              }
+            }
+          },
+        },
+      ],
+    );
   };
 
   const firstDay = new Date(year, month, 1).getDay();
