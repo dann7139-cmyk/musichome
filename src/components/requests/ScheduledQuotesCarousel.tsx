@@ -48,12 +48,9 @@ const ABOVE_HEIGHT  = H - SHEET_HEIGHT;
 // en cuanto esté listo.
 let _openScheduled: ((quoteId?: string) => void) | null = null;
 let _queuedOpen: { id?: string } | null = null;
-let _lastOpenAt = 0;
 export function openScheduledQuotes(quoteId?: string) {
-  // Idempotente: taps/reintentos duplicados en <1s no reinician la animación
-  const now = Date.now();
-  if (now - _lastOpenAt < 1000) return;
-  _lastOpenAt = now;
+  // Idempotente por estado (show() no reinicia si ya está visible) — sin
+  // debounce por tiempo: una segunda apertura legítima siempre funciona
   if (_openScheduled) {
     _openScheduled(quoteId);
   } else {
@@ -259,6 +256,7 @@ export default function ScheduledQuotesCarousel({ groupId }: { groupId: string |
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const [userLocation,    setUserLocation]    = useState<{ latitude: number; longitude: number } | null>(null);
   const [groupPhotoUrl,   setGroupPhotoUrl]   = useState<string | null>(null);
+  const [groupGenre,      setGroupGenre]      = useState<string | null>(null);
   const [profileClientId, setProfileClientId] = useState<string | null>(null);
 
   const dismissedRef = useRef<Set<string>>(new Set());
@@ -286,21 +284,21 @@ export default function ScheduledQuotesCarousel({ groupId }: { groupId: string |
         }
       } catch {}
     })();
-    supabase.auth.getUser().then(({ data }) => {
-      if (!data.user) return;
-      supabase.from('groups').select('profile_image').eq('owner_id', data.user.id).single()
-        .then(({ data: g }) => { if (g?.profile_image) setGroupPhotoUrl(g.profile_image); });
-    });
   }, []);
+
+  // Foto + género del grupo, UNA vez por sesión (el género filtra el realtime
+  // y las solicitudes abiertas; antes se consultaba en cada fetch)
+  useEffect(() => {
+    if (!groupId) return;
+    supabase.from('groups').select('genre, profile_image').eq('id', groupId).single()
+      .then(({ data: g }) => {
+        if (g?.profile_image) setGroupPhotoUrl(g.profile_image);
+        setGroupGenre(g?.genre ?? null);
+      });
+  }, [groupId]);
 
   const fetchPending = useCallback(async (): Promise<any[]> => {
     if (!groupId) return [];
-
-    const { data: grp } = await supabase
-      .from('groups')
-      .select('genre')
-      .eq('id', groupId)
-      .single();
 
     const [{ data: qs }, { data: reqs }, { data: myProps }] = await Promise.all([
       // Cotizaciones directas pendientes de responder
@@ -311,12 +309,12 @@ export default function ScheduledQuotesCarousel({ groupId }: { groupId: string |
         .eq('status', 'pending')
         .order('created_at', { ascending: false }),
       // Solicitudes abiertas programadas del género del grupo, vigentes
-      grp?.genre
+      groupGenre
         ? supabase
             .from('event_requests')
             .select('*, requester:profiles!client_id(full_name, avatar_url)')
             .in('status', ['open', 'en_negociacion'])
-            .eq('genre', grp.genre)
+            .eq('genre', groupGenre)
             .gt('expires_at', new Date().toISOString())
             .order('created_at', { ascending: false })
         : Promise.resolve({ data: [] as any[] } as any),
@@ -337,15 +335,12 @@ export default function ScheduledQuotesCarousel({ groupId }: { groupId: string |
       ...(qs ?? []).map(normalizeQuote),
       ...openReqs.map(normalizeRequest),
     ];
-  }, [groupId]);
+  }, [groupId, groupGenre]);
 
   const show = useCallback(() => {
     // Ya visible → no reiniciar la animación (evita el parpadeo/cierre visual)
     if (visibleRef.current) return;
     visibleRef.current = true;
-    // Mientras las programadas están abiertas, el carrusel exprés se repliega
-    // (regresa intacto al cerrar) — así NUNCA queda encima
-    setExpressCarouselCollapsed(true);
     setVisible(true);
     slideAnim.setValue(SHEET_HEIGHT);
     Animated.parallel([
@@ -361,9 +356,24 @@ export default function ScheduledQuotesCarousel({ groupId }: { groupId: string |
     ]).start(() => {
       visibleRef.current = false;
       setVisible(false);
-      setExpressCarouselCollapsed(false);
     });
   }, [slideAnim, dimAnim]);
+
+  // Repliegue del carrusel exprés AUTOCURADO: sigue al estado real de este
+  // sheet (visible Y con tarjetas). Si la lista se vacía por un refresh, el
+  // sheet se cierra de verdad y el exprés regresa solo — nada puede quedarse
+  // replegado por una animación interrumpida. También libera al desmontar.
+  useEffect(() => {
+    const count = quotes.filter(q => !dismissedRef.current.has(q.id)).length;
+    const active = visible && count > 0;
+    setExpressCarouselCollapsed(active);
+    if (visible && count === 0) {
+      visibleRef.current = false;
+      setVisible(false);
+    }
+  }, [visible, quotes]);
+
+  useEffect(() => () => setExpressCarouselCollapsed(false), []);
 
   // Apertura imperativa (banner del dashboard / notificación).
   // Si groupId aún no carga, se encola y se reintenta cuando esté listo.
@@ -394,7 +404,10 @@ export default function ScheduledQuotesCarousel({ groupId }: { groupId: string |
   }, [groupId, fetchPending, show]);
 
   // Realtime: cotización directa o solicitud abierta nueva → aparece sola
-  // encima del dashboard (las exprés NO: esas van al carrusel exprés)
+  // encima del dashboard. El canal de event_requests se filtra POR GÉNERO en
+  // el servidor (sin eso, cada solicitud del país refetcheaba en cada
+  // dispositivo) + guard de is_express en el payload. Solo un INSERT nuevo
+  // reabre el sheet — cerrar con X es persistente ante items viejos.
   useEffect(() => {
     if (!groupId) return;
     const refresh = async () => {
@@ -402,25 +415,26 @@ export default function ScheduledQuotesCarousel({ groupId }: { groupId: string |
       setQuotes(rows);
       if (rows.filter(q => !dismissedRef.current.has(q.id)).length > 0) show();
     };
-    const channel = supabase
-      .channel(`scheduled-incoming-${groupId}`)
-      .on(
+    const channel = supabase.channel(`scheduled-incoming-${groupId}`);
+    channel.on(
+      'postgres_changes',
+      { event: 'INSERT', schema: 'public', table: 'quotes', filter: `group_id=eq.${groupId}` },
+      refresh
+    );
+    if (groupGenre) {
+      channel.on(
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'quotes', filter: `group_id=eq.${groupId}` },
-        refresh
-      )
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'event_requests' },
+        { event: 'INSERT', schema: 'public', table: 'event_requests', filter: `genre=eq.${groupGenre}` },
         (payload: any) => {
           const r = payload?.new;
           const isExpress = r?.is_express === true || r?.is_express === 'true';
           if (!isExpress) void refresh();
         }
-      )
-      .subscribe();
+      );
+    }
+    channel.subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [groupId, fetchPending, show]);
+  }, [groupId, groupGenre, fetchPending, show]);
 
   const visibleQuotes = quotes
     .filter(q => !dismissedRef.current.has(q.id))

@@ -67,6 +67,7 @@ import GroupJobBoardScreen from '../src/screens/talent/JobBoardScreen';
 import GroupQuotesScreen from '../src/screens/group/QuotesScreen';
 import GroupQuoteDetailScreen from '../src/screens/group/QuoteDetailScreen';
 import ScheduledQuotesCarousel, { openScheduledQuotes } from '../src/components/requests/ScheduledQuotesCarousel';
+import { openForRequestNotification } from '../src/utils/notificationRouting';
 import GroupStatsScreen from '../src/screens/group/StatsScreen';
 import QuoteFormScreen from '../src/screens/client/QuoteFormScreen';
 import ClientQuoteDetailScreen from '../src/screens/client/ClientQuoteDetailScreen';
@@ -726,22 +727,18 @@ export default function AppNavigator() {
         return;
       }
 
-      // PROGRAMADAS → carrusel 📅 sobre el dashboard (mismo patrón que express;
-      // el retry cubre el mount del carrusel). Cubre:
-      //  - 'new_quote_request' (cotización directa)
-      //  - 'booking' al grupo (olas de solicitudes abiertas — las exprés reales
-      //    llegan como 'express_dispatch', ya manejadas arriba)
-      //  - payload incompleto de la Edge Function vieja (quote_id sin type/screen)
+      // COTIZACIÓN PROGRAMADA nueva → carrusel 📅 sobre el dashboard.
+      // Solo el tipo explícito (o el payload incompleto de la Edge Function
+      // vieja: quote_id sin type/screen). Las demás 'booking' del grupo
+      // (propuesta aceptada, recordatorios, expiraciones) siguen su ruta
+      // normal más abajo — NO se secuestran.
       if (
         data?.type === 'new_quote_request' ||
-        (role === 'group' && data?.type === 'booking') ||
         (role === 'group' && !data?.type && !data?.screen && data?.quote_id)
       ) {
-        const schedId = (data?.quote_id as string) ?? (data?.request_id as string) ?? undefined;
-        openScheduledQuotes(schedId);
+        openScheduledQuotes(data?.quote_id as string | undefined);
         if (navigationRef.isReady()) {
           (navigationRef as any).navigate('GroupHome');
-          setTimeout(() => openScheduledQuotes(schedId), 700);
         }
         return;
       }
@@ -761,13 +758,11 @@ export default function AppNavigator() {
           (navigationRef as any).navigate('OpenRequest', { tab: 'mine' });
         }
       } else if (screen === 'OpenRequests' && role === 'group') {
-        // Olas de solicitudes ABIERTAS/PROGRAMADAS → carrusel 📅 ENCIMA del
-        // dashboard, con la notificada primero. (Las exprés reales llegan
-        // como type='express_dispatch' arriba.)
-        const reqId = data?.request_id as string | undefined;
-        openScheduledQuotes(reqId);
+        // Olas de solicitudes (sql/95/103/108) — el payload no distingue
+        // exprés vs programada: el helper consulta la solicitud y abre el
+        // carrusel correcto (exprés revive dispatches; programada abre 📅)
+        void openForRequestNotification(data?.request_id as string | undefined);
         (navigationRef as any).navigate('GroupHome');
-        setTimeout(() => openScheduledQuotes(reqId), 700);
       } else if (screen === 'AdvertisingPackages') {
         navigationRef.navigate('AdvertisingPackages' as never);
       } else if (screen === 'Explorar') {
@@ -842,15 +837,12 @@ export default function AppNavigator() {
         const data = response.notification.request.content.data as Record<string, unknown>;
         if (data?.type === 'express_dispatch' || (data?.type as string)?.startsWith('express')) {
           pendingExpressId.current = '__all__';
-        } else if (
-          data?.type === 'new_quote_request' ||
-          data?.type === 'booking' ||
-          data?.screen === 'OpenRequests' ||
-          (!data?.type && !data?.screen && data?.quote_id)
-        ) {
-          // Programada (cotización directa u ola de solicitud abierta)
-          pendingScheduledId.current =
-            (data?.quote_id as string) ?? (data?.request_id as string) ?? '__all__';
+        } else if (data?.type === 'new_quote_request' || (!data?.type && !data?.screen && data?.quote_id)) {
+          // Cotización programada directa → carrusel 📅 al montar
+          pendingScheduledId.current = `quote:${(data?.quote_id as string) ?? ''}`;
+        } else if (data?.screen === 'OpenRequests') {
+          // Ola de solicitud (exprés o programada — se resuelve al montar)
+          pendingScheduledId.current = `request:${(data?.request_id as string) ?? ''}`;
         } else if (data?.screen === 'EventTimer' && data?.reservation_id) {
           pendingEventTimerReservationId.current = data.reservation_id as string;
         } else if (data?.reservation_id) {
@@ -933,12 +925,21 @@ export default function AppNavigator() {
           // Delay so ExpressProvider mounts and registers _reviveAll
           setTimeout(() => void reviveAllExpressDispatches(), 900);
         }
-        // Cold-start de PROGRAMADAS: mismo patrón, abre el carrusel 📅
+        // Cold-start de solicitudes: quote → carrusel 📅; request → el helper
+        // decide exprés vs programada. La cola interna cubre el mount.
         const sid = pendingScheduledId.current;
         pendingScheduledId.current = null;
         if (sid && role === 'group') {
           (navigationRef as any).navigate('GroupHome');
-          setTimeout(() => openScheduledQuotes(sid === '__all__' ? undefined : sid), 900);
+          const [kind, rawId] = sid.split(':');
+          const id = rawId || undefined;
+          setTimeout(() => {
+            if (kind === 'request') {
+              void openForRequestNotification(id);
+            } else {
+              openScheduledQuotes(id);
+            }
+          }, 900);
         }
         initialStateUsed.current = false;
       }}

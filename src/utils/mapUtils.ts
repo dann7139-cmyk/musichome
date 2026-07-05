@@ -154,8 +154,16 @@ export function eventCardCenter(r: any): { latitude: number; longitude: number }
   const lng  = r.longitude ?? r.event_request?.longitude ?? r.quote?.longitude ?? null;
   const eLat = r.event_lat ?? r.event_request?.event_lat ?? null;
   const eLng = r.event_lng ?? r.event_request?.event_lng ?? null;
-  if (lat == null && eLat == null) return null;
-  return privacyOffsetZone(String(r.id), '', null, lat, lng, eLat, eLng);
+  // Solo PARES completos: una fila con lat sin lng (guardado parcial) no debe
+  // caer al default de ciudad (pintaría CDMX para un evento de otra ciudad)
+  const hasPin = lat != null && lng != null;
+  const hasGps = eLat != null && eLng != null;
+  if (!hasPin && !hasGps) return null;
+  return privacyOffsetZone(
+    String(r.id), '', null,
+    hasPin ? lat : null, hasPin ? lng : null,
+    hasGps ? eLat : null, hasGps ? eLng : null,
+  );
 }
 
 // Ubicación APROXIMADA de un grupo para dibujar la ruta en tarjetas del
@@ -167,10 +175,13 @@ export function approxGroupLocation(
   estado?: string | null,
   near?: { latitude: number; longitude: number },
 ): { latitude: number; longitude: number } {
-  if (city || estado) {
-    const c = resolveCoords(city ?? '', estado ?? null);
-    return { latitude: c.lat, longitude: c.lng };
-  }
+  // Solo aciertos REALES del catálogo — una ciudad desconocida no debe caer
+  // al default (dibujaría la ruta del grupo desde CDMX cruzando el país)
+  const cityHit   = city   ? CITY_COORDS[normalizeCity(city)]   : undefined;
+  const estadoHit = estado ? CITY_COORDS[normalizeCity(estado)] : undefined;
+  const hit = cityHit ?? estadoHit;
+  if (hit) return { latitude: hit.lat, longitude: hit.lng };
+
   const h     = idHash(groupId);
   const dist  = 0.06 + (h % 80) / 1000;
   const angle = ((h * 37) % 628) / 100;

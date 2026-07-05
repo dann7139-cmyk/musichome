@@ -910,8 +910,9 @@ function ReservationCard({ reservation: r, navigation, onUpdate, isReviewed, isJ
           <Text style={styles.folioText}>{r.folio}</Text>
         )}
 
-        {/* Payment status badge — en finalizados es redundante con el estado */}
-        {isPaidReservation && !isFinished && (
+        {/* Payment status badge — solo en completadas es redundante; en una
+            cancelada-pero-pagada avisa que hay dinero comprometido (reembolso) */}
+        {isPaidReservation && r.status !== 'completed' && (
           <View style={[styles.paidBadge, { backgroundColor: 'rgba(0,230,118,0.12)', borderColor: COLORS.green }]}>
             <Text style={[styles.paidBadgeText, { color: COLORS.green }]}>✅ Pagado</Text>
           </View>
@@ -954,8 +955,10 @@ function ReservationCard({ reservation: r, navigation, onUpdate, isReviewed, isJ
         </Pressable>
       )}
 
-      {/* Ver ticket */}
-      {isPaidReservation && r.folio && !isFinished && (
+      {/* Ver ticket — visible siempre que hubo pago, salvo en completadas
+          (ahí vive como chip compacto); una cancelada-pagada lo necesita
+          como comprobante durante el reembolso/disputa */}
+      {isPaidReservation && r.folio && r.status !== 'completed' && (
         <Pressable
           style={styles.ticketBtn}
           onPress={() => navigation.navigate('Ticket', { reservation: r })}

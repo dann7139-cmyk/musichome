@@ -18,6 +18,7 @@ import Particles from '../../components/ui/Particles';
 import { useAuth } from '../../context/AuthContext';
 import { reviveAllExpressDispatches } from '../../context/ExpressContext';
 import { openScheduledQuotes } from '../../components/requests/ScheduledQuotesCarousel';
+import { openForRequestNotification } from '../../utils/notificationRouting';
 import { reviveClientProposals } from '../../context/ClientProposalContext';
 
 interface Notification {
@@ -419,11 +420,31 @@ export default function NotificationsScreen({ navigation }: any) {
 
       // ── Cotizaciones ───────────────────────────────────────────────────────
       case 'new_quote_request': {
-        // Carrusel de programadas ENCIMA del dashboard (mismo patrón que exprés),
-        // con esa cotización primero; el formulario se alcanza con "Cotizar"
+        // Pendiente → carrusel 📅 sobre el dashboard. Ya respondida/expirada →
+        // directo al detalle (el carrusel solo muestra pendientes y el tap
+        // quedaría muerto). Sin quote_id o sin fila → lista de cotizaciones.
         const qId = notif.data?.quote_id as string | undefined;
-        void openScheduledQuotes(qId);
-        navigation.navigate('GroupHome');
+        if (qId) {
+          const { data: qData } = await supabase
+            .from('quotes')
+            .select('*, client:profiles!client_id(full_name, avatar_url)')
+            .eq('id', qId)
+            .maybeSingle();
+          if (qData && (qData.status !== 'pending' || role !== 'group')) {
+            navigation.navigate('GroupQuoteDetail', { quote: qData });
+            break;
+          }
+          if (!qData) {
+            navigation.navigate('GroupQuotes');
+            break;
+          }
+        }
+        if (role === 'group') {
+          void openScheduledQuotes(qId);
+          navigation.navigate('GroupHome');
+        } else {
+          navigation.navigate('GroupQuotes');
+        }
         break;
       }
 
@@ -494,9 +515,9 @@ export default function NotificationsScreen({ navigation }: any) {
           navigation.navigate('TalentHome', { screen: 'Eventos' });
         } else if (role === 'group') {
           if (notif.data?.screen === 'OpenRequests') {
-            // Ola de solicitud ABIERTA/PROGRAMADA → carrusel 📅 sobre el dashboard
-            const reqId = notif.data?.request_id as string | undefined;
-            void openScheduledQuotes(reqId);
+            // Ola de solicitud — exprés o programada: el helper consulta la
+            // solicitud real y abre el carrusel correcto
+            void openForRequestNotification(notif.data?.request_id as string | undefined);
             navigation.navigate('GroupHome');
           } else {
             // Solicitud express disponible → abrir dashboard con carousel Uber-style

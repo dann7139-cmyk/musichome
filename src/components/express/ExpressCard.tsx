@@ -117,6 +117,7 @@ const ExpressCard = React.memo(function ExpressCard({
     : null;
 
   const handleCotizar = useCallback(() => onCotizar(id), [id, onCotizar]);
+  const handleDismiss = useCallback(() => onDismiss(id), [id, onDismiss]);
 
   return (
     <Animated.View style={{ transform: [{ translateX: entryX }], opacity: entryOp }}>
@@ -214,6 +215,10 @@ const ExpressCard = React.memo(function ExpressCard({
           </View>
 
           <View style={s.actions}>
+            <Pressable onPress={handleDismiss} hitSlop={12}
+              style={({ pressed }) => [s.btnGhost, pressed && { opacity: 0.5 }]}>
+              <Text style={s.btnGhostTx}>Ignorar</Text>
+            </Pressable>
             <Pressable onPress={() => setDetailsOpen(true)} hitSlop={8}
               style={({ pressed }) => [s.btnOutline, pressed && { opacity: 0.6 }]}>
               <Text style={s.btnOutlineTx}>Detalles</Text>
@@ -299,6 +304,8 @@ const s = StyleSheet.create({
   statDiv:  { width: 1, height: 26, backgroundColor: 'rgba(255,255,255,0.07)' },
 
   actions:      { flexDirection: 'row', gap: 8, marginTop: 2 },
+  btnGhost:     { paddingHorizontal: 12, paddingVertical: 10, borderRadius: RADIUS.lg, alignItems: 'center', justifyContent: 'center' },
+  btnGhostTx:   { fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.muted },
   btnOutline:   { paddingHorizontal: 14, paddingVertical: 10, borderRadius: RADIUS.lg, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(0,230,118,0.35)', backgroundColor: 'rgba(0,230,118,0.08)' },
   btnOutlineTx: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.green },
   btnPrimary:   { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: 10, borderRadius: RADIUS.lg, backgroundColor: COLORS.green },
