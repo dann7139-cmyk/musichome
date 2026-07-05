@@ -29,6 +29,7 @@ export interface ExpressDispatch {
   expires_at?: string;
   request?: {
     id: string;
+    client_id: string | null;
     event_type: string;
     genre: string;
     event_date: string;
@@ -42,6 +43,9 @@ export interface ExpressDispatch {
     longitude: number | null;
     event_lat: number | null;
     event_lng: number | null;
+    venue_covered: string | null;
+    venue_size: string | null;
+    needs_sound: string | null;
     comments: string | null;
   };
 }
@@ -125,7 +129,7 @@ export function ExpressProvider({
   const loadPending = useCallback(async (gid: string, silent = false) => {
     const { data: rows } = await supabase
       .from('express_dispatches')
-      .select('*, request:event_requests(id,event_type,genre,event_date,event_time,hours,guest_count,location_city,location_municipio,location_estado,latitude,longitude,event_lat,event_lng,comments)')
+      .select('*, request:event_requests(id,client_id,event_type,genre,event_date,event_time,hours,guest_count,location_city,location_municipio,location_estado,latitude,longitude,event_lat,event_lng,venue_covered,venue_size,needs_sound,comments)')
       .eq('group_id', gid)
       .in('status', ['pending_broadcast', 'quoting'])
       .order('created_at', { ascending: true });
@@ -157,7 +161,7 @@ export function ExpressProvider({
 
           const { data: req } = await supabase
             .from('event_requests')
-            .select('id,event_type,genre,event_date,event_time,hours,guest_count,location_city,location_municipio,location_estado,latitude,longitude,event_lat,event_lng,comments')
+            .select('id,client_id,event_type,genre,event_date,event_time,hours,guest_count,location_city,location_municipio,location_estado,latitude,longitude,event_lat,event_lng,venue_covered,venue_size,needs_sound,comments')
             .eq('id', dispatch.request_id)
             .single();
 
@@ -211,7 +215,7 @@ export function ExpressProvider({
     // never sees a 1-2 s gap where both the banner and the carousel are gone.
     const { data: rows } = await supabase
       .from('express_dispatches')
-      .select('*, request:event_requests(id,event_type,genre,event_date,event_time,hours,guest_count,location_city,location_municipio,location_estado,latitude,longitude,event_lat,event_lng,comments)')
+      .select('*, request:event_requests(id,client_id,event_type,genre,event_date,event_time,hours,guest_count,location_city,location_municipio,location_estado,latitude,longitude,event_lat,event_lng,venue_covered,venue_size,needs_sound,comments)')
       .eq('group_id', groupId)
       .in('status', ['pending_broadcast', 'quoting', 'ignored'])
       .order('created_at', { ascending: true });
@@ -226,7 +230,7 @@ export function ExpressProvider({
       dismissedIdsRef.current.delete(id);
       const { data } = await supabase
         .from('express_dispatches')
-        .select('*, request:event_requests(id,event_type,genre,event_date,event_time,hours,guest_count,location_city,location_municipio,location_estado,latitude,longitude,event_lat,event_lng,comments)')
+        .select('*, request:event_requests(id,client_id,event_type,genre,event_date,event_time,hours,guest_count,location_city,location_municipio,location_estado,latitude,longitude,event_lat,event_lng,venue_covered,venue_size,needs_sound,comments)')
         .eq('id', id)
         .in('status', ['pending_broadcast', 'quoting', 'ignored'])
         .single();

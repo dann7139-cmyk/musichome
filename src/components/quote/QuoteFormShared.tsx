@@ -141,8 +141,9 @@ const qlMapSt = StyleSheet.create({
 });
 
 // ── QuoteLocationMap ──────────────────────────────────────────────────────────
-function QuoteLocationMap({ quoteId, eventMunicipio, eventEstado, onOpenMaps }: {
-  quoteId: string; eventMunicipio?: string; eventEstado?: string; onOpenMaps?: () => void;
+function QuoteLocationMap({ quoteId, eventLatitude, eventLongitude, eventMunicipio, eventEstado, onOpenMaps }: {
+  quoteId: string; eventLatitude?: number | null; eventLongitude?: number | null;
+  eventMunicipio?: string; eventEstado?: string; onOpenMaps?: () => void;
 }) {
   const mapRef = useRef<MapView>(null);
   const [groupOrigin, setGroupOrigin] = useState<LatLng | null>(null);
@@ -150,9 +151,20 @@ function QuoteLocationMap({ quoteId, eventMunicipio, eventEstado, onOpenMaps }: 
   const [routePts,    setRoutePts]    = useState<LatLng[]>([]);
 
   useEffect(() => {
+    // Prioridad: coordenadas REALES del pin del cliente (quotes.latitude/longitude,
+    // con jitter de privacidad determinístico) → fallback por nombre de ciudad
+    if (eventLatitude != null && eventLongitude != null) {
+      let h = 0; const seed = quoteId;
+      for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) & 0x7fffffff;
+      setApproxDest({
+        latitude:  eventLatitude  + ((h % 800) - 400) / 200_000,
+        longitude: eventLongitude + (((h * 31) % 800) - 400) / 200_000,
+      });
+      return;
+    }
     const city = eventMunicipio ?? eventEstado ?? 'guadalajara';
     setApproxDest(_privacyOffset(quoteId, city, eventMunicipio));
-  }, [quoteId, eventMunicipio, eventEstado]);
+  }, [quoteId, eventLatitude, eventLongitude, eventMunicipio, eventEstado]);
 
   useEffect(() => {
     Location.requestForegroundPermissionsAsync().then(({ status }) => {
@@ -179,6 +191,7 @@ function QuoteLocationMap({ quoteId, eventMunicipio, eventEstado, onOpenMaps }: 
 
   return (
     <View>
+      <View style={{ borderRadius: RADIUS.lg, overflow: 'hidden', marginBottom: 8 }}>
       <MapView
         ref={mapRef}
         style={qlMapSt2.map}
@@ -218,6 +231,11 @@ function QuoteLocationMap({ quoteId, eventMunicipio, eventEstado, onOpenMaps }: 
           </Marker>
         )}
       </MapView>
+      {/* Chip de tipo — mismo lenguaje que ExpressCard */}
+      <View style={qlMapSt2.typeChip} pointerEvents="none">
+        <Text style={qlMapSt2.typeTx}>📅 PROGRAMADA</Text>
+      </View>
+      </View>
       <Text style={qlMapSt2.zone}>
         📍 {eventMunicipio}{eventEstado ? `, ${eventEstado}` : ''} — Zona aproximada
       </Text>
@@ -225,7 +243,15 @@ function QuoteLocationMap({ quoteId, eventMunicipio, eventEstado, onOpenMaps }: 
   );
 }
 const qlMapSt2 = StyleSheet.create({
-  map:         { width: '100%', height: 200, borderRadius: RADIUS.lg, overflow: 'hidden', marginBottom: 8 },
+  map:         { width: '100%', height: 200 },
+  typeChip: {
+    position: 'absolute', top: 10, left: 10,
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: 'rgba(0,0,0,0.72)', borderRadius: 20,
+    paddingHorizontal: 8, paddingVertical: 4,
+    borderWidth: 1, borderColor: 'rgba(0,230,118,0.28)',
+  },
+  typeTx: { fontFamily: FONTS.bodySemiBold, fontSize: 10, color: COLORS.green, letterSpacing: 0.4 },
   footer:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   zone:        { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2, flex: 1 },
   mapsBtn:     { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: RADIUS.md, backgroundColor: COLORS.greenMuted, borderWidth: 1, borderColor: COLORS.green },
@@ -308,6 +334,8 @@ export interface QuoteFormSharedProps {
   // Location — mode='quote': map privacidad; mode='propose': zone only
   quoteId?: string;
   eventAddress?: string;
+  eventLatitude?: number | null;    // pin real del cliente (quotes.latitude)
+  eventLongitude?: number | null;
   eventMunicipio?: string;
   eventEstado?: string;
   onOpenMaps?: () => void;
@@ -326,6 +354,9 @@ export interface QuoteFormSharedProps {
   // Client card (mode='quote')
   clientName?: string;
   clientCreatedAt?: string;
+  clientAvatarUrl?: string | null;
+  // Botón "Ver perfil ›" (ambos modos) — abre el perfil público del cliente
+  onViewClientProfile?: () => void;
 
   // Form state (fully controlled)
   pricePerHour: string;
@@ -491,14 +522,27 @@ export default function QuoteFormShared(p: QuoteFormSharedProps) {
             </View>
           )}
 
-          {/* Tarjeta del cliente (mode='quote') */}
+          {/* Tarjeta del cliente (mode='quote') — foto + Ver perfil, como ExpressCard */}
           {p.mode === 'quote' && p.clientName && (
             <View style={s.clientCard}>
-              <Text style={s.clientEmoji}>👤</Text>
-              <View>
+              {p.clientAvatarUrl ? (
+                <Image source={{ uri: p.clientAvatarUrl }} style={s.clientAvatar} />
+              ) : (
+                <Text style={s.clientEmoji}>👤</Text>
+              )}
+              <View style={{ flex: 1 }}>
                 <Text style={s.clientName}>{p.clientName}</Text>
                 {p.clientCreatedAt ? <Text style={s.clientSub}>{p.clientCreatedAt}</Text> : null}
               </View>
+              {p.onViewClientProfile && (
+                <Pressable
+                  onPress={p.onViewClientProfile}
+                  hitSlop={8}
+                  style={({ pressed }) => [s.viewProfileBtn, pressed && { opacity: 0.6 }]}
+                >
+                  <Text style={s.viewProfileTx}>Ver perfil ›</Text>
+                </Pressable>
+              )}
             </View>
           )}
 
@@ -524,6 +568,15 @@ export default function QuoteFormShared(p: QuoteFormSharedProps) {
                   </Text>
                 ) : null}
               </View>
+              {p.onViewClientProfile && (
+                <Pressable
+                  onPress={p.onViewClientProfile}
+                  hitSlop={8}
+                  style={({ pressed }) => [s.viewProfileBtn, pressed && { opacity: 0.6 }]}
+                >
+                  <Text style={s.viewProfileTx}>Ver perfil ›</Text>
+                </Pressable>
+              )}
             </View>
           )}
 
@@ -538,11 +591,13 @@ export default function QuoteFormShared(p: QuoteFormSharedProps) {
           </View>
 
           {/* Ubicación — mapa de privacidad para quotes, zona para propose */}
-          {p.mode === 'quote' && p.quoteId && (p.eventMunicipio || p.eventEstado) ? (
+          {p.mode === 'quote' && p.quoteId && (p.eventLatitude != null || p.eventMunicipio || p.eventEstado) ? (
             <View style={s.section}>
               <Text style={s.sectionTitle}>Ubicación</Text>
               <QuoteLocationMap
                 quoteId={p.quoteId}
+                eventLatitude={p.eventLatitude}
+                eventLongitude={p.eventLongitude}
                 eventMunicipio={p.eventMunicipio}
                 eventEstado={p.eventEstado}
                 onOpenMaps={p.onOpenMaps}
@@ -943,6 +998,12 @@ const s = StyleSheet.create({
   clientAvatar: { width: 42, height: 42, borderRadius: 21 },
   clientName:  { fontFamily: FONTS.title, fontSize: 20, color: COLORS.text },
   clientSub:   { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2 },
+  viewProfileBtn: {
+    backgroundColor: 'rgba(0,230,118,0.10)', borderRadius: 20,
+    borderWidth: 1, borderColor: 'rgba(0,230,118,0.35)',
+    paddingHorizontal: 10, paddingVertical: 5,
+  },
+  viewProfileTx: { fontFamily: FONTS.bodySemiBold, fontSize: 11, color: COLORS.green },
 
   section: {
     backgroundColor: COLORS.card, borderRadius: RADIUS.xl,

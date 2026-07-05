@@ -23,6 +23,8 @@ import { supabase } from '../../config/supabase';
 import { isPaid, parseEventDateMX } from '../../utils/calculations';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import Badge from '../../components/ui/Badge';
+import RequestZoneMap from '../../components/requests/RequestZoneMap';
+import { approxGroupLocation, eventCardCenter } from '../../utils/mapUtils';
 
 const STATUS_MAP: Record<string, { label: string; variant: any }> = {
   pending:                    { label: 'Pendiente',        variant: 'orange' },
@@ -98,7 +100,7 @@ export default function ClientReservationsScreen({ navigation, route }: any) {
     const [resData, quoteData, exprData] = await Promise.all([
       supabase
         .from('reservations')
-        .select('*, group:groups(id, name, genre, city, profile_image, owner_id), quote:quotes(duration_hours, overtime_1h_price, overtime_2h_price, overtime_3h_price, event_type), event_request_id, hours_count')
+        .select('*, group:groups(id, name, genre, city, profile_image, owner_id), quote:quotes(duration_hours, overtime_1h_price, overtime_2h_price, overtime_3h_price, event_type, latitude, longitude), event_request:event_requests!event_request_id(latitude, longitude, event_lat, event_lng), event_request_id, hours_count')
         .eq('client_id', uid)
         .order('created_at', { ascending: false })
         .range(from, to),
@@ -355,7 +357,7 @@ export default function ClientReservationsScreen({ navigation, route }: any) {
               </View>
             ) : (
               <>
-                {eventItems.map((r) => (
+                {eventItems.map((r, idx) => (
                   <ReservationCard
                     key={r.id}
                     reservation={r}
@@ -363,6 +365,7 @@ export default function ClientReservationsScreen({ navigation, route }: any) {
                     onUpdate={() => fetchAll(0)}
                     isReviewed={reviewedIds.has(r.id)}
                     isJustPaid={justPaidId === r.id}
+                    showMap={idx < 6}
                     onRate={(reservationId: string) => {
                       const res = reservations.find(r => r.id === reservationId);
                       if (res) {
@@ -393,6 +396,9 @@ export default function ClientReservationsScreen({ navigation, route }: any) {
             ) : (
               <>
                 {/* ── Solicitudes express ── */}
+                {expressRequests.length > 0 && (
+                  <Text style={styles.pendSectionTitle}>⚡ Solicitudes exprés · {expressRequests.length}</Text>
+                )}
                 {expressRequests.map((req: any) => {
                   const hasProposal = req.status === 'en_negociacion';
                   const proposal    = req.proposal_data ?? {};
@@ -458,6 +464,11 @@ export default function ClientReservationsScreen({ navigation, route }: any) {
                 })}
 
                 {/* ── Cotizaciones pendientes ── */}
+                {visibleQuotes.length > 0 && (
+                  <Text style={[styles.pendSectionTitle, expressRequests.length > 0 && { marginTop: 10 }]}>
+                    📅 Cotizaciones programadas · {visibleQuotes.length}
+                  </Text>
+                )}
                 {visibleQuotes.map((q) => {
                   const cfg = QUOTE_STATUS_CFG[q.status] ?? QUOTE_STATUS_CFG.pending;
                   const eventDate = q.event_date
@@ -482,9 +493,14 @@ export default function ClientReservationsScreen({ navigation, route }: any) {
                       onPress={handleQuotePress}
                     >
                       <View style={styles.quoteTop}>
-                        <View style={[styles.quotePill, { borderColor: cfg.color + '50', backgroundColor: cfg.color + '18' }]}>
-                          <FileText size={11} color={cfg.color} />
-                          <Text style={[styles.quotePillText, { color: cfg.color }]}>{cfg.label}</Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap', flex: 1 }}>
+                          <View style={[styles.quotePill, { borderColor: cfg.color + '50', backgroundColor: cfg.color + '18' }]}>
+                            <FileText size={11} color={cfg.color} />
+                            <Text style={[styles.quotePillText, { color: cfg.color }]}>{cfg.label}</Text>
+                          </View>
+                          <View style={[styles.quotePill, { borderColor: COLORS.green + '50', backgroundColor: COLORS.green + '12' }]}>
+                            <Text style={[styles.quotePillText, { color: COLORS.green }]}>📅 Programada</Text>
+                          </View>
                         </View>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
                           {q.status === 'pending' && (
@@ -524,7 +540,7 @@ export default function ClientReservationsScreen({ navigation, route }: any) {
   );
 }
 
-function ReservationCard({ reservation: r, navigation, onUpdate, isReviewed, isJustPaid, onRate }: any) {
+function ReservationCard({ reservation: r, navigation, onUpdate, isReviewed, isJustPaid, onRate, showMap = false }: any) {
   const now = new Date();
   const todayLocal = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   // Solo mostrar faded si el evento está completado/cancelado Y la fecha ya pasó
@@ -794,15 +810,32 @@ function ReservationCard({ reservation: r, navigation, onUpdate, isReviewed, isJ
   };
 
   const isExpress = !!r.event_request_id;
+  const typeLabel = isExpress ? '⚡ Express' : '📅 Programada';
+  // Finalizados/cancelados: tarjeta COMPACTA — sin mapa, sin badge de pago,
+  // sin botones grandes; solo resumen + acciones chicas (calificar/ticket/compartir)
+  const mapCenter = showMap && !isFinished ? eventCardCenter(r) : null;
+  // Ruta desde la ubicación APROXIMADA del grupo (centro de su ciudad — nunca
+  // la real) hacia la zona del evento, con la foto del grupo. Como ProposalCard.
+  const groupApprox = mapCenter
+    ? approxGroupLocation(r.group?.id ?? String(r.id), r.group?.city, null, mapCenter)
+    : null;
 
   return (
-    <View style={[styles.card, isPast && { opacity: 0.5 }, isExpress && styles.cardExpress, isLive && styles.cardLive]}>
+    <View style={[styles.card, isPast && { opacity: 0.5 }, isExpress && styles.cardExpress, isLive && styles.cardLive, isFinished && styles.cardFinished]}>
       {/* ── Banner EN VIVO ── */}
       {isLive && (
         <View style={styles.liveBanner}>
           <Animated.View style={[styles.liveDot, { opacity: pulseAnim }]} />
           <Text style={styles.liveBannerText}>EN VIVO AHORA</Text>
         </View>
+      )}
+
+      {/* ── Mapa de zona (estilo ExpressCard) ── */}
+      {mapCenter && (
+        <RequestZoneMap
+          mapId={String(r.id)} center={mapCenter} typeLabel={typeLabel}
+          userLocation={groupApprox} groupPhotoUrl={r.group?.profile_image ?? null}
+        />
       )}
 
       {/* ── Info card ── */}
@@ -833,10 +866,19 @@ function ReservationCard({ reservation: r, navigation, onUpdate, isReviewed, isJ
           </View>
           <View style={{ alignItems: 'flex-end', gap: 6 }}>
             <Badge label={s.label} variant={s.variant} dot />
-            {isExpress && (
-              <View style={styles.expressBadge}>
-                <Text style={styles.expressBadgeText}>⚡ Express</Text>
+            {!mapCenter && (
+              <View style={[styles.expressBadge, !isExpress && { borderColor: 'rgba(0,230,118,0.30)' }]}>
+                <Text style={styles.expressBadgeText}>{typeLabel}</Text>
               </View>
+            )}
+            {r.group?.id && (
+              <Pressable
+                onPress={(e: any) => { e.stopPropagation?.(); navigation.navigate('GroupDetail', { group: r.group }); }}
+                hitSlop={8}
+                style={({ pressed }: any) => [styles.expressBadge, { borderColor: 'rgba(0,230,118,0.35)' }, pressed && { opacity: 0.6 }]}
+              >
+                <Text style={styles.expressBadgeText}>Ver perfil ›</Text>
+              </Pressable>
             )}
           </View>
         </View>
@@ -868,8 +910,8 @@ function ReservationCard({ reservation: r, navigation, onUpdate, isReviewed, isJ
           <Text style={styles.folioText}>{r.folio}</Text>
         )}
 
-        {/* Payment status badge */}
-        {isPaidReservation && (
+        {/* Payment status badge — en finalizados es redundante con el estado */}
+        {isPaidReservation && !isFinished && (
           <View style={[styles.paidBadge, { backgroundColor: 'rgba(0,230,118,0.12)', borderColor: COLORS.green }]}>
             <Text style={[styles.paidBadgeText, { color: COLORS.green }]}>✅ Pagado</Text>
           </View>
@@ -896,8 +938,8 @@ function ReservationCard({ reservation: r, navigation, onUpdate, isReviewed, isJ
         ) : null}
       </Pressable>
 
-      {/* Ver evento / EN VIVO */}
-      {(isPaidReservation || isLive || r.status === 'accepted' || r.status === 'confirmed' || r.status === 'completed') && (
+      {/* Ver evento / EN VIVO — los finalizados abren el resumen tocando la tarjeta */}
+      {(isPaidReservation || isLive || r.status === 'accepted' || r.status === 'confirmed') && !isFinished && (
         <Pressable
           style={[styles.timerBtn, isLive && styles.timerBtnLive]}
           onPress={() => navigation.navigate('EventTimer', { reservation: r, readOnly: true, userRole: 'client' })}
@@ -905,17 +947,15 @@ function ReservationCard({ reservation: r, navigation, onUpdate, isReviewed, isJ
           <Text style={[styles.timerBtnText, isLive && styles.timerBtnTextLive]}>
             {isLive
               ? '🔴 Ver evento en vivo'
-              : r.status === 'completed'
-                ? '✅ Ver resumen del evento'
-                : isPaidReservation
-                  ? '🕐 Ver temporizador del evento'
-                  : '📅 Ver detalles del evento'}
+              : isPaidReservation
+                ? '🕐 Ver temporizador del evento'
+                : '📅 Ver detalles del evento'}
           </Text>
         </Pressable>
       )}
 
       {/* Ver ticket */}
-      {isPaidReservation && r.folio && (
+      {isPaidReservation && r.folio && !isFinished && (
         <Pressable
           style={styles.ticketBtn}
           onPress={() => navigation.navigate('Ticket', { reservation: r })}
@@ -1053,18 +1093,26 @@ function ReservationCard({ reservation: r, navigation, onUpdate, isReviewed, isJ
         </View>
       )}
 
-      {/* ── Botón Calificar + Compartir ── */}
+      {/* ── Acciones compactas del evento finalizado ── */}
       {r.status === 'completed' && !r._isQuote && (
         <View style={styles.completedActions}>
           {isReviewed ? (
-            <Text style={styles.ratedText}>⭐ Ya calificaste este evento</Text>
+            <Text style={styles.ratedText}>⭐ Calificado</Text>
           ) : (
             <Pressable
               style={styles.rateBtn}
               onPress={() => onRate?.(r.id, r.group?.name ?? 'el grupo')}
             >
-              <Star size={15} color={COLORS.gold} fill={COLORS.gold} />
+              <Star size={13} color={COLORS.gold} fill={COLORS.gold} />
               <Text style={styles.rateBtnText}>{t('reservations.rate_title')}</Text>
+            </Pressable>
+          )}
+          {isPaidReservation && r.folio && (
+            <Pressable
+              style={styles.shareBtn}
+              onPress={() => navigation.navigate('Ticket', { reservation: r })}
+            >
+              <Text style={styles.shareBtnText}>🎟 Ticket</Text>
             </Pressable>
           )}
           <Pressable
@@ -1079,7 +1127,7 @@ function ReservationCard({ reservation: r, navigation, onUpdate, isReviewed, isJ
               });
             }}
           >
-            <Share2 size={15} color={COLORS.muted2} />
+            <Share2 size={13} color={COLORS.muted2} />
             <Text style={styles.shareBtnText}>Compartir</Text>
           </Pressable>
         </View>
@@ -1095,11 +1143,13 @@ const styles = StyleSheet.create({
   list: { padding: SPACING.xl, gap: 12 },
 
   // ── Card ──
+  // Cascarón estilo ExpressCard: fondo oscuro + borde verde fino; el mapa
+  // de zona (RequestZoneMap) entra arriba gracias al overflow hidden
   card: {
-    backgroundColor: COLORS.card,
+    backgroundColor: '#060c06',
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: COLORS.border,
+    borderColor: 'rgba(0,230,118,0.35)',
     overflow: 'hidden',
   },
   cardPressable: { padding: 16 },
@@ -1308,17 +1358,24 @@ const styles = StyleSheet.create({
     borderRadius: RADIUS.full, borderWidth: 1,
   },
   quotePillText:  { fontFamily: FONTS.bodyMedium, fontSize: 11 },
-  quoteDate:      { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted },
-  quoteGroup:     { fontFamily: FONTS.bodySemiBold, fontSize: 17, color: COLORS.text, marginBottom: 6 },
+  quoteDate:      { fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted },
+  quoteGroup:     { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: COLORS.text, marginBottom: 6 },
   quoteInfo:      { flexDirection: 'row', gap: 14, marginBottom: 8 },
   quoteInfoText:  { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2 },
-  quotePriceRow:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'rgba(66,133,244,0.1)', borderRadius: RADIUS.md, padding: 10, marginBottom: 8 },
-  quotePriceLabel:{ fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.blue },
-  quotePriceVal:  { fontFamily: FONTS.title, fontSize: 18, color: COLORS.blue },
-  quoteCta:       { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.green, textAlign: 'right' },
+  quotePriceRow:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'rgba(66,133,244,0.1)', borderRadius: RADIUS.md, paddingHorizontal: 10, paddingVertical: 8, marginBottom: 8 },
+  quotePriceLabel:{ fontFamily: FONTS.bodyMedium, fontSize: 12, color: COLORS.blue },
+  quotePriceVal:  { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: COLORS.blue },
+  quoteCta:       { fontFamily: FONTS.bodySemiBold, fontSize: 12, color: COLORS.green, textAlign: 'right' },
+  pendSectionTitle: {
+    fontFamily: FONTS.bodySemiBold, fontSize: 12, color: COLORS.muted2,
+    textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 2,
+  },
 
   cardExpress: {
     borderColor: `${COLORS.green}40`,
+  },
+  cardFinished: {
+    borderColor: 'rgba(255,255,255,0.10)',   // finalizados sobrios, sin borde verde
   },
   expressBadge: {
     backgroundColor: 'rgba(0,230,118,0.12)', borderRadius: 20,

@@ -17,6 +17,7 @@ import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import Particles from '../../components/ui/Particles';
 import { useAuth } from '../../context/AuthContext';
 import { reviveAllExpressDispatches } from '../../context/ExpressContext';
+import { openScheduledQuotes } from '../../components/requests/ScheduledQuotesCarousel';
 import { reviveClientProposals } from '../../context/ClientProposalContext';
 
 interface Notification {
@@ -418,23 +419,11 @@ export default function NotificationsScreen({ navigation }: any) {
 
       // ── Cotizaciones ───────────────────────────────────────────────────────
       case 'new_quote_request': {
-        // Dueño o integrante: ir directo al detalle si tenemos quote_id
+        // Carrusel de programadas ENCIMA del dashboard (mismo patrón que exprés),
+        // con esa cotización primero; el formulario se alcanza con "Cotizar"
         const qId = notif.data?.quote_id as string | undefined;
-        if (qId) {
-          // Obtener el quote para pasarlo como param
-          const { data: qData } = await supabase
-            .from('quotes')
-            .select('*, client:profiles!client_id(full_name, avatar_url)')
-            .eq('id', qId)
-            .single();
-          if (qData) {
-            navigation.navigate('GroupQuoteDetail', { quote: qData });
-          } else {
-            navigation.navigate('GroupQuotes');
-          }
-        } else {
-          navigation.navigate('GroupQuotes');
-        }
+        void openScheduledQuotes(qId);
+        navigation.navigate('GroupHome');
         break;
       }
 
@@ -504,9 +493,16 @@ export default function NotificationsScreen({ navigation }: any) {
           // Eventos tab inside TalentHome, not a root stack screen
           navigation.navigate('TalentHome', { screen: 'Eventos' });
         } else if (role === 'group') {
-          // Solicitud express disponible → abrir dashboard con carousel Uber-style
-          void reviveAllExpressDispatches();
-          navigation.navigate('GroupHome');
+          if (notif.data?.screen === 'OpenRequests') {
+            // Ola de solicitud ABIERTA/PROGRAMADA → carrusel 📅 sobre el dashboard
+            const reqId = notif.data?.request_id as string | undefined;
+            void openScheduledQuotes(reqId);
+            navigation.navigate('GroupHome');
+          } else {
+            // Solicitud express disponible → abrir dashboard con carousel Uber-style
+            void reviveAllExpressDispatches();
+            navigation.navigate('GroupHome');
+          }
         } else {
           // Cliente: mostrar carousel de propuestas Uber-style
           void reviveClientProposals();

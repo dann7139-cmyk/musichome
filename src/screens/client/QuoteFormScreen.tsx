@@ -369,13 +369,14 @@ export default function QuoteFormScreen({ route, navigation }: any) {
         .eq('id', group.id)
         .single();
       if (groupData?.owner_id) {
-        // Notificar al dueño
+        // Notificar al dueño — quote_id permite abrir el carrusel de
+        // programadas con esta cotización primero
         await supabase.from('notifications').insert({
           user_id: groupData.owner_id,
           type:    'new_quote_request',
           title:   '📋 Nueva solicitud de cotización',
           body:    `Un cliente solicita cotización para un evento de ${duration}h. Revisa y envía el precio.`,
-          data:    { group_id: group.id },
+          data:    { group_id: group.id, quote_id: insertData?.[0]?.id ?? null },
         });
 
         // Notificar a los integrantes del grupo

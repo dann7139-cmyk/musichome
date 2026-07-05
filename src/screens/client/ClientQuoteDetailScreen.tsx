@@ -19,6 +19,8 @@ import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import { MSI_OPTIONS, MsiOption } from '../../utils/calculations';
 import { calculateFinancedPrice, calculateMonthlyPayment, PUBLIC_MSI_FEE_RATES } from '../../utils/publicPricing';
+import RequestZoneMap from '../../components/requests/RequestZoneMap';
+import { approxGroupLocation, eventCardCenter } from '../../utils/mapUtils';
 
 const EVENT_TYPE_LABELS: Record<string, string> = {
   fiesta_privada: '🎉 Fiesta privada',
@@ -49,7 +51,7 @@ export default function ClientQuoteDetailScreen({ route, navigation }: any) {
   const fetchQuote = useCallback(async () => {
     const { data } = await supabase
       .from('quotes')
-      .select('*, group:groups(id, name, owner_id, profile_image)')
+      .select('*, group:groups(id, name, owner_id, profile_image, genre, city, state, average_rating, total_reviews)')
       .eq('id', quoteId)
       .single();
     setQuote(data);
@@ -307,6 +309,15 @@ export default function ClientQuoteDetailScreen({ route, navigation }: any) {
             <Text style={s.headerTitle}>Cotización recibida</Text>
             <Text style={s.headerSub}>{quote.group?.name ?? 'Grupo'}</Text>
           </View>
+          {quote.group?.id && (
+            <Pressable
+              onPress={() => navigation.navigate('GroupDetail', { group: quote.group })}
+              hitSlop={8}
+              style={({ pressed }) => [s.viewProfileBtn, pressed && { opacity: 0.6 }]}
+            >
+              <Text style={s.viewProfileTx}>Ver perfil ›</Text>
+            </Pressable>
+          )}
         </View>
       </SafeAreaView>
 
@@ -325,6 +336,21 @@ export default function ClientQuoteDetailScreen({ route, navigation }: any) {
             <Text style={[s.statusText, { color: COLORS.red }]}>Cotización cancelada</Text>
           </View>
         )}
+
+        {/* Mapa estilo ExpressCard: tu zona + el grupo viniendo desde su ciudad */}
+        {(() => {
+          const center = eventCardCenter(quote);
+          if (!center) return null;
+          const groupLoc = approxGroupLocation(quote.group?.id ?? String(quote.id), quote.group?.city, quote.group?.state, center);
+          return (
+            <View style={s.mapCard}>
+              <RequestZoneMap
+                mapId={String(quote.id)} center={center} typeLabel="📅 Programada"
+                userLocation={groupLoc} groupPhotoUrl={quote.group?.profile_image ?? null}
+              />
+            </View>
+          );
+        })()}
 
         {/* Precio total */}
         <View style={[s.priceCard, { borderColor: isAccepted ? COLORS.green : isCancelled ? COLORS.red : COLORS.border }]}>
@@ -467,6 +493,17 @@ const s = StyleSheet.create({
   },
   headerTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 16, color: COLORS.text },
   headerSub:   { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2, marginTop: 1 },
+  viewProfileBtn: {
+    backgroundColor: 'rgba(0,230,118,0.10)', borderRadius: 20,
+    borderWidth: 1, borderColor: 'rgba(0,230,118,0.35)',
+    paddingHorizontal: 10, paddingVertical: 5,
+  },
+  viewProfileTx: { fontFamily: FONTS.bodySemiBold, fontSize: 11, color: COLORS.green },
+  mapCard: {
+    borderRadius: 20, overflow: 'hidden',
+    borderWidth: 1, borderColor: 'rgba(0,230,118,0.35)',
+    marginBottom: 14,
+  },
 
   scroll: { padding: SPACING.xl },
 

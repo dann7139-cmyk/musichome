@@ -15,9 +15,11 @@ import { analyzeMessage, PHONE_WARNING } from '../../utils/phoneFilter';
 import { calcClientPrice, calcPlatformFee, getCommissionRate } from '../../utils/calculations';
 import i18n from '../../i18n';
 import QuoteFormShared, { GroupMember } from '../../components/quote/QuoteFormShared';
+import ClientProfileModal from '../../components/requests/ClientProfileModal';
 
 export default function ProposeRequestScreen({ route, navigation }: any) {
   const { request, dispatchId } = route.params as { request: any; dispatchId?: string };
+  const [profileClientId, setProfileClientId] = useState<string | null>(null);
 
   const [pricePerHour, setPricePerHour] = useState('');
   const [travelCost,   setTravelCost]   = useState('0');
@@ -253,6 +255,7 @@ export default function ProposeRequestScreen({ route, navigation }: any) {
         numPersonas={request.guest_count}
         comments={request.comments}
         clientProfile={clientProfile}
+        onViewClientProfile={request.client_id ? () => setProfileClientId(request.client_id) : undefined}
         // Location (zona, no dirección exacta)
         locationCity={request.location_city}
         locationMunicipio={request.location_municipio}
@@ -325,6 +328,9 @@ export default function ProposeRequestScreen({ route, navigation }: any) {
           <Text style={s.sentBody}>El cliente la está revisando ahora.</Text>
         </Animated.View>
       )}
+
+      {/* Perfil público del cliente (RPC 435 — sin teléfono/email) */}
+      <ClientProfileModal clientId={profileClientId} onClose={() => setProfileClientId(null)} />
     </View>
   );
 }

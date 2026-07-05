@@ -22,6 +22,7 @@ import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import Particles from '../../components/ui/Particles';
 import LevelBadge from '../../components/ui/LevelBadge';
 import VerifiedBadge from '../../components/ui/VerifiedBadge';
+import PhotoViewerModal from '../../components/ui/PhotoViewerModal';
 import { useAuth } from '../../context/AuthContext';
 
 // Distancia Haversine en km entre dos puntos GPS
@@ -44,6 +45,7 @@ interface Review {
   comment: string | null;
   created_at: string;
   client_name: string;
+  client_avatar?: string | null;   // desde sql/436; tolera RPC anterior sin la columna
 }
 
 function StarRow({ rating, size = 14 }: { rating: number; size?: number }) {
@@ -75,6 +77,7 @@ export default function GroupDetailScreen({ route, navigation }: any) {
   const [reviews,          setReviews]          = useState<Review[]>([]);
   // null = sin datos | true = cerca | false = lejos
   const [isNearby,         setIsNearby]         = useState<boolean | null>(null);
+  const [photoOpen,        setPhotoOpen]        = useState(false);
   const [activitySnapshot,    setActivitySnapshot]    = useState<any>(null);
   const [groupCompletedCount, setGroupCompletedCount] = useState<number | null>(null);
   const [similarGroups,    setSimilarGroups]    = useState<any[]>([]);
@@ -234,6 +237,11 @@ export default function GroupDetailScreen({ route, navigation }: any) {
             locations={[0, 0.38, 0.72, 1]}
             style={StyleSheet.absoluteFillObject}
           />
+
+          {/* Tocar la foto la abre en grande (los botones/contenido quedan encima) */}
+          {group.profile_image && (
+            <Pressable style={StyleSheet.absoluteFillObject} onPress={() => setPhotoOpen(true)} />
+          )}
 
           {/* Botones flotantes: back (izq) + compartir (der) */}
           <SafeAreaView style={styles.heroSafeTop} edges={['top']}>
@@ -486,7 +494,9 @@ export default function GroupDetailScreen({ route, navigation }: any) {
             </View>
           )}
 
-          {/* ── RESEÑAS ── */}
+          {/* ── RESEÑAS — tarjetas chicas deslizables. Foto+nombre del cliente
+                 reseñador visible en pequeño; NO ampliable (regla de producto:
+                 los clientes no ven fotos de otros clientes en grande). ── */}
           {reviews.length > 0 && (
             <View style={styles.reviewsSection}>
               <View style={styles.reviewsHeader}>
@@ -495,18 +505,36 @@ export default function GroupDetailScreen({ route, navigation }: any) {
                   {group.average_rating?.toFixed(1)} · {group.total_reviews} reseña{group.total_reviews !== 1 ? 's' : ''}
                 </Text>
               </View>
-              {reviews.map(rv => (
-                <View key={rv.review_id} style={styles.reviewCard}>
-                  <View style={styles.reviewTop}>
-                    <StarRow rating={rv.rating} size={13} />
-                    <Text style={styles.reviewDate}>
-                      {new Date(rv.created_at).toLocaleDateString('es-MX', { month: 'short', year: 'numeric' })}
-                    </Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingRight: 4 }}>
+                {reviews.map(rv => (
+                  <View key={rv.review_id} style={styles.reviewCardH}>
+                    <View style={styles.reviewerRow}>
+                      {rv.client_avatar
+                        ? <Image source={{ uri: rv.client_avatar }} style={styles.reviewerAvatar} />
+                        : (
+                          <View style={styles.reviewerAvatarPh}>
+                            <Text style={styles.reviewerAvatarInitial}>
+                              {(rv.client_name ?? '?').charAt(0).toUpperCase()}
+                            </Text>
+                          </View>
+                        )
+                      }
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.reviewClient} numberOfLines={1}>{rv.client_name}</Text>
+                        <Text style={styles.reviewDate}>
+                          {new Date(rv.created_at).toLocaleDateString('es-MX', { month: 'short', year: 'numeric' })}
+                        </Text>
+                      </View>
+                      <StarRow rating={rv.rating} size={10} />
+                    </View>
+                    {rv.comment ? (
+                      <Text style={styles.reviewComment} numberOfLines={3}>{rv.comment}</Text>
+                    ) : (
+                      <Text style={[styles.reviewComment, { color: COLORS.muted }]}>Sin comentario</Text>
+                    )}
                   </View>
-                  <Text style={styles.reviewClient}>{rv.client_name}</Text>
-                  {rv.comment ? <Text style={styles.reviewComment}>{rv.comment}</Text> : null}
-                </View>
-              ))}
+                ))}
+              </ScrollView>
             </View>
           )}
 
@@ -627,6 +655,11 @@ export default function GroupDetailScreen({ route, navigation }: any) {
           <View style={{ height: 48 }} />
         </View>
       </ScrollView>
+
+      <PhotoViewerModal
+        uri={photoOpen ? (group.profile_image ?? null) : null}
+        onClose={() => setPhotoOpen(false)}
+      />
     </View>
   );
 }
@@ -833,15 +866,22 @@ const styles = StyleSheet.create({
   reviewsSection: { marginBottom: 20 },
   reviewsHeader: { flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 12 },
   reviewsTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 15, color: COLORS.text },
-  reviewCard: {
+  reviewCardH: {
+    width: 250,
     backgroundColor: COLORS.card, borderRadius: RADIUS.lg,
     borderWidth: 1, borderColor: COLORS.border,
-    padding: SPACING.md, marginBottom: 10,
+    padding: SPACING.md, gap: 8,
   },
-  reviewTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
-  reviewDate: { fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted2 },
-  reviewClient: { fontFamily: FONTS.bodyMedium, fontSize: 12, color: COLORS.muted2, marginBottom: 4 },
-  reviewComment: { fontFamily: FONTS.body, fontSize: 13, color: COLORS.text, lineHeight: 20 },
+  reviewerRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  reviewerAvatar:   { width: 26, height: 26, borderRadius: 13 },
+  reviewerAvatarPh: {
+    width: 26, height: 26, borderRadius: 13,
+    backgroundColor: 'rgba(0,230,118,0.12)', alignItems: 'center', justifyContent: 'center',
+  },
+  reviewerAvatarInitial: { fontFamily: FONTS.bodySemiBold, fontSize: 12, color: COLORS.green },
+  reviewDate: { fontFamily: FONTS.body, fontSize: 10, color: COLORS.muted2 },
+  reviewClient: { fontFamily: FONTS.bodyMedium, fontSize: 12, color: COLORS.text },
+  reviewComment: { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2, lineHeight: 18 },
 
   // ── Quote section ──
   quoteSection: {

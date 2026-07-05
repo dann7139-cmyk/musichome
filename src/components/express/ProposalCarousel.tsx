@@ -14,6 +14,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import { X } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
 import { supabase } from '../../config/supabase';
 import { useAuth } from '../../context/AuthContext';
@@ -302,7 +303,15 @@ export default function ProposalCarousel() {
               {count === 1 ? '1 grupo te cotizó' : `${count} grupos te cotizaron`}
             </Text>
           </View>
-          {count > 1 && <Text style={st.swipeTx}>desliza ›</Text>}
+          {/* X: cierra el carrusel (equivale a "Ignorar todas por ahora") */}
+          <Pressable
+            onPress={dismissAll}
+            hitSlop={10}
+            disabled={hiringId !== null}
+            style={({ pressed }) => [st.headerX, pressed && { opacity: 0.6 }]}
+          >
+            <X size={16} color={COLORS.text} />
+          </Pressable>
         </View>
 
         {/* Tarjetas */}
@@ -328,6 +337,13 @@ export default function ProposalCarousel() {
           onMomentumScrollEnd={handleMomentumScrollEnd}
           scrollEventThrottle={16}
         />
+
+        {/* Indicador de deslizar — fuera de la tarjeta, solo si hay más de una */}
+        {count > 1 && (
+          <View style={st.swipeHint} pointerEvents="none">
+            <Text style={st.swipeHintTx}>‹  desliza para ver las {count} cotizaciones  ›</Text>
+          </View>
+        )}
 
         {/* Botón ignorar todas */}
         <Pressable
@@ -389,7 +405,21 @@ const st = StyleSheet.create({
     fontFamily: FONTS.bodySemiBold, fontSize: 13,
     color: COLORS.text, letterSpacing: 0.2,
   },
-  swipeTx: { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted },
+  headerX: {
+    width: 30, height: 30, borderRadius: 15,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.14)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  swipeHint: { alignItems: 'center', paddingTop: 10 },
+  swipeHintTx: {
+    fontFamily: FONTS.bodyMedium, fontSize: 12, color: COLORS.green,
+    letterSpacing: 0.4,
+    backgroundColor: 'rgba(0,230,118,0.08)',
+    borderWidth: 1, borderColor: 'rgba(0,230,118,0.25)',
+    borderRadius: 20, paddingHorizontal: 14, paddingVertical: 6,
+    overflow: 'hidden',
+  },
 
   dismissAllBtn: {
     alignItems: 'center',

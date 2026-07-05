@@ -18,10 +18,14 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import * as Location from 'expo-location';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import Badge from '../../components/ui/Badge';
 import Particles from '../../components/ui/Particles';
+import RequestZoneMap from '../../components/requests/RequestZoneMap';
+import ClientProfileModal from '../../components/requests/ClientProfileModal';
+import { eventCardCenter } from '../../utils/mapUtils';
 
 const TIER_CFG: Record<string, { emoji: string; label: string; color: string }> = {
   bronze: { emoji: '🥉', label: 'Bronce', color: '#CD7F32' },
@@ -155,7 +159,7 @@ function useCountdown(eventDate: string | null, eventTime: string | null) {
 
 // ─── EventCard ────────────────────────────────────────────────────────────────
 
-function EventCard({ reservation: r, navigation }: any) {
+function EventCard({ reservation: r, navigation, showMap = false, userLocation = null, groupPhotoUrl = null, onViewProfile = null }: any) {
   const isNoShow    = r.status === 'cancelled' && r.cancellation_type === 'system_auto' && r.cancel_reason === 'no_show_grupo';
   const displayKey  = isNoShow ? 'no_show' : r.status;
   const s           = STATUS_MAP[displayKey] ?? STATUS_MAP.accepted;
@@ -171,6 +175,9 @@ function EventCard({ reservation: r, navigation }: any) {
   const showCountdown = (isPaid || r.status === 'accepted') && !isLive && !isNoShow;
   const countdown     = useCountdown(showCountdown ? r.event_date : null, r.event_time);
 
+  const typeLabel = isExpress ? '⚡ Express' : '📅 Programada';
+  const mapCenter = showMap && !isNoShow ? eventCardCenter(r) : null;
+
   return (
     <Pressable
       style={[
@@ -182,6 +189,13 @@ function EventCard({ reservation: r, navigation }: any) {
       ]}
       onPress={() => navigation.navigate('EventTimer', { reservation: r })}
     >
+      {mapCenter && (
+        <RequestZoneMap
+          mapId={String(r.id)} center={mapCenter} typeLabel={typeLabel}
+          userLocation={userLocation} groupPhotoUrl={groupPhotoUrl}
+        />
+      )}
+      <View style={st.cardRow}>
       <View style={{ alignItems: 'center', gap: 6 }}>
         <View style={[st.dateBubble, { backgroundColor: `${s.color}18`, borderColor: `${s.color}40` }]}>
           <Text style={[st.dateDay, { color: s.color }]}>{day}</Text>
@@ -197,10 +211,19 @@ function EventCard({ reservation: r, navigation }: any) {
           </Text>
           <View style={{ alignItems: 'flex-end', gap: 4 }}>
             <Badge label={s.label} variant={s.variant} dot />
-            {isExpress && !isNoShow && (
-              <View style={st.expressBadge}>
-                <Text style={st.expressBadgeText}>⚡ Express</Text>
+            {!mapCenter && !isNoShow && (
+              <View style={[st.originBadge, isExpress && st.originBadgeExpress]}>
+                <Text style={[st.originBadgeText, isExpress && { color: '#FFB300' }]}>{typeLabel}</Text>
               </View>
+            )}
+            {onViewProfile && (
+              <Pressable
+                onPress={(e: any) => { e.stopPropagation?.(); onViewProfile(); }}
+                hitSlop={8}
+                style={({ pressed }: any) => [st.viewProfileBtn, pressed && { opacity: 0.6 }]}
+              >
+                <Text style={st.viewProfileTx}>Ver perfil ›</Text>
+              </Pressable>
             )}
           </View>
         </View>
@@ -257,24 +280,34 @@ function EventCard({ reservation: r, navigation }: any) {
       </View>
 
       <ChevronRight size={16} color={COLORS.muted} />
+      </View>
     </Pressable>
   );
 }
 
 // ─── QuoteCard ────────────────────────────────────────────────────────────────
 
-function QuoteCard({ quote: q, navigation }: any) {
+function QuoteCard({ quote: q, navigation, showMap = false, userLocation = null, groupPhotoUrl = null, onViewProfile = null }: any) {
   const cfg  = QUOTE_STATUS_CFG[q.status] ?? QUOTE_STATUS_CFG.pending;
   const parts = q.event_date?.split('-') ?? [];
   const day   = parts[2] ?? '—';
   const monthIdx = parts[1] ? parseInt(parts[1], 10) - 1 : -1;
   const month = monthIdx >= 0 ? MONTH_SHORT[monthIdx] : '—';
 
+  const mapCenter = showMap ? eventCardCenter(q) : null;
+
   return (
     <Pressable
       style={[st.card, st.cardQuote]}
       onPress={() => navigation.navigate('GroupQuoteDetail', { quote: q })}
     >
+      {mapCenter && (
+        <RequestZoneMap
+          mapId={`q-${q.id}`} center={mapCenter} typeLabel="📅 Programada"
+          userLocation={userLocation} groupPhotoUrl={groupPhotoUrl}
+        />
+      )}
+      <View style={st.cardRow}>
       <View style={{ alignItems: 'center', gap: 6 }}>
         <View style={[st.dateBubble, { backgroundColor: `${cfg.color}18`, borderColor: `${cfg.color}40` }]}>
           <Text style={[st.dateDay, { color: cfg.color }]}>{day}</Text>
@@ -288,8 +321,24 @@ function QuoteCard({ quote: q, navigation }: any) {
           <Text style={st.clientName} numberOfLines={1}>
             {q.client?.full_name ?? 'Cliente'}
           </Text>
-          <View style={[st.quotePill, { backgroundColor: `${cfg.color}18`, borderColor: `${cfg.color}40` }]}>
-            <Text style={[st.quotePillText, { color: cfg.color }]}>{cfg.label}</Text>
+          <View style={{ alignItems: 'flex-end', gap: 4 }}>
+            <View style={[st.quotePill, { backgroundColor: `${cfg.color}18`, borderColor: `${cfg.color}40` }]}>
+              <Text style={[st.quotePillText, { color: cfg.color }]}>{cfg.label}</Text>
+            </View>
+            {!mapCenter && (
+              <View style={st.originBadge}>
+                <Text style={st.originBadgeText}>📅 Programada</Text>
+              </View>
+            )}
+            {onViewProfile && (
+              <Pressable
+                onPress={(e: any) => { e.stopPropagation?.(); onViewProfile(); }}
+                hitSlop={8}
+                style={({ pressed }: any) => [st.viewProfileBtn, pressed && { opacity: 0.6 }]}
+              >
+                <Text style={st.viewProfileTx}>Ver perfil ›</Text>
+              </Pressable>
+            )}
           </View>
         </View>
         <Text style={st.pkgName} numberOfLines={1}>
@@ -315,13 +364,14 @@ function QuoteCard({ quote: q, navigation }: any) {
       </View>
 
       <ChevronRight size={16} color={COLORS.muted} />
+      </View>
     </Pressable>
   );
 }
 
 // ─── ProposalCard — Express proposal awaiting client response ────────────────
 
-function ProposalCard({ proposal: p }: any) {
+function ProposalCard({ proposal: p, showMap = false, userLocation = null, groupPhotoUrl = null, onViewProfile = null }: any) {
   const req    = p.request ?? {};
   const data   = p.proposal_data ?? {};
   const parts  = req.event_date?.split('-') ?? [];
@@ -330,8 +380,17 @@ function ProposalCard({ proposal: p }: any) {
   const month  = monthIdx >= 0 ? MONTH_SHORT[monthIdx] : '—';
   const amt    = data.total_amount;
 
+  const mapCenter = showMap && req.id ? eventCardCenter({ id: req.id, ...req }) : null;
+
   return (
     <View style={[st.card, st.cardQuote]}>
+      {mapCenter && (
+        <RequestZoneMap
+          mapId={`p-${req.id}`} center={mapCenter} typeLabel="📩 Propuesta enviada"
+          userLocation={userLocation} groupPhotoUrl={groupPhotoUrl}
+        />
+      )}
+      <View style={st.cardRow}>
       <View style={{ alignItems: 'center', gap: 6 }}>
         <View style={[st.dateBubble, { backgroundColor: 'rgba(255,152,0,0.1)', borderColor: 'rgba(255,152,0,0.3)' }]}>
           <Text style={[st.dateDay,  { color: COLORS.orange }]}>{day}</Text>
@@ -340,9 +399,20 @@ function ProposalCard({ proposal: p }: any) {
       </View>
       <View style={st.cardBody}>
         <View style={st.cardTop}>
-          <Text style={st.clientName} numberOfLines={1}>⚡ Propuesta Express</Text>
-          <View style={[st.quotePill, { backgroundColor: 'rgba(255,152,0,0.1)', borderColor: 'rgba(255,152,0,0.3)' }]}>
-            <Text style={[st.quotePillText, { color: COLORS.orange }]}>Esperando</Text>
+          <Text style={st.clientName} numberOfLines={1}>📩 Propuesta enviada</Text>
+          <View style={{ alignItems: 'flex-end', gap: 4 }}>
+            <View style={[st.quotePill, { backgroundColor: 'rgba(255,152,0,0.1)', borderColor: 'rgba(255,152,0,0.3)' }]}>
+              <Text style={[st.quotePillText, { color: COLORS.orange }]}>Esperando</Text>
+            </View>
+            {onViewProfile && (
+              <Pressable
+                onPress={onViewProfile}
+                hitSlop={8}
+                style={({ pressed }: any) => [st.viewProfileBtn, pressed && { opacity: 0.6 }]}
+              >
+                <Text style={st.viewProfileTx}>Ver perfil ›</Text>
+              </Pressable>
+            )}
           </View>
         </View>
         <Text style={st.pkgName} numberOfLines={1}>
@@ -371,6 +441,7 @@ function ProposalCard({ proposal: p }: any) {
           El cliente está revisando tu propuesta
         </Text>
       </View>
+      </View>
     </View>
   );
 }
@@ -382,6 +453,32 @@ export default function GroupEventsScreen({ navigation }: any) {
   const [reservations, setReservations] = useState<any[]>([]);
   const [quotes,       setQuotes]       = useState<any[]>([]);
   const [proposals,    setProposals]    = useState<any[]>([]); // Express proposals sent by this group
+  // GPS + foto del grupo → ruta con instrumentos en las tarjetas (como ExpressCard)
+  const [userLocation,  setUserLocation]  = useState<{ latitude: number; longitude: number } | null>(null);
+  const [groupPhotoUrl, setGroupPhotoUrl] = useState<string | null>(null);
+  const [profileClientId, setProfileClientId] = useState<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const last = await Location.getLastKnownPositionAsync({});
+        if (last) {
+          setUserLocation({ latitude: last.coords.latitude, longitude: last.coords.longitude });
+        } else {
+          const { granted } = await Location.getForegroundPermissionsAsync();
+          if (granted) {
+            const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+            setUserLocation({ latitude: pos.coords.latitude, longitude: pos.coords.longitude });
+          }
+        }
+      } catch {}
+    })();
+    supabase.auth.getUser().then(({ data }) => {
+      if (!data.user) return;
+      supabase.from('groups').select('profile_image').eq('owner_id', data.user.id).single()
+        .then(({ data: g }) => { if (g?.profile_image) setGroupPhotoUrl(g.profile_image); });
+    });
+  }, []);
   const [groupName,    setGroupName]    = useState<string | null>(null);
   const [loading,      setLoading]      = useState(true);
   const [refreshing,   setRefreshing]   = useState(false);
@@ -468,7 +565,7 @@ export default function GroupEventsScreen({ navigation }: any) {
       // quote_id nulo sin excluirlas. packages fue eliminada de la DB.
       const { data: resData, error: resError } = await supabase
         .from('reservations')
-        .select('id,client_id,group_id,event_date,event_time,address,status,payment_status,total_price,quote_id,event_started_at,group_arrived_at,break_type,notes,folio,created_at,hours_count,event_request_id,cancellation_type,cancel_reason,cancelled_at,quote:quotes!left(duration_hours,overtime_1h_price,overtime_2h_price,overtime_3h_price,event_type)')
+        .select('id,client_id,group_id,event_date,event_time,address,status,payment_status,total_price,quote_id,event_started_at,group_arrived_at,break_type,notes,folio,created_at,hours_count,event_request_id,cancellation_type,cancel_reason,cancelled_at,quote:quotes!left(duration_hours,overtime_1h_price,overtime_2h_price,overtime_3h_price,event_type,latitude,longitude),event_request:event_requests!event_request_id(latitude,longitude,event_lat,event_lng)')
         .eq('group_id', grp.id)
         .or('payment_status.eq.paid,payment_status.eq.deposit_paid,payment_status.eq.fully_paid,status.eq.in_progress,status.eq.accepted,status.eq.confirmed,status.eq.completed')
         .gte('event_date', floorDate)
@@ -514,6 +611,9 @@ export default function GroupEventsScreen({ navigation }: any) {
           status:         'accepted',
           payment_status: 'paid',
           address:        [q.event_municipio, q.event_estado].filter(Boolean).join(', ') || null,
+          latitude:       q.latitude ?? null,
+          longitude:      q.longitude ?? null,
+          client_id:      q.client_id ?? null,
           client:         q.client ?? null,
           quote:          { duration_hours: q.duration_hours, event_type: q.event_type ?? null },
           _isQuote:       true,
@@ -541,8 +641,9 @@ export default function GroupEventsScreen({ navigation }: any) {
           request_id,
           proposal_data,
           request:event_requests!request_id(
-            id, event_type, event_date, event_time, hours, guest_count,
-            location_city, location_municipio, location_estado, genre, status
+            id, client_id, event_type, event_date, event_time, hours, guest_count,
+            location_city, location_municipio, location_estado, genre, status,
+            latitude, longitude, event_lat, event_lng
           )
         `)
         .eq('group_id', grp.id);
@@ -698,7 +799,8 @@ export default function GroupEventsScreen({ navigation }: any) {
                   <>
                     <Text style={[st.sectionTitle, { color: '#EF5350' }]}>🔴 En curso · {liveEvents.length}</Text>
                     {liveEvents.map(r => (
-                      <EventCard key={r.id} reservation={r} navigation={navigation} />
+                      <EventCard key={r.id} reservation={r} navigation={navigation} showMap userLocation={userLocation} groupPhotoUrl={groupPhotoUrl}
+                        onViewProfile={r.client_id ? () => setProfileClientId(r.client_id) : null} />
                     ))}
                   </>
                 )}
@@ -709,8 +811,10 @@ export default function GroupEventsScreen({ navigation }: any) {
                       Próximos · {upcoming.length}
                     </Text>
                     <CalendarStrip events={upcoming} />
-                    {upcoming.map(r => (
-                      <EventCard key={r.id} reservation={r} navigation={navigation} />
+                    {/* Mapa solo en las primeras tarjetas — listas largas con N mapas causan jank */}
+                    {upcoming.map((r, idx) => (
+                      <EventCard key={r.id} reservation={r} navigation={navigation} showMap={idx < 6} userLocation={userLocation} groupPhotoUrl={groupPhotoUrl}
+                        onViewProfile={r.client_id ? () => setProfileClientId(r.client_id) : null} />
                     ))}
                   </>
                 )}
@@ -730,9 +834,10 @@ export default function GroupEventsScreen({ navigation }: any) {
               <>
                 {proposals.length > 0 && (
                   <>
-                    <Text style={st.sectionTitle}>Propuestas Express enviadas · {proposals.length}</Text>
-                    {proposals.map((p: any) => (
-                      <ProposalCard key={p.request_id} proposal={p} />
+                    <Text style={st.sectionTitle}>Propuestas enviadas · {proposals.length}</Text>
+                    {proposals.map((p: any, idx: number) => (
+                      <ProposalCard key={p.request_id} proposal={p} showMap={idx < 4} userLocation={userLocation} groupPhotoUrl={groupPhotoUrl}
+                        onViewProfile={p.request?.client_id ? () => setProfileClientId(p.request.client_id) : null} />
                     ))}
                   </>
                 )}
@@ -741,8 +846,9 @@ export default function GroupEventsScreen({ navigation }: any) {
                     <Text style={[st.sectionTitle, { marginTop: proposals.length > 0 ? 20 : 0 }]}>
                       Solicitudes · {quotes.length}
                     </Text>
-                    {quotes.map(q => (
-                      <QuoteCard key={q.id} quote={q} navigation={navigation} />
+                    {quotes.map((q, idx) => (
+                      <QuoteCard key={q.id} quote={q} navigation={navigation} showMap={idx < 6} userLocation={userLocation} groupPhotoUrl={groupPhotoUrl}
+                        onViewProfile={q.client_id ? () => setProfileClientId(q.client_id) : null} />
                     ))}
                   </>
                 )}
@@ -799,6 +905,9 @@ export default function GroupEventsScreen({ navigation }: any) {
 
         </ScrollView>
       </SafeAreaView>
+
+      {/* Perfil público del cliente (RPC 435 — sin teléfono/email) */}
+      <ClientProfileModal clientId={profileClientId} onClose={() => setProfileClientId(null)} />
     </View>
   );
 }
@@ -852,11 +961,29 @@ const st = StyleSheet.create({
     textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 4,
   },
 
+  // Contenedor vertical estilo ExpressCard: mapa arriba (opcional) + fila de contenido
   card: {
-    flexDirection: 'row', alignItems: 'center', gap: 14,
-    backgroundColor: COLORS.card, borderRadius: 20,
-    borderWidth: 1, borderColor: '#1c1c1c', padding: 14,
+    backgroundColor: '#060c06', borderRadius: 20, overflow: 'hidden',
+    borderWidth: 1, borderColor: 'rgba(0,230,118,0.35)',
   },
+  cardRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 14, padding: 14,
+  },
+  originBadge: {
+    backgroundColor: 'rgba(0,230,118,0.10)', borderRadius: 20,
+    paddingHorizontal: 7, paddingVertical: 3,
+    borderWidth: 1, borderColor: 'rgba(0,230,118,0.30)',
+  },
+  originBadgeExpress: {
+    backgroundColor: 'rgba(255,179,0,0.1)', borderColor: 'rgba(255,179,0,0.3)',
+  },
+  originBadgeText: { fontFamily: FONTS.bodyMedium, fontSize: 10, color: COLORS.green },
+  viewProfileBtn: {
+    backgroundColor: 'rgba(0,230,118,0.10)', borderRadius: 20,
+    paddingHorizontal: 8, paddingVertical: 3,
+    borderWidth: 1, borderColor: 'rgba(0,230,118,0.35)',
+  },
+  viewProfileTx: { fontFamily: FONTS.bodySemiBold, fontSize: 10, color: COLORS.green },
   cardQuote: {
     borderColor: `${COLORS.green}30`,
     backgroundColor: 'rgba(0,230,118,0.03)',
@@ -867,11 +994,11 @@ const st = StyleSheet.create({
   },
 
   dateBubble: {
-    width: 52, height: 60, borderRadius: 14, borderWidth: 1,
+    width: 46, height: 54, borderRadius: 14, borderWidth: 1,
     alignItems: 'center', justifyContent: 'center', flexShrink: 0,
   },
-  dateDay: { fontFamily: FONTS.title, fontSize: 20, lineHeight: 24 },
-  dateMon: { fontFamily: FONTS.bodyMedium, fontSize: 10, letterSpacing: 1 },
+  dateDay: { fontFamily: FONTS.title, fontSize: 17, lineHeight: 21 },
+  dateMon: { fontFamily: FONTS.bodyMedium, fontSize: 9, letterSpacing: 1 },
 
   cardBody: { flex: 1, gap: 5 },
   cardTop:  { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 },
@@ -937,6 +1064,7 @@ const st = StyleSheet.create({
   },
   cardCompleted: {
     opacity: 0.85,
+    borderColor: 'rgba(255,255,255,0.10)',   // historial sobrio, sin borde verde
   },
   cardNoShow: {
     opacity: 0.6,
@@ -957,12 +1085,6 @@ const st = StyleSheet.create({
     borderBottomLeftRadius: 20, borderBottomRightRadius: 20,
   },
   earningsBtnText: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.green },
-  expressBadge: {
-    backgroundColor: 'rgba(255,179,0,0.1)', borderRadius: 20,
-    paddingHorizontal: 7, paddingVertical: 3,
-    borderWidth: 1, borderColor: 'rgba(255,179,0,0.3)',
-  },
-  expressBadgeText: { fontFamily: FONTS.bodyMedium, fontSize: 10, color: '#FFB300' },
 
   clientAvatar: {
     width: 40, height: 40, borderRadius: 20,

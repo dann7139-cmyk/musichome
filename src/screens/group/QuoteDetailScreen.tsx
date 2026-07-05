@@ -13,11 +13,13 @@ import { containsBlockedContact } from '../../utils/contentModeration';
 import { analyzeMessage } from '../../utils/phoneFilter';
 import i18n from '../../i18n';
 import QuoteFormShared, { GroupMember } from '../../components/quote/QuoteFormShared';
+import ClientProfileModal from '../../components/requests/ClientProfileModal';
 import { calcClientPrice } from '../../utils/calculations';
 
 export default function GroupQuoteDetailScreen({ route, navigation }: any) {
   const { quote: initialQuote } = route.params as { quote: any };
   const [quote, setQuote] = useState(initialQuote);
+  const [profileClientId, setProfileClientId] = useState<string | null>(null);
 
   const [pricePerHour, setPricePerHour] = useState(quote.price_per_hour?.toString() ?? '');
   const [travelCost,   setTravelCost]   = useState(quote.travel_cost?.toString() ?? '0');
@@ -297,6 +299,8 @@ export default function GroupQuoteDetailScreen({ route, navigation }: any) {
         // Location
         quoteId={quote.id}
         eventAddress={quote.event_address}
+        eventLatitude={quote.latitude ?? null}
+        eventLongitude={quote.longitude ?? null}
         eventMunicipio={quote.event_municipio}
         eventEstado={quote.event_estado}
         onOpenMaps={openInMaps}
@@ -307,9 +311,11 @@ export default function GroupQuoteDetailScreen({ route, navigation }: any) {
         needsLighting={quote.needs_lighting}
         needsStage={quote.needs_stage}
         needsLed={quote.needs_led}
-        // Client card
+        // Client card — foto + Ver perfil, como ExpressCard
         clientName={quote.client?.full_name ?? 'Cliente'}
         clientCreatedAt={clientCreatedAt}
+        clientAvatarUrl={quote.client?.avatar_url ?? null}
+        onViewClientProfile={quote.client_id ? () => setProfileClientId(quote.client_id) : undefined}
         // Form state
         pricePerHour={pricePerHour}
         onPriceChange={setPricePerHour}
@@ -349,6 +355,9 @@ export default function GroupQuoteDetailScreen({ route, navigation }: any) {
         onSend={handleSendQuote}
         onDecline={handleDecline}
       />
+
+      {/* Perfil público del cliente (RPC 435 — sin teléfono/email) */}
+      <ClientProfileModal clientId={profileClientId} onClose={() => setProfileClientId(null)} />
     </View>
   );
 }

@@ -79,6 +79,7 @@ export const CITY_COORDS: Record<string, { lat: number; lng: number }> = {
   'yucatan':         { lat: 20.9674, lng: -89.5926 },
   'quintana roo':    { lat: 21.1619, lng: -86.8515 },
   'tabasco':         { lat: 17.9892, lng: -92.9473 },
+  'veracruz state':  { lat: 19.1739, lng: -96.1342 },
   'default':         { lat: 19.4326, lng: -99.1332 },
 };
 
@@ -117,6 +118,66 @@ export function privacyOffset(
   return { latitude: base.lat + dlat, longitude: base.lng + dlng };
 }
 
+// Variante usada por las tarjetas del GRUPO (Express y programadas):
+// jitter más corto (±~220 m) y cadena de fallback con el GPS del cliente
+// al crear la solicitud. privacyOffset (arriba) es la variante del lado
+// cliente (ProposalCard) — jitters distintos a propósito, no unificar.
+export function privacyOffsetZone(
+  id:        string,
+  city:      string,
+  estado?:   string | null,
+  lat?:      number | null,   // latitude  (pin del map picker)
+  lng?:      number | null,   // longitude (pin del map picker)
+  eventLat?: number | null,   // event_lat (GPS del cliente al crear)
+  eventLng?: number | null,   // event_lng
+): { latitude: number; longitude: number } {
+  const h    = idHash(id);
+  const dlat = ((h % 800) - 400) / 200_000;
+  const dlng = (((h * 31) % 800) - 400) / 200_000;
+
+  if (lat != null && lng != null) {
+    return { latitude: lat + dlat, longitude: lng + dlng };
+  }
+  if (eventLat != null && eventLng != null) {
+    return { latitude: eventLat + dlat, longitude: eventLng + dlng };
+  }
+  const base = resolveCoords(city, estado);
+  return { latitude: base.lat + dlat, longitude: base.lng + dlng };
+}
+
+// Coordenadas de zona para la tarjeta de un EVENTO (reserva/cotización/propuesta).
+// Cadena: coords propias → join event_request → join quote → GPS del cliente.
+// SIN fallback por ciudad: si no hay coords reales devuelve null y la tarjeta
+// no muestra mapa (nunca un punto inventado).
+export function eventCardCenter(r: any): { latitude: number; longitude: number } | null {
+  const lat  = r.latitude  ?? r.event_request?.latitude  ?? r.quote?.latitude  ?? null;
+  const lng  = r.longitude ?? r.event_request?.longitude ?? r.quote?.longitude ?? null;
+  const eLat = r.event_lat ?? r.event_request?.event_lat ?? null;
+  const eLng = r.event_lng ?? r.event_request?.event_lng ?? null;
+  if (lat == null && eLat == null) return null;
+  return privacyOffsetZone(String(r.id), '', null, lat, lng, eLat, eLng);
+}
+
+// Ubicación APROXIMADA de un grupo para dibujar la ruta en tarjetas del
+// CLIENTE: centro de su ciudad/estado (nunca su ubicación real). Sin ciudad,
+// punto determinístico a ~7-15 km del evento (misma lógica que ProposalCard).
+export function approxGroupLocation(
+  groupId: string,
+  city?: string | null,
+  estado?: string | null,
+  near?: { latitude: number; longitude: number },
+): { latitude: number; longitude: number } {
+  if (city || estado) {
+    const c = resolveCoords(city ?? '', estado ?? null);
+    return { latitude: c.lat, longitude: c.lng };
+  }
+  const h     = idHash(groupId);
+  const dist  = 0.06 + (h % 80) / 1000;
+  const angle = ((h * 37) % 628) / 100;
+  const base  = near ?? { latitude: CITY_COORDS['default'].lat, longitude: CITY_COORDS['default'].lng };
+  return { latitude: base.latitude + dist * Math.cos(angle), longitude: base.longitude + dist * Math.sin(angle) };
+}
+
 export function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371;
   const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -132,6 +193,20 @@ export function formatDist(km: number): string {
   if (km < 1) return `${Math.round(km * 1000)} m`;
   if (km < 10) return `${km.toFixed(1)} km`;
   return `${Math.round(km)} km`;
+}
+
+// ETA estimado en auto por distancia (velocidad media urbana/carretera).
+// NO usa tráfico en tiempo real — eso requiere Google Directions API (de
+// paga); esta aproximación es el placeholder honesto ("~35 min").
+export function estimateEtaMin(km: number): number {
+  const speed = km <= 8 ? 28 : km <= 30 ? 40 : 65;   // km/h
+  return Math.max(4, Math.round((km / speed) * 60));
+}
+
+export function formatEta(min: number): string {
+  if (min < 60) return `~${min} min`;
+  const h = Math.floor(min / 60), m = min % 60;
+  return m ? `~${h}h ${m}m` : `~${h}h`;
 }
 
 export function mapRegionForPoints(

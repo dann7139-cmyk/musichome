@@ -1,6 +1,7 @@
 import { ArrowLeft, ChevronRight, Clock, MapPin } from 'lucide-react-native';
 import React, { useEffect, useState } from 'react';
 import {
+  Image,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -9,10 +10,14 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import * as Location from 'expo-location';
 import { supabase } from '../../config/supabase';
 import { isPaid } from '../../utils/calculations';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import Particles from '../../components/ui/Particles';
+import RequestZoneMap from '../../components/requests/RequestZoneMap';
+import ClientProfileModal from '../../components/requests/ClientProfileModal';
+import { eventCardCenter } from '../../utils/mapUtils';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -132,8 +137,34 @@ export default function GroupReservationsScreen({ route, navigation }: any) {
   const [page,         setPage]         = useState(0);
   const [hasMore,      setHasMore]      = useState(true);
   const PAGE_SIZE = 50;
+  // GPS + foto del grupo → ruta con instrumentos en las tarjetas (como ExpressCard)
+  const [userLocation,  setUserLocation]  = useState<{ latitude: number; longitude: number } | null>(null);
+  const [groupPhotoUrl, setGroupPhotoUrl] = useState<string | null>(null);
+  const [profileClientId, setProfileClientId] = useState<string | null>(null);
 
   useEffect(() => { fetchReservations(0); }, []);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const last = await Location.getLastKnownPositionAsync({});
+        if (last) {
+          setUserLocation({ latitude: last.coords.latitude, longitude: last.coords.longitude });
+        } else {
+          const { granted } = await Location.getForegroundPermissionsAsync();
+          if (granted) {
+            const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+            setUserLocation({ latitude: pos.coords.latitude, longitude: pos.coords.longitude });
+          }
+        }
+      } catch {}
+    })();
+    supabase.auth.getUser().then(({ data }) => {
+      if (!data.user) return;
+      supabase.from('groups').select('profile_image').eq('owner_id', data.user.id).single()
+        .then(({ data: g }) => { if (g?.profile_image) setGroupPhotoUrl(g.profile_image); });
+    });
+  }, []);
 
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', () => {
@@ -157,7 +188,7 @@ export default function GroupReservationsScreen({ route, navigation }: any) {
 
       const { data, error } = await supabase
         .from('reservations')
-        .select('*,quote:quotes!quote_id(duration_hours,overtime_1h_price,overtime_2h_price,overtime_3h_price,event_type,notes),client:profiles!client_id(full_name)')
+        .select('*,quote:quotes!quote_id(duration_hours,overtime_1h_price,overtime_2h_price,overtime_3h_price,event_type,notes,latitude,longitude),event_request:event_requests!event_request_id(latitude,longitude,event_lat,event_lng),client:profiles!client_id(full_name)')
         .eq('group_id', grp.id)
         .order('event_date', { ascending: false })
         .range(from, to);
@@ -174,15 +205,15 @@ export default function GroupReservationsScreen({ route, navigation }: any) {
       }
 
       const clientIds = [...new Set(data.map((r: any) => r.client_id).filter(Boolean))];
-      let clientMap: Record<string, { full_name: string }> = {};
+      let clientMap: Record<string, { full_name: string; avatar_url: string | null }> = {};
 
       if (clientIds.length > 0) {
         const { data: clients } = await supabase
           .from('profiles')
-          .select('id, full_name')
+          .select('id, full_name, avatar_url')
           .in('id', clientIds);
         if (clients) {
-          clients.forEach((c: any) => { clientMap[c.id] = { full_name: c.full_name }; });
+          clients.forEach((c: any) => { clientMap[c.id] = { full_name: c.full_name, avatar_url: c.avatar_url ?? null }; });
         }
       }
 
@@ -313,14 +344,21 @@ export default function GroupReservationsScreen({ route, navigation }: any) {
             </View>
           ) : (
             <>
-              {filtered.map(r => (
-                <ReservationCard
-                  key={r.id}
-                  reservation={r}
-                  navigation={navigation}
-                  isHistory={mainTab === 'historial' || (r.event_date && r.event_date < TODAY)}
-                />
-              ))}
+              {filtered.map((r, idx) => {
+                const hist = mainTab === 'historial' || (r.event_date && r.event_date < TODAY);
+                return (
+                  <ReservationCard
+                    key={r.id}
+                    reservation={r}
+                    navigation={navigation}
+                    isHistory={hist}
+                    showMap={!hist && idx < 6}
+                    userLocation={userLocation}
+                    groupPhotoUrl={groupPhotoUrl}
+                    onViewProfile={r.client_id ? () => setProfileClientId(r.client_id) : null}
+                  />
+                );
+              })}
               {hasMore && (
                 <Pressable style={styles.loadMoreBtn} onPress={loadMore}>
                   <Text style={styles.loadMoreText}>Cargar más</Text>
@@ -330,19 +368,26 @@ export default function GroupReservationsScreen({ route, navigation }: any) {
           )}
         </ScrollView>
       </SafeAreaView>
+
+      {/* Perfil público del cliente (RPC 435 — sin teléfono/email) */}
+      <ClientProfileModal clientId={profileClientId} onClose={() => setProfileClientId(null)} />
     </View>
   );
 }
 
 // ─── ReservationCard ──────────────────────────────────────────────────────────
 
-function ReservationCard({ reservation: r, navigation, isHistory }: any) {
+function ReservationCard({ reservation: r, navigation, isHistory, showMap = false, userLocation = null, groupPhotoUrl = null, onViewProfile = null }: any) {
   const chip = getPaymentChip(r, isHistory);
 
   const d = r.event_date ? new Date(r.event_date + 'T12:00:00') : null;
   const dateShort = d
     ? `${DAY_SHORT[d.getDay()]} ${d.getDate()} ${MONTH_SHORT[d.getMonth()]}`
     : '—';
+
+  const isExpress = !!r.event_request_id;
+  const typeLabel = isExpress ? '⚡ Express' : '📅 Programada';
+  const mapCenter = showMap ? eventCardCenter(r) : null;
 
   return (
     <Pressable
@@ -359,8 +404,24 @@ function ReservationCard({ reservation: r, navigation, isHistory }: any) {
         }
       }}
     >
-      {/* Fila 1: nombre del cliente + precio + chevron */}
+      {mapCenter && (
+        <RequestZoneMap
+          mapId={String(r.id)} center={mapCenter} typeLabel={typeLabel}
+          userLocation={userLocation} groupPhotoUrl={groupPhotoUrl}
+        />
+      )}
+      <View style={styles.cardInner}>
+      {/* Fila 1: foto + nombre del cliente + precio + chevron */}
       <View style={styles.cardTopRow}>
+        {r.client?.avatar_url ? (
+          <Image source={{ uri: r.client.avatar_url }} style={styles.clientAvatar} />
+        ) : (
+          <View style={styles.clientAvatarPh}>
+            <Text style={styles.clientAvatarInitial}>
+              {(r.client?.full_name ?? '?').charAt(0).toUpperCase()}
+            </Text>
+          </View>
+        )}
         <Text style={styles.clientName} numberOfLines={1}>
           {r.client?.full_name ?? 'Cliente'}
         </Text>
@@ -372,9 +433,25 @@ function ReservationCard({ reservation: r, navigation, isHistory }: any) {
         </View>
       </View>
 
-      {/* Fila 2: chip de pago — protagonista */}
-      <View style={[styles.payChip, { backgroundColor: chip.bgColor, borderColor: chip.borderColor }]}>
-        <Text style={[styles.payChipText, { color: chip.color }]}>{chip.label}</Text>
+      {/* Fila 2: chip de pago — protagonista + origen */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+        <View style={[styles.payChip, { backgroundColor: chip.bgColor, borderColor: chip.borderColor }]}>
+          <Text style={[styles.payChipText, { color: chip.color }]}>{chip.label}</Text>
+        </View>
+        {!mapCenter && (
+          <View style={styles.originChip}>
+            <Text style={styles.originChipText}>{typeLabel}</Text>
+          </View>
+        )}
+        {onViewProfile && (
+          <Pressable
+            onPress={(e: any) => { e.stopPropagation?.(); onViewProfile(); }}
+            hitSlop={8}
+            style={({ pressed }: any) => [styles.originChip, pressed && { opacity: 0.6 }]}
+          >
+            <Text style={styles.originChipText}>Ver perfil ›</Text>
+          </Pressable>
+        )}
       </View>
 
       {/* Fila 3: fecha + hora */}
@@ -403,6 +480,7 @@ function ReservationCard({ reservation: r, navigation, isHistory }: any) {
           {r.quote.event_type ?? 'Cotización'}{r.quote.duration_hours ? ` · ${r.quote.duration_hours}h` : ''}
         </Text>
       ) : null}
+      </View>
     </Pressable>
   );
 }
@@ -458,11 +536,24 @@ const styles = StyleSheet.create({
   list: { padding: SPACING.xl, gap: 10, paddingBottom: 40 },
 
   // ── Card ────────────────────────────────────────────────────────────────────
+  // Cascarón estilo ExpressCard: mapa arriba (opcional) + contenido con padding interno
   card: {
-    backgroundColor: COLORS.card, borderRadius: 20,
-    borderWidth: 1, borderColor: COLORS.border,
-    padding: 14, gap: 8,
+    backgroundColor: '#060c06', borderRadius: 20, overflow: 'hidden',
+    borderWidth: 1, borderColor: 'rgba(0,230,118,0.35)',
   },
+  cardInner: { padding: 14, gap: 8 },
+  originChip: {
+    backgroundColor: 'rgba(0,230,118,0.10)', borderRadius: 20,
+    paddingHorizontal: 8, paddingVertical: 3,
+    borderWidth: 1, borderColor: 'rgba(0,230,118,0.30)',
+  },
+  originChipText: { fontFamily: FONTS.bodyMedium, fontSize: 10, color: COLORS.green },
+  clientAvatar:   { width: 28, height: 28, borderRadius: 14, marginRight: 8 },
+  clientAvatarPh: {
+    width: 28, height: 28, borderRadius: 14, marginRight: 8,
+    backgroundColor: 'rgba(0,230,118,0.12)', alignItems: 'center', justifyContent: 'center',
+  },
+  clientAvatarInitial: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.green },
   cardHistory: {
     backgroundColor: COLORS.bg,
     borderColor: 'rgba(26,26,26,0.55)',

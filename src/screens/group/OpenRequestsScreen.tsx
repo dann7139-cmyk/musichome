@@ -11,8 +11,6 @@ import {
   ArrowLeft,
   Calendar,
   Clock,
-  Map,
-  MapPin,
   Users,
   X,
   Zap,
@@ -22,7 +20,6 @@ import {
   ActivityIndicator,
   Animated,
   Dimensions,
-  Image,
   Linking,
   Modal,
   Pressable,
@@ -38,8 +35,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
-import { parseEventDateMX } from '../../utils/calculations';
 import { EARTH_STYLE } from '../../constants/mapStyle';
+import ScheduledRequestCard from '../../components/requests/ScheduledRequestCard';
+import ClientProfileModal from '../../components/requests/ClientProfileModal';
 
 const { height: SH } = Dimensions.get('window');
 
@@ -132,6 +130,7 @@ const DARK_MAP_STYLE = EARTH_STYLE;
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 interface EventRequest {
   id: string;
+  client_id: string;
   genre: string;
   event_type: string;
   event_date: string;
@@ -151,33 +150,12 @@ interface EventRequest {
   negotiating_group_id: string | null;
   notified_count: number | null;
   current_wave: number | null;
+  latitude: number | null;
+  longitude: number | null;
+  event_lat: number | null;
+  event_lng: number | null;
+  requester: { full_name: string | null; avatar_url: string | null; role: string | null } | null;
   accepted_reservation: { address: string | null; payment_status: string | null } | null;
-}
-
-const EVENT_TYPE_LABELS: Record<string, string> = {
-  fiesta_privada: '🎉 Fiesta privada',
-  boda:           '💍 Boda',
-  cumpleanos:     '🎂 Cumpleaños',
-  graduacion:     '🎓 Graduación',
-  empresarial:    '🏢 Empresarial',
-  otro:           '🎵 Otro',
-};
-
-const VENUE_COVERED_LABELS: Record<string, string> = {
-  si:    '✅ Techado',
-  no:    '☀️ Al aire libre',
-  no_se: '❓ No sé',
-};
-
-function timeUntilExpiry(expiresAt: string): string {
-  const diff = new Date(expiresAt).getTime() - Date.now();
-  if (diff <= 0) return 'Expirada';
-  const hours = Math.floor(diff / 3_600_000);
-  const mins  = Math.floor((diff % 3_600_000) / 60_000);
-  const secs  = Math.floor((diff % 60_000) / 1_000);
-  if (hours > 0) return `${hours}h ${mins}min restantes`;
-  if (mins > 0)  return `${mins}m ${String(secs).padStart(2, '0')}s`;
-  return `${secs}s`;
 }
 
 function formatDate(d: string): string {
@@ -551,13 +529,34 @@ export default function OpenRequestsScreen({ navigation, route }: any) {
   const [currentUid,     setCurrentUid]     = useState<string | null>(null);
   const [loading,        setLoading]        = useState(true);
   const [refreshing,     setRefreshing]     = useState(false);
-  const [mapRequest,     setMapRequest]     = useState<EventRequest | null>(null);
+  const [mapRequest,       setMapRequest]       = useState<EventRequest | null>(null);
+  const [profileClientId,  setProfileClientId]  = useState<string | null>(null);
+  const [userLocation,   setUserLocation]   = useState<{ latitude: number; longitude: number } | null>(null);
+  const [groupPhotoUrl,  setGroupPhotoUrl]  = useState<string | null>(null);
   const [, setTick]                         = useState(0);
 
   // Tick cada segundo para actualizar los badges de tiempo restante
   useEffect(() => {
     const id = setInterval(() => setTick(t => t + 1), 1_000);
     return () => clearInterval(id);
+  }, []);
+
+  // GPS del grupo para la ruta/distancia de las tarjetas (igual que ExpressCarousel).
+  // Fallback a fix fresco si no hay cacheado, solo con permiso ya concedido.
+  useEffect(() => {
+    (async () => {
+      try {
+        const last = await Location.getLastKnownPositionAsync({});
+        if (last) {
+          setUserLocation({ latitude: last.coords.latitude, longitude: last.coords.longitude });
+          return;
+        }
+        const { granted } = await Location.getForegroundPermissionsAsync();
+        if (!granted) return;
+        const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        setUserLocation({ latitude: pos.coords.latitude, longitude: pos.coords.longitude });
+      } catch {}
+    })();
   }, []);
 
   const fetchData = async () => {
@@ -567,11 +566,12 @@ export default function OpenRequestsScreen({ navigation, route }: any) {
 
     const { data: grp } = await supabase
       .from('groups')
-      .select('id, genre')
+      .select('id, genre, profile_image')
       .eq('owner_id', user.id)
       .single();
 
     setGroupGenre(grp?.genre ?? null);
+    if (grp?.profile_image) setGroupPhotoUrl(grp.profile_image);
     if (!grp?.genre) { setLoading(false); return; }
 
     // Traer solicitudes 'open' Y 'en_negociacion' del mismo género
@@ -688,186 +688,26 @@ export default function OpenRequestsScreen({ navigation, route }: any) {
             </View>
           )}
 
-          {/* Solicitud notificada primero, luego el resto por fecha */}
+          {/* Solicitud notificada primero, luego el resto por fecha.
+              Tarjeta premium estilo ExpressCard — mapa de zona inline. */}
           {[...requests].sort((a, b) =>
             a.id === highlightId ? -1 : b.id === highlightId ? 1 : 0
           ).map(req => {
-            const hoursLeft      = timeUntilExpiry(req.expires_at);
-            const diffMs         = new Date(req.expires_at).getTime() - Date.now();
-            const isUrgent       = diffMs > 0 && diffMs < 5 * 60_000;
-            const isWarning      = diffMs >= 5 * 60_000 && diffMs < 10 * 60_000;
-            const iAlreadyProposed = myProposalIds.has(req.id);
-            const isHighlighted    = req.id === highlightId;
-
-            // Evento urgente: comienza en menos de 6 horas
-            const eventStart =
-              parseEventDateMX(req.event_date, req.event_time ?? '20:00')?.getTime() ?? null;
-            const isEventUrgent = eventStart !== null && eventStart - Date.now() < 6 * 3_600_000 && eventStart > Date.now();
-
-            const viewers = req.notified_count ?? 0;
-            const isNew   = Date.now() - new Date(req.created_at).getTime() < 10 * 60_000;
-
-            const CardWrapper = isNew || isHighlighted ? PulsingCard : View;
+            const isHighlighted = req.id === highlightId;
+            const isNew         = Date.now() - new Date(req.created_at).getTime() < 10 * 60_000;
+            const CardWrapper   = isNew || isHighlighted ? PulsingCard : View;
             return (
-              <CardWrapper key={req.id} style={[
-                s.card,
-                isHighlighted && s.cardHighlighted,
-                isNew && !isHighlighted && s.cardNew,
-              ]}>
-                {isHighlighted && (
-                  <View style={s.highlightBanner}>
-                    <Text style={s.highlightBannerText}>📩 Solicitud que te notificó — revisa los detalles</Text>
-                  </View>
-                )}
-                {/* Quién contrata */}
-                {(() => {
-                  const r = (req as any).requester;
-                  if (!r) return null;
-                  const typeLabel = r.role === 'group'
-                    ? '🎸 Grupo'
-                    : r.role === 'talent' ? '🎵 Músico independiente' : '👤 Cliente particular';
-                  return (
-                    <View style={s.requesterRow}>
-                      {r.avatar_url
-                        ? <Image source={{ uri: r.avatar_url }} style={s.requesterAvatar} />
-                        : (
-                          <View style={s.requesterAvatarPlaceholder}>
-                            <Text style={s.requesterAvatarInitial}>
-                              {(r.full_name ?? '?').charAt(0).toUpperCase()}
-                            </Text>
-                          </View>
-                        )
-                      }
-                      <Text style={s.requesterTypeText}>{typeLabel}</Text>
-                    </View>
-                  );
-                })()}
-                {/* Header */}
-                <View style={s.cardHeader}>
-                  <View style={{ flex: 1, gap: 6 }}>
-                    <Text style={s.cardEventType}>
-                      {EVENT_TYPE_LABELS[req.event_type] ?? req.event_type}
-                    </Text>
-                    {isNew && (
-                      <View style={s.newBadge}>
-                        <Text style={s.newBadgeText}>🆕 NUEVO</Text>
-                      </View>
-                    )}
-                    <View style={[
-                      s.expiryBadge,
-                      isWarning && s.expiryBadgeWarning,
-                      isUrgent  && s.expiryBadgeUrgent,
-                    ]}>
-                      <Text style={[
-                        s.expiryText,
-                        isWarning && s.expiryTextWarning,
-                        isUrgent  && s.expiryTextUrgent,
-                      ]}>
-                        ⏱ {hoursLeft}
-                      </Text>
-                    </View>
-                    {isEventUrgent && (
-                      <View style={s.urgentBadge}>
-                        <Text style={s.urgentBadgeText}>🔥 Evento urgente</Text>
-                      </View>
-                    )}
-                    {viewers > 1 && (
-                      <View style={s.competitionBadge}>
-                        <Text style={s.competitionBadgeText}>👀 {viewers} grupos lo ven</Text>
-                      </View>
-                    )}
-                    {(req as any).demand_multiplier > 1 && (
-                      <View style={s.surgeBadge}>
-                        <Text style={s.surgeBadgeText}>✨ Tarifa protegida</Text>
-                      </View>
-                    )}
-                  </View>
-                  <View style={{ alignItems: 'flex-end', gap: 6 }}>
-                    <View style={s.genreChip}>
-                      <Text style={s.genreChipText}>🎵 {req.genre}</Text>
-                    </View>
-                    {iAlreadyProposed && (
-                      <View style={s.myNegBadge}>
-                        <Text style={s.myNegBadgeText}>📩 Tu propuesta enviada</Text>
-                      </View>
-                    )}
-                  </View>
-                </View>
-
-                {/* Detalles */}
-                <View style={s.details}>
-                  <View style={s.detailRow}>
-                    <Calendar size={14} color={COLORS.muted2} />
-                    <Text style={s.detailText}>{formatDate(req.event_date)}</Text>
-                  </View>
-                  {req.event_time && (
-                    <View style={s.detailRow}>
-                      <Clock size={14} color={COLORS.muted2} />
-                      <Text style={s.detailText}>{formatTime12h(req.event_time)}</Text>
-                    </View>
-                  )}
-                  <View style={s.detailRow}>
-                    <Clock size={14} color={COLORS.muted2} />
-                    <Text style={s.detailText}>{req.hours} horas de servicio</Text>
-                  </View>
-                  {req.guest_count != null && (
-                    <View style={s.detailRow}>
-                      <Users size={14} color={COLORS.muted2} />
-                      <Text style={s.detailText}>~{req.guest_count} personas</Text>
-                    </View>
-                  )}
-                  <View style={s.detailRow}>
-                    <MapPin size={14} color={COLORS.muted2} />
-                    <Text style={s.detailText}>
-                      {req.location_city}, {req.location_estado}
-                      {'  '}
-                      <Text style={s.hiddenTag}>🔒 dirección oculta</Text>
-                    </Text>
-                  </View>
-                  {req.venue_covered && (
-                    <View style={s.detailRow}>
-                      <Text style={s.detailText}>{VENUE_COVERED_LABELS[req.venue_covered] ?? req.venue_covered}</Text>
-                    </View>
-                  )}
-                </View>
-
-                {req.comments && (
-                  <View style={s.commentsBox}>
-                    <Text style={s.commentsText}>💬 {req.comments}</Text>
-                  </View>
-                )}
-
-                {/* Confirmación si ya envié propuesta */}
-                {iAlreadyProposed && (
-                  <View style={s.awaitingBanner}>
-                    <Text style={s.awaitingText}>
-                      ⏳ Tu propuesta está en revisión. El cliente decidirá pronto.
-                    </Text>
-                  </View>
-                )}
-
-                {/* Botones */}
-                <View style={s.divider} />
-                <View style={s.btnRow}>
-                  <Pressable style={s.mapBtn} onPress={() => setMapRequest(req)}>
-                    <Map size={16} color={COLORS.green} />
-                    <Text style={s.mapBtnText}>Ver zona</Text>
-                  </Pressable>
-
-                  <Pressable
-                    style={s.acceptBtn}
-                    onPress={() => handlePropose(req)}
-                  >
-                    <Zap size={16} color={COLORS.bg} />
-                    <Text style={s.acceptBtnText}>
-                      {iAlreadyProposed ? 'ACTUALIZAR PROPUESTA →' : 'COTIZAR Y PROPONER →'}
-                    </Text>
-                  </Pressable>
-                </View>
-
-                <Text style={s.addressNote}>
-                  🔒 Dirección exacta visible al confirmar pago
-                </Text>
+              <CardWrapper key={req.id} style={{ marginBottom: 16 }}>
+                <ScheduledRequestCard
+                  request={req}
+                  alreadyProposed={myProposalIds.has(req.id)}
+                  highlighted={isHighlighted}
+                  userLocation={userLocation}
+                  groupPhotoUrl={groupPhotoUrl}
+                  onPropose={() => handlePropose(req)}
+                  onPressMap={() => setMapRequest(req)}
+                  onViewProfile={() => setProfileClientId(req.client_id)}
+                />
               </CardWrapper>
             );
           })}
@@ -878,6 +718,9 @@ export default function OpenRequestsScreen({ navigation, route }: any) {
 
       {/* Modal mapa de zona aproximada */}
       <ZoneMapModal request={mapRequest} onClose={() => setMapRequest(null)} />
+
+      {/* Perfil público del cliente (RPC get_client_public_profile — sin contacto) */}
+      <ClientProfileModal clientId={profileClientId} onClose={() => setProfileClientId(null)} />
     </View>
   );
 }
@@ -924,191 +767,6 @@ const s = StyleSheet.create({
   emptyTitle: { fontFamily: FONTS.title, fontSize: 20, color: COLORS.text, textAlign: 'center', marginBottom: 10 },
   emptySub:   { fontFamily: FONTS.body, fontSize: 14, color: COLORS.muted2, textAlign: 'center', lineHeight: 22 },
 
-  card: {
-    backgroundColor: COLORS.card, borderRadius: RADIUS.lg,
-    borderWidth: 1, borderColor: COLORS.border,
-    padding: SPACING.lg, marginBottom: 16,
-  },
-  cardNew: {
-    borderColor: 'rgba(0,230,118,0.50)',
-    backgroundColor: 'rgba(0,230,118,0.03)',
-  },
-  cardHighlighted: {
-    borderColor: 'rgba(99,102,241,0.60)',
-    backgroundColor: 'rgba(99,102,241,0.05)',
-    shadowColor: '#6366F1',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 6,
-  },
-  highlightBanner: {
-    backgroundColor: 'rgba(99,102,241,0.15)',
-    borderRadius: RADIUS.sm,
-    borderWidth: 1, borderColor: 'rgba(99,102,241,0.35)',
-    paddingHorizontal: 10, paddingVertical: 6,
-    marginBottom: 10,
-  },
-  highlightBannerText: { fontFamily: FONTS.bodyMedium, fontSize: 12, color: '#818CF8' },
-  newBadge: {
-    alignSelf: 'flex-start' as const,
-    backgroundColor: 'rgba(0,230,118,0.15)', borderRadius: RADIUS.full,
-    borderWidth: 1, borderColor: 'rgba(0,230,118,0.40)',
-    paddingHorizontal: 8, paddingVertical: 3,
-  },
-  newBadgeText: { fontFamily: FONTS.bodySemiBold, fontSize: 10, color: COLORS.green },
-  cardNegotiating: {
-    borderColor: 'rgba(255,179,0,0.40)',
-    backgroundColor: 'rgba(255,179,0,0.04)',
-  },
-
-  // Badges de negociación
-  negBadge: {
-    backgroundColor: 'rgba(255,179,0,0.15)', borderRadius: RADIUS.full,
-    paddingHorizontal: 8, paddingVertical: 4,
-    borderWidth: 1, borderColor: 'rgba(255,179,0,0.40)',
-  },
-  negBadgeText: { fontFamily: FONTS.bodyMedium, fontSize: 11, color: '#FFB300' },
-
-  myNegBadge: {
-    backgroundColor: 'rgba(0,230,118,0.15)', borderRadius: RADIUS.full,
-    paddingHorizontal: 8, paddingVertical: 4,
-    borderWidth: 1, borderColor: 'rgba(0,230,118,0.40)',
-  },
-  myNegBadgeText: { fontFamily: FONTS.bodyMedium, fontSize: 11, color: COLORS.green },
-
-  // Banners de estado de negociación
-  standbyBanner: {
-    backgroundColor: 'rgba(255,179,0,0.10)',
-    borderRadius: RADIUS.md, borderWidth: 1, borderColor: 'rgba(255,179,0,0.30)',
-    padding: 10, marginBottom: 8,
-  },
-  standbyText: { fontFamily: FONTS.body, fontSize: 12, color: '#FFB300', lineHeight: 18 },
-
-  awaitingBanner: {
-    backgroundColor: 'rgba(0,230,118,0.08)',
-    borderRadius: RADIUS.md, borderWidth: 1, borderColor: 'rgba(0,230,118,0.25)',
-    padding: 10, marginBottom: 8,
-  },
-  awaitingText: { fontFamily: FONTS.body, fontSize: 12, color: COLORS.green, lineHeight: 18 },
-
-  standbyBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    backgroundColor: 'rgba(255,179,0,0.10)', borderRadius: RADIUS.lg, paddingVertical: 12,
-    borderWidth: 1, borderColor: 'rgba(255,179,0,0.30)',
-  },
-  standbyBtnText: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: '#FFB300' },
-
-  cardHeader: {
-    flexDirection: 'row', justifyContent: 'space-between',
-    alignItems: 'flex-start', marginBottom: 12,
-  },
-  cardEventType: { fontFamily: FONTS.title, fontSize: 18, color: COLORS.text },
-  genreChip: {
-    backgroundColor: 'rgba(0,230,118,0.1)', borderRadius: RADIUS.full,
-    paddingHorizontal: 10, paddingVertical: 4,
-  },
-  genreChipText: { fontFamily: FONTS.bodyMedium, fontSize: 12, color: COLORS.green },
-
-  expiryBadge: {
-    alignSelf: 'flex-start',
-    backgroundColor: COLORS.bg, borderRadius: RADIUS.full,
-    paddingHorizontal: 10, paddingVertical: 4,
-    borderWidth: 1, borderColor: COLORS.green,
-  },
-  expiryBadgeWarning: { backgroundColor: 'rgba(255,179,0,0.12)', borderColor: COLORS.orange },
-  expiryBadgeUrgent:  { backgroundColor: 'rgba(255,82,82,0.15)', borderColor: '#FF5252' },
-  expiryText:         { fontFamily: FONTS.bodyMedium, fontSize: 11, color: COLORS.green },
-  expiryTextWarning:  { color: COLORS.orange },
-  expiryTextUrgent:   { color: '#FF5252' },
-
-  urgentBadge: {
-    alignSelf: 'flex-start',
-    backgroundColor: 'rgba(255,60,0,0.15)', borderRadius: RADIUS.full,
-    paddingHorizontal: 10, paddingVertical: 4,
-    borderWidth: 1, borderColor: 'rgba(255,60,0,0.50)',
-  },
-  urgentBadgeText: { fontFamily: FONTS.bodySemiBold, fontSize: 11, color: '#FF3C00' },
-
-  competitionBadge: {
-    alignSelf: 'flex-start',
-    backgroundColor: 'rgba(66,133,244,0.12)', borderRadius: RADIUS.full,
-    paddingHorizontal: 10, paddingVertical: 4,
-    borderWidth: 1, borderColor: 'rgba(66,133,244,0.35)',
-  },
-  competitionBadgeText: { fontFamily: FONTS.bodyMedium, fontSize: 11, color: COLORS.blue },
-
-  surgeBadge: {
-    alignSelf: 'flex-start',
-    backgroundColor: 'rgba(0,230,118,0.10)', borderRadius: RADIUS.full,
-    paddingHorizontal: 10, paddingVertical: 4,
-    borderWidth: 1, borderColor: 'rgba(0,230,118,0.35)',
-  },
-  surgeBadgeText: { fontFamily: FONTS.bodyMedium, fontSize: 11, color: COLORS.green },
-
-  details:   { gap: 8, marginBottom: 10 },
-  detailRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  detailText: { fontFamily: FONTS.body, fontSize: 13, color: COLORS.muted2, flex: 1 },
-  hiddenTag:  { fontFamily: FONTS.bodyMedium, fontSize: 11, color: COLORS.muted },
-
-  commentsBox: {
-    backgroundColor: COLORS.bg, borderRadius: RADIUS.md,
-    borderWidth: 1, borderColor: COLORS.border,
-    padding: 10, marginBottom: 8,
-  },
-  commentsText: { fontFamily: FONTS.body, fontSize: 13, color: COLORS.muted2, lineHeight: 19 },
-
-  divider: { height: 1, backgroundColor: COLORS.border, marginVertical: 12 },
-
-  btnRow: { flexDirection: 'row', gap: 10 },
-
-  mapBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
-    flex: 0.42,
-    backgroundColor: 'rgba(0,230,118,0.10)',
-    borderWidth: 1, borderColor: 'rgba(0,230,118,0.40)',
-    borderRadius: RADIUS.lg, paddingVertical: 12,
-  },
-  mapBtnText: { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: COLORS.green },
-
-  acceptBtn: {
-    flex: 1,
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-    backgroundColor: COLORS.green, borderRadius: RADIUS.lg, paddingVertical: 12,
-  },
-  acceptBtnDisabled: { opacity: 0.6 },
-  acceptBtnText:     { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: COLORS.bg },
-
-  addressNote: {
-    fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted,
-    textAlign: 'center', marginTop: 10,
-  },
-
-  suggestBox: {
-    backgroundColor: 'rgba(0,230,118,0.05)',
-    borderRadius: RADIUS.md, borderWidth: 1, borderColor: 'rgba(0,230,118,0.20)',
-    paddingHorizontal: 12, paddingTop: 8, marginBottom: 8,
-  },
-  suggestRow: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: 'rgba(0,230,118,0.10)',
-  },
-  suggestLabel: { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2 },
-  suggestValue: { fontFamily: FONTS.bodySemiBold, fontSize: 12, color: COLORS.text, textAlign: 'right', flex: 1, marginLeft: 10 },
-
-  // Requester identity row
-  requesterRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    marginBottom: 10, paddingBottom: 10,
-    borderBottomWidth: 1, borderBottomColor: COLORS.border,
-  },
-  requesterAvatar: { width: 28, height: 28, borderRadius: 14 },
-  requesterAvatarPlaceholder: {
-    width: 28, height: 28, borderRadius: 14,
-    backgroundColor: 'rgba(0,230,118,0.12)', alignItems: 'center', justifyContent: 'center',
-  },
-  requesterAvatarInitial: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.green },
-  requesterTypeText: { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2 },
 });
 
 // ─── Styles del modal de mapa ────────────────────────────────────────────────

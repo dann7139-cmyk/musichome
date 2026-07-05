@@ -7,10 +7,12 @@ import {
   NativeSyntheticEvent,
   NativeScrollEvent,
   Platform,
+  Pressable,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import { X } from 'lucide-react-native';
 import { useNavigation, useNavigationState } from '@react-navigation/native';
 import * as Location from 'expo-location';
 import { useExpress, ExpressDispatch } from '../../context/ExpressContext';
@@ -20,7 +22,9 @@ import ExpressCard, { CARD_WIDTH, CARD_GAP, LIST_PADDING } from './ExpressCard';
 
 const { height: H } = Dimensions.get('window');
 
-const SHEET_HEIGHT  = Math.round(H * 0.48);
+// Misma altura que ProposalCarousel (cliente) — la tarjeta creció con la fila
+// de cliente + Detalles y con 0.48 los botones quedaban cortados abajo.
+const SHEET_HEIGHT  = Math.round(H * 0.72);
 const SNAP_INTERVAL = CARD_WIDTH + CARD_GAP;
 const ABOVE_HEIGHT  = H - SHEET_HEIGHT;
 
@@ -81,6 +85,13 @@ const AnimatedCard = React.memo(function AnimatedCard({
   );
 });
 
+// ── Imperativo: el carrusel de PROGRAMADAS se muestra encima — mientras esté
+// abierto, este carrusel se repliega y regresa intacto al cerrarse aquél ──────
+let _setCollapsed: ((c: boolean) => void) | null = null;
+export function setExpressCarouselCollapsed(collapsed: boolean) {
+  _setCollapsed?.(collapsed);
+}
+
 // ── Main carousel ─────────────────────────────────────────────────────────────
 export default function ExpressCarousel() {
   const { dispatches, dismiss } = useExpress();
@@ -109,9 +120,22 @@ export default function ExpressCarousel() {
   const [groupPhotoUrl, setGroupPhotoUrl] = useState<string | null>(null);
 
   useEffect(() => {
-    Location.getLastKnownPositionAsync({}).then(loc => {
-      if (loc) setUserLocation({ latitude: loc.coords.latitude, longitude: loc.coords.longitude });
-    }).catch(() => {});
+    // La ruta animada de la tarjeta depende de esto: getLastKnownPositionAsync
+    // devuelve null sin fix cacheado (reinicio/arranque frío) → fallback a un
+    // fix fresco SOLO si el permiso ya está concedido (no dispara prompt).
+    (async () => {
+      try {
+        const last = await Location.getLastKnownPositionAsync({});
+        if (last) {
+          setUserLocation({ latitude: last.coords.latitude, longitude: last.coords.longitude });
+          return;
+        }
+        const { granted } = await Location.getForegroundPermissionsAsync();
+        if (!granted) return;
+        const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        setUserLocation({ latitude: pos.coords.latitude, longitude: pos.coords.longitude });
+      } catch {}
+    })();
 
     supabase.auth.getUser().then(({ data }) => {
       if (!data.user) return;
@@ -127,6 +151,12 @@ export default function ExpressCarousel() {
   const [visible, setVisible]       = useState(false);
   const [quotingId, setQuotingId]   = useState<string | null>(null);
   const [focusedIndex, setFocusedIndex] = useState(0);
+  const [collapsed, setCollapsed]   = useState(false);
+
+  useEffect(() => {
+    _setCollapsed = setCollapsed;
+    return () => { _setCollapsed = null; };
+  }, []);
 
   const scrollX         = useRef(new Animated.Value(0)).current;
   const slideAnim       = useRef(new Animated.Value(SHEET_HEIGHT)).current;
@@ -194,6 +224,12 @@ export default function ExpressCarousel() {
     navigation.navigate('ProposeRequest', { dispatchId: id, request: d?.request });
   }, [navigation, dispatches]);
 
+  // X de la tarjeta: cierra el carrusel completo (mismo mecanismo que Ignorar
+  // por tarjeta — recuperable desde el banner ⚡ del dashboard)
+  const handleCloseAll = useCallback(() => {
+    dispatches.forEach(d => dismiss(d.id));
+  }, [dispatches, dismiss]);
+
 
   // Update focused card when scroll settles on a snap point
   const handleMomentumScrollEnd = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -224,7 +260,7 @@ export default function ExpressCarousel() {
     index,
   }), []);
 
-  if (isExpressScreenOpen || reshowBlocked) return null;
+  if (isExpressScreenOpen || reshowBlocked || collapsed) return null;
   if (!visible && dispatches.length === 0) return null;
 
   const count = dispatches.length;
@@ -252,7 +288,14 @@ export default function ExpressCarousel() {
               {count === 1 ? '1 solicitud express' : `${count} solicitudes express`}
             </Text>
           </View>
-          {count > 1 && <Text style={st.swipeTx}>desliza ›</Text>}
+          {/* X: cierra el carrusel (recuperable desde el banner ⚡ del dashboard) */}
+          <Pressable
+            onPress={handleCloseAll}
+            hitSlop={10}
+            style={({ pressed }) => [st.headerX, pressed && { opacity: 0.6 }]}
+          >
+            <X size={16} color={COLORS.text} />
+          </Pressable>
         </View>
 
         <Animated.FlatList
@@ -277,6 +320,13 @@ export default function ExpressCarousel() {
           onMomentumScrollEnd={handleMomentumScrollEnd}
           scrollEventThrottle={16}
         />
+
+        {/* Indicador de deslizar — fuera de la tarjeta, solo si hay más de una */}
+        {count > 1 && (
+          <View style={st.swipeHint} pointerEvents="none">
+            <Text style={st.swipeHintTx}>‹  desliza para ver las {count} solicitudes  ›</Text>
+          </View>
+        )}
       </Animated.View>
     </>
   );
@@ -326,5 +376,19 @@ const st = StyleSheet.create({
     fontFamily: FONTS.bodySemiBold, fontSize: 13,
     color: COLORS.text, letterSpacing: 0.2,
   },
-  swipeTx: { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted },
+  headerX: {
+    width: 30, height: 30, borderRadius: 15,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.14)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  swipeHint: { alignItems: 'center', paddingTop: 10 },
+  swipeHintTx: {
+    fontFamily: FONTS.bodyMedium, fontSize: 12, color: COLORS.green,
+    letterSpacing: 0.4,
+    backgroundColor: 'rgba(0,230,118,0.08)',
+    borderWidth: 1, borderColor: 'rgba(0,230,118,0.25)',
+    borderRadius: 20, paddingHorizontal: 14, paddingVertical: 6,
+    overflow: 'hidden',
+  },
 });

@@ -1,4 +1,5 @@
 ﻿import VideoPlayer from '../../components/ui/VideoPlayer';
+import { openScheduledQuotes } from '../../components/requests/ScheduledQuotesCarousel';
 import { LinearGradient } from 'expo-linear-gradient';
 
 import {
@@ -1181,6 +1182,31 @@ export default function GroupDashboardScreen({ navigation }: any) {
               </Pressable>
             </Animated.View>
           )}
+
+          {/* ── Banner animado: cotizaciones programadas (experiencia exprés) ── */}
+          {(() => {
+            const pendCount = pendingQuotes.filter((q: any) => q.status === 'pending').length;
+            if (pendCount === 0) return null;
+            return (
+              <Animated.View style={{ transform: [{ scale: expressPulse }] }}>
+                <Pressable
+                  style={s.scheduledBanner}
+                  onPress={() => openScheduledQuotes()}
+                >
+                  <Text style={s.expressBannerEmoji}>📅</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.scheduledBannerTitle}>
+                      {pendCount === 1
+                        ? '1 cotización programada para ti'
+                        : `${pendCount} cotizaciones programadas para ti`}
+                    </Text>
+                    <Text style={s.expressBannerSub}>Toca para verlas · responde rápido</Text>
+                  </View>
+                  <ChevronRight size={16} color={COLORS.green} />
+                </Pressable>
+              </Animated.View>
+            );
+          })()}
 
           {/* ══ BLOQUE 3: RENDIMIENTO Y MERCADO ══════════════════════ */}
           <View style={s.sectionBlock}>
@@ -2922,6 +2948,14 @@ const s = StyleSheet.create({
   expressBannerEmoji: { fontSize: 26 },
   expressBannerTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: '#FF6B35', marginBottom: 2 },
   expressBannerSub:   { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2 },
+  scheduledBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    marginHorizontal: SPACING.xl, marginTop: 8, marginBottom: 4,
+    backgroundColor: 'rgba(0,230,118,0.08)',
+    borderRadius: RADIUS.lg, borderWidth: 1, borderColor: 'rgba(0,230,118,0.40)',
+    paddingHorizontal: SPACING.lg, paddingVertical: 14,
+  },
+  scheduledBannerTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: COLORS.green, marginBottom: 2 },
   expressBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
     marginHorizontal: SPACING.xl, marginTop: 10,
