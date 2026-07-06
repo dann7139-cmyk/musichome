@@ -32,6 +32,7 @@ import RatingModal, { type RatingSubject } from '../../components/ui/RatingModal
 import { generateBreakSchedule, isPaid, parseEventDateMX } from '../../utils/calculations';
 import { haversineKm, formatDist } from '../../utils/mapUtils';
 import { ARRIVAL_RADIUS_M } from '../../utils/constants';
+import { openSupport } from '../../utils/support';
 
 const RING_R    = 145;
 const RING_SW   = 14;
@@ -171,7 +172,11 @@ function PaymentPendingOverlay({ reason, onClose }: { reason: string; onClose: (
           <Text style={pp.infoLine}>• El evento quedó registrado como completado</Text>
           <Text style={pp.infoLine}>• Tu pago aparece como "Pendiente de cobro" en la reserva</Text>
           <Text style={pp.infoLine}>• El cliente recibió una notificación para resolver el pago</Text>
-          <Text style={pp.infoLine}>• Puedes contactar a soporte desde tu perfil si no se resuelve</Text>
+          <Pressable onPress={() => openSupport()} hitSlop={8}>
+            <Text style={[pp.infoLine, { color: COLORS.green, textDecorationLine: 'underline' }]}>
+              • ¿Necesitas ayuda? Contacta a soporte
+            </Text>
+          </Pressable>
         </View>
 
         <Pressable style={pp.btn} onPress={onClose}>
@@ -596,11 +601,11 @@ export default function EventTimerScreen({ route, navigation }: any) {
         } else if (
           !readOnly &&
           !autoStartedRef.current &&
-          eventDateTime !== null &&
+          eventTargetMs != null &&
           data.status === 'confirmed' &&
           data.group_arrived_at &&
-          Date.now() >= eventDateTime.getTime() + 10 * 60 * 1000 &&
-          Date.now() <= eventDateTime.getTime() + 6 * 3600 * 1000
+          Date.now() >= eventTargetMs + 10 * 60 * 1000 &&
+          Date.now() <= eventTargetMs + 6 * 3600 * 1000
         ) {
           // Recovery: ventana de auto-inicio pasó mientras la app estuvo cerrada
           autoStartedRef.current = true;
@@ -644,12 +649,12 @@ export default function EventTimerScreen({ route, navigation }: any) {
   // Auto-inicio: solo si el grupo ya llegó, pasó la hora + 10 min, evento es de hoy y no está terminado
   useEffect(() => {
     if (!autoStartReadyRef.current) return;
-    if (readOnly || startedAt || !eventDateTime || autoStartedRef.current || !hasArrived) return;
+    if (readOnly || startedAt || eventTargetMs == null || autoStartedRef.current || !hasArrived) return;
     if (isAlreadyDone || reservation.status === 'completed') return;
     const graceMs  = 10 * 60 * 1000;   // 10 min de gracia
     const windowMs = 6 * 3600 * 1000;  // solo eventos de las últimas 6 h
     const now_ms   = Date.now();
-    const eventMs  = eventDateTime.getTime();
+    const eventMs  = eventTargetMs;
     if (now_ms < eventMs + graceMs) return;   // todavía dentro de la gracia
     if (now_ms > eventMs + windowMs) return;  // evento viejo, no auto-iniciar
     autoStartedRef.current = true;
@@ -682,15 +687,41 @@ export default function EventTimerScreen({ route, navigation }: any) {
     ? selectedBreak.totalMinutes(contractHours) * 60 + extraHoursAdded * 75 * 60
     : contractHours * 3600 + extraHoursAdded * 75 * 60;
 
-  // Instante del evento en hora MX — implementación canónica compartida
-  const eventDateTime = parseEventDateMX(reservation.event_date, reservation.event_time);
-
-  // El grupo puede iniciar hasta 30 min antes de la hora acordada.
-  // Una vez pasada la hora exacta el inicio manual se bloquea — el auto-start lo cubre.
-  const canStartNow = !startedAt && eventDateTime
+  // Hora del evento resuelta y normalizada: la reserva o su cotización
+  // (las reservas por cotización a veces dejan reservation.event_time null y
+  //  la hora vive en la quote). "8:00" → "08:00" para que parseEventDateMX no falle.
+  const rawEventTime: string | null =
+    reservation.event_time ?? (reservation as any).quote?.event_time ?? null;
+  const normEventTime: string | null = rawEventTime
     ? (() => {
-        const diffMs = eventDateTime.getTime() - Date.now();
-        return diffMs <= 30 * 60 * 1000 && diffMs >= 0;
+        const [h, m] = rawEventTime.split(':');
+        return `${(h ?? '0').padStart(2, '0')}:${(m ?? '00').substring(0, 2).padStart(2, '0')}`;
+      })()
+    : null;
+
+  // Fecha del evento limpia a YYYY-MM-DD (si viene "2026-07-05T00:00:00" el
+  // regex de parseEventDateMX fallaba → null). Se usa para construir eventTargetMs.
+  const eventDateOnly = reservation.event_date ? String(reservation.event_date).substring(0, 10) : null;
+
+  // Instante del evento en UTC directo (México = UTC-6 fijo, sin horario de
+  // verano desde 2022). No depende del regex de parseEventDateMX ni del
+  // timezone del dispositivo → cuenta bien en cualquier build/emulador.
+  const eventTargetMs = (eventDateOnly && normEventTime)
+    ? (() => {
+        const t = Date.parse(`${eventDateOnly}T${normEventTime}:00-06:00`);
+        return isNaN(t) ? null : t;
+      })()
+    : null;
+
+  // [Opción A] Ventana de inicio manual: desde 30 min ANTES hasta 6 h DESPUÉS
+  // de la hora del evento. Antes se bloqueaba pasada la hora exacta → un grupo
+  // que abría la app tarde no podía iniciar y el evento quedaba atorado.
+  // El candado GPS del 50% NO cambia: iniciar tarde igual exige marcar llegada
+  // (release_half_on_arrival) para liberar el pago — solo se amplía el tiempo.
+  const canStartNow = !startedAt && eventTargetMs != null
+    ? (() => {
+        const diffMs = eventTargetMs - Date.now();
+        return diffMs <= 30 * 60 * 1000 && diffMs >= -6 * 60 * 60 * 1000;
       })()
     : false;
 
@@ -788,13 +819,11 @@ export default function EventTimerScreen({ route, navigation }: any) {
     return () => { supabase.removeChannel(channel); };
   }, []);
 
-  // Contador regresivo hasta que inicie el evento (usa estado startedAt, no el prop)
+  // Contador regresivo hasta que inicie el evento (usa eventTargetMs de arriba)
   useEffect(() => {
-    if (startedAt || !reservation.event_date) return;
+    if (startedAt || eventTargetMs == null) { setPreEventCountdown(''); return; }
     const tick = () => {
-      const target = parseEventDateMX(reservation.event_date, reservation.event_time ?? '00:00');
-      if (!target) { setPreEventCountdown(''); return; }
-      const diff = target.getTime() - Date.now();
+      const diff = eventTargetMs - Date.now();
       if (diff <= 0) { setPreEventCountdown(''); return; }
       const d = Math.floor(diff / 86_400_000);
       const h = Math.floor((diff % 86_400_000) / 3_600_000);
@@ -806,7 +835,7 @@ export default function EventTimerScreen({ route, navigation }: any) {
     tick();
     const id = setInterval(tick, 1_000);
     return () => clearInterval(id);
-  }, [startedAt, reservation.event_date, reservation.event_time]);
+  }, [startedAt, eventTargetMs]);
 
   useEffect(() => {
     if (!reservation.event_id && !reservation.event_request_id) return;
@@ -1902,6 +1931,18 @@ export default function EventTimerScreen({ route, navigation }: any) {
     if (isRunning) return 'live';
     return 'pre_event';
   };
+  // Hora de inicio en 12h a partir de event_time crudo (tolera "8:00"/"20:00"),
+  // o 'Hoy' si el evento no tiene hora fija (exprés). Nunca un guión.
+  const eventStartLabel = (() => {
+    if (!rawEventTime) return 'Hoy';
+    const [hStr, mStr] = rawEventTime.split(':');
+    const hh = parseInt(hStr, 10);
+    if (isNaN(hh)) return 'Hoy';
+    const ampm = hh >= 12 ? 'PM' : 'AM';
+    const h12  = hh % 12 || 12;
+    return `${h12}:${(mStr ?? '00').substring(0, 2).padStart(2, '0')} ${ampm}`;
+  })();
+
   const getTimerSubtitle = (): string => {
     if (isCompleted) return `${contractHours + extraHoursAdded}h tocadas`;
     if (isOnBreak && currentSegment) {
@@ -1911,7 +1952,12 @@ export default function EventTimerScreen({ route, navigation }: any) {
       return `Vuelves en ${bm}:${String(bs).padStart(2, '0')}`;
     }
     if (isInExtraSegment) return `+${extraHoursAdded}h extra activa`;
-    if (!startedAt && preEventCountdown) return `⏰ Inicia en ${preEventCountdown}`;
+    // Pre-evento: el número grande es la cuenta regresiva → el subtítulo da
+    // la hora. Si NO hay conteo (el número ya muestra la hora), subtítulo
+    // vacío para no repetirla dos veces.
+    if (!startedAt) {
+      return (preEventCountdown && eventStartLabel !== 'Hoy') ? `🕐 ${eventStartLabel}` : '';
+    }
     if (isRunning) {
       const h = Math.floor(remaining / 3600);
       const m = Math.floor((remaining % 3600) / 60);
@@ -2021,7 +2067,11 @@ export default function EventTimerScreen({ route, navigation }: any) {
             {/* Timer visual premium — 5 estados animados */}
             <CircleTimerVisual
               state={getTimerVisualState()}
-              currentTime={`${String(displayTime.h).padStart(2, '0')}:${String(displayTime.m).padStart(2, '0')}:${String(displayTime.s).padStart(2, '0')}`}
+              currentTime={
+                getTimerVisualState() === 'pre_event'
+                  ? (preEventCountdown || eventStartLabel)
+                  : `${String(displayTime.h).padStart(2, '0')}:${String(displayTime.m).padStart(2, '0')}:${String(displayTime.s).padStart(2, '0')}`
+              }
               subtitle={getTimerSubtitle()}
               progress={isCompleted ? 1 : progress}
               size={RING_SIZE}
@@ -2322,6 +2372,15 @@ export default function EventTimerScreen({ route, navigation }: any) {
             )}
           </View>
 
+          {/* ── SOPORTE: siempre visible durante el evento ── */}
+          <Pressable
+            style={st.supportRow}
+            hitSlop={8}
+            onPress={() => openSupport(reservation.folio ? `el evento ${reservation.folio}` : undefined)}
+          >
+            <Text style={st.supportRowText}>💬 ¿Necesitas ayuda? Contacta a soporte</Text>
+          </Pressable>
+
 
           {/* ── PUNTUALIDAD: banner pre-evento (solo grupo) ── */}
           {!readOnly && !startedAt && !isCompleted && reservation.event_date && reservation.event_time && (
@@ -2380,10 +2439,10 @@ export default function EventTimerScreen({ route, navigation }: any) {
                     <Text style={[st.iconBtnLabel, { color: COLORS.black }]}>Llegué al evento</Text>
                   </Pressable>
                   <View style={{ height: 10 }} />
-                  {eventDateTime && !canStartNow && (
+                  {eventTargetMs != null && !canStartNow && (
                     <Text style={st.autoStartHint}>
                       {'⏳ Auto-inicio a las ' + (() => {
-                        const g = new Date(eventDateTime.getTime() + 10 * 60 * 1000);
+                        const g = new Date(eventTargetMs + 10 * 60 * 1000);
                         return g.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
                       })() + ' si no inicias antes'}
                     </Text>
@@ -2412,10 +2471,10 @@ export default function EventTimerScreen({ route, navigation }: any) {
               {/* (b) Post-llegada, pre-inicio */}
               {!isRunning && !startedAt && hasArrived && (
                 <>
-                  {eventDateTime && !canStartNow && (
+                  {eventTargetMs != null && !canStartNow && (
                     <Text style={st.autoStartHint}>
                       {'⏳ Auto-inicio a las ' + (() => {
-                        const g = new Date(eventDateTime.getTime() + 10 * 60 * 1000);
+                        const g = new Date(eventTargetMs + 10 * 60 * 1000);
                         return g.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
                       })() + ' si no inicias antes'}
                     </Text>
@@ -4053,6 +4112,8 @@ const st = StyleSheet.create({
   exactMapWrap:  { marginTop: 12 },
   exactMapLabel: { fontFamily: FONTS.bodyMedium, fontSize: 12, color: COLORS.muted2, marginBottom: 6 },
   folioChip:     { fontFamily: FONTS.title, fontSize: 13, color: COLORS.green, letterSpacing: 1, textAlign: 'center', paddingBottom: 6, borderBottomWidth: 1, borderColor: COLORS.border },
+  supportRow:     { alignSelf: 'center', marginTop: 14, paddingVertical: 8, paddingHorizontal: 14 },
+  supportRowText: { fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.muted2, textDecorationLine: 'underline' },
   exactMap:      { width: '100%', height: 220, borderRadius: RADIUS.lg, overflow: 'hidden' },
 
   // ── Actions (Commit 4) ────────────────────────────────────

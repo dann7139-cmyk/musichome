@@ -27,6 +27,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
+import { SUPPORT_EMAIL } from '../../utils/support';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -191,7 +192,7 @@ export default function PlusScreen({ navigation, route }: any) {
       if (data?.error === 'portal_not_configured') {
         Alert.alert(
           'Portal no disponible',
-          'Para cancelar o cambiar tu tarjeta, escríbenos a soporte@daricefy.com',
+          `Para cancelar o cambiar tu tarjeta, escríbenos a ${SUPPORT_EMAIL}`,
         );
         return;
       }

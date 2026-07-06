@@ -746,7 +746,7 @@ export function CircleTimerVisual({
   const palette = PALETTES[state];
 
   const defaultLabel: Record<TimerState, string> = {
-    pre_event: 'Llegada en',
+    pre_event: 'Inicia en',
     live: 'Tocando',
     break: 'Descanso',
     extra_hours: 'Hora Extra',
@@ -810,20 +810,22 @@ export function CircleTimerVisual({
         >
           {finalLabel.toUpperCase()}
         </Text>
-        {state !== 'pre_event' && (
-          <Text
-            numberOfLines={1}
-            adjustsFontSizeToFit
-            minimumFontScale={0.7}
-            style={[
-              styles.time,
-              state === 'extra_hours' && { color: palette.accent },
-              state === 'completed' && { color: '#fff' },
-            ]}
-          >
-            {currentTime}
-          </Text>
-        )}
+        {/* El número grande se muestra en TODOS los estados, incluido
+            pre_event (ahí es la cuenta regresiva hasta la hora del evento).
+            adjustsFontSizeToFit encoge cadenas largas tipo "1d 3h 05m". */}
+        <Text
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.5}
+          style={[
+            styles.time,
+            state === 'pre_event' && { color: `rgba(${palette.rgb}, 0.95)` },
+            state === 'extra_hours' && { color: palette.accent },
+            state === 'completed' && { color: '#fff' },
+          ]}
+        >
+          {currentTime}
+        </Text>
         {subtitle && (
           <Text
             style={[

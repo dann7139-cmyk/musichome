@@ -390,9 +390,9 @@ export default function NotificationsScreen({ navigation }: any) {
 
       // ── Other types ────────────────────────────────────────────────────────
       case 'payment':
-        if (role === 'group') {
-          await goToReservation(true);
-        }
+        // Cliente (reembolso emitido) → su reserva en Mis Eventos;
+        // grupo (payout) → su reserva. Antes el cliente no ruteaba a nada.
+        await goToReservation(role === 'group');
         break;
 
       case 'review':

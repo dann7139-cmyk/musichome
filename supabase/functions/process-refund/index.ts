@@ -1,12 +1,25 @@
 // ═══════════════════════════════════════════════════════════════════
-// process-refund  –  Supabase Edge Function
-// Emite un reembolso real via MercadoPago y revierte el wallet del grupo.
+// process-refund  –  Supabase Edge Function  (C1: bi-proveedor)
+// Emite un reembolso real y revierte el wallet del grupo.
+//
+// Detección de proveedor por el id guardado en reservations.mp_payment_id:
+//   · 'pi_...'  → Stripe (flujo actual de cobro — PaymentIntent)
+//   · numérico  → MercadoPago (legacy)
 //
 // POST (autenticado como admin o cliente dueño pre-evento):
-//   { reservation_id: string, refund_amount?: number }
+//   { reservation_id, refund_amount?, idempotency_key?, mode? }
+//     · mode 'full' (default) → reembolso total/parcial + reversión completa
+//       de wallet (process_refund_reversal). Para no-show/admin/disputa.
+//     · mode 'cancellation' → C2a: el monto a reembolsar lo calcula el
+//       servidor (compute_cancellation_charge, tiers por proximidad),
+//       IGNORA refund_amount del cliente, y liquida con settle_cancellation
+//       (el grupo conserva su compensación, Daricefy su parte).
+//     · idempotency_key opcional ('dispute-{id}', 'cancel-{id}', 'noshow-{id}').
+//       Default: 'refund-{reservation_id}-{centavos}' — reintentar con el
+//       mismo monto NUNCA duplica el reembolso (Stripe lo garantiza).
 //
-// Respuesta:
-//   { ok, refund_id, amount, reservation_id }
+// Respuesta: { ok, provider, refund_id, amount, reservation_id, mode, breakdown? }
+// Los fallos se auditan en payment_event_logs (refund_failed).
 // ═══════════════════════════════════════════════════════════════════
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -32,6 +45,7 @@ Deno.serve(async (req) => {
   const mpToken      = Deno.env.get('MERCADOPAGO_ACCESS_TOKEN')
     ?? Deno.env.get('mercadopago_access_token')
     ?? '';
+  const stripeKey    = Deno.env.get('STRIPE_SECRET_KEY') ?? '';
 
   // admin client (service_role) — used for DB operations and JWT verification
   const admin = createClient(SUPABASE_URL, SERVICE_KEY, {
@@ -45,6 +59,23 @@ Deno.serve(async (req) => {
     Prefer:         'return=representation',
   };
 
+  // Auditoría compartida (éxitos y fallos) — fire-and-forget
+  const logPaymentEvent = (paymentId: string, reservationId: string, eventType: string, amount: number, notes: string) => {
+    fetch(`${SUPABASE_URL}/rest/v1/rpc/log_payment_event`, {
+      method:  'POST',
+      headers: serviceHeaders,
+      body:    JSON.stringify({
+        p_mp_payment_id:  paymentId,
+        p_external_ref:   reservationId,
+        p_reservation_id: reservationId,
+        p_mp_status:      eventType === 'refund_issued' ? 'refunded' : 'refund_failed',
+        p_mp_amount:      amount,
+        p_event_type:     eventType,
+        p_notes:          notes,
+      }),
+    }).catch((e: unknown) => console.error('[log_payment_event]', e));
+  };
+
   try {
     // ── Autenticar (verificación criptográfica via Supabase Auth) ─────
     const authHeader = req.headers.get('Authorization');
@@ -53,7 +84,6 @@ Deno.serve(async (req) => {
     }
     const token = authHeader.slice(7);
 
-    // getUser() verifica firma, expiración y que el usuario exista en auth.users
     const { data: authData, error: authErr } = await admin.auth.getUser(token);
     if (authErr || !authData?.user) {
       console.warn('[process-refund] JWT rejected:', authErr?.message ?? 'no user');
@@ -63,10 +93,13 @@ Deno.serve(async (req) => {
 
     // ── Body ──────────────────────────────────────────────────────────
     const body = await req.json().catch(() => ({})) as {
-      reservation_id?: string;
-      refund_amount?:  number;
+      reservation_id?:  string;
+      refund_amount?:   number;
+      idempotency_key?: string;
+      mode?:            'full' | 'cancellation';
     };
     const { reservation_id, refund_amount } = body;
+    const mode = body.mode ?? 'full';
     if (!reservation_id) return jsonRes({ error: 'reservation_id requerido' }, 400);
 
     // ── Cargar reserva ────────────────────────────────────────────────
@@ -94,9 +127,11 @@ Deno.serve(async (req) => {
     }
 
     // ── Validaciones ──────────────────────────────────────────────────
-    if (!reservation.mp_payment_id) {
-      return jsonRes({ error: 'No hay pago de MP registrado para esta reserva' }, 422);
+    const paymentId = String(reservation.mp_payment_id ?? '');
+    if (!paymentId) {
+      return jsonRes({ error: 'No hay pago registrado para esta reserva' }, 422);
     }
+    const isStripe = paymentId.startsWith('pi_');
 
     if (!['paid', 'fully_paid', 'deposit_paid'].includes(reservation.payment_status as string)) {
       return jsonRes({ error: 'La reserva no tiene un pago confirmado' }, 422);
@@ -110,8 +145,33 @@ Deno.serve(async (req) => {
       return jsonRes({ error: 'No se puede reembolsar: el pago ya fue liberado al grupo' }, 422);
     }
 
-    const totalPrice  = reservation.total_price as number;
-    const amountToRef = refund_amount ?? totalPrice;
+    const totalPrice = reservation.total_price as number;
+
+    // ── Monto a reembolsar ────────────────────────────────────────────
+    // mode 'cancellation': el servidor manda (tiers de proximidad), se
+    // ignora cualquier refund_amount del cliente. mode 'full': el que venga.
+    let amountToRef: number;
+    let cancellationCharge: any = null;
+    if (mode === 'cancellation') {
+      const { data: charge, error: chargeErr } = await admin
+        .rpc('compute_cancellation_charge', { p_reservation_id: reservation_id });
+      if (chargeErr || !charge?.ok) {
+        return jsonRes({ error: charge?.error ?? chargeErr?.message ?? 'No se pudo calcular el cargo' }, 422);
+      }
+      cancellationCharge = charge;
+      amountToRef = Number(charge.refund_amount);
+      if (amountToRef <= 0) {
+        // tier not_paid o reembolso 0 → no hay refund que emitir; solo liquidar
+        const { data: settled, error: settleErr } = await admin
+          .rpc('settle_cancellation', { p_reservation_id: reservation_id, p_refund_id: null });
+        if (settleErr || settled?.ok === false) {
+          return jsonRes({ error: settled?.error ?? settleErr?.message ?? 'No se pudo liquidar' }, 422);
+        }
+        return jsonRes({ ok: true, mode, provider: 'none', refund_id: null, amount: 0, reservation_id, breakdown: cancellationCharge });
+      }
+    } else {
+      amountToRef = refund_amount ?? totalPrice;
+    }
 
     if (amountToRef <= 0) {
       return jsonRes({ error: 'El monto del reembolso debe ser mayor a $0' }, 422);
@@ -120,61 +180,108 @@ Deno.serve(async (req) => {
       return jsonRes({ error: `El reembolso ($${amountToRef}) excede el total ($${totalPrice})` }, 422);
     }
 
-    // ── Llamar a MP Refunds API ───────────────────────────────────────
-    console.log(`[REFUND_INIT] reservation=${reservation_id} mp_payment=${reservation.mp_payment_id} amount=$${amountToRef} by=${isAdmin ? 'admin' : 'client'}`);
+    console.log(`[REFUND_INIT] reservation=${reservation_id} provider=${isStripe ? 'stripe' : 'mercadopago'} payment=${paymentId} amount=$${amountToRef} by=${isAdmin ? 'admin' : 'client'}`);
 
-    const mpRefundRes = await fetch(
-      `https://api.mercadopago.com/v1/payments/${reservation.mp_payment_id}/refunds`,
-      {
+    // ── Emitir el reembolso según proveedor ───────────────────────────
+    let refundId = '';
+
+    if (isStripe) {
+      if (!stripeKey) return jsonRes({ error: 'STRIPE_SECRET_KEY no configurado' }, 500);
+
+      // Stripe cobra/reembolsa en CENTAVOS (mismas unidades que el cobro
+      // original de create-payment-intent)
+      const amountCentavos = Math.round(amountToRef * 100);
+      const idemKey = body.idempotency_key
+        ?? (mode === 'cancellation'
+              ? `cancel-${reservation_id}`
+              : `refund-${reservation_id}-${amountCentavos}`);
+
+      const form = new URLSearchParams();
+      form.set('payment_intent', paymentId);
+      form.set('amount', String(amountCentavos));
+      form.set('metadata[reservation_id]', reservation_id);
+      form.set('metadata[issued_by]', isAdmin ? 'admin' : 'client');
+
+      const stripeRes = await fetch('https://api.stripe.com/v1/refunds', {
         method:  'POST',
         headers: {
-          Authorization:  `Bearer ${mpToken}`,
-          'Content-Type': 'application/json',
+          Authorization:     `Bearer ${stripeKey}`,
+          'Content-Type':    'application/x-www-form-urlencoded',
+          'Idempotency-Key': idemKey,
         },
-        body: JSON.stringify({ amount: amountToRef }),
-      },
-    );
+        body: form,
+      });
 
-    const mpRefund = await mpRefundRes.json() as any;
+      const stripeData = await stripeRes.json() as any;
 
-    if (!mpRefundRes.ok) {
-      console.error('[REFUND_ERROR] MP refund failed:', JSON.stringify(mpRefund));
-      return jsonRes({
-        error: mpRefund?.message ?? 'Error al procesar reembolso en MercadoPago',
-      }, 502);
+      if (!stripeRes.ok) {
+        const msg = stripeData?.error?.message ?? 'Error al procesar reembolso en Stripe';
+        console.error('[REFUND_ERROR] Stripe refund failed:', JSON.stringify(stripeData));
+        logPaymentEvent(paymentId, reservation_id, 'refund_failed', amountToRef, `Stripe: ${msg}`);
+        return jsonRes({ error: msg, provider: 'stripe' }, 502);
+      }
+
+      refundId = String(stripeData.id);   // re_...
+      console.log(`[REFUND_ISSUED] stripe_refund=${refundId} reservation=${reservation_id} amount=$${amountToRef} idem=${idemKey}`);
+
+    } else {
+      // ── MercadoPago (legacy) ─────────────────────────────────────────
+      const mpRefundRes = await fetch(
+        `https://api.mercadopago.com/v1/payments/${paymentId}/refunds`,
+        {
+          method:  'POST',
+          headers: {
+            Authorization:  `Bearer ${mpToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ amount: amountToRef }),
+        },
+      );
+
+      const mpRefund = await mpRefundRes.json() as any;
+
+      if (!mpRefundRes.ok) {
+        const msg = mpRefund?.message ?? 'Error al procesar reembolso en MercadoPago';
+        console.error('[REFUND_ERROR] MP refund failed:', JSON.stringify(mpRefund));
+        logPaymentEvent(paymentId, reservation_id, 'refund_failed', amountToRef, `MP: ${msg}`);
+        return jsonRes({ error: msg, provider: 'mercadopago' }, 502);
+      }
+
+      refundId = String(mpRefund.id);
+      console.log(`[REFUND_ISSUED] mp_refund_id=${refundId} reservation=${reservation_id} amount=$${amountToRef}`);
     }
 
-    console.log(`[REFUND_ISSUED] mp_refund_id=${mpRefund.id} reservation=${reservation_id} amount=$${amountToRef}`);
-
-    // ── Revertir wallet + marcar reserva (atómico via RPC) ───────────
-    // p_refund_amount pasa el monto real para revertir solo lo reembolsado,
-    // no siempre el base_price completo (fix para reembolsos parciales).
-    const rpcRes = await fetch(`${SUPABASE_URL}/rest/v1/rpc/process_refund_reversal`, {
-      method:  'POST',
-      headers: serviceHeaders,
-      body:    JSON.stringify({
-        p_reservation_id: reservation_id,
-        p_mp_refund_id:   String(mpRefund.id),
-        p_refund_amount:  amountToRef,
-      }),
-    });
-    const rpcResult = await rpcRes.json() as any;
-    console.log('[process_refund_reversal]', JSON.stringify(rpcResult));
+    // ── Liquidar en la BD (atómico via RPC) ──────────────────────────
+    // cancellation → settle_cancellation (grupo conserva compensación).
+    // full → process_refund_reversal (reversión completa).
+    let rpcResult: any;
+    if (mode === 'cancellation') {
+      const settleRes = await fetch(`${SUPABASE_URL}/rest/v1/rpc/settle_cancellation`, {
+        method:  'POST',
+        headers: serviceHeaders,
+        body:    JSON.stringify({ p_reservation_id: reservation_id, p_refund_id: refundId }),
+      });
+      rpcResult = await settleRes.json();
+      console.log('[settle_cancellation]', JSON.stringify(rpcResult));
+    } else {
+      const rpcRes = await fetch(`${SUPABASE_URL}/rest/v1/rpc/process_refund_reversal`, {
+        method:  'POST',
+        headers: serviceHeaders,
+        body:    JSON.stringify({
+          p_reservation_id: reservation_id,
+          p_mp_refund_id:   refundId,
+          p_refund_amount:  amountToRef,
+        }),
+      });
+      rpcResult = await rpcRes.json();
+      console.log('[process_refund_reversal]', JSON.stringify(rpcResult));
+    }
 
     // ── Audit log ─────────────────────────────────────────────────────
-    fetch(`${SUPABASE_URL}/rest/v1/rpc/log_payment_event`, {
-      method:  'POST',
-      headers: serviceHeaders,
-      body:    JSON.stringify({
-        p_mp_payment_id:  reservation.mp_payment_id,
-        p_external_ref:   reservation_id,
-        p_reservation_id: reservation_id,
-        p_mp_status:      'refunded',
-        p_mp_amount:      amountToRef,
-        p_event_type:     'refund_issued',
-        p_notes:          `Refund MP:${mpRefund.id} by ${isAdmin ? 'admin' : 'client'}(${callerId})`,
-      }),
-    }).catch((e: unknown) => console.error('[log_payment_event]', e));
+    logPaymentEvent(
+      paymentId, reservation_id, 'refund_issued', amountToRef,
+      `Refund ${isStripe ? 'Stripe' : 'MP'}:${refundId} by ${isAdmin ? 'admin' : 'client'}(${callerId})`,
+    );
 
     // ── Notificar al cliente ──────────────────────────────────────────
     await admin.from('notifications').insert({
@@ -187,9 +294,12 @@ Deno.serve(async (req) => {
 
     return jsonRes({
       ok:            true,
-      refund_id:     mpRefund.id,
+      mode,
+      provider:      isStripe ? 'stripe' : 'mercadopago',
+      refund_id:     refundId,
       amount:        amountToRef,
       reservation_id,
+      breakdown:     cancellationCharge,
     });
 
   } catch (e: unknown) {

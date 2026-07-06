@@ -6,12 +6,18 @@ import { supabase } from '../config/supabase';
 // ── Imperativo: AppNavigator puede revivir dispatches desde fuera del Provider ──
 let _reviveDispatch: ((id: string) => Promise<void>) | null = null;
 let _reviveAll:      (() => Promise<void>) | null = null;
+let _removeDispatch: ((id: string) => void) | null = null;
 
 export async function reviveExpressDispatch(id: string) {
   await _reviveDispatch?.(id);
 }
 export async function reviveAllExpressDispatches() {
   await _reviveAll?.();
+}
+// Tras enviar la cotización, ProposeRequestScreen quita la tarjeta al
+// instante (sin esperar al RPC/realtime — robusto aunque sql/415 no exista)
+export function markExpressDispatchQuoted(id: string) {
+  _removeDispatch?.(id);
 }
 import {
   loadExpressSounds,
@@ -47,8 +53,14 @@ export interface ExpressDispatch {
     venue_size: string | null;
     needs_sound: string | null;
     comments: string | null;
+    status?: string | null;
   };
 }
+
+// Estados de solicitud en los que TODAVÍA se puede cotizar. Si la solicitud
+// ya fue aceptada/pagada/cancelada, el dispatch no debe seguir en el carrusel
+// aunque su propia fila siga en 'pending_broadcast' (nadie la cerró).
+const OPEN_REQUEST_STATUSES = ['open', 'en_negociacion', 'negotiating'];
 
 interface ExpressCtx {
   dispatches:   ExpressDispatch[];
@@ -101,6 +113,10 @@ export function ExpressProvider({
     if (dismissedIdsRef.current.has(dispatch.id)) return;
     if (dispatchesRef.current.some(d => d.id === dispatch.id)) return;
     if (dispatchesRef.current.length >= 5) return;
+    // La solicitud ya no está abierta (aceptada/pagada/cancelada/expirada) →
+    // no mostrar aunque el dispatch siga 'pending_broadcast'
+    const reqStatus = dispatch.request?.status;
+    if (reqStatus && !OPEN_REQUEST_STATUSES.includes(reqStatus)) return;
     // Only show dispatches whose genre matches this group's genre
     const grpGenre = groupGenreRef.current;
     if (grpGenre && dispatch.request?.genre) {
@@ -129,7 +145,7 @@ export function ExpressProvider({
   const loadPending = useCallback(async (gid: string, silent = false) => {
     const { data: rows } = await supabase
       .from('express_dispatches')
-      .select('*, request:event_requests(id,client_id,event_type,genre,event_date,event_time,hours,guest_count,location_city,location_municipio,location_estado,latitude,longitude,event_lat,event_lng,venue_covered,venue_size,needs_sound,comments)')
+      .select('*, request:event_requests(id,client_id,event_type,genre,event_date,event_time,hours,guest_count,location_city,location_municipio,location_estado,latitude,longitude,event_lat,event_lng,venue_covered,venue_size,needs_sound,comments,status)')
       .eq('group_id', gid)
       .in('status', ['pending_broadcast', 'quoting'])
       .order('created_at', { ascending: true });
@@ -161,7 +177,7 @@ export function ExpressProvider({
 
           const { data: req } = await supabase
             .from('event_requests')
-            .select('id,client_id,event_type,genre,event_date,event_time,hours,guest_count,location_city,location_municipio,location_estado,latitude,longitude,event_lat,event_lng,venue_covered,venue_size,needs_sound,comments')
+            .select('id,client_id,event_type,genre,event_date,event_time,hours,guest_count,location_city,location_municipio,location_estado,latitude,longitude,event_lat,event_lng,venue_covered,venue_size,needs_sound,comments,status')
             .eq('id', dispatch.request_id)
             .single();
 
@@ -215,7 +231,7 @@ export function ExpressProvider({
     // never sees a 1-2 s gap where both the banner and the carousel are gone.
     const { data: rows } = await supabase
       .from('express_dispatches')
-      .select('*, request:event_requests(id,client_id,event_type,genre,event_date,event_time,hours,guest_count,location_city,location_municipio,location_estado,latitude,longitude,event_lat,event_lng,venue_covered,venue_size,needs_sound,comments)')
+      .select('*, request:event_requests(id,client_id,event_type,genre,event_date,event_time,hours,guest_count,location_city,location_municipio,location_estado,latitude,longitude,event_lat,event_lng,venue_covered,venue_size,needs_sound,comments,status)')
       .eq('group_id', groupId)
       .in('status', ['pending_broadcast', 'quoting', 'ignored'])
       .order('created_at', { ascending: true });
@@ -230,15 +246,21 @@ export function ExpressProvider({
       dismissedIdsRef.current.delete(id);
       const { data } = await supabase
         .from('express_dispatches')
-        .select('*, request:event_requests(id,client_id,event_type,genre,event_date,event_time,hours,guest_count,location_city,location_municipio,location_estado,latitude,longitude,event_lat,event_lng,venue_covered,venue_size,needs_sound,comments)')
+        .select('*, request:event_requests(id,client_id,event_type,genre,event_date,event_time,hours,guest_count,location_city,location_municipio,location_estado,latitude,longitude,event_lat,event_lng,venue_covered,venue_size,needs_sound,comments,status)')
         .eq('id', id)
         .in('status', ['pending_broadcast', 'quoting', 'ignored'])
         .single();
       if (data) add({ ...data, request: (data as any).request ?? undefined }, true);
     };
     _reviveAll = reviveAll;
-    return () => { _reviveDispatch = null; _reviveAll = null; };
-  }, [groupId, add, reviveAll]);
+    _removeDispatch = (id: string) => {
+      // Marcar como descartado local para que un loadPending posterior no lo
+      // vuelva a traer si el status en DB aún no cambió a 'quoted'
+      dismissedIdsRef.current.add(id);
+      remove(id);
+    };
+    return () => { _reviveDispatch = null; _reviveAll = null; _removeDispatch = null; };
+  }, [groupId, add, reviveAll, remove]);
 
   return (
     <ExpressContext.Provider value={{ dispatches, hasDismissed, dismiss, reviveAll }}>

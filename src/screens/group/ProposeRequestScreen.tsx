@@ -16,6 +16,7 @@ import { calcClientPrice, calcPlatformFee, getCommissionRate } from '../../utils
 import i18n from '../../i18n';
 import QuoteFormShared, { GroupMember } from '../../components/quote/QuoteFormShared';
 import ClientProfileModal from '../../components/requests/ClientProfileModal';
+import { markExpressDispatchQuoted } from '../../context/ExpressContext';
 
 export default function ProposeRequestScreen({ route, navigation }: any) {
   const { request, dispatchId } = route.params as { request: any; dispatchId?: string };
@@ -212,6 +213,9 @@ export default function ProposeRequestScreen({ route, navigation }: any) {
               Alert.alert('No disponible', msg);
             } else {
               if (dispatchId) {
+                // 1) Quitar la tarjeta del carrusel YA (local, no depende del
+                //    RPC/realtime). 2) Persistir status='quoted' en la DB.
+                markExpressDispatchQuoted(dispatchId);
                 await supabase.rpc('complete_express_dispatch', { p_dispatch_id: dispatchId });
                 setSent(true);
                 Animated.timing(sentOpacity, { toValue: 1, duration: 280, useNativeDriver: true }).start();

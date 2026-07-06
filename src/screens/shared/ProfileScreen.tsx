@@ -38,6 +38,7 @@ import * as Location from 'expo-location';
 
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { pickAndUploadProfileImage } from '../../utils/uploadProfileImage';
+import { openSupportEmail, openSupportWhatsApp, SUPPORT_HOURS } from '../../utils/support';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import Particles from '../../components/ui/Particles';
@@ -1105,17 +1106,17 @@ export default function ProfileScreen({ navigation }: any) {
             </Text>
             <Pressable
               style={st.supportBtn}
-              onPress={() => Linking.openURL('mailto:soporte@daricefy.mx?subject=Soporte Daricefy')}
+              onPress={() => openSupportEmail()}
             >
               <Text style={st.supportBtnText}>📧 Enviar correo</Text>
             </Pressable>
             <Pressable
               style={[st.supportBtn, { backgroundColor: 'rgba(37,211,102,0.12)', borderColor: 'rgba(37,211,102,0.4)' }]}
-              onPress={() => Linking.openURL('https://wa.me/523332431680?text=Hola,%20necesito%20ayuda%20con%20Daricefy')}
+              onPress={() => openSupportWhatsApp()}
             >
               <Text style={[st.supportBtnText, { color: '#25D366' }]}>💬 WhatsApp</Text>
             </Pressable>
-            <Text style={st.supportNote}>Horario: Lun–Sáb 9am–8pm</Text>
+            <Text style={st.supportNote}>Horario: {SUPPORT_HOURS}</Text>
           </View>
         </View>
       </Modal>

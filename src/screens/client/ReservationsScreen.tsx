@@ -25,6 +25,7 @@ import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import Badge from '../../components/ui/Badge';
 import RequestZoneMap from '../../components/requests/RequestZoneMap';
 import { approxGroupLocation, eventCardCenter } from '../../utils/mapUtils';
+import { openSupport } from '../../utils/support';
 
 const STATUS_MAP: Record<string, { label: string; variant: any }> = {
   pending:                    { label: 'Pendiente',        variant: 'orange' },
@@ -533,6 +534,11 @@ export default function ClientReservationsScreen({ navigation, route }: any) {
               </>
             );
           })()}
+
+          {/* Soporte discreto al pie de la lista de eventos */}
+          <Pressable style={styles.supportFooter} hitSlop={8} onPress={() => openSupport()}>
+            <Text style={styles.supportFooterText}>💬 ¿Necesitas ayuda? Contacta a soporte</Text>
+          </Pressable>
         </ScrollView>
       </SafeAreaView>
 
@@ -764,44 +770,72 @@ function ReservationCard({ reservation: r, navigation, onUpdate, isReviewed, isJ
       return;
     }
 
-    // Reserva real: consultar política de reembolso primero
+    // Reserva real: desglose de cargo por proximidad calculado en el servidor
     setCancelling(true);
-    const { data: policy } = await supabase.rpc('get_cancellation_policy', {
+    const { data: charge } = await supabase.rpc('compute_cancellation_charge', {
       p_reservation_id: r.id,
     });
     setCancelling(false);
 
-    const policyMsg = (() => {
-      if (!policy || !policy.ok) return '¿Estás seguro de cancelar?';
-      const h = policy.hours_until;
-      if (policy.refund_policy === 'not_paid') {
-        return 'No tienes pago registrado. Se cancelará sin cargo.';
+    const fmt = (n: number) => `$${Number(n).toLocaleString('es-MX')} MXN`;
+    const tier    = charge?.tier as string | undefined;
+    const refund  = Number(charge?.refund_amount ?? 0);
+    const retain  = Number(charge?.retain_amount ?? 0);
+
+    // Copy del PORQUÉ (filosofía de producto: el grupo apartó la fecha)
+    const whyCopy = charge?.is_express
+      ? '\n\n💡 Esta fue una solicitud exprés (para hoy). El grupo se movilizó de inmediato dejando otras oportunidades — el cargo lo compensa por eso.'
+      : '\n\n💡 ¿Por qué hay un cargo? Cuando el grupo aceptó tu evento, apartó esa fecha y dejó pasar otras oportunidades de tocar. Cancelarla le afecta — este cargo lo compensa por la fecha que reservó para ti.';
+
+    const breakdownMsg = (() => {
+      if (!charge?.ok) return '¿Estás seguro de cancelar esta reserva?';
+      if (tier === 'not_paid') return 'No hay pago registrado. Se cancelará sin cargo.';
+      if (tier === 'free') {
+        return `Cancelas con más de 15 días de anticipación.\n\n✅ Reembolso completo: ${fmt(refund)}\nSin cargo.`;
       }
-      if (policy.refund_policy === 'full') {
-        return `Cancelas con más de 48h de anticipación.\n\n✅ Reembolso completo: $${policy.refund_amount.toLocaleString()} MXN`;
-      }
-      if (policy.refund_policy === 'partial') {
-        return `Cancelas entre 24h y 48h antes del evento.\n\n⚠️ Reembolso parcial: $${policy.refund_amount.toLocaleString()} MXN`;
-      }
-      return `Cancelas con menos de 24h de anticipación (${h}h).\n\n❌ Sin reembolso. El pago no será devuelto.`;
+      const pct = (tier === 'partial_10') ? '10%' : '25%';
+      const anticip = charge?.is_express
+        ? 'Solicitud exprés'
+        : (tier === 'partial_10') ? 'Cancelas entre 7 y 15 días antes'
+        : 'Cancelas con menos de 7 días de anticipación';
+      return `${anticip}.\n\n💰 Recuperas: ${fmt(refund)}\n📌 Se retiene ${pct} (${fmt(retain)}) como compensación al grupo y tarifa.` + whyCopy;
     })();
 
     Alert.alert(
-      'Política de cancelación',
-      policyMsg + '\n\n¿Confirmas la cancelación?',
+      'Cancelar reserva',
+      breakdownMsg + '\n\n¿Confirmas la cancelación?',
       [
         { text: 'No', style: 'cancel' },
         {
           text: 'Sí, cancelar', style: 'destructive',
           onPress: async () => {
             setCancelling(true);
-            const { data, error } = await supabase
-              .rpc('client_cancel_reservation', { p_reservation_id: r.id });
+            const { data, error } = await supabase.functions.invoke('process-refund', {
+              // El servidor recalcula el monto (tiers); el cliente no lo decide.
+              // Idempotente por cancel-{id}: reintentar no duplica reembolso.
+              body: { reservation_id: r.id, mode: 'cancellation' },
+            });
             setCancelling(false);
-            if (error || data?.ok === false) {
-              Alert.alert('No se pudo cancelar', data?.error ?? error?.message ?? 'Intenta de nuevo.');
+            const failed = error || (data as any)?.error || (data as any)?.ok === false;
+            if (failed) {
+              const detail = (data as any)?.error ?? error?.message ?? 'Intenta de nuevo.';
+              Alert.alert(
+                'No se pudo cancelar',
+                `${detail}\n\nSi ya se emitió el reembolso, reintentar no genera doble cargo.`,
+                [
+                  { text: 'Cerrar', style: 'cancel' },
+                  { text: 'Reintentar', onPress: () => handleCancel() },
+                ],
+              );
               return;
             }
+            const b = (data as any)?.breakdown;
+            Alert.alert(
+              'Reserva cancelada',
+              b && Number(b.refund_amount) > 0
+                ? `Se emitió tu reembolso de ${fmt(Number(b.refund_amount))}. Aparecerá en tu cuenta en 3-10 días hábiles.`
+                : 'Tu reserva fue cancelada.',
+            );
             onUpdate();
           },
         },
@@ -1296,6 +1330,8 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.bodyMedium, fontSize: 11, color: COLORS.muted,
     letterSpacing: 0.5, paddingHorizontal: SPACING.lg, paddingTop: 4, paddingBottom: 2,
   },
+  supportFooter:     { alignSelf: 'center', marginTop: 24, marginBottom: 8, paddingVertical: 8, paddingHorizontal: 14 },
+  supportFooterText: { fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.muted2, textDecorationLine: 'underline' },
 
   // ── Ticket button ──
   ticketBtn: {

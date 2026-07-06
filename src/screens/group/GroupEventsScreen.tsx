@@ -26,6 +26,7 @@ import Particles from '../../components/ui/Particles';
 import RequestZoneMap from '../../components/requests/RequestZoneMap';
 import ClientProfileModal from '../../components/requests/ClientProfileModal';
 import { eventCardCenter } from '../../utils/mapUtils';
+import { openSupport } from '../../utils/support';
 
 const TIER_CFG: Record<string, { emoji: string; label: string; color: string }> = {
   bronze: { emoji: '🥉', label: 'Bronce', color: '#CD7F32' },
@@ -903,6 +904,11 @@ export default function GroupEventsScreen({ navigation }: any) {
             )
           )}
 
+          {/* Soporte discreto al pie de la lista de eventos */}
+          <Pressable style={st.supportFooter} hitSlop={8} onPress={() => openSupport()}>
+            <Text style={st.supportFooterText}>💬 ¿Necesitas ayuda? Contacta a soporte</Text>
+          </Pressable>
+
         </ScrollView>
       </SafeAreaView>
 
@@ -960,6 +966,8 @@ const st = StyleSheet.create({
     fontFamily: FONTS.bodySemiBold, fontSize: 12, color: COLORS.muted2,
     textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 4,
   },
+  supportFooter:     { alignSelf: 'center', marginTop: 24, marginBottom: 8, paddingVertical: 8, paddingHorizontal: 14 },
+  supportFooterText: { fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.muted2, textDecorationLine: 'underline' },
 
   // Contenedor vertical estilo ExpressCard: mapa arriba (opcional) + fila de contenido
   card: {

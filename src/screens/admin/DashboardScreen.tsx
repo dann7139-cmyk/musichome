@@ -6,6 +6,7 @@ import {
   DollarSign,
   Map,
   Megaphone,
+  Phone,
   RefreshCw,
   Shield,
   TrendingUp,
@@ -17,9 +18,11 @@ import React, { useEffect, useState } from 'react';
 import {
   Alert,
   Dimensions,
+  Linking,
   Pressable,
   RefreshControl,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   View,
@@ -65,6 +68,7 @@ export default function AdminDashboardScreen({ navigation }: any) {
   const [noShows,       setNoShows]       = useState<any[]>([]);
   const [noShowsHistory,setNoShowsHistory]= useState<any[]>([]);
   const [noShowsTab,    setNoShowsTab]    = useState<'pending' | 'history'>('pending');
+  const [stuckEvents,   setStuckEvents]   = useState<any[]>([]);
   const [resolvingId,   setResolvingId]   = useState<string | null>(null);
 
   useEffect(() => { fetchAll(); }, []);
@@ -172,8 +176,10 @@ export default function AdminDashboardScreen({ navigation }: any) {
 
     const { data: nsData }     = await supabase.rpc('admin_get_no_shows',         { p_limit: 50 });
     const { data: nsHistData } = await supabase.rpc('admin_get_no_shows_history', { p_limit: 50 });
+    const { data: stuckData }  = await supabase.rpc('admin_get_stuck_events',     { p_limit: 50 });
     setNoShows(nsData?.items ?? []);
     setNoShowsHistory(nsHistData?.items ?? []);
+    setStuckEvents(stuckData?.items ?? []);
   };
 
   const onRefresh = async () => { setRefreshing(true); await fetchAll(); setRefreshing(false); };
@@ -187,11 +193,21 @@ export default function AdminDashboardScreen({ navigation }: any) {
     setResolvingId(reservationId);
     try {
       if (resolution === 'refunded_100') {
-        const { error: refundErr } = await supabase.functions.invoke('process-refund', {
-          body: { reservation_id: reservationId },
+        const { data: refundData, error: refundErr } = await supabase.functions.invoke('process-refund', {
+          // Idempotency-Key estable: reintentar NUNCA duplica el reembolso
+          body: { reservation_id: reservationId, idempotency_key: `noshow-${reservationId}` },
         });
-        if (refundErr) {
-          Alert.alert('Error en reembolso', 'No se pudo procesar el reembolso. Verifica en el panel de MercadoPago.');
+        const refundFailed = refundErr || (refundData as any)?.error;
+        if (refundFailed) {
+          const detail = (refundData as any)?.error ?? refundErr?.message ?? 'No se pudo procesar el reembolso.';
+          Alert.alert(
+            'Error en reembolso',
+            `${detail}\n\nPuedes reintentar sin riesgo — la operación es idempotente (no genera doble reembolso).`,
+            [
+              { text: 'Cerrar', style: 'cancel' },
+              { text: 'Reintentar', onPress: () => resolveNoShow(reservationId, groupId, resolution, applyStrike) },
+            ],
+          );
           return;
         }
       }
@@ -219,6 +235,121 @@ export default function AdminDashboardScreen({ navigation }: any) {
     } finally {
       setResolvingId(null);
     }
+  };
+
+  // Opción B: forzar inicio de un evento atorado (GPS roto, etc.). Auditado
+  // en la RPC; el 50% sigue requiriendo llegada GPS (no se salta el anti-fraude).
+  const forceStartEvent = async (reservationId: string) => {
+    setResolvingId(reservationId);
+    try {
+      const { data, error } = await supabase.rpc('admin_force_start_event', {
+        p_reservation_id: reservationId,
+      });
+      if (error || (data as any)?.ok === false) {
+        Alert.alert('No se pudo forzar el inicio', (data as any)?.error ?? error?.message ?? 'Intenta de nuevo.');
+        return;
+      }
+      Alert.alert('Evento iniciado', 'Se marcó como en curso y se notificó al grupo y al cliente. El 50% se libera cuando el grupo marque su llegada.');
+      await fetchAll();
+    } finally {
+      setResolvingId(null);
+    }
+  };
+
+  // Marcar/copiar teléfono — SOLO admin (los teléfonos no salen a otros usuarios).
+  const handlePhone = (who: string, phone?: string | null) => {
+    if (!phone) return;
+    Alert.alert(who, phone, [
+      { text: '📞 Llamar', onPress: () => Linking.openURL(`tel:${phone}`) },
+      { text: '📋 Copiar / compartir', onPress: () => Share.share({ message: phone }) },
+      { text: 'Cerrar', style: 'cancel' },
+    ]);
+  };
+
+  // Chips de contacto (grupo/cliente) para las colas del admin. Se renderiza
+  // solo si el RPC trae teléfonos (degrada a nada si aún no los trae).
+  const renderPhones = (row: any) => {
+    if (!row.group_phone && !row.client_phone) return null;
+    return (
+      <View style={s.phoneRow}>
+        {row.group_phone && (
+          <Pressable style={s.phoneChip} onPress={() => handlePhone(`Grupo · ${row.group_name ?? ''}`, row.group_phone)}>
+            <Phone size={12} color={COLORS.green} />
+            <Text style={s.phoneChipText}>Llamar al grupo</Text>
+          </Pressable>
+        )}
+        {row.client_phone && (
+          <Pressable style={s.phoneChip} onPress={() => handlePhone(`Cliente · ${row.client_name ?? ''}`, row.client_phone)}>
+            <Phone size={12} color={COLORS.green} />
+            <Text style={s.phoneChipText}>Llamar al cliente</Text>
+          </Pressable>
+        )}
+      </View>
+    );
+  };
+
+  // Evento atorado (confirmed) donde el grupo confirmó que NO irá: primero lo
+  // lleva al estado no-show canónico (admin_mark_no_show), luego reusa el flujo
+  // EXISTENTE de resolución (reembolso Stripe vía process-refund + strike).
+  const markStuckNoShow = async (ev: any, resolution: 'refunded_100' | 'no_refund') => {
+    setResolvingId(ev.id);
+    try {
+      const { data, error } = await supabase.rpc('admin_mark_no_show', { p_reservation_id: ev.id });
+      if (error || (data as any)?.ok === false) {
+        Alert.alert('No se pudo marcar no-show', (data as any)?.error ?? error?.message ?? 'Intenta de nuevo.');
+        return;
+      }
+      // resolveNoShow maneja su propio estado/errores (reembolso idempotente + strike + notif)
+      await resolveNoShow(ev.id, ev.group_id, resolution, true);
+    } finally {
+      setResolvingId(null);
+    }
+  };
+
+  const handleStuckMenu = (ev: any) => {
+    const precio = `$${(ev.total_price ?? 0).toLocaleString('es-MX', { maximumFractionDigits: 0 })}`;
+    const late   = ev.minutes_late != null ? `  ·  ${ev.minutes_late} min tarde` : '';
+    Alert.alert(
+      '¿Cómo resolver este evento atorado?',
+      `${ev.group_name ?? 'Grupo'} · ${ev.folio ?? ev.id.substring(0, 8)}\nCliente: ${ev.client_name ?? '—'} · ${precio}${late}`,
+      [
+        {
+          text: '▶️ Forzar inicio del evento',
+          onPress: () => Alert.alert(
+            'Forzar inicio',
+            'Marca el evento como iniciado (GPS roto o grupo que sí llegó pero no pudo registrar). El 50% seguirá requiriendo que el grupo marque su llegada.',
+            [
+              { text: 'Cancelar', style: 'cancel' },
+              { text: 'Forzar inicio', onPress: () => forceStartEvent(ev.id) },
+            ]
+          ),
+        },
+        {
+          text: '💚 Grupo no irá — Reembolsar 100% + Strike',
+          onPress: () => Alert.alert(
+            'Confirmar reembolso',
+            `Se cancelará el evento como no-show, se reembolsarán ${precio} al cliente y se aplicará un strike al grupo.`,
+            [
+              { text: 'Cancelar', style: 'cancel' },
+              { text: 'Confirmar', onPress: () => markStuckNoShow(ev, 'refunded_100') },
+            ]
+          ),
+        },
+        {
+          text: '⛔ Grupo no irá — Sin reembolso + Strike',
+          style: 'destructive',
+          onPress: () => Alert.alert(
+            'Confirmar sin reembolso',
+            'Se cancelará el evento como no-show y se aplicará un strike al grupo. El cliente NO recibirá reembolso.',
+            [
+              { text: 'Cancelar', style: 'cancel' },
+              { text: 'Aplicar', style: 'destructive', onPress: () => markStuckNoShow(ev, 'no_refund') },
+            ]
+          ),
+        },
+        { text: 'Cerrar', style: 'cancel' },
+      ]
+    );
   };
 
   const handleNoShowMenu = (ns: any) => {
@@ -262,7 +393,7 @@ export default function AdminDashboardScreen({ navigation }: any) {
   const maxBar = Math.max(...monthlyBars.map(b => b.count), 1);
   const maxTopCount = Math.max(...topGroups.map(g => g.count), 1);
   const totalRes = Object.values(statusCounts).reduce((a, b) => a + b, 0);
-  const hasAlerts = pendingVerif.length > 0 || openDisputes.length > 0 || statusCounts.pending > 0 || pendingMedia > 0 || pendingAds > 0 || noShows.length > 0;
+  const hasAlerts = pendingVerif.length > 0 || openDisputes.length > 0 || statusCounts.pending > 0 || pendingMedia > 0 || pendingAds > 0 || noShows.length > 0 || stuckEvents.length > 0;
 
   const today = new Date();
   const dateStr = today.toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long' });
@@ -417,6 +548,12 @@ export default function AdminDashboardScreen({ navigation }: any) {
                     <Text style={s.alertChipLbl}>No-Shows</Text>
                   </View>
                 )}
+                {stuckEvents.length > 0 && (
+                  <View style={[s.alertChip, { borderColor: 'rgba(255,152,0,0.5)' }]}>
+                    <Text style={[s.alertChipNum, { color: COLORS.orange }]}>{stuckEvents.length}</Text>
+                    <Text style={s.alertChipLbl}>Atorados</Text>
+                  </View>
+                )}
               </View>
             </View>
           )}
@@ -553,6 +690,53 @@ export default function AdminDashboardScreen({ navigation }: any) {
             </View>
           )}
 
+          {/* ── EVENTOS ATORADOS ──────────────────────────────────────────── */}
+          {stuckEvents.length > 0 && (
+            <View style={[s.section, s.stuckSection]}>
+              <View style={s.sectionHeader}>
+                <AlertCircle size={14} color={COLORS.orange} />
+                <Text style={[s.sectionTitle, { color: COLORS.orange }]}>
+                  Eventos atorados ({stuckEvents.length})
+                </Text>
+              </View>
+              <Text style={s.stuckHint}>
+                Confirmados y pagados, con la hora ya pasada y sin llegada GPS. Fuerza el inicio si el grupo sí está tocando. El 50% sigue requiriendo la llegada real.
+              </Text>
+              {stuckEvents.map((ev: any) => (
+                <View key={ev.id} style={s.noShowRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.noShowFolio}>{ev.folio ?? ev.id.substring(0, 8)}</Text>
+                    <Text style={s.noShowGroup}>{ev.group_name ?? '—'}</Text>
+                    <Text style={s.noShowMeta}>
+                      {ev.client_name ?? '—'}  ·  {ev.event_date}{ev.event_time ? `  ${ev.event_time}` : ''}
+                    </Text>
+                    <Text style={s.noShowMeta}>
+                      ${(ev.total_price ?? 0).toLocaleString('es-MX', { maximumFractionDigits: 0 })}{ev.minutes_late != null ? `  ·  ⏱ ${ev.minutes_late} min tarde` : ''}
+                    </Text>
+                    {renderPhones(ev)}
+                  </View>
+                  <View style={s.noShowActions}>
+                    <Pressable
+                      style={[s.resolveBtn, resolvingId === ev.id && { opacity: 0.45 }]}
+                      onPress={() => handleStuckMenu(ev)}
+                      disabled={resolvingId === ev.id}
+                    >
+                      <Text style={s.resolveBtnText}>
+                        {resolvingId === ev.id ? '…' : 'Resolver →'}
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      style={s.detailBtn}
+                      onPress={() => navigation.navigate('AdminTicketSearch', { reservationId: ev.id })}
+                    >
+                      <Text style={s.detailBtnText}>Ver</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              ))}
+            </View>
+          )}
+
           {/* ── NO-SHOWS ──────────────────────────────────────────────────── */}
           {(noShows.length > 0 || noShowsHistory.length > 0) && (
             <View style={[s.section, noShows.length > 0 && s.noShowSection]}>
@@ -598,6 +782,7 @@ export default function AdminDashboardScreen({ navigation }: any) {
                           <Text style={s.noShowMeta}>
                             ${(ns.total_price ?? 0).toLocaleString('es-MX', { maximumFractionDigits: 0 })}  ·  payout: {ns.payout_status}{ns.has_strike ? '  · ⚡ Strike previo' : ''}
                           </Text>
+                          {renderPhones(ns)}
                         </View>
                         <View style={s.noShowActions}>
                           <Pressable
@@ -823,6 +1008,15 @@ const s = StyleSheet.create({
 
   // No-shows
   noShowSection: { borderColor: 'rgba(255,82,82,0.35)' },
+  stuckSection:  { borderColor: 'rgba(255,152,0,0.35)' },
+  stuckHint:     { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2, marginBottom: 10, lineHeight: 17 },
+  phoneRow:      { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
+  phoneChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8,
+    backgroundColor: 'rgba(0,230,118,0.10)', borderWidth: 1, borderColor: 'rgba(0,230,118,0.35)',
+  },
+  phoneChipText: { fontFamily: FONTS.bodySemiBold, fontSize: 12, color: COLORS.green },
   noShowRow: {
     flexDirection: 'row', alignItems: 'center',
     paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: COLORS.border, gap: 10,
