@@ -69,6 +69,7 @@ export default function AdminDashboardScreen({ navigation }: any) {
   const [noShowsHistory,setNoShowsHistory]= useState<any[]>([]);
   const [noShowsTab,    setNoShowsTab]    = useState<'pending' | 'history'>('pending');
   const [stuckEvents,   setStuckEvents]   = useState<any[]>([]);
+  const [unverifiedPayouts, setUnverifiedPayouts] = useState<any[]>([]);
   const [resolvingId,   setResolvingId]   = useState<string | null>(null);
 
   useEffect(() => { fetchAll(); }, []);
@@ -177,9 +178,11 @@ export default function AdminDashboardScreen({ navigation }: any) {
     const { data: nsData }     = await supabase.rpc('admin_get_no_shows',         { p_limit: 50 });
     const { data: nsHistData } = await supabase.rpc('admin_get_no_shows_history', { p_limit: 50 });
     const { data: stuckData }  = await supabase.rpc('admin_get_stuck_events',     { p_limit: 50 });
+    const { data: unverData }  = await supabase.rpc('admin_get_unverified_payouts',{ p_limit: 50 });
     setNoShows(nsData?.items ?? []);
     setNoShowsHistory(nsHistData?.items ?? []);
     setStuckEvents(stuckData?.items ?? []);
+    setUnverifiedPayouts(unverData?.items ?? []);
   };
 
   const onRefresh = async () => { setRefreshing(true); await fetchAll(); setRefreshing(false); };
@@ -352,6 +355,71 @@ export default function AdminDashboardScreen({ navigation }: any) {
     );
   };
 
+  const verifyAndReleasePayout = async (ev: any) => {
+    setResolvingId(ev.id);
+    try {
+      const { data, error } = await supabase.rpc('admin_verify_arrival_and_release', { p_reservation_id: ev.id });
+      const rel = (data as any)?.release;
+      if (error || (data as any)?.ok === false) {
+        Alert.alert('No se pudo liberar', (data as any)?.error ?? error?.message ?? 'Intenta de nuevo.');
+        return;
+      }
+      if (rel && rel.ok && rel.skipped) {
+        Alert.alert('No se liberó', `El pago no se pudo liberar (motivo: ${rel.reason ?? 'desconocido'}). Revisa disputa o estado del pago.`);
+      } else {
+        Alert.alert('Pago liberado', 'Se marcó la llegada como verificada y se liberó el pago al grupo.');
+      }
+      await fetchAll();
+    } finally {
+      setResolvingId(null);
+    }
+  };
+
+  const blockUnverifiedPayout = async (ev: any) => {
+    setResolvingId(ev.id);
+    try {
+      const { data, error } = await supabase.rpc('admin_block_unverified_payout', { p_reservation_id: ev.id });
+      if (error || (data as any)?.ok === false) {
+        Alert.alert('No se pudo bloquear', (data as any)?.error ?? error?.message ?? 'Intenta de nuevo.');
+        return;
+      }
+      Alert.alert('Pago bloqueado', 'El pago quedó bloqueado — no se libera al grupo.');
+      await fetchAll();
+    } finally {
+      setResolvingId(null);
+    }
+  };
+
+  const handleUnverifiedMenu = (ev: any) => {
+    const precio = `$${(ev.total_price ?? 0).toLocaleString('es-MX', { maximumFractionDigits: 0 })}`;
+    Alert.alert(
+      'Verificar llegada del grupo',
+      `${ev.group_name ?? 'Grupo'} · ${ev.folio ?? ev.id.substring(0, 8)}\nCliente: ${ev.client_name ?? '—'} · ${precio}\n\nEl grupo nunca marcó llegada GPS. Llama para confirmar si tocó el evento antes de liberar.`,
+      [
+        {
+          text: '💚 Sí llegó — Liberar pago',
+          onPress: () => Alert.alert('Confirmar liberación',
+            'Se marcará la llegada como verificada y se liberará el pago al grupo.',
+            [
+              { text: 'Cancelar', style: 'cancel' },
+              { text: 'Liberar', onPress: () => verifyAndReleasePayout(ev) },
+            ]),
+        },
+        {
+          text: '⛔ No llegó — Bloquear pago',
+          style: 'destructive',
+          onPress: () => Alert.alert('Confirmar bloqueo',
+            'El pago quedará bloqueado (no se paga al grupo). Si procede reembolso al cliente, hazlo desde la cola de No-Shows.',
+            [
+              { text: 'Cancelar', style: 'cancel' },
+              { text: 'Bloquear', style: 'destructive', onPress: () => blockUnverifiedPayout(ev) },
+            ]),
+        },
+        { text: 'Cerrar', style: 'cancel' },
+      ]
+    );
+  };
+
   const handleNoShowMenu = (ns: any) => {
     const precio = `$${(ns.total_price ?? 0).toLocaleString('es-MX', { maximumFractionDigits: 0 })}`;
     Alert.alert(
@@ -393,7 +461,7 @@ export default function AdminDashboardScreen({ navigation }: any) {
   const maxBar = Math.max(...monthlyBars.map(b => b.count), 1);
   const maxTopCount = Math.max(...topGroups.map(g => g.count), 1);
   const totalRes = Object.values(statusCounts).reduce((a, b) => a + b, 0);
-  const hasAlerts = pendingVerif.length > 0 || openDisputes.length > 0 || statusCounts.pending > 0 || pendingMedia > 0 || pendingAds > 0 || noShows.length > 0 || stuckEvents.length > 0;
+  const hasAlerts = pendingVerif.length > 0 || openDisputes.length > 0 || statusCounts.pending > 0 || pendingMedia > 0 || pendingAds > 0 || noShows.length > 0 || stuckEvents.length > 0 || unverifiedPayouts.length > 0;
 
   const today = new Date();
   const dateStr = today.toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long' });
@@ -554,6 +622,12 @@ export default function AdminDashboardScreen({ navigation }: any) {
                     <Text style={s.alertChipLbl}>Atorados</Text>
                   </View>
                 )}
+                {unverifiedPayouts.length > 0 && (
+                  <View style={[s.alertChip, { borderColor: 'rgba(64,196,255,0.5)' }]}>
+                    <Text style={[s.alertChipNum, { color: '#40C4FF' }]}>{unverifiedPayouts.length}</Text>
+                    <Text style={s.alertChipLbl}>Verificar</Text>
+                  </View>
+                )}
               </View>
             </View>
           )}
@@ -686,6 +760,47 @@ export default function AdminDashboardScreen({ navigation }: any) {
                   <Text style={[s.eventGroup, { flex: 1, marginLeft: 8 }]}>{v.group?.name ?? 'Grupo'}</Text>
                   <Badge label="Pendiente" variant="orange" />
                 </Pressable>
+              ))}
+            </View>
+          )}
+
+          {/* ── VERIFICAR LLEGADA (pagos retenidos) ───────────────────────── */}
+          {unverifiedPayouts.length > 0 && (
+            <View style={[s.section, s.unverifiedSection]}>
+              <View style={s.sectionHeader}>
+                <AlertCircle size={14} color="#40C4FF" />
+                <Text style={[s.sectionTitle, { color: '#40C4FF' }]}>
+                  Verificar llegada ({unverifiedPayouts.length})
+                </Text>
+              </View>
+              <Text style={s.stuckHint}>
+                Eventos pagados cuyo grupo nunca marcó llegada GPS → el pago quedó retenido. Llama para confirmar si tocó, y libera o bloquea.
+              </Text>
+              {unverifiedPayouts.map((ev: any) => (
+                <View key={ev.id} style={s.noShowRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.noShowFolio}>{ev.folio ?? ev.id.substring(0, 8)}</Text>
+                    <Text style={s.noShowGroup}>{ev.group_name ?? '—'}</Text>
+                    <Text style={s.noShowMeta}>
+                      {ev.client_name ?? '—'}  ·  {ev.event_date}{ev.event_time ? `  ${ev.event_time}` : ''}
+                    </Text>
+                    <Text style={s.noShowMeta}>
+                      ${(ev.total_price ?? 0).toLocaleString('es-MX', { maximumFractionDigits: 0 })}  ·  {ev.status}
+                    </Text>
+                    {renderPhones(ev)}
+                  </View>
+                  <View style={s.noShowActions}>
+                    <Pressable
+                      style={[s.resolveBtn, resolvingId === ev.id && { opacity: 0.45 }]}
+                      onPress={() => handleUnverifiedMenu(ev)}
+                      disabled={resolvingId === ev.id}
+                    >
+                      <Text style={s.resolveBtnText}>
+                        {resolvingId === ev.id ? '…' : 'Resolver →'}
+                      </Text>
+                    </Pressable>
+                  </View>
+                </View>
               ))}
             </View>
           )}
@@ -1009,6 +1124,7 @@ const s = StyleSheet.create({
   // No-shows
   noShowSection: { borderColor: 'rgba(255,82,82,0.35)' },
   stuckSection:  { borderColor: 'rgba(255,152,0,0.35)' },
+  unverifiedSection: { borderColor: 'rgba(64,196,255,0.35)' },
   stuckHint:     { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2, marginBottom: 10, lineHeight: 17 },
   phoneRow:      { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
   phoneChip: {
