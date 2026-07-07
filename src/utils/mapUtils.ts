@@ -206,6 +206,25 @@ export function formatDist(km: number): string {
   return `${Math.round(km)} km`;
 }
 
+// Acerca `point` hacia `origin` si supera maxKm, conservando la MISMA dirección.
+// Se usa para encuadrar bien un mapa: si el grupo queda a cientos de km, el
+// mapa se alejaría al otro extremo del país; clamparlo mantiene el evento
+// centrado y la ruta apuntando en el rumbo correcto. Interpolación lineal
+// (exacta para distancias cortas, suficiente para el encuadre).
+export function clampDistanceKm(
+  origin: { latitude: number; longitude: number },
+  point:  { latitude: number; longitude: number },
+  maxKm:  number,
+): { latitude: number; longitude: number } {
+  const d = haversineKm(origin.latitude, origin.longitude, point.latitude, point.longitude);
+  if (d <= maxKm || d === 0) return point;
+  const f = maxKm / d;
+  return {
+    latitude:  origin.latitude  + (point.latitude  - origin.latitude)  * f,
+    longitude: origin.longitude + (point.longitude - origin.longitude) * f,
+  };
+}
+
 // ETA estimado en auto por distancia (velocidad media urbana/carretera).
 // NO usa tráfico en tiempo real — eso requiere Google Directions API (de
 // paga); esta aproximación es el placeholder honesto ("~35 min").

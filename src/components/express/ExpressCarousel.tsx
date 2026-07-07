@@ -50,7 +50,7 @@ const LiveDot = React.memo(function LiveDot() {
 type UserLoc = { latitude: number; longitude: number } | null;
 
 const AnimatedCard = React.memo(function AnimatedCard({
-  item, index, scrollX, isBlocked, isFocused, onCotizar, onDismiss, userLocation, groupPhotoUrl,
+  item, index, scrollX, isBlocked, isFocused, onCotizar, onDismiss, onExpire, userLocation, groupPhotoUrl,
 }: {
   item:           ExpressDispatch;
   index:          number;
@@ -59,6 +59,7 @@ const AnimatedCard = React.memo(function AnimatedCard({
   isFocused:      boolean;
   onCotizar:      (id: string) => void;
   onDismiss:      (id: string) => void;
+  onExpire:       (id: string) => void;
   userLocation:   UserLoc;
   groupPhotoUrl:  string | null;
 }) {
@@ -78,6 +79,7 @@ const AnimatedCard = React.memo(function AnimatedCard({
         isFocused={isFocused}
         onCotizar={onCotizar}
         onDismiss={onDismiss}
+        onExpire={onExpire}
         userLocation={userLocation}
         groupPhotoUrl={groupPhotoUrl}
       />
@@ -94,7 +96,7 @@ export function setExpressCarouselCollapsed(collapsed: boolean) {
 
 // ── Main carousel ─────────────────────────────────────────────────────────────
 export default function ExpressCarousel() {
-  const { dispatches, dismiss } = useExpress();
+  const { dispatches, dismiss, expire } = useExpress();
   const navigation = useNavigation<any>();
 
   // Hide the carousel entirely while IncomingExpress is covering the screen.
@@ -248,10 +250,11 @@ export default function ExpressCarousel() {
       isFocused={focusedIndex === index}
       onCotizar={handleCotizar}
       onDismiss={dismiss}
+      onExpire={expire}
       userLocation={userLocation}
       groupPhotoUrl={groupPhotoUrl}
     />
-  ), [scrollX, quotingId, focusedIndex, handleCotizar, dismiss, userLocation, groupPhotoUrl]);
+  ), [scrollX, quotingId, focusedIndex, handleCotizar, dismiss, expire, userLocation, groupPhotoUrl]);
 
   const keyExtractor  = useCallback((item: ExpressDispatch) => item.id, []);
   const getItemLayout = useCallback((_: any, index: number) => ({

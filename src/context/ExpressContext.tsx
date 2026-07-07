@@ -66,6 +66,7 @@ interface ExpressCtx {
   dispatches:   ExpressDispatch[];
   hasDismissed: boolean;
   dismiss:      (id: string) => void;
+  expire:       (id: string) => void;
   reviveAll:    () => Promise<void>;
 }
 
@@ -73,6 +74,7 @@ const ExpressContext = createContext<ExpressCtx>({
   dispatches:   [],
   hasDismissed: false,
   dismiss:      () => {},
+  expire:       () => {},
   reviveAll:    async () => {},
 });
 
@@ -223,6 +225,14 @@ export function ExpressProvider({
     void supabase.rpc('ignore_express_dispatch', { p_dispatch_id: id });
   }, [remove]);
 
+  // Expiración: la tarjeta llegó a 0:00 → quitarla YA (sin el banner de
+  // "recuperar" de dismiss: una solicitud expirada no debe poder revivirse).
+  // El cron expire_stale_requests marcará 'expired' en la BD en <5 min.
+  const expire = useCallback((id: string) => {
+    dismissedIdsRef.current.add(id);
+    remove(id);
+  }, [remove]);
+
   const reviveAll = useCallback(async () => {
     if (!groupId) return;
     dismissedIdsRef.current.clear();
@@ -263,7 +273,7 @@ export function ExpressProvider({
   }, [groupId, add, reviveAll, remove]);
 
   return (
-    <ExpressContext.Provider value={{ dispatches, hasDismissed, dismiss, reviveAll }}>
+    <ExpressContext.Provider value={{ dispatches, hasDismissed, dismiss, expire, reviveAll }}>
       {children}
     </ExpressContext.Provider>
   );

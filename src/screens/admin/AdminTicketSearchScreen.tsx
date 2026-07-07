@@ -1,5 +1,5 @@
 import { ArrowLeft, Search } from 'lucide-react-native';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -13,11 +13,34 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 
-export default function AdminTicketSearchScreen({ navigation }: any) {
+export default function AdminTicketSearchScreen({ navigation, route }: any) {
   const [folio,    setFolio]    = useState('');
   const [loading,  setLoading]  = useState(false);
   const [result,   setResult]   = useState<any | null>(null);
   const [searched, setSearched] = useState(false);
+
+  // Si llega con reservationId (botón "Ver" de las colas del admin), carga el
+  // evento directo por id — sin pedir el folio a mano.
+  const reservationId: string | undefined = route?.params?.reservationId;
+  useEffect(() => {
+    if (!reservationId) return;
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setSearched(true);
+      const { data, error } = await supabase
+        .from('reservations')
+        .select('*, group:groups(name, profile_image), quote:quotes!left(event_type, duration_hours), hours_count')
+        .eq('id', reservationId)
+        .maybeSingle();
+      if (cancelled) return;
+      setLoading(false);
+      if (error) { Alert.alert('Error', error.message); return; }
+      setResult(data);
+      if (data?.folio) setFolio(String(data.folio));
+    })();
+    return () => { cancelled = true; };
+  }, [reservationId]);
 
   const search = async () => {
     const q = folio.trim().toUpperCase();

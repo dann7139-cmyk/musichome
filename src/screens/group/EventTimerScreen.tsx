@@ -457,6 +457,8 @@ export default function EventTimerScreen({ route, navigation }: any) {
   const [breakType, setBreakType] = useState<string>(reservation.break_type ?? '');
   const [hasArrived, setHasArrived] = useState<boolean>(!!reservation.group_arrived_at);
   const [arrivedAt, setArrivedAt] = useState<string | null>(reservation.group_arrived_at ?? null);
+  const [arriving, setArriving] = useState(false);   // verificando GPS al marcar llegada
+  const [eventFolio, setEventFolio] = useState<string | null>((reservation as any).folio ?? null);
   const [showArrivalCodeModal, setShowArrivalCodeModal] = useState(false);
   const [arrivalCodeInput, setArrivalCodeInput] = useState(['', '', '', '']);
   const [codeLoading, setCodeLoading] = useState(false);
@@ -564,13 +566,15 @@ export default function EventTimerScreen({ route, navigation }: any) {
   useEffect(() => {
     supabase
       .from('reservations')
-      .select('status, event_ended_at, event_started_at, group_arrived_at, break_type')
+      .select('status, event_ended_at, event_started_at, group_arrived_at, break_type, folio')
       .eq('id', reservation.id)
       .single()
       .then(({ data }) => {
         if (!data) return;
         // Restaurar tipo de descanso (BUG 3 fix: el nav param puede traerlo vacío)
         if (data.break_type) setBreakType(data.break_type);
+        // Folio: el nav param a veces no lo trae → mostrarlo siempre en el timer
+        if (data.folio) setEventFolio(data.folio);
         // Restaurar llegada
         if (data.group_arrived_at) {
           setHasArrived(true);
@@ -1493,6 +1497,7 @@ export default function EventTimerScreen({ route, navigation }: any) {
   };
 
   const handleArrivePress = async () => {
+    if (arriving) return;   // evita doble-tap mientras se resuelve el GPS
     // Sin coords del evento (reserva directa): el server libera con
     // arrival_gps_verified=false y avisa al admin — flujo sin GPS.
     if (!eventLatLng) {
@@ -1521,16 +1526,22 @@ export default function EventTimerScreen({ route, navigation }: any) {
       return;
     }
 
+    // Feedback inmediato: obtener un fix GPS de alta precisión puede tardar
+    // varios segundos. Mostramos "Verificando…" al instante para que el botón
+    // no parezca muerto mientras se resuelve la ubicación.
+    setArriving(true);
     let pos: Location.LocationObject;
     try {
       pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
     } catch {
+      setArriving(false);
       Alert.alert(
         'No pudimos obtener tu ubicación',
         'Revisa que el GPS esté activado y vuelve a intentar en unos segundos.',
       );
       return;
     }
+    setArriving(false);
 
     const distM = haversineKm(
       pos.coords.latitude, pos.coords.longitude,
@@ -2276,8 +2287,8 @@ export default function EventTimerScreen({ route, navigation }: any) {
 
           {/* ── EVENT INFO ─────────────────────────────────────── */}
           <View style={st.infoCard}>
-            {reservation.folio && (
-              <Text style={st.folioChip}>{reservation.folio}</Text>
+            {eventFolio && (
+              <Text style={st.folioChip}>{eventFolio}</Text>
             )}
             <View style={st.infoRow}>
               <Clock size={15} color={COLORS.muted2} />
@@ -2376,7 +2387,7 @@ export default function EventTimerScreen({ route, navigation }: any) {
           <Pressable
             style={st.supportRow}
             hitSlop={8}
-            onPress={() => openSupport(reservation.folio ? `el evento ${reservation.folio}` : undefined)}
+            onPress={() => openSupport(eventFolio ? `el evento ${eventFolio}` : undefined)}
           >
             <Text style={st.supportRowText}>💬 ¿Necesitas ayuda? Contacta a soporte</Text>
           </Pressable>
@@ -2432,11 +2443,21 @@ export default function EventTimerScreen({ route, navigation }: any) {
               {!isRunning && !startedAt && !hasArrived && (
                 <>
                   <Pressable
-                    style={({ pressed }) => [st.iconBtn, st.iconBtnPrimary, pressed && { opacity: 0.8 }]}
+                    style={({ pressed }) => [st.iconBtn, st.iconBtnPrimary, arriving && st.iconBtnDisabled, pressed && !arriving && { opacity: 0.8 }]}
                     onPress={handleArrivePress}
+                    disabled={arriving}
                   >
-                    <MapPin size={18} color={COLORS.black} />
-                    <Text style={[st.iconBtnLabel, { color: COLORS.black }]}>Llegué al evento</Text>
+                    {arriving ? (
+                      <>
+                        <ActivityIndicator color={COLORS.black} size="small" />
+                        <Text style={[st.iconBtnLabel, { color: COLORS.black }]}>Verificando ubicación…</Text>
+                      </>
+                    ) : (
+                      <>
+                        <MapPin size={18} color={COLORS.black} />
+                        <Text style={[st.iconBtnLabel, { color: COLORS.black }]}>Llegué al evento</Text>
+                      </>
+                    )}
                   </Pressable>
                   <View style={{ height: 10 }} />
                   {eventTargetMs != null && !canStartNow && (
@@ -2504,11 +2525,12 @@ export default function EventTimerScreen({ route, navigation }: any) {
                   {!hasArrived && (
                     <>
                       <Pressable
-                        style={({ pressed }) => [st.iconBtn, st.iconBtnOutline, pressed && { opacity: 0.8 }]}
+                        style={({ pressed }) => [st.iconBtn, st.iconBtnOutline, arriving && st.iconBtnDisabled, pressed && !arriving && { opacity: 0.8 }]}
                         onPress={handleArrivePress}
+                        disabled={arriving}
                       >
-                        <MapPin size={18} color={COLORS.green} />
-                        <Text style={[st.iconBtnLabel, { color: COLORS.green }]}>Llegué al evento</Text>
+                        {arriving ? <ActivityIndicator color={COLORS.green} size="small" /> : <MapPin size={18} color={COLORS.green} />}
+                        <Text style={[st.iconBtnLabel, { color: COLORS.green }]}>{arriving ? 'Verificando ubicación…' : 'Llegué al evento'}</Text>
                       </Pressable>
                       <View style={{ height: 10 }} />
                     </>

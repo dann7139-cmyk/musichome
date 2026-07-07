@@ -20,7 +20,7 @@ import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import { MSI_OPTIONS, MsiOption } from '../../utils/calculations';
 import { calculateFinancedPrice, calculateMonthlyPayment, PUBLIC_MSI_FEE_RATES } from '../../utils/publicPricing';
 import RequestZoneMap from '../../components/requests/RequestZoneMap';
-import { approxGroupLocation, eventCardCenter } from '../../utils/mapUtils';
+import { approxGroupLocation, clampDistanceKm, eventCardCenter } from '../../utils/mapUtils';
 
 const EVENT_TYPE_LABELS: Record<string, string> = {
   fiesta_privada: '🎉 Fiesta privada',
@@ -341,7 +341,10 @@ export default function ClientQuoteDetailScreen({ route, navigation }: any) {
         {(() => {
           const center = eventCardCenter(quote);
           if (!center) return null;
-          const groupLoc = approxGroupLocation(quote.group?.id ?? String(quote.id), quote.group?.city, quote.group?.state, center);
+          const rawGroupLoc = approxGroupLocation(quote.group?.id ?? String(quote.id), quote.group?.city, quote.group?.state, center);
+          // Encuadre: si el grupo queda muy lejos, acércalo (misma dirección)
+          // para que el mapa no se aleje y el evento se vea claro.
+          const groupLoc = clampDistanceKm(center, rawGroupLoc, 12);
           return (
             <View style={s.mapCard}>
               <RequestZoneMap

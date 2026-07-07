@@ -26,11 +26,12 @@ export const LIST_PADDING = Math.round((W - CARD_WIDTH) / 2);
 export const CARD_GAP     = 12;
 
 // ── CountdownDisplay — isolated re-render island, ticks every second ──────────
-function CountdownDisplay({ expiresAt }: { expiresAt?: string }) {
+function CountdownDisplay({ expiresAt, onExpire }: { expiresAt?: string; onExpire?: () => void }) {
   const [ms, setMs] = useState(() =>
     expiresAt ? Math.max(0, new Date(expiresAt).getTime() - Date.now()) : 180_000
   );
   const criticalFiredRef = useRef(false);
+  const expiredFiredRef  = useRef(false);
 
   useEffect(() => {
     if (!expiresAt) return;
@@ -46,7 +47,12 @@ function CountdownDisplay({ expiresAt }: { expiresAt?: string }) {
       playCriticalTick();
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
     }
-  }, [secs]);
+    // Al llegar a 0: la tarjeta se quita sola (no espera al cron de 5 min)
+    if (secs <= 0 && expiresAt && !expiredFiredRef.current) {
+      expiredFiredRef.current = true;
+      onExpire?.();
+    }
+  }, [secs, expiresAt, onExpire]);
 
   const mins   = Math.floor(secs / 60);
   const sec    = secs % 60;
@@ -65,6 +71,7 @@ interface Props {
   dispatch:       ExpressDispatch;
   onCotizar:      (id: string) => void;
   onDismiss:      (id: string) => void;
+  onExpire?:      (id: string) => void;
   isBlocked?:     boolean;
   isFocused?:     boolean;
   userLocation?:  { latitude: number; longitude: number } | null;
@@ -72,7 +79,7 @@ interface Props {
 }
 
 const ExpressCard = React.memo(function ExpressCard({
-  dispatch, onCotizar, onDismiss, isBlocked = false, userLocation, groupPhotoUrl,
+  dispatch, onCotizar, onDismiss, onExpire, isBlocked = false, userLocation, groupPhotoUrl,
 }: Props) {
   const { id, request, status, expires_at } = dispatch;
   const isTaken = status === 'taken';
@@ -130,7 +137,7 @@ const ExpressCard = React.memo(function ExpressCard({
         />
 
         <View style={s.cdPosition} pointerEvents="none">
-          <CountdownDisplay expiresAt={expires_at} />
+          <CountdownDisplay expiresAt={expires_at} onExpire={() => onExpire?.(id)} />
         </View>
 
         <View style={s.body}>
