@@ -1,7 +1,28 @@
 # Integración Conekta — Plan de arquitectura de pagos
 
-> **Estado:** planeado (pendiente de llaves sandbox + confirmación de capacidades Conekta).
+> **Estado:** arquitectura definida. Implementación **sujeta a un spike en sandbox** para validar la experiencia en React Native con WebView. Pendiente: llaves sandbox.
 > **Alcance:** agregar Conekta como **nuevo método de cobro para México**, manteniendo Stripe para USA/internacional. Ambos entran al **mismo flujo actual** de reservas/wallet/retenciones/liberaciones.
+
+## Vía elegida (oficial): Checkout Component vía WebView
+
+**Para México usamos el Checkout Component de Conekta, integrado en la app con WebView embebido** (no Direct API). Confirmado contra la [documentación oficial de Conekta](https://developers.conekta.com/docs/componente-de-pago):
+
+- **Metadata** en la orden → lleva el `reservation_id` (imprescindible para el webhook). ✅
+- **Webhook `order.paid`** → cae en el mismo `conekta-webhook` → misma RPC de wallet. ✅
+- **Métodos de una sola integración:** tarjeta, **SPEI**, **OXXO (efectivo)**, **BNPL**, Apple Pay, pay-by-bank — vía `allowed_payment_methods`. ✅
+- **Flujo:** backend crea la orden (con `checkout` + metadata) → devuelve `checkoutRequestId` → frontend lo renderiza → webhook confirma. Idéntico al plan de este documento. ✅
+
+**Por qué Checkout Component sobre Direct API:**
+- Reduce código y mantenimiento (menos superficie tocando pagos = menos riesgo).
+- Mantiene **intacto** el flujo de wallet, GPS, retenciones y anti-fraude (todo cuelga del webhook, que es el mismo).
+- Da acceso desde **una sola integración** a tarjetas, SPEI, OXXO, Apple Pay, Google Pay y BNPL.
+- Deja preparadas las siguientes fases (descuentos por método, mensualidades, futuros métodos que Conekta agrega **sin tocar código**).
+
+**Modos de render en React Native:**
+- **Embebido (`Integration`)** — componente montado en un `react-native-webview`; el usuario **se queda dentro de la app**. Vía preferida.
+- **Redirigido (`HostedPayment`)** — URL hospedada abierta en navegador in-app + regreso por deep link. Fallback si el WebView diera problemas.
+
+> ⚠️ **Gate de validación:** antes de la implementación definitiva se hace un **spike en sandbox** (~30 min) para confirmar que el WebView se siente nativo y fluido en RN. Si la UX es buena → seguimos con la implementación. La **arquitectura ya queda definida**; solo el pulido de UX depende del spike.
 
 ---
 
@@ -46,11 +67,11 @@ Conekta entra **solo como adapter de cobro** en paralelo a Stripe → todo río 
 
 ### B. Edge Functions NUEVAS
 
-**1. `create-conekta-order`** — espejo de `create-payment-intent`:
+**1. `create-conekta-order`** — espejo de `create-payment-intent`, pero para el **Checkout Component**:
 - Autentica al cliente, lee la reserva (`total_price`, `msi_months`).
-- Crea la **orden en Conekta** con `metadata.reservation_id`.
+- Crea la **orden en Conekta con configuración `checkout`** (`allowed_payment_methods`: card, SPEI, cash, BNPL, Apple Pay…) y `metadata.reservation_id`.
 - MXN, MSI si aplica, **idempotencia por `reservation_id`**.
-- Devuelve al frontend lo necesario para el checkout de Conekta.
+- Devuelve el **`checkoutRequestId`** para que el frontend monte el Component.
 
 **2. `conekta-webhook`** — espejo de la parte de éxito de `stripe-webhook`:
 - Verifica **firma** del webhook (secret de Conekta).
@@ -81,7 +102,10 @@ El checkout Stripe está **inline** en:
 - `QuotePaymentScreen.tsx` (programadas): `create-payment-intent` → `initPaymentSheet` → `presentPaymentSheet`.
 - `ReservationsScreen.tsx` (exprés/booking): mismo patrón.
 
-**Router:** `if (event_country === 'MX') → flujo Conekta` ; `else → PaymentSheet Stripe actual (intacto)`.
+**Router:** `if (event_country === 'MX') → Checkout Component Conekta (WebView)` ; `else → PaymentSheet Stripe actual (intacto)`.
+
+- **MX:** el frontend recibe el `checkoutRequestId` de `create-conekta-order` y monta el **Checkout Component en un `react-native-webview`** (modo embebido). Fallback: `HostedPayment` en navegador in-app + deep link.
+- **US/intl:** PaymentSheet Stripe, **sin tocar**.
 
 **Recomendación:** extraer un helper `startCheckout(reservation)` que centralice el branch (no duplicar en 2 pantallas; el path Stripe US/intl queda sin tocar). El cliente ve **el checkout propio**; nunca "Conekta"/"Stripe".
 
@@ -92,17 +116,24 @@ El checkout Stripe está **inline** en:
 | Columna nueva | 1 (`reservations.payment_provider`) |
 | Edge Functions nuevas | 2 (`create-conekta-order`, `conekta-webhook`) |
 | Edge Functions modificadas | 2 (`process-refund` +rama, `stripe-webhook` +1 línea) |
-| Frontend | 1 helper `startCheckout` + branch en 2 checkouts |
+| Frontend | 1 helper `startCheckout` + branch en 2 checkouts + Checkout Component en WebView (MX) |
 | **Wallet / GPS / liberaciones / anti-fraude** | **0 (intactos)** |
 
 ---
 
-## Capacidades de Conekta a confirmar ANTES de construir
+## Capacidades de Conekta
 
-- [ ] **Orders API** con `metadata` (para el `reservation_id`).
-- [ ] **Webhooks** de pago exitoso + **firma** verificable.
+**Confirmadas en la documentación oficial:**
+- [x] **Orders con `metadata`** (para el `reservation_id`).
+- [x] **Webhooks** de pago exitoso (`order.paid`, `order.pending_payment`, `order.declined`).
+- [x] **Métodos:** tarjeta, SPEI, OXXO (efectivo), BNPL, Apple Pay, pay-by-bank (`allowed_payment_methods`).
+- [x] **Flujo:** orden server-side (`checkout` config) → `checkoutRequestId` → Component → webhook.
+
+**A validar antes / durante el build (con llaves sandbox):**
+- [ ] **Spike RN/WebView** — que el Component embebido se sienta nativo y fluido (gate de UX).
+- [ ] **Firma del webhook** verificable en el `conekta-webhook`.
 - [ ] **Reembolsos parciales** (para cancelaciones / no-show).
-- [ ] **MSI** por API (meses y tasas).
+- [ ] **MSI** por API (meses y tasas) + cómo se maneja el fee.
 - [ ] **Idempotencia** en cargos y refunds.
 - [ ] (a futuro) **Payouts a CLABE de terceros** por API — clave para dispersar rápido a grupos.
 
@@ -110,10 +141,11 @@ El checkout Stripe está **inline** en:
 
 ## Orden de construcción
 
-1. **(Ahora)** Conseguir llaves sandbox + confirmar capacidades ↑.
-2. **Núcleo:** `create-conekta-order` + `conekta-webhook` → validar que el pago entra al mismo flujo de wallet. **No tocar nada más hasta comprobar esto.**
-3. Columna `payment_provider` + rama de refund Conekta.
-4. Router `startCheckout` (MX→Conekta).
+1. **(Ahora)** Conseguir llaves sandbox.
+2. **Spike RN/WebView (~30 min):** montar el Checkout Component en un WebView y confirmar que la UX se siente bien. **Gate:** si la experiencia es buena → seguimos; si no → evaluar `HostedPayment` o Direct API.
+3. **Núcleo:** `create-conekta-order` (Component + metadata) + `conekta-webhook` → validar que el pago entra al mismo flujo de wallet. **No tocar nada más hasta comprobar esto.**
+4. Columna `payment_provider` + rama de refund Conekta.
+5. Router `startCheckout` (MX → Component WebView / US → Stripe).
 
 ---
 
