@@ -178,3 +178,15 @@ Meta: cuando se libere el 50% en la llegada, que el grupo tenga el dinero rápid
 Probable split por país (igual que el cobro): **MX → Conekta/SPEI**, **US → Stripe Connect**, disparado por `release_half_on_arrival` / `release_group_earnings_atomic` al marcar `available`.
 
 > ⚠️ **Nota regulatoria:** como el dinero vive físicamente en la plataforma (modelo de custodia), aplica la conversación de **Ley Fintech / IFPE** con un abogado fintech mexicano. Conekta no cambia ese modelo; solo agrega una forma de cobrar.
+
+### Paso 5 — Rediseño del checkout (QuotePaymentScreen) — documentado, NO construido
+
+**Prioridad: solo DESPUÉS de dejar Conekta live + prueba E2E validada.** El checkout fuerte vive en TU pantalla (antes de abrir la página hosted de Conekta); la captura de tarjeta la hace Conekta.
+
+1. **Ahorro real por SPEI/local** — mensaje *"Ahorra $XXX pagando por transferencia"* (números reales, ver Paso 2).
+2. **Pagos a meses atractivos** — MSI visible (*"Paga hasta a X meses"*) y **BNPL** (*"paga a plazos, con o sin tarjeta, sujeto a aprobación"*) cuando el proveedor apruebe.
+3. **Checkout propio más fuerte y claro** ANTES de abrir Conekta — resumen, métodos, incentivos.
+4. **Checkout de regalo** 🎁 — el cliente regala un evento: escribe un mensaje y envía el **ticket de regalo** a otra persona (reusar el `TicketScreen`/folio que ya existe).
+5. **Router definitivo por país** — MX → Conekta / US → Stripe. Hoy es una **bandera global** (`PAY_MX_WITH_CONEKTA`); falta el `if (país === 'MX')` real.
+
+> ⚠️ **Mismatch a resolver en el rediseño:** `QuotePaymentScreen` aún muestra el **selector MSI de Stripe**, pero el Hosted Checkout de Conekta **no lo honra** (quedó cosmético). Decidir en el rediseño: quitarlo o migrar MSI a Conekta.

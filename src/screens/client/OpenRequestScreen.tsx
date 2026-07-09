@@ -994,7 +994,7 @@ export default function OpenRequestScreen({ navigation, route }: any) {
                 <Text style={s.msiBannerEmoji}>💳</Text>
                 <View style={{ flex: 1 }}>
                   <Text style={s.msiBannerTitle}>Hasta 12 cuotas mensuales</Text>
-                  <Text style={s.msiBannerSub}>Elige tu plan al momento del pago · Stripe · Tarjetas participantes</Text>
+                  <Text style={s.msiBannerSub}>Elige tu plan al momento del pago · Tarjeta de crédito</Text>
                 </View>
               </View>
 

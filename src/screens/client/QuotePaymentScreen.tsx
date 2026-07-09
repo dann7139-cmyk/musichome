@@ -1,8 +1,19 @@
 /**
- * QuotePaymentScreen — Pago de cotización vía Stripe.
- * Soporta dos modos:
+ * QuotePaymentScreen — Checkout propio de Daricefy (misma cara para programadas
+ * y express). El cliente elige método y el PROVEEDOR se enruta por método,
+ * sin que el cliente vea marcas:
+ *   · Tarjeta / SPEI / Efectivo → Conekta (Hosted Checkout, México)
+ *   · Pagar a meses (MSI)       → Stripe (mensualidades reales, hasta que
+ *                                  Conekta habilite MSI)
+ *   · BNPL                      → oculto hasta habilitar en Conekta
+ *
+ * Diseño config-driven (PAYMENT_METHODS): activar/ocultar un método es cambiar
+ * `enabled`. Es la base del router por país futuro (MX→Conekta / US→Stripe):
+ * la capa de proveedor vive detrás de PAY_MX_WITH_CONEKTA + el switch por método.
+ *
+ * Modos:
  *   - route.params.quote        → cotización nueva: crea evento + reserva + paga
- *   - route.params.reservation  → reserva existente sin pago: salta creación y va directo a Stripe
+ *   - route.params.reservation  → reserva existente sin pago: va directo al cobro
  */
 import React, { useEffect, useRef, useState } from 'react';
 import {
@@ -18,15 +29,71 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
-  ArrowLeft, Calendar, CheckCircle, CreditCard, Lock, MapPin, Music2, Shield, Zap,
+  ArrowLeft, BadgeCheck, Calendar, CheckCircle, ChevronDown, Lock,
+  MapPin, Music2, RotateCcw, Shield, Wallet,
 } from 'lucide-react-native';
 import { useStripe } from '@stripe/stripe-react-native';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
-import { MSI_OPTIONS, MsiOption } from '../../utils/calculations';
 import { calculateFinancedPrice, calculateMonthlyPayment, PUBLIC_MSI_FEE_RATES } from '../../utils/publicPricing';
+import { startConektaCheckout, ConektaMethod } from '../../utils/conektaCheckout';
 
-const MSI_MIN_AMOUNT = 300; // MXN mínimo para MSI (recomendación Stripe MX)
+const MSI_MIN_AMOUNT = 300; // MXN mínimo para pagar a meses
+
+// Descuento por pagar con SPEI. Sale del MARGEN de la plataforma, NUNCA de
+// group_earnings (el grupo cobra completo). Configurable en un solo lugar.
+// ⚠️ Debe coincidir con SPEI_DISCOUNT de create-conekta-order (autoritativo).
+const SPEI_DISCOUNT = 100; // MXN
+
+// Meses ofrecidos en "Pagar a meses" (tasas reales desde PUBLIC_MSI_FEE_RATES).
+const MSI_MONTHS = [3, 6, 9, 12];
+
+// ⚠️ ROLLOUT COBRO MX: true = México cobra con Conekta (Hosted Checkout);
+// false = fallback Stripe (intacto, para el router por país / US). Apagable al instante.
+const PAY_MX_WITH_CONEKTA = true;
+
+// ── Métodos del checkout Daricefy (config-driven) ──────────────────────────
+// `enabled: false` → el método se OCULTA hasta que lo habilitemos en Conekta.
+// Activar uno nuevo (BNPL, Apple/Google Pay…) = poner enabled:true aquí; el
+// checkout lo muestra automáticamente sin rediseñar nada.
+interface PayMethodDef {
+  key: ConektaMethod;
+  enabled: boolean;
+  emoji: string;
+  title: string;
+  tag?: string;            // etiqueta corta ("Sin tarjeta", "Tarjeta de crédito")
+  recommended?: boolean;   // ⭐ Recomendado
+  lines: string[];         // bullets descriptivos
+  expandsMonths?: boolean; // despliega el selector 3/6/9/12 (solo 'msi')
+}
+
+const PAYMENT_METHODS: PayMethodDef[] = [
+  {
+    key: 'card', enabled: true, emoji: '💳', title: 'Tarjeta',
+    lines: ['Pago inmediato', 'Débito o crédito', 'Pago protegido por Daricefy'],
+  },
+  {
+    key: 'spei', enabled: true, emoji: '🏦', title: 'Transferencia SPEI',
+    tag: 'Sin tarjeta', recommended: true,
+    lines: ['No necesitas tarjeta', 'Pago desde tu banca'],
+  },
+  {
+    key: 'cash', enabled: true, emoji: '🏪', title: 'Pago en efectivo',
+    tag: 'Sin tarjeta',
+    lines: ['OXXO, 7-Eleven, farmacias y más', 'Ideal si no tienes tarjeta'],
+  },
+  {
+    key: 'msi', enabled: true, emoji: '📅', title: 'Pagar a meses',
+    tag: 'Tarjeta de crédito', expandsMonths: true,
+    lines: ['3, 6, 9 y 12 meses'],
+  },
+  {
+    // Compra ahora, paga después (BNPL / Kueski). Oculto hasta habilitar en Conekta.
+    key: 'bnpl', enabled: false, emoji: '🛍️', title: 'Compra ahora, paga después',
+    tag: 'Sin tarjeta',
+    lines: ['Difiere tu pago sin tarjeta de crédito'],
+  },
+];
 
 export default function QuotePaymentScreen({ route, navigation }: any) {
   const { quote, reservation: existingRes } = route.params as { quote?: any; reservation?: any };
@@ -45,12 +112,12 @@ export default function QuotePaymentScreen({ route, navigation }: any) {
     ?? quote?.duration_hours
     ?? '?';
 
-  // MSI inicial: si la reserva ya tenía un plan, preinicializar con él
-  const initialMsi = MSI_OPTIONS.find(o => o.months === (existingRes?.msi_months ?? 1)) ?? MSI_OPTIONS[0];
   const [loading, setLoading]         = useState(false);
-  const [selectedMSI, setSelectedMSI] = useState<MsiOption>(initialMsi);
+  const [busyKey, setBusyKey]         = useState<string | null>(null); // método/mes en proceso (spinner localizado)
+  const [mesesOpen, setMesesOpen]     = useState(false);               // despliegue del selector de meses
   const [paid, setPaid]               = useState(false);
   const [paidResId, setPaidResId]     = useState<string | null>(null);
+  const [paidAmount, setPaidAmount]   = useState(0);                   // monto realmente cobrado (para pantalla de éxito)
 
   // Animación del checkmark de éxito
   const checkScale = useRef(new Animated.Value(0)).current;
@@ -63,9 +130,12 @@ export default function QuotePaymentScreen({ route, navigation }: any) {
     ]).start();
   }, [paid]);
 
-  const chargeTotal  = calculateFinancedPrice(baseTotal, selectedMSI.months);
-  const msiFeeAmount = chargeTotal - baseTotal;
-  const monthlyAmt   = calculateMonthlyPayment(baseTotal, selectedMSI.months);
+  // Monto que cobraría cada método (para display). group_earnings nunca cambia.
+  const chargeFor = (method: ConektaMethod, months = 1): number => {
+    if (method === 'spei') return Math.max(baseTotal - SPEI_DISCOUNT, 0);
+    if (method === 'msi')  return calculateFinancedPrice(baseTotal, months);
+    return baseTotal;
+  };
 
   const eventDateStr = eventDateRaw
     ? new Date(eventDateRaw + 'T12:00:00').toLocaleDateString('es-MX', {
@@ -73,18 +143,21 @@ export default function QuotePaymentScreen({ route, navigation }: any) {
       })
     : '—';
 
-  const handlePay = async () => {
+  // Cobro unificado: el cliente elige un método del checkout Daricefy y se abre
+  // el Hosted Checkout de Conekta. Mismo camino para programadas y express.
+  const pay = async (method: ConektaMethod, months = 1) => {
     if (loading) return;
 
-    // Validar monto mínimo para MSI
-    if (selectedMSI.months > 1 && chargeTotal < MSI_MIN_AMOUNT) {
+    // Monto mínimo solo aplica a "pagar a meses"
+    if (method === 'msi' && calculateFinancedPrice(baseTotal, months) < MSI_MIN_AMOUNT) {
       Alert.alert(
         'Monto insuficiente',
-        `El pago en parcialidades está disponible solo para montos mayores a $${MSI_MIN_AMOUNT} MXN.`,
+        `Pagar a meses está disponible solo para montos mayores a $${MSI_MIN_AMOUNT} MXN.`,
       );
       return;
     }
 
+    setBusyKey(method === 'msi' ? `msi-${months}` : method);
     setLoading(true);
     try {
       const { data: sd } = await supabase.auth.getSession();
@@ -124,7 +197,7 @@ export default function QuotePaymentScreen({ route, navigation }: any) {
             status:      'accepted',
             quote_id:    quote.id,
             notes:       quote.comments   ?? null,
-            ...(selectedMSI.months > 1 ? { msi_months: selectedMSI.months } : {}),
+            ...(months > 1 ? { msi_months: months } : {}),
           })
           .select('id')
           .single();
@@ -145,11 +218,37 @@ export default function QuotePaymentScreen({ route, navigation }: any) {
         }
       }
 
-      // Crear PaymentIntent
+      // ── Router de cobro POR MÉTODO ──────────────────────────────────
+      //   Tarjeta / SPEI / Efectivo → Conekta (Hosted Checkout, México).
+      //   Pagar a meses (MSI)        → Stripe, que SÍ entrega mensualidades
+      //     reales mientras Conekta no tenga MSI habilitado. El cliente nunca
+      //     ve "Stripe" (la UI dice "meses con tarjeta de crédito").
+      //   Al habilitar MSI en Conekta: quitar `&& method !== 'msi'` y listo.
+      //   PAY_MX_WITH_CONEKTA=false → todo cae a Stripe (fallback US/rollback).
+      if (PAY_MX_WITH_CONEKTA && method !== 'msi') {
+        const result = await startConektaCheckout(reservationId, method);
+        if (result === 'paid') {
+          setPaidAmount(chargeFor(method, months));
+          setPaidResId(reservationId);
+          setPaid(true);
+        } else if (result === 'pending') {
+          Alert.alert(
+            'Estamos confirmando tu pago…',
+            'Tu pago se está procesando. En un momento verás tu evento confirmado en "Mis Eventos".',
+            [{ text: 'Ver mis eventos', onPress: () => navigation.navigate('ClientReservations') }],
+          );
+        } else {
+          throw new Error('No se pudo iniciar el pago con Conekta. Intenta de nuevo.');
+        }
+        return;
+      }
+
+      // Pago con Stripe: MESES (MSI real, entrega mensualidades) hoy; y todo el
+      // cobro cuando PAY_MX_WITH_CONEKTA=false (fallback US/rollback).
       const { data: piData, error: piErr } = await supabase.functions.invoke('create-payment-intent', {
         body: {
           reservation_id: reservationId,
-          msi_months:     selectedMSI.months > 1 ? selectedMSI.months : undefined,
+          msi_months:     months > 1 ? months : undefined,
         },
         headers: { Authorization: `Bearer ${sd.session?.access_token}` },
       });
@@ -160,7 +259,7 @@ export default function QuotePaymentScreen({ route, navigation }: any) {
         // Traducciones de errores Stripe a mensajes amigables
         const stripeMsg: string = piData.error ?? '';
         if (
-          selectedMSI.months > 1 &&
+          months > 1 &&
           (stripeMsg.includes('installment') || stripeMsg.includes('card_not_supported'))
         ) {
           throw new Error('Esta tarjeta no es compatible con pago en parcialidades. Selecciona "1 pago" o intenta con otra tarjeta.');
@@ -191,7 +290,7 @@ export default function QuotePaymentScreen({ route, navigation }: any) {
         // Errores de MSI desde el PaymentSheet (tarjeta incompatible, etc.)
         const errMsg: string = (payError as any).message ?? '';
         if (
-          selectedMSI.months > 1 &&
+          months > 1 &&
           (errMsg.toLowerCase().includes('installment') ||
            errMsg.toLowerCase().includes('no está disponible') ||
            errMsg.toLowerCase().includes('not available'))
@@ -201,12 +300,14 @@ export default function QuotePaymentScreen({ route, navigation }: any) {
         throw new Error(errMsg || 'Ocurrió un problema al procesar el pago.');
       }
 
+      setPaidAmount(chargeFor(method, months));
       setPaidResId(reservationId);
       setPaid(true);
     } catch (err: any) {
       Alert.alert('Error al procesar el pago', err.message ?? 'Intenta de nuevo.');
     } finally {
       setLoading(false);
+      setBusyKey(null);
     }
   };
 
@@ -236,7 +337,7 @@ export default function QuotePaymentScreen({ route, navigation }: any) {
             <Text style={s.successDate}>{eventDateStr}</Text>
           </View>
           <View style={s.successAmtWrap}>
-            <Text style={s.successAmt}>${chargeTotal.toLocaleString()}</Text>
+            <Text style={s.successAmt}>${paidAmount.toLocaleString()}</Text>
             <Text style={s.successAmtLabel}>MXN</Text>
           </View>
         </Animated.View>
@@ -274,19 +375,15 @@ export default function QuotePaymentScreen({ route, navigation }: any) {
 
       <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
 
-        {/* ── Badges premium ─────────────────────────────────────────────────── */}
+        {/* ── Badges de confianza (sin Stripe) ───────────────────────────────── */}
         <View style={s.badgesRow}>
           <View style={s.badge}>
-            <CreditCard size={12} color={COLORS.blue} />
-            <Text style={s.badgeText}>Pago en parcialidades disponible</Text>
-          </View>
-          <View style={s.badge}>
-            <Zap size={12} color={COLORS.green} />
-            <Text style={s.badgeText}>Pago seguro · Stripe</Text>
+            <Shield size={12} color={COLORS.green} />
+            <Text style={s.badgeText}>Pago protegido</Text>
           </View>
           <View style={s.badge}>
             <Lock size={12} color={COLORS.green} />
-            <Text style={s.badgeText}>Protección DARICEFY</Text>
+            <Text style={s.badgeText}>Garantía Daricefy</Text>
           </View>
         </View>
 
@@ -306,122 +403,133 @@ export default function QuotePaymentScreen({ route, navigation }: any) {
             <Music2 size={15} color={COLORS.muted2} />
             <Text style={s.detailText}>{durationHours}h de servicio</Text>
           </View>
-          <View style={s.detailRow}>
-            <Shield size={15} color={COLORS.muted2} />
-            <Text style={s.detailText}>Pago protegido — reembolso si el grupo no se presenta</Text>
+          <View style={s.totalRow}>
+            <Text style={s.totalLabel}>Total del evento</Text>
+            <Text style={s.totalValue}>${baseTotal.toLocaleString()} MXN</Text>
           </View>
         </View>
 
-        {/* ── Selector MSI ────────────────────────────────────────────────────── */}
-        <View style={s.msiCard}>
-          <View style={s.msiHeader}>
-            <CreditCard size={16} color={COLORS.blue} />
-            <Text style={s.msiTitle}>Plan de pago</Text>
-          </View>
-          <Text style={s.msiSub}>Tarjetas de crédito participantes · Stripe</Text>
+        {/* ── Checkout Daricefy: ¿cómo quieres pagar? ─────────────────────────── */}
+        <Text style={s.payQuestion}>¿Cómo quieres pagar?</Text>
 
-          {MSI_OPTIONS.map((opt) => {
-            const isActive  = selectedMSI.key === opt.key;
-            const monthly   = calculateMonthlyPayment(baseTotal, opt.months);
-            const feeRatePct = (PUBLIC_MSI_FEE_RATES[opt.months] ?? 0) * 100;
-            return (
+        {PAYMENT_METHODS.filter((m) => m.enabled).map((m) => {
+          const isMsi = !!m.expandsMonths;
+          const busy  = busyKey === m.key;
+          return (
+            <View key={m.key}>
               <Pressable
-                key={opt.key}
-                style={[s.msiOption, isActive && s.msiOptionActive]}
-                onPress={() => setSelectedMSI(opt)}
+                style={[
+                  s.methodCard,
+                  m.recommended && s.methodCardRec,
+                  loading && !busy && { opacity: 0.5 },
+                ]}
+                onPress={() => (isMsi ? setMesesOpen((o) => !o) : pay(m.key))}
+                disabled={loading}
               >
-                <View style={s.msiCheck}>
-                  {isActive
-                    ? <CheckCircle size={16} color={COLORS.green} />
-                    : <View style={s.msiCheckEmpty} />}
-                </View>
+                <Text style={s.methodEmoji}>{m.emoji}</Text>
+
                 <View style={{ flex: 1 }}>
-                  <Text style={[s.msiOptionLabel, isActive && s.msiOptionLabelActive]}>
-                    {opt.label}
-                  </Text>
-                  <Text style={s.msiOptionSub}>
-                    {opt.months > 1
-                      ? `${opt.months} mensualidades · cargo +${feeRatePct.toFixed(0)}%`
-                      : 'Sin cargo adicional'}
-                  </Text>
+                  <View style={s.methodTitleRow}>
+                    <Text style={s.methodTitle}>{m.title}</Text>
+                    {m.tag ? (
+                      <View style={s.methodTag}>
+                        <Text style={s.methodTagText}>{m.tag}</Text>
+                      </View>
+                    ) : null}
+                    {m.recommended ? (
+                      <View style={s.recPill}>
+                        <Text style={s.recPillText}>⭐ Recomendado</Text>
+                      </View>
+                    ) : null}
+                  </View>
+
+                  {m.lines.map((l, i) => (
+                    <Text key={i} style={s.methodLine}>· {l}</Text>
+                  ))}
+
+                  {m.key === 'spei' ? (
+                    <View style={s.savingsPill}>
+                      <Text style={s.savingsText}>Ahorra ${SPEI_DISCOUNT} MXN pagando por transferencia</Text>
+                    </View>
+                  ) : null}
                 </View>
-                <Text style={[s.msiOptionAmt, isActive && s.msiOptionAmtActive]}>
-                  {opt.months > 1
-                    ? `$${monthly.toLocaleString()}/mes`
-                    : `$${baseTotal.toLocaleString()}`}
-                </Text>
+
+                <View style={s.methodRight}>
+                  {busy ? (
+                    <ActivityIndicator size="small" color={COLORS.green} />
+                  ) : isMsi ? (
+                    <ChevronDown
+                      size={20}
+                      color={COLORS.muted2}
+                      style={mesesOpen ? { transform: [{ rotate: '180deg' }] } : undefined}
+                    />
+                  ) : m.key === 'spei' ? (
+                    <>
+                      <Text style={s.methodAmtStrike}>${baseTotal.toLocaleString()}</Text>
+                      <Text style={s.methodAmt}>${chargeFor('spei').toLocaleString()}</Text>
+                    </>
+                  ) : (
+                    <Text style={s.methodAmt}>${baseTotal.toLocaleString()}</Text>
+                  )}
+                </View>
               </Pressable>
-            );
-          })}
 
-          <Text style={s.msiDisclaimer}>
-            Stripe verifica compatibilidad de la tarjeta al confirmar.
-          </Text>
+              {/* Sub-selector de meses (solo 'msi', al desplegar) */}
+              {isMsi && mesesOpen ? (
+                <View style={s.mesesWrap}>
+                  {MSI_MONTHS.map((mo) => {
+                    const monthly  = calculateMonthlyPayment(baseTotal, mo);
+                    const financed = calculateFinancedPrice(baseTotal, mo);
+                    const feePct   = (PUBLIC_MSI_FEE_RATES[mo] ?? 0) * 100;
+                    const moBusy   = busyKey === `msi-${mo}`;
+                    return (
+                      <Pressable
+                        key={mo}
+                        style={[s.mesRow, loading && !moBusy && { opacity: 0.5 }]}
+                        onPress={() => pay('msi', mo)}
+                        disabled={loading}
+                      >
+                        <View style={{ flex: 1 }}>
+                          <Text style={s.mesTitle}>{mo} meses</Text>
+                          <Text style={s.mesSub}>
+                            Comisión +{feePct.toFixed(0)}% · total ${financed.toLocaleString()} MXN
+                          </Text>
+                        </View>
+                        {moBusy ? (
+                          <ActivityIndicator size="small" color={COLORS.green} />
+                        ) : (
+                          <Text style={s.mesAmt}>
+                            ${monthly.toLocaleString()}
+                            <Text style={s.mesAmtUnit}>/mes</Text>
+                          </Text>
+                        )}
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              ) : null}
+            </View>
+          );
+        })}
+
+        {/* ── Beneficios Daricefy ─────────────────────────────────────────────── */}
+        <View style={s.benefits}>
+          <Text style={s.benefitsTitle}>Tu pago está protegido</Text>
+          {[
+            { Icon: Shield,     text: 'Pago protegido' },
+            { Icon: RotateCcw,  text: 'Reembolso si el grupo no se presenta' },
+            { Icon: Wallet,     text: 'Wallet protegida' },
+            { Icon: BadgeCheck, text: 'Garantía Daricefy' },
+          ].map(({ Icon, text }, i) => (
+            <View key={i} style={s.benefitRow}>
+              <View style={s.benefitIcon}>
+                <Icon size={16} color={COLORS.green} />
+              </View>
+              <Text style={s.benefitText}>{text}</Text>
+            </View>
+          ))}
         </View>
 
-        {/* ── Breakdown de pago ───────────────────────────────────────────────── */}
-        <View style={s.breakdown}>
-          <Text style={s.breakdownTitle}>RESUMEN DE PAGO</Text>
-
-          <View style={s.breakdownRow}>
-            <View style={s.breakdownLeft}>
-              <Text style={s.breakdownLabel}>Cotización del grupo</Text>
-            </View>
-            <Text style={s.breakdownAmount}>${baseTotal.toLocaleString()} MXN</Text>
-          </View>
-
-          {msiFeeAmount > 0 && (
-            <View style={s.breakdownRow}>
-              <View style={s.breakdownLeft}>
-                <Text style={s.breakdownLabel}>Financiamiento ({selectedMSI.months} meses)</Text>
-                <Text style={s.breakdownSubLabel}>+{((PUBLIC_MSI_FEE_RATES[selectedMSI.months] ?? 0) * 100).toFixed(0)}% tarifa de financiamiento</Text>
-              </View>
-              <Text style={[s.breakdownAmount, s.breakdownAmountExtra]}>
-                +${msiFeeAmount.toLocaleString()}
-              </Text>
-            </View>
-          )}
-
-          <View style={s.breakdownTotal}>
-            <Text style={s.breakdownTotalLabel}>TOTAL A PAGAR</Text>
-            <Text style={s.breakdownTotalValue}>
-              ${chargeTotal.toLocaleString()} MXN
-            </Text>
-          </View>
-
-          {selectedMSI.months > 1 && (
-            <View style={s.monthlyHero}>
-              <View>
-                <Text style={s.monthlyHeroLabel}>{selectedMSI.months} pagos de</Text>
-                <Text style={s.monthlyHeroAmt}>${monthlyAmt.toLocaleString()} MXN</Text>
-              </View>
-              <View style={{ alignItems: 'flex-end' }}>
-                <Text style={s.monthlyHeroInterest}>Financiamiento incluido ✅</Text>
-                <Text style={s.monthlyHeroNote}>El total puede variar.</Text>
-              </View>
-            </View>
-          )}
-        </View>
-
-        {/* ── Botón pagar ─────────────────────────────────────────────────────── */}
-        <Pressable
-          style={[s.payBtn, loading && { opacity: 0.6 }]}
-          onPress={handlePay}
-          disabled={loading}
-        >
-          {loading
-            ? <ActivityIndicator size="small" color={COLORS.bg} />
-            : <CreditCard size={18} color={COLORS.bg} />}
-          <Text style={s.payBtnText}>
-            {loading
-              ? 'Procesando...'
-              : selectedMSI.months > 1
-                ? `${selectedMSI.months} pagos de $${monthlyAmt.toLocaleString()} MXN`
-                : `Pagar $${chargeTotal.toLocaleString()} MXN`}
-          </Text>
-        </Pressable>
-
-        <Text style={s.payNote}>🔒 Pago seguro · Stripe · Sin compartir datos de tarjeta</Text>
         <View style={{ height: 40 }} />
       </ScrollView>
     </View>
@@ -474,91 +582,73 @@ const s = StyleSheet.create({
   },
   detailRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
   detailText: { fontFamily: FONTS.body, fontSize: 13, color: COLORS.muted2, flex: 1, lineHeight: 20 },
-
-  // MSI Card
-  msiCard: {
-    backgroundColor: COLORS.card, borderRadius: RADIUS.xl,
-    borderWidth: 1.5, borderColor: COLORS.blue,
-    padding: SPACING.lg, marginBottom: 16,
-    shadowColor: COLORS.blue, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 6, elevation: 2,
+  totalRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    borderTopWidth: 1, borderTopColor: COLORS.border, paddingTop: 12, marginTop: 2,
   },
-  msiHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 4 },
-  msiSub:    { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted, marginBottom: 12 },
-  msiOption: {
+  totalLabel: { fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.muted2 },
+  totalValue: { fontFamily: FONTS.bodySemiBold, fontSize: 17, color: COLORS.text },
+
+  // ── Checkout Daricefy: métodos de pago ──────────────────────────────────
+  payQuestion: {
+    fontFamily: FONTS.bodySemiBold, fontSize: 17, color: COLORS.text, marginBottom: 12,
+  },
+  methodCard: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 12,
+    backgroundColor: COLORS.card, borderRadius: RADIUS.xl,
+    borderWidth: 1, borderColor: COLORS.border,
+    padding: SPACING.lg, marginBottom: 10,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 5, elevation: 2,
+  },
+  methodCardRec: {
+    borderWidth: 1.5, borderColor: COLORS.green,
+    backgroundColor: 'rgba(0,230,118,0.06)',
+  },
+  methodEmoji:    { fontSize: 24, width: 32, textAlign: 'center', marginTop: 1 },
+  methodTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 5 },
+  methodTitle:    { fontFamily: FONTS.bodySemiBold, fontSize: 15, color: COLORS.text },
+  methodTag: {
+    backgroundColor: COLORS.card2, borderRadius: RADIUS.full,
+    borderWidth: 1, borderColor: COLORS.border, paddingHorizontal: 8, paddingVertical: 3,
+  },
+  methodTagText:  { fontFamily: FONTS.bodyMedium, fontSize: 10, color: COLORS.muted2 },
+  recPill:        { backgroundColor: 'rgba(0,230,118,0.15)', borderRadius: RADIUS.full, paddingHorizontal: 8, paddingVertical: 3 },
+  recPillText:    { fontFamily: FONTS.bodyMedium, fontSize: 10, color: COLORS.green },
+  methodLine:     { fontFamily: FONTS.body, fontSize: 12.5, color: COLORS.muted2, lineHeight: 18 },
+  savingsPill: {
+    alignSelf: 'flex-start', backgroundColor: 'rgba(0,230,118,0.12)',
+    borderRadius: RADIUS.md, paddingHorizontal: 10, paddingVertical: 5, marginTop: 7,
+  },
+  savingsText:     { fontFamily: FONTS.bodySemiBold, fontSize: 12, color: COLORS.green },
+  methodRight:     { alignItems: 'flex-end', justifyContent: 'center', minWidth: 58, gap: 2, paddingLeft: 6 },
+  methodAmt:       { fontFamily: FONTS.bodySemiBold, fontSize: 15, color: COLORS.text },
+  methodAmtStrike: { fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted, textDecorationLine: 'line-through' },
+
+  // Sub-selector de meses
+  mesesWrap: { marginTop: -2, marginBottom: 10, paddingLeft: 12, gap: 8 },
+  mesRow: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
     backgroundColor: COLORS.card2, borderRadius: RADIUS.md,
-    borderWidth: 1, borderColor: COLORS.border,
-    padding: 14, marginBottom: 8,
+    borderWidth: 1, borderColor: COLORS.border, padding: 14,
   },
-  msiOptionActive: { borderColor: COLORS.green, backgroundColor: 'rgba(0,230,118,0.08)' },
-  msiCheck:      { width: 20, alignItems: 'center' },
-  msiCheckEmpty: {
-    width: 16, height: 16, borderRadius: 8,
-    borderWidth: 1.5, borderColor: COLORS.border,
-  },
-  msiTitle:  { fontFamily: FONTS.bodySemiBold, fontSize: 15, color: COLORS.text },
-  msiOptionLabel:       { fontFamily: FONTS.bodyMedium, fontSize: 14, color: COLORS.muted2 },
-  msiOptionLabelActive: { color: COLORS.text },
-  msiOptionSub:         { fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted, marginTop: 2 },
-  msiOptionAmt:         { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: COLORS.muted2 },
-  msiOptionAmtActive:   { color: COLORS.green },
-  msiDisclaimer: {
-    fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted,
-    lineHeight: 16, marginTop: 8,
-  },
+  mesTitle:   { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: COLORS.text },
+  mesSub:     { fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted, marginTop: 2 },
+  mesAmt:     { fontFamily: FONTS.bodySemiBold, fontSize: 15, color: COLORS.green },
+  mesAmtUnit: { fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted },
 
-  // Breakdown
-  breakdown: {
+  // Beneficios
+  benefits: {
     backgroundColor: COLORS.card, borderRadius: RADIUS.xl,
     borderWidth: 1, borderColor: COLORS.border,
-    padding: SPACING.lg, marginBottom: 16,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.07, shadowRadius: 6, elevation: 2,
+    padding: SPACING.lg, marginTop: 6, gap: 12,
   },
-  breakdownTitle: {
-    fontFamily: FONTS.bodySemiBold, fontSize: 11, color: COLORS.muted,
-    letterSpacing: 0.8, marginBottom: 14,
+  benefitsTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.text, marginBottom: 2 },
+  benefitRow:    { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  benefitIcon: {
+    width: 28, height: 28, borderRadius: 14,
+    backgroundColor: 'rgba(0,230,118,0.1)', alignItems: 'center', justifyContent: 'center',
   },
-  breakdownRow: {
-    flexDirection: 'row', alignItems: 'flex-start',
-    paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: COLORS.border,
-  },
-  breakdownLeft:        { flex: 1, paddingRight: 14 },
-  breakdownLabel:       { fontFamily: FONTS.body, fontSize: 14, color: COLORS.muted2 },
-  breakdownSubLabel:    { fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted, marginTop: 3 },
-  breakdownAmount:      { fontFamily: FONTS.bodyMedium, fontSize: 14, color: COLORS.text, textAlign: 'right' },
-  breakdownAmountExtra: { color: '#F59E0B' },
-  breakdownTotal: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingTop: 16, marginTop: 2,
-  },
-  breakdownTotalLabel: { fontFamily: FONTS.bodySemiBold, fontSize: 11, color: COLORS.muted, letterSpacing: 0.6 },
-  breakdownTotalValue: { fontFamily: FONTS.bodySemiBold, fontSize: 20, color: COLORS.green },
-
-  // Monthly hero
-  monthlyHero: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    marginTop: 12,
-    backgroundColor: COLORS.card2, borderRadius: RADIUS.lg,
-    borderWidth: 1, borderColor: 'rgba(0,230,118,0.2)', padding: 14,
-  },
-  monthlyHeroLabel:    { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2 },
-  monthlyHeroAmt:      { fontFamily: FONTS.bodySemiBold, fontSize: 18, color: COLORS.green },
-  monthlyHeroInterest: { fontFamily: FONTS.body, fontSize: 11, color: COLORS.green, opacity: 0.8 },
-  monthlyHeroDivider: { display: 'none' as any },
-  monthlyHeroNote: {
-    fontFamily: FONTS.body, fontSize: 11,
-    color: COLORS.muted, lineHeight: 16,
-    textAlign: 'right',
-  },
-
-  // Pay button
-  payBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10,
-    backgroundColor: COLORS.green, borderRadius: RADIUS.lg, paddingVertical: 17,
-    marginBottom: 10,
-  },
-  payBtnText: { fontFamily: FONTS.bodySemiBold, fontSize: 15, color: COLORS.bg },
-  payNote:    { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted, textAlign: 'center' },
+  benefitText:   { fontFamily: FONTS.body, fontSize: 13, color: COLORS.muted2, flex: 1 },
 
   // ── Success ────────────────────────────────────────────────────────────────
   successRoot: {

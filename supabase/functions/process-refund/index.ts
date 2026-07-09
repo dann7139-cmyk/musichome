@@ -46,6 +46,7 @@ Deno.serve(async (req) => {
     ?? Deno.env.get('mercadopago_access_token')
     ?? '';
   const stripeKey    = Deno.env.get('STRIPE_SECRET_KEY') ?? '';
+  const conektaKey   = Deno.env.get('CONEKTA_PRIVATE_KEY') ?? '';
 
   // admin client (service_role) — used for DB operations and JWT verification
   const admin = createClient(SUPABASE_URL, SERVICE_KEY, {
@@ -105,7 +106,7 @@ Deno.serve(async (req) => {
     // ── Cargar reserva ────────────────────────────────────────────────
     const { data: reservation, error: resErr } = await admin
       .from('reservations')
-      .select('id,total_price,base_price,client_id,payment_status,payout_status,mp_payment_id,event_date,group_id')
+      .select('id,total_price,base_price,client_id,payment_status,payout_status,mp_payment_id,payment_provider,event_date,group_id')
       .eq('id', reservation_id)
       .single();
 
@@ -131,7 +132,11 @@ Deno.serve(async (req) => {
     if (!paymentId) {
       return jsonRes({ error: 'No hay pago registrado para esta reserva' }, 422);
     }
-    const isStripe = paymentId.startsWith('pi_');
+    // Proveedor: por columna payment_provider, con fallback al prefijo del id.
+    // pi_ → Stripe | ord_ → Conekta | numérico → MercadoPago
+    const provider  = String((reservation as any).payment_provider ?? '');
+    const isConekta = provider === 'conekta' || paymentId.startsWith('ord_');
+    const isStripe  = !isConekta && (provider === 'stripe' || paymentId.startsWith('pi_'));
 
     if (!['paid', 'fully_paid', 'deposit_paid'].includes(reservation.payment_status as string)) {
       return jsonRes({ error: 'La reserva no tiene un pago confirmado' }, 422);
@@ -224,6 +229,30 @@ Deno.serve(async (req) => {
       refundId = String(stripeData.id);   // re_...
       console.log(`[REFUND_ISSUED] stripe_refund=${refundId} reservation=${reservation_id} amount=$${amountToRef} idem=${idemKey}`);
 
+    } else if (isConekta) {
+      // ── Conekta ──────────────────────────────────────────────────────
+      if (!conektaKey) return jsonRes({ error: 'CONEKTA_PRIVATE_KEY no configurado' }, 500);
+      const amountCentavos = Math.round(amountToRef * 100);
+      const auth = btoa(`${conektaKey}:`);
+      const ckRes = await fetch(`https://api.conekta.io/orders/${paymentId}/refunds`, {
+        method:  'POST',
+        headers: {
+          'Accept':        'application/vnd.conekta-v2.1.0+json',
+          'Content-Type':  'application/json',
+          'Authorization': `Basic ${auth}`,
+        },
+        body: JSON.stringify({ reason: 'requested_by_client', amount: amountCentavos }),
+      });
+      const ckData = await ckRes.json() as any;
+      if (!ckRes.ok) {
+        const msg = ckData?.details?.[0]?.message ?? 'Error al procesar reembolso en Conekta';
+        console.error('[REFUND_ERROR] Conekta refund failed:', JSON.stringify(ckData));
+        logPaymentEvent(paymentId, reservation_id, 'refund_failed', amountToRef, `Conekta: ${msg}`);
+        return jsonRes({ error: msg, provider: 'conekta' }, 502);
+      }
+      refundId = String(ckData?.id ?? ckData?.charges?.data?.[0]?.id ?? `conekta-refund-${reservation_id}`);
+      console.log(`[REFUND_ISSUED] conekta_refund=${refundId} reservation=${reservation_id} amount=$${amountToRef}`);
+
     } else {
       // ── MercadoPago (legacy) ─────────────────────────────────────────
       const mpRefundRes = await fetch(
@@ -295,7 +324,7 @@ Deno.serve(async (req) => {
     return jsonRes({
       ok:            true,
       mode,
-      provider:      isStripe ? 'stripe' : 'mercadopago',
+      provider:      isStripe ? 'stripe' : isConekta ? 'conekta' : 'mercadopago',
       refund_id:     refundId,
       amount:        amountToRef,
       reservation_id,

@@ -1023,7 +1023,7 @@ function ReservationCard({ reservation: r, navigation, onUpdate, isReviewed, isJ
               ))}
             </View>
           </View>
-          <Text style={styles.msiSub}>Con tarjetas mexicanas participantes · Stripe</Text>
+          <Text style={styles.msiSub}>Con tarjeta de crédito participante</Text>
         </View>
       )}
 

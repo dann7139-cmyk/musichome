@@ -621,7 +621,7 @@ export default function HomeScreen({ navigation }: any) {
                   ))}
                 </View>
               </View>
-              <Text style={styles.msiBannerSub}>Con tarjetas mexicanas participantes · Stripe</Text>
+              <Text style={styles.msiBannerSub}>Con tarjeta de crédito participante</Text>
             </Pressable>
           </Animated.View>
         )}

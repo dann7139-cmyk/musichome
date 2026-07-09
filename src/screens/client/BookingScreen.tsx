@@ -864,7 +864,7 @@ export default function BookingScreen({ route, navigation }: any) {
               loading={loading}
               size="lg"
             />
-            <Text style={styles.payBtnNote}>🔒 Pago seguro · Stripe</Text>
+            <Text style={styles.payBtnNote}>🔒 Pago seguro y protegido</Text>
           </View>
 
         </ScrollView>

@@ -346,11 +346,9 @@ export default function WalletScreen({ navigation }: any) {
               label={t('wallet.withdraw')}
               onPress={() => navigation.navigate('Withdraw', { available })}
               size="lg"
-              disabled={available <= 0 || !stripeOk}
+              disabled={available <= 0}
             />
-            {!stripeOk ? (
-              <Text style={st.noBalanceHint}>{t('wallet.withdraw_hint_no_stripe')}</Text>
-            ) : available <= 0 ? (
+            {available <= 0 ? (
               <Text style={st.noBalanceHint}>{t('wallet.withdraw_hint_no_balance')}</Text>
             ) : null}
           </View>
