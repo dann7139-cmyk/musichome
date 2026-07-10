@@ -198,6 +198,13 @@ export default function QuotePaymentScreen({ route, navigation }: any) {
             quote_id:    quote.id,
             notes:       quote.comments   ?? null,
             ...(months > 1 ? { msi_months: months } : {}),
+            // 🎁 Regalo: copiar del quote a la reserva
+            ...(quote.is_gift ? {
+              is_gift:                true,
+              gift_recipient_name:    quote.gift_recipient_name ?? null,
+              gift_recipient_contact: quote.gift_recipient_contact ?? null,
+              gift_message:           quote.gift_message ?? null,
+            } : {}),
           })
           .select('id')
           .single();

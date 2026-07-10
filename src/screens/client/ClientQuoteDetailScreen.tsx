@@ -20,7 +20,7 @@ import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import { MSI_OPTIONS, MsiOption } from '../../utils/calculations';
 import { calculateFinancedPrice, calculateMonthlyPayment, PUBLIC_MSI_FEE_RATES } from '../../utils/publicPricing';
 import RequestZoneMap from '../../components/requests/RequestZoneMap';
-import { approxGroupLocation, clampDistanceKm, eventCardCenter } from '../../utils/mapUtils';
+import { eventCardCenter, privacyOffsetZone } from '../../utils/mapUtils';
 
 const EVENT_TYPE_LABELS: Record<string, string> = {
   fiesta_privada: '🎉 Fiesta privada',
@@ -143,6 +143,13 @@ export default function ClientQuoteDetailScreen({ route, navigation }: any) {
           quote_id:    quote.id,
           notes:       quote.comments ?? null,
           ...(msiMonths > 1 ? { msi_months: msiMonths } : {}),
+          // 🎁 Regalo: copiar del quote a la reserva (marca + destinatario + mensaje)
+          ...(quote.is_gift ? {
+            is_gift:                true,
+            gift_recipient_name:    quote.gift_recipient_name ?? null,
+            gift_recipient_contact: quote.gift_recipient_contact ?? null,
+            gift_message:           quote.gift_message ?? null,
+          } : {}),
         })
         .select('id')
         .single();
@@ -341,10 +348,10 @@ export default function ClientQuoteDetailScreen({ route, navigation }: any) {
         {(() => {
           const center = eventCardCenter(quote);
           if (!center) return null;
-          const rawGroupLoc = approxGroupLocation(quote.group?.id ?? String(quote.id), quote.group?.city, quote.group?.state, center);
-          // Encuadre: si el grupo queda muy lejos, acércalo (misma dirección)
-          // para que el mapa no se aleje y el evento se vea claro.
-          const groupLoc = clampDistanceKm(center, rawGroupLoc, 12);
+          // El grupo se muestra en la ZONA del evento con un jitter de privacidad
+          // (~±200 m), no en el centro genérico de su ciudad (que quedaba en un
+          // punto fijo desplazado). Determinístico por grupo.
+          const groupLoc = privacyOffsetZone(quote.group?.id ?? String(quote.id), '', null, center.latitude, center.longitude);
           return (
             <View style={s.mapCard}>
               <RequestZoneMap

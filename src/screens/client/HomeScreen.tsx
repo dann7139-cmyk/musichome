@@ -2,7 +2,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as Location from 'expo-location';
 import * as WebBrowser from 'expo-web-browser';
 import VideoPlayer from '../../components/ui/VideoPlayer';
-import { Bell, ChevronRight, MapPin, Navigation, Search, Star, TrendingUp, X, Zap } from 'lucide-react-native';
+import { Bell, ChevronRight, MapPin, Navigation, Search, Star, TrendingUp, Volume2, VolumeX, X, Zap } from 'lucide-react-native';
+import { useIsFocused } from '@react-navigation/native';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -10,6 +11,7 @@ import {
   Dimensions,
   FlatList,
   Image,
+  Modal,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -62,6 +64,31 @@ const CATEGORY_ICONS: Record<string, string> = {
   multimedia:    '📸',
 };
 
+// 🎁 Selector de regalo: País → todos sus estados. El filtro de grupos es por
+// estado (los nombres no chocan entre MX y US), así que basta con el estado.
+const GIFT_COUNTRIES = ['México', 'Estados Unidos'] as const;
+const GIFT_STATES: Record<string, string[]> = {
+  'México': [
+    'Aguascalientes', 'Baja California', 'Baja California Sur', 'Campeche',
+    'Chiapas', 'Chihuahua', 'Ciudad de México', 'Coahuila', 'Colima', 'Durango',
+    'Estado de México', 'Guanajuato', 'Guerrero', 'Hidalgo', 'Jalisco',
+    'Michoacán', 'Morelos', 'Nayarit', 'Nuevo León', 'Oaxaca', 'Puebla',
+    'Querétaro', 'Quintana Roo', 'San Luis Potosí', 'Sinaloa', 'Sonora',
+    'Tabasco', 'Tamaulipas', 'Tlaxcala', 'Veracruz', 'Yucatán', 'Zacatecas',
+  ],
+  'Estados Unidos': [
+    'Alabama', 'Alaska', 'Arizona', 'Arkansas', 'California', 'Colorado',
+    'Connecticut', 'Delaware', 'Florida', 'Georgia', 'Hawaii', 'Idaho',
+    'Illinois', 'Indiana', 'Iowa', 'Kansas', 'Kentucky', 'Louisiana', 'Maine',
+    'Maryland', 'Massachusetts', 'Michigan', 'Minnesota', 'Mississippi',
+    'Missouri', 'Montana', 'Nebraska', 'Nevada', 'New Hampshire', 'New Jersey',
+    'New Mexico', 'New York', 'North Carolina', 'North Dakota', 'Ohio',
+    'Oklahoma', 'Oregon', 'Pennsylvania', 'Rhode Island', 'South Carolina',
+    'South Dakota', 'Tennessee', 'Texas', 'Utah', 'Vermont', 'Virginia',
+    'Washington', 'West Virginia', 'Wisconsin', 'Wyoming',
+  ],
+};
+
 export default function HomeScreen({ navigation }: any) {
   const { t } = useTranslation();
   const { detectedCity, safeState, safeCountry, detectedState: gpsState } = useAuth();
@@ -80,6 +107,27 @@ export default function HomeScreen({ navigation }: any) {
   const [search, setSearch] = useState('');
   const [profile, setProfile] = useState<any>(null);
   const [locationMode, setLocationMode] = useState<'home' | 'here'>('home');
+  // 🎁 Modo regalo: explorar grupos de otra ciudad para regalar (o contratar a distancia).
+  // Todo va detrás de giftMode → cuando está apagado, el Home queda idéntico.
+  const [giftMode,    setGiftMode]    = useState(false);
+  const [giftState,   setGiftState]   = useState<string | null>(null);
+  const [giftCity,    setGiftCity]    = useState<string | null>(null);
+  const [citySelOpen,    setCitySelOpen]    = useState(false);
+  const [citySelCountry, setCitySelCountry] = useState<string>('México');
+  // 🎁 se sacude un poco (el 🌎 queda estático)
+  const giftWiggle = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.delay(1400),
+        Animated.timing(giftWiggle, { toValue: 1,  duration: 110, useNativeDriver: true }),
+        Animated.timing(giftWiggle, { toValue: -1, duration: 110, useNativeDriver: true }),
+        Animated.timing(giftWiggle, { toValue: 1,  duration: 110, useNativeDriver: true }),
+        Animated.timing(giftWiggle, { toValue: 0,  duration: 110, useNativeDriver: true }),
+      ]),
+    ).start();
+  }, []);
+  const giftRotate = giftWiggle.interpolate({ inputRange: [-1, 1], outputRange: ['-16deg', '16deg'] });
   const [groupHasActiveAds, setGroupHasActiveAds] = useState(false);
   const [nearbyCity, setNearbyCity] = useState<string | null>(null);
   const [locationLoading, setLocationLoading] = useState(false);
@@ -93,6 +141,8 @@ export default function HomeScreen({ navigation }: any) {
   const [bannerAds, setBannerAds] = useState<any[]>([]);
   const [currentAdIndex, setCurrentAdIndex] = useState(0);
   const [bannerImgError, setBannerImgError] = useState(false);
+  const [adMuted, setAdMuted] = useState(false);
+  const isFocused = useIsFocused();
   const [sponsoredGroupIds, setSponsoredGroupIds] = useState<Set<string>>(new Set());
   const [cityDemand, setCityDemand] = useState<any>(null);
   const [topRecs,          setTopRecs]          = useState<any[]>([]);
@@ -131,6 +181,27 @@ export default function HomeScreen({ navigation }: any) {
     if (!locationModeInitialized.current) { locationModeInitialized.current = true; return; }
     fetchData();
   }, [locationMode]);
+
+  // 🎁 Re-cargar grupos al cambiar la ciudad del modo regalo
+  const giftInitialized = useRef(false);
+  useEffect(() => {
+    if (!giftInitialized.current) { giftInitialized.current = true; return; }
+    fetchData();
+  }, [giftMode, giftState]);
+
+  const openGiftCitySelector = () => setCitySelOpen(true);
+
+  const pickGiftState = (stateName: string) => {
+    setGiftState(stateName);
+    setGiftCity(stateName);
+    setGiftMode(true);
+    setCitySelOpen(false);
+  };
+  const exitGiftMode = () => {
+    setGiftMode(false);
+    setGiftState(null);
+    setGiftCity(null);
+  };
 
   // Registrar impresión cada vez que cambia el anuncio visible (fire-and-forget)
   useEffect(() => {
@@ -216,7 +287,11 @@ export default function HomeScreen({ navigation }: any) {
     // Estado del usuario: viene del contexto (persiste entre sesiones)
     const detectedState = safeState;
     // Si el usuario eligió ver grupos "aquí" (viajando), usa el GPS; si no, su estado de perfil.
-    const activeGroupState = locationMode === 'here' && gpsState ? gpsState : safeState;
+    const activeGroupState = giftMode && giftState
+      ? giftState
+      : (locationMode === 'here' && gpsState ? gpsState : safeState);
+    // 🎁 En modo regalo filtramos SOLO por estado (omitimos país) → sirve MX y US.
+    const activeGroupCountry = giftMode ? null : safeCountry;
     const { data: sessionData } = await supabase.auth.getSession();
     if (sessionData.session) {
       const { data: prof } = await supabase
@@ -306,12 +381,15 @@ export default function HomeScreen({ navigation }: any) {
       // Paid always first; all free ads follow (admin creates them deliberately)
       setBannerAds([...paid, ...free]);
       setCurrentAdIndex(0);
+    } else {
+      // Sin anuncios activos → limpiar cualquier anuncio previo (evita foto fantasma)
+      setBannerAds([]);
     }
 
     // Grupos patrocinados
     const sponParams: Record<string, any> = { p_city: userCity };
-    if (safeState)   sponParams.p_state   = safeState;
-    if (safeCountry) sponParams.p_country = safeCountry.toLowerCase();
+    if (activeGroupState)   sponParams.p_state   = activeGroupState;
+    if (activeGroupCountry) sponParams.p_country = activeGroupCountry.toLowerCase();
     const { data: sponData } = await supabase.rpc('get_sponsored_group_ids', sponParams);
     const sponSet = new Set<string>((sponData ?? []).map((s: any) => s.group_id));
     setSponsoredGroupIds(sponSet);
@@ -320,20 +398,24 @@ export default function HomeScreen({ navigation }: any) {
     // p_city=null + p_state=safeState → todos los grupos del estado + nacionales.
     let rawGroups: any[] = [];
     const groupParams: Record<string, any> = { p_city: null, p_limit: 80 };
-    if (activeGroupState) groupParams.p_state   = activeGroupState;
-    if (safeCountry)      groupParams.p_country = safeCountry.toLowerCase();
+    if (activeGroupState)   groupParams.p_state   = activeGroupState;
+    if (activeGroupCountry) groupParams.p_country = activeGroupCountry.toLowerCase();
     const { data: stateData } = await supabase.rpc('get_groups_ranked_by_city', groupParams);
     if (stateData && (stateData as any[]).length > 0) {
       rawGroups = stateData as any[];
+    } else if (giftMode) {
+      // 🎁 En regalo respetamos el estado elegido aunque no tenga grupos (SIN fallback a todos)
+      rawGroups = [];
     } else {
-      // Fallback: sin estado — filtra solo por país
+      // Fallback (flujo normal): sin estado — filtra solo por país
       const fallbackParams: Record<string, any> = { p_city: null, p_limit: 80 };
-      if (safeCountry) fallbackParams.p_country = safeCountry.toLowerCase();
+      if (activeGroupCountry) fallbackParams.p_country = activeGroupCountry.toLowerCase();
       const { data: allData } = await supabase.rpc('get_groups_ranked_by_city', fallbackParams);
       rawGroups = (allData as any[]) ?? [];
     }
     // El RPC filtra por estado y país en DB; grupos con state/country=null son nacionales y siempre se incluyen.
-    if (rawGroups.length > 0) {
+    // En regalo actualizamos siempre (aunque venga vacío) para limpiar la lista al cambiar de estado.
+    if (rawGroups.length > 0 || giftMode) {
       const scored = rawGroups.map(g => ({
         ...g,
         is_sponsored: sponSet.has(g.id),
@@ -346,8 +428,8 @@ export default function HomeScreen({ navigation }: any) {
     // get_active_recommendations devuelve: id, name, city, genre, rating,
     // profile_image, is_verified (actualizado en 170_ad_monetization_ordering.sql)
     const recParams: Record<string, any> = { p_city: null, p_limit: 20 };
-    if (activeGroupState) recParams.p_state   = activeGroupState;
-    if (safeCountry)      recParams.p_country = safeCountry.toLowerCase();
+    if (activeGroupState)   recParams.p_state   = activeGroupState;
+    if (activeGroupCountry) recParams.p_country = activeGroupCountry.toLowerCase();
     const { data: recTop } = await supabase.rpc('get_active_recommendations', recParams);
     const paid = recTop
       ? recTop.map((r: any) => ({
@@ -689,19 +771,6 @@ export default function HomeScreen({ navigation }: any) {
           );
         })()}
 
-        {/* SOLICITAR GRUPO — botón express */}
-        <Pressable
-          style={styles.expressCtaBtn}
-          onPress={() => navigation.navigate('GuidedRequest')}
-        >
-          <View style={styles.expressSectionChip}>
-            <Zap size={9} color={COLORS.gold} />
-            <Text style={styles.expressSectionChipText}>EXPRÉS · HOY</Text>
-          </View>
-          <Text style={styles.expressCtaTitle}>Solicitar grupo ahora</Text>
-          <ChevronRight size={15} color={COLORS.muted2} />
-        </Pressable>
-
         <ScrollView
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.listContent}
@@ -755,6 +824,95 @@ export default function HomeScreen({ navigation }: any) {
             />
           )}
 
+          {/* ⚡ Express + 🌎 Otra ciudad — dos formas de empezar */}
+          {!giftMode && !search && !selectedCategoryId && (
+            <View style={styles.actionRow}>
+              <Pressable
+                style={({ pressed }) => [styles.actionCard, styles.actionCardExpress, pressed && styles.actionCardPressed]}
+                onPress={() => navigation.navigate('GuidedRequest')}
+              >
+                <View style={styles.actionTitleRow}>
+                  <Text style={styles.actionTitle}>Express</Text>
+                  <View style={styles.actionChipGold}>
+                    <Zap size={10} color={COLORS.gold} />
+                    <Text style={styles.actionChipGoldTx}>HOY</Text>
+                  </View>
+                </View>
+                <Text style={styles.actionSub}>Recibe propuestas de grupos hoy mismo</Text>
+                <View style={styles.actionCta}>
+                  <Text style={[styles.actionCtaTx, { color: COLORS.gold }]}>Solicitar</Text>
+                  <ChevronRight size={15} color={COLORS.gold} />
+                </View>
+              </Pressable>
+
+              <Pressable
+                style={({ pressed }) => [styles.actionCard, styles.actionCardCity, pressed && styles.actionCardPressed]}
+                onPress={openGiftCitySelector}
+              >
+                <View style={styles.actionTitleRow}>
+                  <Text style={styles.actionTitle}>Otra ciudad</Text>
+                  <Text style={styles.actionEmoji}>🌎</Text>
+                </View>
+                <Text style={styles.actionSub}>Explora o regala en otro estado</Text>
+                <View style={styles.actionCta}>
+                  <Animated.Text style={[styles.actionGiftEmoji, { transform: [{ rotate: giftRotate }] }]}>🎁</Animated.Text>
+                  <Text style={[styles.actionCtaTx, { color: COLORS.green }]}>Explorar</Text>
+                  <ChevronRight size={15} color={COLORS.green} />
+                </View>
+              </Pressable>
+            </View>
+          )}
+          {giftMode && (
+            <View style={styles.giftBanner}>
+              <Text style={styles.giftEntryEmoji}>🌎</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.giftBannerTitle}>Explorando {giftCity ?? giftState}</Text>
+                <Text style={styles.giftBannerSub}>Grupos disponibles en esta ciudad</Text>
+              </View>
+              <Pressable onPress={openGiftCitySelector} hitSlop={8}>
+                <Text style={styles.giftBannerAction}>Cambiar</Text>
+              </Pressable>
+              <Pressable onPress={exitGiftMode} hitSlop={8} style={{ marginLeft: 12 }}>
+                <X size={16} color={COLORS.muted2} />
+              </Pressable>
+            </View>
+          )}
+
+
+          {/* 🎁 Selector de país/estado (modo regalo) */}
+          <Modal visible={citySelOpen} transparent animationType="slide" onRequestClose={() => setCitySelOpen(false)}>
+            <Pressable style={styles.citySelBackdrop} onPress={() => setCitySelOpen(false)} />
+            <View style={styles.citySelSheet}>
+              <View style={styles.citySelHead}>
+                <Text style={styles.citySelTitle}>¿En qué estado es el regalo?</Text>
+                <Pressable onPress={() => setCitySelOpen(false)} hitSlop={8}>
+                  <X size={20} color={COLORS.muted2} />
+                </Pressable>
+              </View>
+              <Text style={styles.citySelHint}>Elige país y estado; verás los grupos disponibles ahí.</Text>
+              <View style={styles.countryTabs}>
+                {GIFT_COUNTRIES.map(co => (
+                  <Pressable
+                    key={co}
+                    style={[styles.countryTab, citySelCountry === co && styles.countryTabActive]}
+                    onPress={() => setCitySelCountry(co)}
+                  >
+                    <Text style={[styles.countryTabText, citySelCountry === co && styles.countryTabTextActive]}>
+                      {co}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+              <ScrollView style={{ maxHeight: 340 }} keyboardShouldPersistTaps="handled">
+                {(GIFT_STATES[citySelCountry] ?? []).map((st, i) => (
+                  <Pressable key={`${st}-${i}`} style={styles.cityRow} onPress={() => pickGiftState(st)}>
+                    <MapPin size={15} color={COLORS.green} />
+                    <Text style={styles.cityRowText}>{st}</Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            </View>
+          </Modal>
 
           {/* RECOMENDADOS + DESTACADOS — solo grupos del estado del cliente */}
           {!search && !selectedCategoryId && !nearbyCity && (() => {
@@ -787,6 +945,7 @@ export default function HomeScreen({ navigation }: any) {
                           index={i}
                           navigation={navigation}
                           isRecommended
+                          isGift={giftMode}
                         />
                       )}
                     />
@@ -813,6 +972,7 @@ export default function HomeScreen({ navigation }: any) {
                           index={i}
                           navigation={navigation}
                           isRecommended={false}
+                          isGift={giftMode}
                         />
                       )}
                     />
@@ -848,6 +1008,7 @@ export default function HomeScreen({ navigation }: any) {
                           contentFit="cover"
                           startTime={item.video_start_seconds ?? 0}
                           autoPlay
+                          muted={adMuted || !isFocused}
                           loop={total <= 1}
                           onEnd={total > 1 ? () => {
                             Animated.timing(adFade, { toValue: 0, duration: 280, useNativeDriver: true }).start(() => {
@@ -880,6 +1041,18 @@ export default function HomeScreen({ navigation }: any) {
                       <View style={styles.promoBannerTagChip}>
                         <Text style={styles.promoBannerTagText}>ANUNCIO</Text>
                       </View>
+                      {/* Botón silenciar — solo en anuncios de video */}
+                      {item.media_type === 'video' && item.media_url && (
+                        <Pressable
+                          style={styles.promoBannerMute}
+                          onPress={() => setAdMuted(m => !m)}
+                          hitSlop={8}
+                        >
+                          {adMuted
+                            ? <VolumeX size={15} color="#fff" />
+                            : <Volume2 size={15} color="#fff" />}
+                        </Pressable>
+                      )}
                       {/* Título, subtítulo y botón (opcional) en la parte inferior */}
                       <View style={styles.promoBannerOverlay}>
                         <View style={{ flex: 1 }}>
@@ -954,7 +1127,7 @@ export default function HomeScreen({ navigation }: any) {
                       style={{ marginBottom: 28 }}
                     >
                       {trending.map((group, i) => (
-                        <FeaturedCard key={group.id} group={group} index={i} navigation={navigation} />
+                        <FeaturedCard key={group.id} group={group} index={i} navigation={navigation} isGift={giftMode} />
                       ))}
                     </ScrollView>
                   </>
@@ -1020,6 +1193,7 @@ export default function HomeScreen({ navigation }: any) {
                   {rowGroups.map((group, ri) => (
                     <GroupGridCard
                       key={group.id}
+                      isGift={giftMode}
                       group={group}
                       index={i + ri}
                       navigation={navigation}
@@ -1079,7 +1253,7 @@ function AutoScrollCarousel({ items, renderItem, itemWidth, autoInterval = 3500 
   );
 }
 
-function FeaturedCard({ group, index, navigation, isRecommended, surgeMultiplier = 1 }: any) {
+function FeaturedCard({ group, index, navigation, isRecommended, surgeMultiplier = 1, isGift = false }: any) {
   const fade = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     Animated.timing(fade, { toValue: 1, duration: 350, delay: index * 40, useNativeDriver: true }).start();
@@ -1089,7 +1263,7 @@ function FeaturedCard({ group, index, navigation, isRecommended, surgeMultiplier
     <Animated.View style={{ opacity: fade }}>
       <Pressable
         style={styles.featCard}
-        onPress={() => navigation && !group._is_mock && navigation.navigate('GroupDetail', { group })}
+        onPress={() => navigation && !group._is_mock && navigation.navigate('GroupDetail', { group, isGift })}
       >
         {/* Photo area */}
         <View style={styles.featPhotoBox}>
@@ -1148,7 +1322,7 @@ const GRID_GAP  = 6;
 const GRID_W    = (width - SPACING.xl * 2 - GRID_GAP * (GRID_COLS - 1)) / GRID_COLS;
 const GRID_IMG  = Math.round(GRID_W * 0.78);
 
-function GroupGridCard({ group, index, navigation, bidRank }: any) {
+function GroupGridCard({ group, index, navigation, bidRank, isGift = false }: any) {
   const fade = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     Animated.timing(fade, { toValue: 1, duration: 300, delay: (index % 9) * 40, useNativeDriver: true }).start();
@@ -1166,7 +1340,7 @@ function GroupGridCard({ group, index, navigation, bidRank }: any) {
     <Animated.View style={[styles.gridCell, { opacity: fade }]}>
       <Pressable
         style={styles.gridCard}
-        onPress={() => navigation.navigate('GroupDetail', { group })}
+        onPress={() => navigation.navigate('GroupDetail', { group, isGift })}
       >
         {/* Foto */}
         <View style={styles.gridImgBox}>
@@ -1508,6 +1682,79 @@ const styles = StyleSheet.create({
   },
   nearbyText: { fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.green, flex: 1 },
 
+  // 🎁 Regalar evento / modo regalo
+  giftEntry: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    marginHorizontal: SPACING.xl, marginBottom: 14,
+    backgroundColor: 'rgba(0,230,118,0.06)', borderRadius: RADIUS.lg,
+    borderWidth: 1, borderColor: 'rgba(0,230,118,0.25)',
+    paddingHorizontal: 16, paddingVertical: 13,
+  },
+  giftEntryEmoji: { fontSize: 22 },
+  giftEntryTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 15, color: COLORS.text },
+  giftEntrySub:   { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2, marginTop: 1, flexShrink: 1 },
+  giftEntrySubRow:    { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 1 },
+  giftEntryGiftEmoji: { fontSize: 14 },
+
+  // ── ⚡/🌎 Tarjetas de acción (Express + Otra ciudad) ──
+  actionRow: { flexDirection: 'row', gap: 10, marginHorizontal: SPACING.xl, marginBottom: 14 },
+  actionCard: {
+    flex: 1, backgroundColor: COLORS.card, borderRadius: RADIUS.lg,
+    borderWidth: 1, borderColor: COLORS.border, padding: 14, minHeight: 96,
+  },
+  actionCardExpress: { borderColor: 'rgba(255,179,0,0.35)', backgroundColor: 'rgba(255,179,0,0.06)' },
+  actionCardCity:    { borderColor: 'rgba(0,230,118,0.35)', backgroundColor: 'rgba(0,230,118,0.06)' },
+  actionCardPressed: { opacity: 0.6, transform: [{ scale: 0.98 }] },
+  actionCardTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, minHeight: 22 },
+  actionTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginBottom: 6, minHeight: 22 },
+  actionCta: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 10 },
+  actionCtaTx: { fontFamily: FONTS.bodySemiBold, fontSize: 12.5 },
+  actionChipGold: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: 'rgba(255,179,0,0.12)', borderRadius: RADIUS.full,
+    paddingHorizontal: 8, paddingVertical: 3,
+  },
+  actionChipGoldTx: { fontFamily: FONTS.bodySemiBold, fontSize: 9, color: COLORS.gold, letterSpacing: 1 },
+  actionEmoji:      { fontSize: 20 },
+  actionGiftEmoji:  { fontSize: 15 },
+  actionTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 15, color: COLORS.text },
+  actionSub:   { flex: 1, fontFamily: FONTS.body, fontSize: 11.5, color: COLORS.muted2, marginTop: 2, lineHeight: 15 },
+  giftBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    marginHorizontal: SPACING.xl, marginBottom: 14,
+    backgroundColor: 'rgba(0,230,118,0.10)', borderRadius: RADIUS.lg,
+    borderWidth: 1.5, borderColor: COLORS.green,
+    paddingHorizontal: 16, paddingVertical: 12,
+  },
+  giftBannerTitle:  { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: COLORS.green },
+  giftBannerSub:    { fontFamily: FONTS.body, fontSize: 11.5, color: COLORS.muted2, marginTop: 1 },
+  giftBannerAction: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.green },
+
+  // 🎁 Selector de ciudad
+  citySelBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)' },
+  citySelSheet: {
+    position: 'absolute', left: 0, right: 0, bottom: 0,
+    backgroundColor: COLORS.card, borderTopLeftRadius: 22, borderTopRightRadius: 22,
+    borderWidth: 1, borderColor: COLORS.border,
+    paddingHorizontal: SPACING.xl, paddingTop: 18, paddingBottom: 34,
+  },
+  citySelHead:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  citySelTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 17, color: COLORS.text, flex: 1 },
+  citySelHint:  { fontFamily: FONTS.body, fontSize: 13, color: COLORS.muted2, marginTop: 4, marginBottom: 12 },
+  countryTabs:  { flexDirection: 'row', gap: 8, marginBottom: 6 },
+  countryTab: {
+    flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: RADIUS.md,
+    backgroundColor: COLORS.card2, borderWidth: 1, borderColor: COLORS.border,
+  },
+  countryTabActive: { backgroundColor: 'rgba(0,230,118,0.12)', borderColor: COLORS.green },
+  countryTabText:       { fontFamily: FONTS.bodyMedium, fontSize: 14, color: COLORS.muted2 },
+  countryTabTextActive: { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: COLORS.green },
+  cityRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingVertical: 13, borderBottomWidth: 1, borderBottomColor: COLORS.border,
+  },
+  cityRowText: { fontFamily: FONTS.bodyMedium, fontSize: 15, color: COLORS.text },
+
   listContent: { paddingHorizontal: SPACING.xl, paddingBottom: 32 },
 
   // Promo banner — imagen dominante con texto sobrepuesto
@@ -1515,7 +1762,14 @@ const styles = StyleSheet.create({
     borderRadius: RADIUS.xl, overflow: 'hidden',
     borderWidth: 1, borderColor: COLORS.greenGlow, marginBottom: 20,
   },
-  promoBannerInner: { height: 190, position: 'relative' },
+  promoBannerInner: { height: 132, position: 'relative' },
+  promoBannerMute: {
+    position: 'absolute', top: 8, right: 8,
+    width: 30, height: 30, borderRadius: 15,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)',
+  },
   promoBannerBg: {
     position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
     width: '100%', height: '100%',
@@ -1535,22 +1789,22 @@ const styles = StyleSheet.create({
   },
   promoBannerOverlay: {
     position: 'absolute', bottom: 0, left: 0, right: 0,
-    flexDirection: 'row', alignItems: 'flex-end', gap: 10,
-    paddingHorizontal: SPACING.md, paddingBottom: 14,
+    flexDirection: 'row', alignItems: 'flex-end', gap: 8,
+    paddingHorizontal: SPACING.md, paddingBottom: 11,
   },
   promoBannerTitle: {
-    fontFamily: FONTS.bodySemiBold, fontSize: 15, color: '#fff', marginBottom: 3,
+    fontFamily: FONTS.bodySemiBold, fontSize: 12.5, color: '#fff', marginBottom: 2,
     textShadowColor: 'rgba(0,0,0,0.6)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4,
   },
   promoBannerSub: {
-    fontFamily: FONTS.body, fontSize: 12, color: 'rgba(255,255,255,0.78)',
+    fontFamily: FONTS.body, fontSize: 10.5, color: 'rgba(255,255,255,0.78)',
     textShadowColor: 'rgba(0,0,0,0.5)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3,
   },
   promoBannerBtn: {
-    paddingHorizontal: 10, paddingVertical: 6,
-    borderRadius: RADIUS.md, backgroundColor: COLORS.green, flexShrink: 0,
+    paddingHorizontal: 8, paddingVertical: 4,
+    borderRadius: RADIUS.sm, backgroundColor: COLORS.green, flexShrink: 0,
   },
-  promoBannerBtnText: { fontFamily: FONTS.bodySemiBold, fontSize: 11, color: '#000' },
+  promoBannerBtnText: { fontFamily: FONTS.bodySemiBold, fontSize: 9.5, color: '#000' },
 
   // Sections
   sectionRow: {

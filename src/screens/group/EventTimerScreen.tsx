@@ -833,7 +833,7 @@ export default function EventTimerScreen({ route, navigation }: any) {
       const h = Math.floor((diff % 86_400_000) / 3_600_000);
       const m = Math.floor((diff % 3_600_000) / 60_000);
       const s = Math.floor((diff % 60_000) / 1_000);
-      if (d > 0) setPreEventCountdown(`${d}d ${h}h ${String(m).padStart(2,'0')}m`);
+      if (d > 0) setPreEventCountdown(`${d}d ${h}h ${String(m).padStart(2,'0')}m ${String(s).padStart(2,'0')}s`);
       else setPreEventCountdown(`${h}h ${String(m).padStart(2,'0')}m ${String(s).padStart(2,'0')}s`);
     };
     tick();

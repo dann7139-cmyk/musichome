@@ -56,6 +56,12 @@ export default function VideoPlayer({
     if (autoPlay) p.play();
   });
 
+  // Sincroniza mute cuando el prop cambia (botón silenciar / salir del explorador).
+  // El callback de useVideoPlayer solo corre al iniciar, así que hace falta este effect.
+  useEffect(() => {
+    try { player.muted = muted; } catch {}
+  }, [player, muted]);
+
   useEffect(() => {
     const statusSub = player.addListener('statusChange', ({ status }) => {
       if (status === 'error') {

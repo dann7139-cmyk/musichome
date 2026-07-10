@@ -24,7 +24,7 @@ import { isPaid, parseEventDateMX } from '../../utils/calculations';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import Badge from '../../components/ui/Badge';
 import RequestZoneMap from '../../components/requests/RequestZoneMap';
-import { approxGroupLocation, eventCardCenter } from '../../utils/mapUtils';
+import { eventCardCenter, privacyOffsetZone } from '../../utils/mapUtils';
 import { openSupport } from '../../utils/support';
 
 const STATUS_MAP: Record<string, { label: string; variant: any }> = {
@@ -101,7 +101,7 @@ export default function ClientReservationsScreen({ navigation, route }: any) {
     const [resData, quoteData, exprData] = await Promise.all([
       supabase
         .from('reservations')
-        .select('*, group:groups(id, name, genre, city, profile_image, owner_id), quote:quotes(duration_hours, overtime_1h_price, overtime_2h_price, overtime_3h_price, event_type, latitude, longitude), event_request:event_requests!event_request_id(latitude, longitude, event_lat, event_lng), event_request_id, hours_count')
+        .select('*, group:groups(id, name, genre, city, state, profile_image, owner_id), quote:quotes(duration_hours, overtime_1h_price, overtime_2h_price, overtime_3h_price, event_type, latitude, longitude), event_request:event_requests!event_request_id(latitude, longitude, event_lat, event_lng), event_request_id, hours_count')
         .eq('client_id', uid)
         .order('created_at', { ascending: false })
         .range(from, to),
@@ -848,10 +848,10 @@ function ReservationCard({ reservation: r, navigation, onUpdate, isReviewed, isJ
   // Finalizados/cancelados: tarjeta COMPACTA — sin mapa, sin badge de pago,
   // sin botones grandes; solo resumen + acciones chicas (calificar/ticket/compartir)
   const mapCenter = showMap && !isFinished ? eventCardCenter(r) : null;
-  // Ruta desde la ubicación APROXIMADA del grupo (centro de su ciudad — nunca
-  // la real) hacia la zona del evento, con la foto del grupo. Como ProposalCard.
+  // Grupo en la ZONA del evento con jitter de privacidad (~±200 m), no en el
+  // centro genérico de su ciudad (que quedaba en un punto fijo desplazado).
   const groupApprox = mapCenter
-    ? approxGroupLocation(r.group?.id ?? String(r.id), r.group?.city, null, mapCenter)
+    ? privacyOffsetZone(r.group?.id ?? String(r.id), '', null, mapCenter.latitude, mapCenter.longitude)
     : null;
 
   return (

@@ -11,6 +11,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -235,6 +236,11 @@ export default function QuoteFormScreen({ route, navigation }: any) {
   const [needsSound,   setNeedsSound]   = useState<string | null>(null);
   const [comments,     setComments]     = useState('');
   const [commentsWarn, setCommentsWarn] = useState(false);
+  // 🎁 Es un regalo (toggle opcional — cualquier reserva, local o de otra ciudad)
+  const [isGift,        setIsGift]        = useState(false);
+  const [giftRecipient, setGiftRecipient] = useState('');
+  const [giftContact,   setGiftContact]   = useState('');
+  const [giftMessage,   setGiftMessage]   = useState('');
   const [latitude,     setLatitude]     = useState<number | null>(null);
   const [longitude,    setLongitude]    = useState<number | null>(null);
   const [addressConfirmed, setAddressConfirmed] = useState(false);
@@ -321,6 +327,11 @@ export default function QuoteFormScreen({ route, navigation }: any) {
       return;
     }
 
+    if (isGift && !giftRecipient.trim()) {
+      Alert.alert('¿Para quién es el regalo?', 'Escribe el nombre de la persona a quien le regalas el evento.');
+      return;
+    }
+
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { Alert.alert('Error', 'Sesión no encontrada.'); return; }
 
@@ -345,6 +356,12 @@ export default function QuoteFormScreen({ route, navigation }: any) {
       needs_stage:     stageNeeded,
       needs_led:       ledNeeded,
       comments:        comments.trim() || null,
+      is_gift:         isGift,
+      ...(isGift ? {
+        gift_recipient_name:    giftRecipient.trim() || null,
+        gift_recipient_contact: giftContact.trim() || null,
+        gift_message:           giftMessage.trim() || null,
+      } : {}),
     };
 
     console.log('🟡 INSERT quote payload:', JSON.stringify(insertPayload, null, 2));
@@ -470,7 +487,12 @@ export default function QuoteFormScreen({ route, navigation }: any) {
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          contentContainerStyle={s.scroll}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+        >
 
           {/* Info banner */}
           <View style={s.infoBanner}>
@@ -841,6 +863,59 @@ export default function QuoteFormScreen({ route, navigation }: any) {
             </View>
           )}
 
+          {/* ─── 🎁 ¿ES UN REGALO? (switch opcional) ──────────────── */}
+          <View style={s.giftToggleRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={s.giftToggleTitle}>🎁 ¿Es un regalo?</Text>
+              <Text style={s.giftToggleHint}>Actívalo para regalar este evento a otra persona.</Text>
+            </View>
+            <Switch
+              value={isGift}
+              onValueChange={setIsGift}
+              trackColor={{ false: '#2A2A2A', true: 'rgba(0,230,118,0.45)' }}
+              thumbColor={isGift ? COLORS.green : '#8A8A8A'}
+            />
+          </View>
+          {isGift && (
+            <View style={s.giftBox}>
+              <Text style={s.giftBoxHint}>
+                Al pagar generamos un ticket de regalo para que se lo compartas a quien tú quieras (WhatsApp, correo, etc.), cuando tú decidas.
+              </Text>
+
+              <Text style={s.giftLabel}>Para (nombre del festejado) *</Text>
+              <TextInput
+                style={s.input}
+                placeholder="Ej: Mamá, Sofía, Familia López"
+                placeholderTextColor={COLORS.muted}
+                value={giftRecipient}
+                onChangeText={setGiftRecipient}
+                maxLength={60}
+              />
+
+              <Text style={s.giftLabel}>Mensaje personalizado</Text>
+              <TextInput
+                style={[s.input, s.inputMulti]}
+                placeholder={'Ej: "¡Feliz cumpleaños! Con todo mi cariño 🎉"'}
+                placeholderTextColor={COLORS.muted}
+                value={giftMessage}
+                onChangeText={setGiftMessage}
+                multiline
+                maxLength={200}
+                textAlignVertical="top"
+              />
+
+              <Text style={s.giftLabel}>Contacto del destinatario (opcional)</Text>
+              <TextInput
+                style={s.input}
+                placeholder="WhatsApp o correo (opcional)"
+                placeholderTextColor={COLORS.muted}
+                value={giftContact}
+                onChangeText={setGiftContact}
+                maxLength={60}
+              />
+            </View>
+          )}
+
           {/* ─── BOTÓN ENVIAR ────────────────────────────────────── */}
           <Pressable
             style={[s.submitBtn, (!canSubmit() || loading) && s.submitBtnDisabled]}
@@ -932,7 +1007,7 @@ const s = StyleSheet.create({
   headerTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 16, color: COLORS.text },
   headerSub:   { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2, marginTop: 1 },
 
-  scroll: { padding: SPACING.xl },
+  scroll: { padding: SPACING.xl, paddingBottom: 160 },
 
   infoBanner: {
     backgroundColor: 'rgba(0,230,118,0.08)',
@@ -958,6 +1033,23 @@ const s = StyleSheet.create({
   inputMulti: { minHeight: 100, paddingTop: 13 },
   charCount:  { fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted, textAlign: 'right', marginTop: 2, marginBottom: 10 },
   row2:       { flexDirection: 'row', gap: 10 },
+
+  // ── 🎁 Caja de regalo ──────────────────────────────────────────────────────
+  giftToggleRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    marginTop: 12, backgroundColor: COLORS.card, borderRadius: RADIUS.lg,
+    borderWidth: 1, borderColor: COLORS.border, padding: SPACING.lg,
+  },
+  giftToggleTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 15, color: COLORS.text },
+  giftToggleHint:  { fontFamily: FONTS.body, fontSize: 12.5, color: COLORS.muted2, marginTop: 2 },
+  giftBox: {
+    backgroundColor: COLORS.card, borderRadius: RADIUS.lg,
+    borderWidth: 1.5, borderColor: COLORS.green,
+    padding: SPACING.lg, marginTop: 8, marginBottom: 4,
+  },
+  giftBoxTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 16, color: COLORS.green, marginBottom: 4 },
+  giftBoxHint:  { fontFamily: FONTS.body, fontSize: 12.5, color: COLORS.muted2, lineHeight: 18, marginBottom: 6 },
+  giftLabel:    { fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.text, marginTop: 10, marginBottom: 6 },
 
   // ── Map confirm ───────────────────────────────────────────────────────────
   mapConfirmSection: { marginBottom: 10, marginTop: -4 },

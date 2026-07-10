@@ -70,6 +70,7 @@ export default function GroupDetailScreen({ route, navigation }: any) {
   const params        = route.params ?? {};
   // Soporta { group } (normal) y { groupId } (deep link daricefy://group/{id})
   const initialGroup  = params.group ?? (params.groupId ? { id: params.groupId } : null);
+  const isGift        = !!params.isGift;   // 🎁 modo regalo (viene del explorador)
 
   const [group,            setGroup]            = useState<any>(initialGroup);
   const [loading,          setLoading]          = useState(!initialGroup || !initialGroup.description);
@@ -578,7 +579,7 @@ export default function GroupDetailScreen({ route, navigation }: any) {
             </Text>
             <Pressable
               style={styles.quoteBtn}
-              onPress={() => navigation.navigate('QuoteForm', { group })}
+              onPress={() => navigation.navigate('QuoteForm', { group, isGift })}
             >
               <FileText size={15} color={COLORS.bg} />
               <Text style={styles.quoteBtnText}>

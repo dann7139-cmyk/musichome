@@ -805,7 +805,7 @@ export function CircleTimerVisual({
         <Text
           style={[
             styles.label,
-            { color: state === 'pre_event' ? `rgba(${palette.rgb}, 0.75)` : 'rgba(255,255,255,0.6)' },
+            { color: 'rgba(255,255,255,0.7)' },
           ]}
         >
           {finalLabel.toUpperCase()}
@@ -819,7 +819,6 @@ export function CircleTimerVisual({
           minimumFontScale={0.5}
           style={[
             styles.time,
-            state === 'pre_event' && { color: `rgba(${palette.rgb}, 0.95)` },
             state === 'extra_hours' && { color: palette.accent },
             state === 'completed' && { color: '#fff' },
           ]}
@@ -1114,8 +1113,9 @@ const styles = StyleSheet.create({
     fontFamily: 'Syne_800ExtraBold',
     fontSize: 46,
     fontWeight: '700',
-    letterSpacing: -2,
+    letterSpacing: -1,
     color: '#fff',
+    fontVariant: ['tabular-nums'],
     textShadowColor: 'rgba(0,0,0,1)',
     textShadowOffset: { width: 0, height: 2 },
     textShadowRadius: 18,

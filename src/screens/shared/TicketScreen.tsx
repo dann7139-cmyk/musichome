@@ -102,13 +102,19 @@ function InfoRow({ icon, value, gold }: { icon: string; value: string; gold?: bo
 
 // ── Pantalla principal ────────────────────────────────────────────────────────
 export default function TicketScreen({ navigation, route }: any) {
-  const { reservation: r } = route.params as { reservation: any };
+  // senderName (opcional): nombre del comprador para "De:" (lo pasa QuotePayment).
+  const { reservation: r, senderName } = route.params as { reservation: any; senderName?: string };
 
   const ticketRef = useRef<View>(null);
-  const [giftMode, setGiftMode] = useState(false);
-  const [giftFrom, setGiftFrom] = useState('');
-  const [giftTo,   setGiftTo]   = useState('');
+  // Caja de regalo: si la reserva ES regalo, el ticket entra en modo regalo
+  // automáticamente con el destinatario y el mensaje reales.
+  const [giftMode, setGiftMode] = useState(!!r.is_gift);
+  const [giftFrom, setGiftFrom] = useState(senderName ?? '');
+  const [giftTo,   setGiftTo]   = useState(r.gift_recipient_name ?? '');
   const [saving,   setSaving]   = useState(false);
+
+  const giftMsg  = r.gift_message ?? '';
+  const location = r.event_city ?? r.city ?? r.event_municipio ?? r.address ?? null;
 
   const groupName  = r.group?.name ?? 'Grupo musical';
   const genre      = r.group?.genre ?? null;
@@ -271,10 +277,18 @@ export default function TicketScreen({ navigation, route }: any) {
               </View>
             )}
 
+            {/* Mensaje personalizado del regalo */}
+            {giftMode && !!giftMsg && (
+              <View style={s.giftMsgBox}>
+                <Text style={s.giftMsgText}>“{giftMsg}”</Text>
+              </View>
+            )}
+
             {/* Detalles del evento */}
             <View style={s.infoCard}>
               <InfoRow icon="📅" value={date} />
               <InfoRow icon="🕐" value={time} />
+              {giftMode && !!location && <InfoRow icon="📍" value={location} />}
               {!!duration && <InfoRow icon="⏱️" value={duration} />}
               {!giftMode && !!price && <InfoRow icon="💳" value={price} gold />}
             </View>
@@ -444,6 +458,18 @@ const s = StyleSheet.create({
   },
   genreText: {
     fontFamily: FONTS.bodyMedium, fontSize: 12, color: T_GREEN,
+  },
+
+  // Mensaje del regalo
+  giftMsgBox: {
+    alignSelf: 'stretch', marginBottom: 10,
+    backgroundColor: T_GREEN2, borderRadius: 10,
+    borderWidth: 1, borderColor: 'rgba(0,166,81,0.20)',
+    paddingHorizontal: 14, paddingVertical: 10,
+  },
+  giftMsgText: {
+    fontFamily: FONTS.body, fontSize: 12.5, color: T_MUTED2,
+    textAlign: 'center', lineHeight: 18, fontStyle: 'italic',
   },
 
   // Info card
