@@ -95,33 +95,33 @@ Cómo marcar: `[ ]` pendiente · `[x]` pasó · `[!]` falló (anotar abajo en "B
 ## 8. Pago con tarjeta (Conekta)
 
 - [ ] Checkout muestra métodos: Tarjeta / SPEI / Efectivo / Meses. Sin logos ni menciones de Conekta/Stripe.
-- [ ] Tarjeta de prueba 4242… → pago exitoso, pantalla de éxito, reserva en 'paid'.
+- [x] Tarjeta de prueba 4242… → pago exitoso, pantalla de éxito, reserva en 'paid'. — validado 2026-07-10 (reserva b1d118ae, provider=conekta)
 - [ ] El grupo recibe notificación de pago.
-- [ ] Wallet del grupo: pending_balance sube EXACTAMENTE base_price (total/1.20). Verificar contra `wallet_transactions`.
-- [ ] NO aparece msi_months/msi_fee en pagos de tarjeta normal (bug del $540 fantasma corregido — ⚠️ requiere redeploy de create-conekta-order).
+- [x] Wallet del grupo: pending_balance sube EXACTAMENTE base_price (total/1.20). — $10,800 → $9,000.00 exactos (2026-07-10)
+- [x] NO aparece msi_months/msi_fee en pagos de tarjeta normal (bug del $540 fantasma). — CONFIRMADO MUERTO 2026-07-10: reserva sembrada con msi 3/$540, pagada con tarjeta Conekta → msi_months=NULL, msi_fee_amount=0, plataforma registró "MSI $0", grupo recibió $9,000 exactos.
 - [ ] Tarjeta rechazada (usar tarjeta de fallo de Conekta) → mensaje claro, la reserva NO queda pagada, se puede reintentar.
-- [ ] Doble webhook / doble tap en pagar → no acredita doble (idempotencia).
+- [x] Doble webhook / doble tap en pagar → no acredita doble (idempotencia). — VALIDADO 2026-07-10: 4 cargos SPEI pagados en Conekta para la misma reserva → 1 solo abono al wallet; pending_balance = 3×$9,000 exactos tras 3 reservas pagadas.
 
 ## 9. SPEI con descuento
 
-- [ ] Elegir SPEI muestra el descuento de $100 en el resumen.
-- [ ] Se genera la CLABE/referencia y se muestra al cliente.
-- [ ] Simular/hacer la transferencia sandbox → webhook confirma → reserva 'paid'.
-- [ ] El grupo cobra su base COMPLETA (el descuento sale del margen de la plataforma, no del grupo). Verificar en wallet_transactions.
+- [x] Elegir SPEI muestra el descuento de $100 en el resumen. — cargo real $10,700 vs $10,800 confirmado en panel Conekta (2026-07-10)
+- [x] Se genera la CLABE/referencia y se muestra al cliente. — corregido con pantalla in-app + copiar (bug #2); falta confirmar visual en teléfono
+- [x] Simular/hacer la transferencia sandbox → webhook confirma → reserva 'paid'. — validado 2026-07-10 (reserva 03b3820a)
+- [x] El grupo cobra su base COMPLETA (el descuento sale del margen de la plataforma, no del grupo). — $9,000 exactos (2026-07-10)
 - [ ] Pago SPEI no realizado → la reserva queda pendiente y expira bien (no se queda colgada como pagada).
 
 ## 10. Efectivo
 
-- [ ] Elegir Efectivo genera referencia (OXXO/paycash) visible y copiable.
-- [ ] Pago sandbox confirmado → webhook → reserva 'paid' + wallet correcto.
+- [x] Elegir Efectivo genera referencia (OXXO/paycash) visible y copiable. — pantalla in-app validada en teléfono 2026-07-10
+- [x] Pago sandbox confirmado → webhook → reserva 'paid' + wallet correcto. — cargo $10,800 completo (sin descuento SPEI ✓), grupo $9,000; pending_balance=4×$9,000=$36,000 exactos (2026-07-10)
 - [ ] Referencia no pagada → expira sin marcar pagada.
 
 ## 11. Meses (Stripe MSI)
 
-- [ ] Elegir Meses abre PaymentSheet de Stripe (no Conekta).
-- [ ] MSI 3/6/… disponibles con tarjeta de crédito de prueba.
+- [x] Elegir Meses abre PaymentSheet de Stripe (no Conekta). — validado 2026-07-10
+- [x] MSI 3/6/… disponibles con tarjeta de crédito de prueba. — 3 MSI validado 2026-07-10
 - [ ] El recargo por meses se muestra al cliente ANTES de pagar.
-- [ ] Al pagar: reserva 'paid', el grupo recibe base_price (sin el recargo MSI).
+- [x] Al pagar: reserva 'paid', el grupo recibe base_price (sin el recargo MSI). — $10,800 → grupo $9,000 exactos; plataforma $1,800+$540−$411.24 fee = $1,928.76, cuadra al centavo (reserva de71a854, 2026-07-10)
 - [ ] El banner "Hasta 12 cuotas" del home sigue apareciendo 4s y desaparece.
 
 ## 12. Reembolsos
@@ -148,7 +148,7 @@ Cómo marcar: `[ ]` pendiente · `[x]` pasó · `[!]` falló (anotar abajo en "B
 ## 14. Datos de prueba (limpiar ANTES de la beta)
 
 - [ ] `DELETE FROM groups WHERE name LIKE '🧪%';` (grupos test viejos).
-- [ ] Decidir qué hacer con demos de Jalisco: `...email LIKE 'jaldemo%@mhtest.dev'` y `%@mhtest.dev` (borrar para beta real, o dejarlos SOLO si la beta es en otro estado).
+- [ ] Demos de Jalisco: DECIDIDO (2026-07-10) → se quitan antes de la beta porque pueden confundirse con grupos reales. Correr `sql/463_remove_demo_groups_before_beta.sql` JUSTO antes de la beta (incluye guard de reservas pagadas). Mientras, se quedan para pruebas sandbox.
 - [ ] Fotos picsum.photos: ningún grupo real debe quedar con foto de picsum.
 - [ ] Cuentas de prueba (Lala, Derek, etc.): limpiar reservas/pagos de prueba o marcar como test.
 - [ ] `SELECT * FROM promotions;` → limpiar promos legacy.
@@ -191,7 +191,7 @@ Cómo marcar: `[ ]` pendiente · `[x]` pasó · `[!]` falló (anotar abajo en "B
 - [ ] Revisar catch vacíos en flujos de dinero: ningún error de pago/webhook debe tragarse sin log en payment_event_logs.
 - [ ] `SELECT * FROM payment_event_logs WHERE is_mismatch = true;` → investigar cada fila.
 - [ ] Edge Functions: revisar logs de create-conekta-order / webhooks en Supabase → sin errores 500 recurrentes.
-- [ ] ⚠️ PENDIENTE CONOCIDO: redeploy de create-conekta-order (limpieza MSI + método) — hacerlo ANTES de probar pagos.
+- [x] ⚠️ PENDIENTE CONOCIDO: redeploy de create-conekta-order (limpieza MSI + método) — desplegado 2026-07-10.
 - [ ] ⚠️ PENDIENTE CONOCIDO: redeploy de process-refund si se cambió.
 - [ ] Probar la app con internet lento/apagado a media carga → mensajes de error, no cuelgues.
 
@@ -201,7 +201,11 @@ Cómo marcar: `[ ]` pendiente · `[x]` pasó · `[!]` falló (anotar abajo en "B
 
 | # | Pantalla/flujo | Qué pasó | Gravedad (bloquea beta S/N) | Estado |
 |---|----------------|----------|------------------------------|--------|
-| 1 |                |          |                              |        |
+| 1 | Contabilidad plataforma (RPC confirm_full_payment) | En pagos Conekta, el platform_income descuenta y etiqueta la tarifa del procesador con la fórmula de Stripe (3.6%+$3): "− Stripe $391.80" en un pago Conekta. No afecta dinero de grupo ni cliente; solo la métrica interna de ganancia neta. | N | Pendiente — corregir fórmula/etiqueta por proveedor |
+| 2 | Checkout SPEI/Efectivo | La página hosted de Conekta muestra la CLABE/referencia unos segundos y redirige a success_url (daricefy.com, dominio inexistente) → el cliente la pierde y no puede transferir. | S | CORREGIDO Y VALIDADO 2026-07-10 en teléfono (pantalla fija + botón copiar). Mejora futura: persistir la referencia y mostrarla en "Mis Eventos" (hoy, si sale de la pantalla, regenera una nueva desde "Pago pendiente" — ligado al bug #3). |
+| 3 | Órdenes Conekta duplicadas | Cada reintento de pago crea una orden nueva y las referencias SPEI anteriores siguen vivas. Si el cliente paga una referencia vieja de una reserva ya pagada, el dinero llega pero el webhook lo ignora (no acredita, no reembolsa). El wallet queda bien (idempotente ✓) pero el cliente pagaría doble. | N (fix antes de producción) | Pendiente — al crear orden nueva, expirar/cancelar órdenes previas de la misma reserva (o expires_at corto), y en el webhook auto-reembolsar cargos de reservas ya pagadas. |
+| 4 | Ledger plataforma (SPEI) | El platform_income no resta el descuento SPEI: registra "Comisión $1800" cuando realmente entraron $1,700 ($10,700 cobrados − $9,000 grupo). Junto con el bug #1 (fee Stripe hardcodeada), la métrica interna de ganancia neta queda desviada. Dinero real de grupo/cliente correcto. | N | Pendiente — RPC debe calcular sobre monto realmente cobrado y fee del proveedor real. |
+| 5 | Cotización (UX) | La forma de pago se elegía DOS veces: selector de meses en la cotización (sin efecto real) y luego el checkout completo. | N | CORREGIDO Y VALIDADO 2026-07-10: selector eliminado de ClientQuoteDetailScreen; el checkout es el único lugar donde se elige método. |
 
 ---
 

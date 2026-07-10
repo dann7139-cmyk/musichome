@@ -29,14 +29,15 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
-  ArrowLeft, BadgeCheck, Calendar, CheckCircle, ChevronDown, Lock,
+  ArrowLeft, BadgeCheck, Calendar, CheckCircle, ChevronDown, Copy, Lock,
   MapPin, Music2, RotateCcw, Shield, Wallet,
 } from 'lucide-react-native';
+import * as Clipboard from 'expo-clipboard';
 import { useStripe } from '@stripe/stripe-react-native';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import { calculateFinancedPrice, calculateMonthlyPayment, PUBLIC_MSI_FEE_RATES } from '../../utils/publicPricing';
-import { startConektaCheckout, ConektaMethod } from '../../utils/conektaCheckout';
+import { startConektaCheckout, fetchConektaReference, ConektaMethod, ConektaReference } from '../../utils/conektaCheckout';
 
 const MSI_MIN_AMOUNT = 300; // MXN mínimo para pagar a meses
 
@@ -118,6 +119,11 @@ export default function QuotePaymentScreen({ route, navigation }: any) {
   const [paid, setPaid]               = useState(false);
   const [paidResId, setPaidResId]     = useState<string | null>(null);
   const [paidAmount, setPaidAmount]   = useState(0);                   // monto realmente cobrado (para pantalla de éxito)
+  // Pago pendiente SPEI/efectivo: datos para re-mostrar la CLABE/referencia
+  // en la app (la página de Conekta la enseña unos segundos y redirige).
+  const [pendingRef, setPendingRef]       = useState<ConektaReference | null>(null);
+  const [pendingMethod, setPendingMethod] = useState<'spei' | 'cash' | null>(null);
+  const [copied, setCopied]               = useState(false);
 
   // Animación del checkmark de éxito
   const checkScale = useRef(new Animated.Value(0)).current;
@@ -234,11 +240,31 @@ export default function QuotePaymentScreen({ route, navigation }: any) {
       //   PAY_MX_WITH_CONEKTA=false → todo cae a Stripe (fallback US/rollback).
       if (PAY_MX_WITH_CONEKTA && method !== 'msi') {
         const result = await startConektaCheckout(reservationId, method);
-        if (result === 'paid') {
+        if (result.status === 'paid') {
           setPaidAmount(chargeFor(method, months));
           setPaidResId(reservationId);
           setPaid(true);
-        } else if (result === 'pending') {
+        } else if (result.status === 'pending') {
+          // SPEI/efectivo: recuperar la CLABE/referencia de la orden y
+          // mostrarla EN LA APP (la página de Conekta la enseña unos
+          // segundos y redirige — el cliente la necesita para transferir).
+          if ((method === 'spei' || method === 'cash') && result.orderId) {
+            const ref = await fetchConektaReference(result.orderId);
+            if (ref && (ref.clabe || ref.reference)) {
+              setPaidResId(reservationId);
+              setPendingMethod(method);
+              setPendingRef(ref);
+              return;
+            }
+            // Sin cargo generado (cerró el navegador antes de elegir) →
+            // puede reintentar desde "Mis Eventos".
+            Alert.alert(
+              'Pago pendiente',
+              'Puedes completar el pago desde "Mis Eventos" cuando quieras.',
+              [{ text: 'Ver mis eventos', onPress: () => navigation.navigate('ClientReservations') }],
+            );
+            return;
+          }
           Alert.alert(
             'Estamos confirmando tu pago…',
             'Tu pago se está procesando. En un momento verás tu evento confirmado en "Mis Eventos".',
@@ -317,6 +343,59 @@ export default function QuotePaymentScreen({ route, navigation }: any) {
       setBusyKey(null);
     }
   };
+
+  // ── Pantalla de pago pendiente (CLABE SPEI / referencia efectivo) ────────────
+  if (pendingRef && pendingMethod) {
+    const isSpei  = pendingMethod === 'spei';
+    const mainVal = isSpei ? (pendingRef.clabe ?? '') : (pendingRef.reference ?? '');
+    const amountStr = (pendingRef.amount ?? chargeFor(pendingMethod, 1)).toLocaleString();
+    const copyVal = async () => {
+      await Clipboard.setStringAsync(mainVal);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    };
+    return (
+      <SafeAreaView style={s.successRoot}>
+        <Text style={{ fontSize: 44 }}>{isSpei ? '🏦' : '🏪'}</Text>
+        <View style={{ alignItems: 'center', gap: 8 }}>
+          <Text style={s.successTitle}>{isSpei ? 'Transfiere para confirmar' : 'Paga en tienda para confirmar'}</Text>
+          <Text style={s.successSub}>
+            {isSpei
+              ? 'Haz una transferencia SPEI desde tu banca con estos datos:'
+              : 'Da esta referencia en OXXO, 7-Eleven, farmacias y más:'}
+          </Text>
+        </View>
+
+        <View style={s.refCard}>
+          <Text style={s.refLabel}>{isSpei ? 'CLABE' : 'Referencia'}</Text>
+          <Text style={s.refValue} selectable>{mainVal}</Text>
+          {isSpei && !!pendingRef.bank && (
+            <Text style={s.refBank}>Banco destino: {pendingRef.bank}</Text>
+          )}
+          <Text style={s.refAmount}>Monto exacto: ${amountStr} MXN</Text>
+          <Pressable style={s.refCopyBtn} onPress={copyVal}>
+            {copied
+              ? <CheckCircle size={16} color="#000" />
+              : <Copy size={16} color="#000" />}
+            <Text style={s.refCopyText}>{copied ? '¡Copiado!' : (isSpei ? 'Copiar CLABE' : 'Copiar referencia')}</Text>
+          </Pressable>
+        </View>
+
+        <Text style={s.refNote}>
+          Tu evento se confirmará automáticamente en cuanto recibamos tu pago.
+          Copia estos datos antes de salir — si los pierdes, puedes generar
+          unos nuevos desde "Pago pendiente" en tu inicio.
+        </Text>
+
+        <Pressable
+          style={s.successBtn}
+          onPress={() => navigation.navigate('ClientReservations')}
+        >
+          <Text style={s.successBtnText}>Ver mis eventos</Text>
+        </Pressable>
+      </SafeAreaView>
+    );
+  }
 
   // ── Pantalla de éxito ────────────────────────────────────────────────────────
   if (paid) {
@@ -698,4 +777,32 @@ const s = StyleSheet.create({
     alignItems: 'center', marginTop: 8,
   },
   successBtnText: { fontFamily: FONTS.bodySemiBold, fontSize: 16, color: COLORS.bg },
+
+  // ── Pago pendiente (CLABE SPEI / referencia efectivo) ──
+  refCard: {
+    width: '100%', alignItems: 'center', gap: 6,
+    backgroundColor: COLORS.card, borderRadius: RADIUS.xl,
+    borderWidth: 1, borderColor: 'rgba(0,230,118,0.35)',
+    paddingVertical: 20, paddingHorizontal: 16,
+  },
+  refLabel: {
+    fontFamily: FONTS.bodySemiBold, fontSize: 11, color: COLORS.muted2,
+    letterSpacing: 1.5, textTransform: 'uppercase',
+  },
+  refValue: {
+    fontFamily: FONTS.bodySemiBold, fontSize: 21, color: COLORS.text,
+    letterSpacing: 1.2, textAlign: 'center', fontVariant: ['tabular-nums'],
+  },
+  refBank:   { fontFamily: FONTS.body, fontSize: 13, color: COLORS.muted2 },
+  refAmount: { fontFamily: FONTS.bodySemiBold, fontSize: 15, color: COLORS.green, marginTop: 2 },
+  refCopyBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: COLORS.green, borderRadius: RADIUS.full,
+    paddingHorizontal: 18, paddingVertical: 10, marginTop: 10,
+  },
+  refCopyText: { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: '#000' },
+  refNote: {
+    fontFamily: FONTS.body, fontSize: 12.5, color: COLORS.muted2,
+    textAlign: 'center', lineHeight: 18, paddingHorizontal: 10,
+  },
 });

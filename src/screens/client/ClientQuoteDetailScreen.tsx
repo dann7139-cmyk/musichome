@@ -14,11 +14,9 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
-import { ArrowLeft, CheckCircle, CreditCard, XCircle } from 'lucide-react-native';
+import { ArrowLeft, CheckCircle, XCircle } from 'lucide-react-native';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
-import { MSI_OPTIONS, MsiOption } from '../../utils/calculations';
-import { calculateFinancedPrice, calculateMonthlyPayment, PUBLIC_MSI_FEE_RATES } from '../../utils/publicPricing';
 import RequestZoneMap from '../../components/requests/RequestZoneMap';
 import { eventCardCenter, privacyOffsetZone } from '../../utils/mapUtils';
 
@@ -46,7 +44,6 @@ export default function ClientQuoteDetailScreen({ route, navigation }: any) {
   const [quote, setQuote]           = useState<any>(null);
   const [loading, setLoading]       = useState(true);
   const [acting, setActing]         = useState(false);
-  const [selectedMSI, setSelectedMSI] = useState<MsiOption>(MSI_OPTIONS[0]);
 
   const fetchQuote = useCallback(async () => {
     const { data } = await supabase
@@ -204,10 +201,10 @@ export default function ClientQuoteDetailScreen({ route, navigation }: any) {
     const baseTotal = quote.total_amount ?? 0;
     Alert.alert(
       '¿Confirmar contratación?',
-      `Total: $${baseTotal.toLocaleString()} MXN\n\nPodrás elegir pago único o en mensualidades en el siguiente paso.\n\nEl pago se libera al finalizar el evento.`,
+      `Total: $${baseTotal.toLocaleString()} MXN\n\nElegirás tu forma de pago en el siguiente paso.\n\nEl pago se libera al finalizar el evento.`,
       [
         { text: 'Revisar', style: 'cancel' },
-        { text: 'Continuar al pago', onPress: () => handleConfirmPayment(selectedMSI.months) },
+        { text: 'Continuar al pago', onPress: () => handleConfirmPayment(1) },
       ],
     );
   };
@@ -403,45 +400,8 @@ export default function ClientQuoteDetailScreen({ route, navigation }: any) {
           </View>
         ) : null}
 
-        {/* ── Selector MSI (solo cuando está pending) ─────────────────────────── */}
-        {isPending && (
-          <View style={s.msiCard}>
-            <View style={s.msiHeader}>
-              <CreditCard size={16} color={COLORS.blue} />
-              <Text style={s.msiTitle}>Elige la opción de pago que mejor se adapte a ti</Text>
-            </View>
-            <Text style={s.msiHint}>
-              {'El precio varía según el plan seleccionado debido a los costos de financiamiento. En todos los casos, tu contratación queda confirmada de inmediato al completar el pago.'}
-            </Text>
-            <View style={s.msiRow}>
-              {MSI_OPTIONS.map((opt) => {
-                const isActive = selectedMSI.key === opt.key;
-                const feeRate  = PUBLIC_MSI_FEE_RATES[opt.months] ?? 0;
-                return (
-                  <Pressable
-                    key={opt.key}
-                    style={[s.msiChip, isActive && s.msiChipActive]}
-                    onPress={() => setSelectedMSI(opt)}
-                  >
-                    <Text style={[s.msiChipText, isActive && s.msiChipTextActive]}>
-                      {opt.label}
-                    </Text>
-                    {opt.months > 1 && (
-                      <Text style={[s.msiChipFee, isActive && s.msiChipFeeActive]}>
-                        +{(feeRate * 100).toFixed(0)}%
-                      </Text>
-                    )}
-                  </Pressable>
-                );
-              })}
-            </View>
-            {selectedMSI.months > 1 && (
-              <Text style={s.msiHint}>
-                {selectedMSI.months} pagos de ${calculateMonthlyPayment(total, selectedMSI.months).toLocaleString()} MXN · cargo adicional: ${(calculateFinancedPrice(total, selectedMSI.months) - total).toLocaleString()}
-              </Text>
-            )}
-          </View>
-        )}
+        {/* La forma de pago se elige UNA sola vez, en el checkout
+            (QuotePaymentScreen). Aquí solo se acepta la cotización. */}
 
         {/* Acciones */}
         {isPending && (
