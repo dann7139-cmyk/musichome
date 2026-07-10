@@ -2,7 +2,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as Location from 'expo-location';
 import * as WebBrowser from 'expo-web-browser';
 import VideoPlayer from '../../components/ui/VideoPlayer';
-import { Bell, ChevronRight, MapPin, Navigation, Search, Star, TrendingUp, Volume2, VolumeX, X, Zap } from 'lucide-react-native';
+import { Bell, ChevronLeft, ChevronRight, MapPin, Navigation, Search, Star, TrendingUp, Volume2, VolumeX, X, Zap } from 'lucide-react-native';
 import { useIsFocused } from '@react-navigation/native';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -12,6 +12,7 @@ import {
   FlatList,
   Image,
   Modal,
+  PanResponder,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -50,7 +51,9 @@ interface Promotion {
 
 const { width } = Dimensions.get('window');
 const CARD_W = width - SPACING.xl * 2;
-const FEAT_W = width * 0.19;   // tarjetas del carrusel
+const FEAT_W = Math.round(width * 0.46);   // tarjetas del carrusel (con peek del siguiente)
+const FEAT_H = Math.round(FEAT_W * 0.92);
+
 
 
 
@@ -373,8 +376,7 @@ export default function HomeScreen({ navigation }: any) {
     const bannerParams: Record<string, any> = { p_city: userCity };
     if (detectedState) bannerParams.p_state = detectedState;
     if (safeCountry)   bannerParams.p_country = safeCountry.toLowerCase();
-    const { data: adsData, error: adsErr } = await supabase.rpc('get_active_banner_ads', bannerParams);
-    console.log('BANNER ADS:', JSON.stringify(adsData)?.slice(0, 300), 'error:', adsErr?.message);
+    const { data: adsData } = await supabase.rpc('get_active_banner_ads', bannerParams);
     if (adsData && (adsData as any[]).length > 0) {
       const paid = (adsData as any[]).filter((a: any) => !a.is_free);
       const free = (adsData as any[]).filter((a: any) => a.is_free);
@@ -914,72 +916,63 @@ export default function HomeScreen({ navigation }: any) {
             </View>
           </Modal>
 
-          {/* RECOMENDADOS + DESTACADOS — solo grupos del estado del cliente */}
+          {/* DESTACADOS · RECOMENDADOS · POPULARES — carruseles del estado del cliente */}
           {!search && !selectedCategoryId && !nearbyCity && (() => {
-            const recMockIds = new Set(topRecs.map(r => r.id));
-            const recs = topRecs.slice(0, 20);
+            const real = groups.filter((g: any) => !g._is_mock);
+            const byRating = [...real].sort((a: any, b: any) => (b.rating ?? 0) - (a.rating ?? 0));
 
-            const sponsored = groups.filter(g => g.is_sponsored && !recMockIds.has(g.id));
-            const dest = sponsored.slice(0, 20);
+            const sponsored = real.filter((g: any) => g.is_sponsored || (g.boost_score ?? 0) > 0);
+            const recReal   = topRecs.filter((r: any) => !!r.id);
 
-            if (recs.length === 0 && dest.length === 0) return null;
+            let destacados: any[], recomendados: any[], populares: any[];
+
+            if (sponsored.length >= 3 || recReal.length >= 3) {
+              // Con datos reales de patrocinio/recomendación
+              destacados = sponsored.slice(0, 20);
+              const destIds = new Set(destacados.map((g: any) => g.id));
+              recomendados = recReal.filter((r: any) => !destIds.has(r.id)).slice(0, 20);
+              const recIds = new Set(recomendados.map((g: any) => g.id));
+              populares = byRating.filter((g: any) => !destIds.has(g.id) && !recIds.has(g.id)).slice(0, 20);
+            } else {
+              // Sin datos reales: repartir los grupos del estado entre las 3 secciones
+              destacados   = byRating.filter((_: any, i: number) => i % 3 === 0).slice(0, 20);
+              recomendados = byRating.filter((_: any, i: number) => i % 3 === 1).slice(0, 20);
+              populares    = byRating.filter((_: any, i: number) => i % 3 === 2).slice(0, 20);
+            }
+
+            const sections = [
+              { key: 'dest', label: t('home.section_featured'),        color: '#E6C25A', border: 'rgba(201,168,76,0.55)', grad: ['rgba(201,168,76,0.28)', 'rgba(201,168,76,0.04)'], items: destacados },
+              { key: 'reco', label: t('home.section_recommendations'), color: COLORS.green, border: 'rgba(0,230,118,0.5)', grad: ['rgba(0,230,118,0.24)', 'rgba(0,230,118,0.03)'], items: recomendados },
+              { key: 'pop',  label: 'Populares',                       color: '#FFFFFF', border: 'rgba(255,255,255,0.28)', grad: ['rgba(255,255,255,0.16)', 'rgba(255,255,255,0.02)'], items: populares },
+            ].filter(s => s.items.length > 0);
+
+            if (sections.length === 0) return null;
+
+            const deckGap = 10;
+            const colW = Math.floor((width - SPACING.xl * 2 - deckGap * (sections.length - 1)) / sections.length);
 
             return (
-              <>
-                {recs.length > 0 && (
-                  <>
-                    <View style={styles.sectionRow}>
-                      <View style={styles.sectionRowLeft}>
-                        <Star size={13} color={COLORS.gold} fill={COLORS.gold} />
-                        <Text style={styles.sectionLabel}>{t('home.section_recommendations')}</Text>
-                      </View>
-                    </View>
-                    <AutoScrollCarousel
-                      items={recs}
-                      itemWidth={FEAT_W}
-                      autoInterval={2800}
-                      renderItem={(item, i) => (
-                        <FeaturedCard
-                          key={item.id}
-                          group={item}
-                          index={i}
-                          navigation={navigation}
-                          isRecommended
-                          isGift={giftMode}
-                        />
-                      )}
+              <View style={styles.deckRow}>
+                {sections.map(sec => (
+                  <View key={sec.key} style={{ width: colW, alignItems: 'center' }}>
+                    <LinearGradient
+                      colors={sec.grad as any}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={[styles.deckLabelChip, { borderColor: sec.border }]}
+                    >
+                      <Text style={[styles.deckLabel, { color: sec.color }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>{sec.label}</Text>
+                    </LinearGradient>
+                    <MiniDeck
+                      items={sec.items}
+                      navigation={navigation}
+                      isGift={giftMode}
+                      variant={sec.key}
+                      colWidth={colW}
                     />
-                    <View style={{ height: 20 }} />
-                  </>
-                )}
-
-                {dest.length > 0 && (
-                  <>
-                    <View style={styles.sectionRow}>
-                      <View style={styles.sectionRowLeft}>
-                        <Star size={13} color='#C9A84C' fill='#C9A84C' />
-                        <Text style={styles.sectionLabel}>{t('home.section_featured')}</Text>
-                      </View>
-                    </View>
-                    <AutoScrollCarousel
-                      items={dest}
-                      itemWidth={FEAT_W}
-                      autoInterval={3200}
-                      renderItem={(item, i) => (
-                        <FeaturedCard
-                          key={item.id}
-                          group={item}
-                          index={i}
-                          navigation={navigation}
-                          isRecommended={false}
-                          isGift={giftMode}
-                        />
-                      )}
-                    />
-                    <View style={{ height: 24 }} />
-                  </>
-                )}
-              </>
+                  </View>
+                ))}
+              </View>
             );
           })()}
 
@@ -1095,46 +1088,6 @@ export default function HomeScreen({ navigation }: any) {
             );
           })()}
 
-          {/* POPULARES EN TU ZONA — solo si no hay anuncios activos */}
-          {(() => {
-            const _now = Date.now();
-            const hasActiveBids = groups.some(
-              g => (g.bid_amount ?? 0) > 0 && g.bid_ends_at && new Date(g.bid_ends_at).getTime() > _now
-            );
-            const hasAds = bannerAds.length > 0 || sponsoredGroupIds.size > 0 || hasActiveBids;
-
-            const trending = !hasAds
-              ? [...groups]
-                  .filter(g => (g.total_reviews ?? 0) > 0 || (g.ranking_score ?? 0) > 0)
-                  .sort((a, b) => (b.ranking_score ?? 0) - (a.ranking_score ?? 0))
-                  .slice(0, 8)
-              : [];
-
-            return (
-              <>
-                {trending.length > 0 && (
-                  <>
-                    <View style={styles.sectionRow}>
-                      <View style={styles.sectionRowLeft}>
-                        <TrendingUp size={14} color={COLORS.green} />
-                        <Text style={styles.sectionLabel}>{t('home.section_popular')}</Text>
-                      </View>
-                    </View>
-                    <ScrollView
-                      horizontal
-                      showsHorizontalScrollIndicator={false}
-                      contentContainerStyle={styles.featuredList}
-                      style={{ marginBottom: 28 }}
-                    >
-                      {trending.map((group, i) => (
-                        <FeaturedCard key={group.id} group={group} index={i} navigation={navigation} isGift={giftMode} />
-                      ))}
-                    </ScrollView>
-                  </>
-                )}
-              </>
-            );
-          })()}
 
           {/* HEADER — SECCIÓN PROGRAMADA */}
           <View style={styles.scheduledHeader}>
@@ -1216,102 +1169,131 @@ export default function HomeScreen({ navigation }: any) {
   );
 }
 
-// ── Featured horizontal card ────────────────────────────────────────────────
-
-// ── Auto-scroll carousel ───────────────────────────────────────────────────
-function AutoScrollCarousel({ items, renderItem, itemWidth, autoInterval = 3500 }: {
-  items: any[];
-  renderItem: (item: any, index: number) => React.ReactNode;
-  itemWidth: number;
-  autoInterval?: number;
-}) {
-  const ref = useRef<FlatList>(null);
-  const idxRef = useRef(0);
+// ── Mini baraja (1 al frente opaca + 2 atrás asomando por los lados) ─────────
+function MiniDeck({ items, navigation, isGift, variant, colWidth }: any) {
+  const [idx, setIdx] = useState(0);
+  const pausedUntil = useRef(0);
+  const n = items.length;
 
   useEffect(() => {
-    if (items.length <= 1) return;
+    if (n <= 1) return;
     const t = setInterval(() => {
-      idxRef.current = (idxRef.current + 1) % items.length;
-      ref.current?.scrollToIndex({ index: idxRef.current, animated: true });
-    }, autoInterval);
+      if (Date.now() < pausedUntil.current) return;
+      setIdx(i => (i + 1) % n);
+    }, 2200);
     return () => clearInterval(t);
-  }, [items.length, autoInterval]);
+  }, [n]);
+
+  const go = (d: number) => { pausedUntil.current = Date.now() + 6000; setIdx(i => (i + d + n) % n); };
+  const goRef = useRef(go);
+  goRef.current = go;
+
+  // Deslizar con el dedo (izq/der). Solo captura el gesto si es horizontal → no roba los taps.
+  const pan = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > 10 && Math.abs(g.dx) > Math.abs(g.dy) * 1.4,
+      onPanResponderGrant: () => { pausedUntil.current = Date.now() + 6000; },
+      onPanResponderRelease: (_, g) => {
+        if (g.dx > 20) goRef.current(-1);        // arrastrar a la derecha → regresa
+        else if (g.dx < -20) goRef.current(1);   // a la izquierda → avanza
+      },
+    })
+  ).current;
+
+  if (n === 0) return null;
+
+  const cardW = Math.round(colWidth * 0.80);
+  const cardH = Math.round(cardW * 1.32);
+  const peek  = Math.round(cardW * 0.22);   // asoman poco → no invaden la columna vecina
+  const leftC = Math.round((colWidth - cardW) / 2);
+
+  const front = items[idx % n];
+  const prev  = items[(idx - 1 + n) % n];
+  const next  = items[(idx + 1) % n];
 
   return (
-    <FlatList
-      ref={ref}
-      data={items}
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      keyExtractor={(item, i) => item.id ?? String(i)}
-      renderItem={({ item, index }) => renderItem(item, index) as React.ReactElement}
-      snapToInterval={itemWidth + 10}
-      decelerationRate="fast"
-      contentContainerStyle={styles.featuredList}
-      onScrollToIndexFailed={() => {}}
-    />
+    <View
+      {...pan.panHandlers}
+      style={{ width: colWidth, height: cardH + 12, justifyContent: 'center', alignItems: 'center' }}
+    >
+      {/* Detrás izquierda */}
+      {n > 1 && (
+        <Pressable
+          onPress={() => go(-1)}
+          style={{ position: 'absolute', top: 6, left: leftC, zIndex: 1, opacity: 0.5, transform: [{ translateX: -peek }, { scale: 0.8 }] }}
+        >
+          <DeckCard group={prev} w={cardW} h={cardH} variant={variant} />
+        </Pressable>
+      )}
+      {/* Detrás derecha */}
+      {n > 2 && (
+        <Pressable
+          onPress={() => go(1)}
+          style={{ position: 'absolute', top: 6, left: leftC, zIndex: 1, opacity: 0.5, transform: [{ translateX: peek }, { scale: 0.8 }] }}
+        >
+          <DeckCard group={next} w={cardW} h={cardH} variant={variant} />
+        </Pressable>
+      )}
+      {/* Al frente (opaca, arriba de todo) */}
+      <Pressable
+        onPress={() => navigation && !front._is_mock && navigation.navigate('GroupDetail', { group: front, isGift })}
+        style={{ zIndex: 3 }}
+      >
+        <DeckCard group={front} w={cardW} h={cardH} variant={variant} />
+      </Pressable>
+      {/* Flechitas — indican que se puede deslizar */}
+      {n > 1 && (
+        <>
+          <Pressable onPress={() => go(-1)} hitSlop={6} style={[styles.deckArrow, { left: 0 }]}>
+            <ChevronLeft size={14} color="#fff" />
+          </Pressable>
+          <Pressable onPress={() => go(1)} hitSlop={6} style={[styles.deckArrow, { right: 0 }]}>
+            <ChevronRight size={14} color="#fff" />
+          </Pressable>
+        </>
+      )}
+    </View>
   );
 }
 
-function FeaturedCard({ group, index, navigation, isRecommended, surgeMultiplier = 1, isGift = false }: any) {
-  const fade = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    Animated.timing(fade, { toValue: 1, duration: 350, delay: index * 40, useNativeDriver: true }).start();
-  }, []);
+function DeckCard({ group, w, h, variant }: any) {
+  // Destacados y Recomendados son pagados. Populares es automático (por eventos) → 📈.
+  const badge =
+    variant === 'reco' ? { t: 'RECO', c: COLORS.green,  emoji: false } :
+    variant === 'dest' ? { t: 'DEST', c: '#C9A84C',     emoji: false } :
+    variant === 'pop'  ? { t: '📈',   c: COLORS.green,  emoji: true } : null;
 
   return (
-    <Animated.View style={{ opacity: fade }}>
-      <Pressable
-        style={styles.featCard}
-        onPress={() => navigation && !group._is_mock && navigation.navigate('GroupDetail', { group, isGift })}
-      >
-        {/* Photo area */}
-        <View style={styles.featPhotoBox}>
-          {group.profile_image ? (
-            <Image source={{ uri: group.profile_image }} style={styles.featImage} resizeMode="cover" />
-          ) : (
-            <View style={[styles.featImage, styles.featImagePlaceholder]}>
-              <Text style={{ fontSize: 28, color: COLORS.muted }}>♪</Text>
-            </View>
-          )}
-          {group._is_mock ? (
-            <View style={styles.featMockBadge}>
-              <Text style={styles.featMockBadgeText}>Demo</Text>
-            </View>
-          ) : isRecommended ? (
-            <View style={styles.featRecommended}>
-              <Text style={styles.featRecommendedText}>⭐ Reco.</Text>
-            </View>
-          ) : group.is_sponsored ? (
-            <View style={styles.featSponsored}>
-              <Text style={styles.featSponsoredText}>⭐ Dest.</Text>
-            </View>
-          ) : (group.is_bid_active || (group.boost_score ?? 0) > 0) ? (
-            <View style={styles.featBoosted}>
-              <Text style={styles.featBoostedText}>🔥</Text>
-            </View>
-          ) : null}
+    <View style={[styles.deckCard, { width: w, height: h }]}>
+      {group.profile_image ? (
+        <Image source={{ uri: group.profile_image }} style={styles.featImage} resizeMode="cover" />
+      ) : (
+        <View style={[styles.featImage, styles.featImagePlaceholder]}>
+          <Text style={{ fontSize: 26, color: COLORS.muted }}>♪</Text>
         </View>
-
-        {/* Text content */}
-        <View style={styles.featContent}>
-          <View style={styles.featNameRow}>
-            <Text style={styles.featName} numberOfLines={1}>{group.name}</Text>
-            {group.is_verified && (
-              <VerifiedBadge size={14} tier={group.is_plus_active ? 'plus' : 'free'} />
-            )}
+      )}
+      <LinearGradient
+        colors={['transparent', 'rgba(0,0,0,0.9)']}
+        locations={[0.42, 1]}
+        style={styles.featGradient}
+      />
+      {badge && !group._is_mock && (
+        badge.emoji ? (
+          <Text style={styles.deckPopEmoji}>{badge.t}</Text>
+        ) : (
+          <View style={[styles.deckBadge, { backgroundColor: badge.c }]}>
+            <Text style={styles.deckBadgeTx}>{badge.t}</Text>
           </View>
-          <View style={styles.featMeta}>
-            <Star size={10} color={COLORS.gold} fill={COLORS.gold} />
-            <Text style={styles.featRating}>{group.rating?.toFixed(1) ?? '4.8'}</Text>
-            <Text style={styles.featDot}>·</Text>
-            <MapPin size={10} color={COLORS.muted2} />
-            <Text style={styles.featCity} numberOfLines={1}>{group.city ?? '—'}</Text>
-          </View>
-          {/* precio omitido en tarjetas del carrusel */}
+        )
+      )}
+      <View style={styles.deckOverlay}>
+        <Text style={styles.deckName} numberOfLines={1}>{group.name}</Text>
+        <View style={styles.deckMeta}>
+          <Star size={9} color={COLORS.gold} fill={COLORS.gold} />
+          <Text style={styles.deckRating}>{group.rating?.toFixed(1) ?? '5.0'}</Text>
         </View>
-      </Pressable>
-    </Animated.View>
+      </View>
+    </View>
   );
 }
 
@@ -1707,8 +1689,8 @@ const styles = StyleSheet.create({
   actionCardPressed: { opacity: 0.6, transform: [{ scale: 0.98 }] },
   actionCardTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, minHeight: 22 },
   actionTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginBottom: 6, minHeight: 22 },
-  actionCta: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 10 },
-  actionCtaTx: { fontFamily: FONTS.bodySemiBold, fontSize: 12.5 },
+  actionCta: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 6 },
+  actionCtaTx: { fontFamily: FONTS.bodySemiBold, fontSize: 12 },
   actionChipGold: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
     backgroundColor: 'rgba(255,179,0,0.12)', borderRadius: RADIUS.full,
@@ -1718,7 +1700,7 @@ const styles = StyleSheet.create({
   actionEmoji:      { fontSize: 20 },
   actionGiftEmoji:  { fontSize: 15 },
   actionTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 15, color: COLORS.text },
-  actionSub:   { flex: 1, fontFamily: FONTS.body, fontSize: 11.5, color: COLORS.muted2, marginTop: 2, lineHeight: 15 },
+  actionSub:   { fontFamily: FONTS.body, fontSize: 11.5, color: COLORS.muted2, marginTop: 2, lineHeight: 15 },
   giftBanner: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
     marginHorizontal: SPACING.xl, marginBottom: 14,
@@ -1825,16 +1807,49 @@ const styles = StyleSheet.create({
   eventTypeLabel: { fontFamily: FONTS.bodyMedium, fontSize: 11, color: COLORS.muted2 },
 
   // Featured horizontal
-  featuredList: { gap: 8, paddingRight: SPACING.xl },
+  featuredList: { gap: 12, paddingLeft: SPACING.xl, paddingRight: SPACING.xl },
   featCard: {
-    width: FEAT_W,
-    borderRadius: RADIUS.xl, overflow: 'hidden',
-    backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border,
+    width: FEAT_W, height: FEAT_H,
+    borderRadius: RADIUS.xl, overflow: 'hidden', position: 'relative',
+    backgroundColor: COLORS.card2, borderWidth: 1, borderColor: COLORS.border,
   },
-  featPhotoBox: { width: '100%', height: 48, position: 'relative' },
-  featImage: { width: '100%', height: '100%' },
+  featImage: { ...StyleSheet.absoluteFillObject, width: '100%', height: '100%' },
   featImagePlaceholder: { backgroundColor: COLORS.card2, alignItems: 'center', justifyContent: 'center' },
-  featGradient: { position: 'absolute', left: 0, right: 0, bottom: 0, height: '60%' },
+  featGradient: { position: 'absolute', left: 0, right: 0, bottom: 0, height: '80%' },
+  featBadgePill: {
+    position: 'absolute', top: 8, left: 8,
+    borderRadius: RADIUS.full, paddingHorizontal: 8, paddingVertical: 3,
+  },
+  featBadgePillTx: { fontFamily: FONTS.bodySemiBold, fontSize: 8, color: '#000', letterSpacing: 0.6 },
+
+  // ── Mini baraja (3 columnas: Destacados · Recomendados · Populares) ──
+  deckRow: { flexDirection: 'row', justifyContent: 'center', gap: 10, paddingHorizontal: SPACING.xl, marginBottom: 24 },
+  deckLabelChip: {
+    alignSelf: 'center', maxWidth: '100%', marginBottom: 11,
+    paddingHorizontal: 8, paddingVertical: 4.5,
+    borderRadius: RADIUS.full, borderWidth: 1,
+  },
+  deckLabel: { fontFamily: FONTS.bodySemiBold, fontSize: 9.5, letterSpacing: 0.1, textAlign: 'center' },
+  deckArrow: {
+    position: 'absolute', top: 0, bottom: 0, width: 22,
+    alignItems: 'center', justifyContent: 'center', zIndex: 5,
+  },
+  deckCard: {
+    borderRadius: RADIUS.lg, overflow: 'hidden', position: 'relative',
+    backgroundColor: COLORS.card2, borderWidth: 1, borderColor: 'rgba(255,255,255,0.10)',
+  },
+  deckBadge: { position: 'absolute', top: 5, left: 5, borderRadius: RADIUS.full, paddingHorizontal: 5, paddingVertical: 2 },
+  deckBadgeTx: { fontFamily: FONTS.bodySemiBold, fontSize: 6.5, color: '#000', letterSpacing: 0.4 },
+  deckPopEmoji: {
+    position: 'absolute', top: 4, left: 5, fontSize: 13,
+    textShadowColor: 'rgba(0,0,0,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3,
+  },
+  deckOverlay: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 6, paddingBottom: 6, paddingTop: 14 },
+  deckName: { fontFamily: FONTS.bodySemiBold, fontSize: 9.5, color: '#fff', lineHeight: 12,
+    textShadowColor: 'rgba(0,0,0,0.7)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 },
+  deckMeta: { flexDirection: 'row', alignItems: 'center', gap: 2, marginTop: 1 },
+  deckRating: { fontFamily: FONTS.bodySemiBold, fontSize: 8.5, color: COLORS.gold },
+  featOverlay: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 11, paddingBottom: 11, paddingTop: 20 },
   featSponsored: {
     position: 'absolute', top: 4, left: 4,
     backgroundColor: '#C9A84C', paddingHorizontal: 5, paddingVertical: 2,
@@ -1854,7 +1869,7 @@ const styles = StyleSheet.create({
   },
   featMockBadgeText: { fontFamily: FONTS.bodySemiBold, fontSize: 8, color: '#fff' },
   featContent: { padding: 5 },
-  featNameRow: { flexDirection: 'row', alignItems: 'center', gap: 3, marginBottom: 1 },
+  featNameRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 3 },
   featVerifiedBadge: {
     width: 12, height: 12, borderRadius: 6,
     backgroundColor: 'rgba(66,133,244,0.25)',
@@ -1868,11 +1883,12 @@ const styles = StyleSheet.create({
     borderRadius: RADIUS.full, marginBottom: 2,
   },
   featGenreText: { fontFamily: FONTS.bodyMedium, fontSize: 8, color: COLORS.green },
-  featName: { fontFamily: FONTS.bodySemiBold, fontSize: 11, color: COLORS.text, lineHeight: 14, flex: 1 },
-  featMeta: { flexDirection: 'row', alignItems: 'center', gap: 2 },
-  featRating: { fontFamily: FONTS.bodyMedium, fontSize: 9, color: COLORS.gold },
-  featDot: { fontFamily: FONTS.body, fontSize: 9, color: COLORS.muted },
-  featCity: { fontFamily: FONTS.body, fontSize: 9, color: COLORS.muted2, flex: 1 },
+  featName: { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: '#fff', lineHeight: 17, flex: 1,
+    textShadowColor: 'rgba(0,0,0,0.6)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4 },
+  featMeta: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  featRating: { fontFamily: FONTS.bodySemiBold, fontSize: 11, color: COLORS.gold },
+  featDot: { fontFamily: FONTS.body, fontSize: 11, color: 'rgba(255,255,255,0.6)' },
+  featCity: { fontFamily: FONTS.body, fontSize: 10.5, color: 'rgba(255,255,255,0.8)', flex: 1 },
   featPrice:       { fontFamily: FONTS.bodySemiBold, fontSize: 9, color: COLORS.green, marginTop: 2 },
   featPriceStrike: { textDecorationLine: 'line-through', color: COLORS.muted, fontSize: 8, marginTop: 1 },
   featPriceSurge:  { color: '#FF6D00', marginTop: 0 },
