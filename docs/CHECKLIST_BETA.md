@@ -126,12 +126,12 @@ Cómo marcar: `[ ]` pendiente · `[x]` pasó · `[!]` falló (anotar abajo en "B
 
 ## 12. Reembolsos
 
-- [ ] Cancelación por cliente dentro de política → reembolso procesado (process-refund).
-- [ ] `process_refund_reversal`: pending_balance del grupo baja lo acreditado (verificar wallet).
-- [ ] Reembolso doble (re-ejecutar) → NO resta dos veces (idempotente).
-- [ ] Cancelación por grupo → strike automático + reembolso al cliente.
-- [ ] Reserva reembolsada NO aparece en "Próximos" del cliente ni genera liberación a las 12h.
-- [ ] payout_status termina en 'refunded' y NO se libera después.
+- [x] Cancelación por cliente dentro de política → reembolso procesado. — VALIDADO 2026-07-11: tarjeta = automático (Conekta "Devolución parcial" $8,100 de $10,800, tier partial_25); SPEI/efectivo = cola manual con CLABE validada, comprobante y notificación (flujo completo probado en teléfono)
+- [x] Reversión de wallet exacta: pending −$9,000, compensación grupo +$1,890 (17.5%), ajuste plataforma −$990. — validado en 2 cancelaciones (efectivo b93a8, tarjeta b1d1)
+- [x] Reembolso doble (re-ejecutar) → NO resta dos veces. — settle idempotente (already_settled) + Idempotency-Key
+- [ ] Cancelación por grupo → strike automático + reembolso al cliente. (C3 pendiente — el grupo aún no puede cancelar desde su app)
+- [x] Reserva reembolsada NO aparece activa ni genera liberación. — ciclo de vida: visible con "reembolso en camino" → "enviado" 7 días → se oculta; triple candado C0/451/424 impide liberar
+- [x] payout_status termina en 'refunded' y NO se libera después. — bugs #465 (cancelled_by check) encontrado y corregido en prueba real
 
 ## 13. Wallet, GPS, liberación 50/50 y retiro
 
