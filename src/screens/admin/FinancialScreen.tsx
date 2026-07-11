@@ -134,6 +134,7 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
   // Cola de reembolsos manuales (SPEI/efectivo)
   const [refunds, setRefunds]           = useState<ManualRefund[]>([]);
   const [refundModal, setRefundModal]   = useState<ManualRefund | null>(null);
+  const [payoutModal, setPayoutModal]   = useState<any | null>(null);   // retiro a completar
   const [refundRef, setRefundRef]       = useState('');
   const [receiptUri, setReceiptUri]     = useState<string | null>(null);
   const [refundSaving, setRefundSaving] = useState(false);
@@ -321,14 +322,56 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
     let q = supabase
       .from('payout_requests')
       .select(`
-        id, group_id, status, amount, clabe, notes, created_at, reviewed_at,
-        group:groups(name)
+        id, group_id, status, amount, clabe, bank_name, transfer_reference,
+        receipt_path, notes, created_at, reviewed_at,
+        group:groups(name, owner_id)
       `)
       .order('created_at', { ascending: false })
       .limit(60);
     if (from) q = q.gte('created_at', from);
     const { data } = await q;
-    setPayouts((data as any) ?? []);
+    // Pendientes primero (cola de trabajo), luego historial
+    const rows = ((data as any) ?? []).sort((a: any, b: any) => {
+      const pa = ['pending', 'approved'].includes(a.status) ? 0 : 1;
+      const pb = ['pending', 'approved'].includes(b.status) ? 0 : 1;
+      return pa - pb || (b.created_at ?? '').localeCompare(a.created_at ?? '');
+    });
+    setPayouts(rows);
+  };
+
+  // Completar retiro: transferencia hecha → referencia + comprobante → notifica al grupo
+  const completePayout = async () => {
+    if (!payoutModal) return;
+    const reference = refundRef.trim();
+    if (!reference) { Alert.alert('Falta la referencia', 'Escribe la clave de rastreo o folio de la transferencia.'); return; }
+    setRefundSaving(true);
+    try {
+      let receiptPath: string | null = null;
+      const ownerId = (payoutModal.group as any)?.owner_id;
+      if (receiptUri && ownerId) {
+        receiptPath = `${ownerId}/payout_${payoutModal.id}.jpg`;
+        const buf = await fetch(receiptUri).then(r => r.arrayBuffer());
+        const { error: upErr } = await supabase.storage
+          .from('refund-receipts')
+          .upload(receiptPath, buf, { contentType: 'image/jpeg', upsert: true });
+        if (upErr) throw new Error(`No se pudo subir el comprobante: ${upErr.message}`);
+      }
+      const { data, error } = await supabase.rpc('admin_complete_payout', {
+        p_payout_id: payoutModal.id,
+        p_transfer_reference: reference,
+        p_receipt_path: receiptPath,
+      });
+      if (error || (data as any)?.ok === false) {
+        throw new Error((data as any)?.error ?? error?.message ?? 'No se pudo completar');
+      }
+      Alert.alert('✅ Retiro completado', 'El grupo fue notificado con su comprobante.');
+      setPayoutModal(null); setRefundRef(''); setReceiptUri(null);
+      fetchPayouts();
+    } catch (e: any) {
+      Alert.alert('Error', e.message ?? 'Intenta de nuevo.');
+    } finally {
+      setRefundSaving(false);
+    }
   };
 
   const fmt = (n: number) =>
@@ -410,6 +453,11 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
                   {tab === 'refunds' && pendingRefunds > 0 && (
                     <View style={s.tabBadge}>
                       <Text style={s.tabBadgeTx}>{pendingRefunds}</Text>
+                    </View>
+                  )}
+                  {tab === 'transfers' && payouts.filter((x: any) => ['pending','approved'].includes(x.status)).length > 0 && (
+                    <View style={s.tabBadge}>
+                      <Text style={s.tabBadgeTx}>{payouts.filter((x: any) => ['pending','approved'].includes(x.status)).length}</Text>
                     </View>
                   )}
                 </Pressable>
@@ -555,42 +603,62 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
             </>
           )}
 
-          {/* ══ TAB: HISTORIAL TRANSFERS ══ */}
+          {/* ══ TAB: RETIROS DE GRUPOS (cola de trabajo + historial) ══ */}
           {activeTab === 'transfers' && (
             <>
-              <Text style={s.sectionTitle}>Historial de Transfers</Text>
+              <Text style={s.sectionTitle}>Retiros de grupos</Text>
+              <Text style={s.refundIntro}>
+                El grupo solicita su retiro → transfieres desde tu banca → subes el
+                comprobante y se le notifica con la foto.
+              </Text>
               {payouts.length === 0 && (
                 <View style={s.emptyCard}>
-                  <Text style={s.emptyText}>Sin transfers en este período</Text>
+                  <Text style={s.emptyText}>Sin retiros en este período</Text>
                 </View>
               )}
-              {payouts.map(p => {
-                const isOk   = p.status === 'processed' || p.status === 'approved';
+              {payouts.map((p: any) => {
+                const isPendingWork = ['pending', 'approved'].includes(p.status);
                 const isFail = p.status === 'rejected';
-                const clabeMasked = p.clabe
-                  ? `CLABE ···${String(p.clabe).slice(-4)}`
-                  : (p.notes?.slice(0, 24) ?? 'Retiro');
+                const stColor = isFail ? '#EF5350' : isPendingWork ? COLORS.orange : COLORS.green;
+                const stLabel = isFail ? 'Rechazado' : isPendingWork ? 'Pendiente' : 'Pagado';
                 return (
-                  <View key={p.id} style={s.payoutRow}>
-                    <View style={[s.payoutIconWrap, isOk ? s.payoutIconOk : isFail ? s.payoutIconFail : s.payoutIconPending]}>
-                      {isOk   ? <CheckCircle size={14} color={COLORS.green} /> :
-                       isFail ? <X           size={14} color="#EF5350" /> :
-                                <Clock       size={14} color={COLORS.orange} />}
+                  <View key={p.id} style={[s.refundCard, isPendingWork && { borderColor: 'rgba(255,179,0,0.45)' }]}>
+                    <View style={s.refundHead}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={s.payoutName} numberOfLines={1}>
+                          {(p.group as any)?.name ?? p.group_id?.slice(0, 8) ?? '—'}
+                        </Text>
+                        <Text style={s.payoutType}>
+                          Solicitado el {new Date(p.created_at).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' })}
+                        </Text>
+                      </View>
+                      <View style={{ alignItems: 'flex-end' }}>
+                        <Text style={[s.payoutAmount, isFail && s.payoutAmountFail]}>{fmt(p.amount)}</Text>
+                        <Text style={[s.refundStatus, { color: stColor }]}>{stLabel}</Text>
+                      </View>
                     </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={s.payoutName} numberOfLines={1}>
-                        {(p.group as any)?.name ?? p.group_id?.slice(0, 8) ?? '—'}
-                      </Text>
-                      <Text style={s.payoutType}>{clabeMasked}</Text>
+                    <View style={s.refundBank}>
+                      {p.clabe ? (
+                        <Text style={s.refundBankTx} selectable>CLABE: {p.clabe}{p.bank_name ? ` · ${p.bank_name}` : ''}</Text>
+                      ) : (
+                        <Text style={[s.refundBankTx, { color: COLORS.orange }]}>⚠️ Sin CLABE registrada</Text>
+                      )}
+                      {p.status === 'paid' && (
+                        <Text style={s.refundBankTx}>
+                          Ref: {p.transfer_reference ?? '—'} · {p.receipt_path ? '📎 con comprobante' : 'sin comprobante'}
+                        </Text>
+                      )}
                     </View>
-                    <View style={{ alignItems: 'flex-end' }}>
-                      <Text style={[s.payoutAmount, isFail && s.payoutAmountFail]}>
-                        {fmt(p.amount)}
-                      </Text>
-                      <Text style={s.payoutDate}>
-                        {new Date(p.created_at).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' })}
-                      </Text>
-                    </View>
+                    {isPendingWork && (
+                      <View style={s.refundActions}>
+                        <Pressable
+                          style={s.refundBtn}
+                          onPress={() => { setPayoutModal(p); setRefundRef(''); setReceiptUri(null); }}
+                        >
+                          <Text style={s.refundBtnTx}>✓ Ya transferí</Text>
+                        </Pressable>
+                      </View>
+                    )}
                   </View>
                 );
               })}
@@ -770,16 +838,22 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
           <View style={{ height: 40 }} />
         </ScrollView>
 
-        {/* ── Modal: completar reembolso manual ── */}
-        <Modal visible={!!refundModal} transparent animationType="slide" onRequestClose={() => setRefundModal(null)}>
+        {/* ── Modal: completar transferencia (reembolso o retiro) ── */}
+        <Modal
+          visible={!!refundModal || !!payoutModal}
+          transparent animationType="slide"
+          onRequestClose={() => { setRefundModal(null); setPayoutModal(null); }}
+        >
           <KeyboardAvoidingView
             style={s.refundModalOverlay}
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           >
             <View style={s.refundModalSheet}>
               <View style={s.refundModalHead}>
-                <Text style={s.refundModalTitle}>Confirmar transferencia</Text>
-                <Pressable onPress={() => setRefundModal(null)} hitSlop={8}>
+                <Text style={s.refundModalTitle}>
+                  {payoutModal ? 'Confirmar retiro transferido' : 'Confirmar transferencia'}
+                </Text>
+                <Pressable onPress={() => { setRefundModal(null); setPayoutModal(null); }} hitSlop={8}>
                   <X size={20} color={COLORS.muted2} />
                 </Pressable>
               </View>
@@ -788,6 +862,12 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
                 <Text style={s.refundIntro}>
                   {refundModal.client_name} · {fmt(refundModal.amount)}
                   {refundModal.clabe ? ` · CLABE ···${String(refundModal.clabe).slice(-4)}` : ''}
+                </Text>
+              )}
+              {payoutModal && (
+                <Text style={s.refundIntro}>
+                  {(payoutModal.group as any)?.name ?? 'Grupo'} · {fmt(payoutModal.amount)}
+                  {payoutModal.clabe ? ` · CLABE ···${String(payoutModal.clabe).slice(-4)}` : ''}
                 </Text>
               )}
               <Text style={s.refundModalLabel}>Referencia / clave de rastreo *</Text>
@@ -806,7 +886,7 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
               </Pressable>
               <Pressable
                 style={[s.refundBtn, { marginTop: 14 }, refundSaving && { opacity: 0.5 }]}
-                onPress={completeRefund}
+                onPress={payoutModal ? completePayout : completeRefund}
                 disabled={refundSaving}
               >
                 {refundSaving

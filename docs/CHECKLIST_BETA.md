@@ -133,15 +133,17 @@ Cómo marcar: `[ ]` pendiente · `[x]` pasó · `[!]` falló (anotar abajo en "B
 - [x] Reserva reembolsada NO aparece activa ni genera liberación. — ciclo de vida: visible con "reembolso en camino" → "enviado" 7 días → se oculta; triple candado C0/451/424 impide liberar
 - [x] payout_status termina en 'refunded' y NO se libera después. — bugs #465 (cancelled_by check) encontrado y corregido en prueba real
 
-## 13. Wallet, GPS, liberación 50/50 y retiro
+## 13. Wallet, GPS, liberación 100% al finalizar y retiro
+> ⚠️ MODELO CAMBIADO 2026-07-11 (sql/467): ya NO hay 50% al llegar. GPS = solo
+> verificación anti no-show; el 100% se libera al FINALIZAR el evento; retiro =
+> admin transfiere manual con comprobante (espejo de reembolsos).
 
-- [ ] Pago confirmado → payout_status='held', pending_balance= base_price.
-- [ ] GPS llegada: a >250m NO deja marcar llegada; a <200m sí (candado server-side sql/424).
-- [ ] Llegada verificada → se libera el 50% (verificar montos exactos en wallet_transactions).
-- [ ] Evento termina → 12h después el cron libera el 50% restante (o probar con admin_release_reservation).
-- [ ] available_balance = suma de liberados; pending = lo retenido. Correr `check_wallet_integrity` → 0 inconsistencias.
+- [x] Pago confirmado → payout_status='held', pending_balance = group_earnings. — validado con 4 pagos 2026-07-10
+- [ ] GPS llegada: a >250m NO deja marcar llegada; a <200m sí (candado sql/467, mismo umbral que 424). SIN movimiento de dinero — solo "✅ Llegada registrada".
+- [ ] Evento FINALIZA → release_group_earnings_atomic libera el 100% del base a disponible (verificar monto exacto).
+- [ ] available/pending cuadran tras liberar. Correr `check_wallet_integrity` → 0 inconsistencias. (Nota: bug del fallback 0.9 en settle encontrado 2026-07-11 → corregido + reconciliado +$1,440 en sql/467.)
 - [ ] Disputa abierta → BLOQUEA la liberación.
-- [ ] Retiro: request_withdrawal descuenta de group_wallets (fix sql/460), estado pendiente → admin aprueba → estado pagado.
+- [ ] Retiro: grupo solicita → cola en admin (pestaña Transfers con badge) → admin transfiere → referencia + comprobante → grupo notificado con foto (admin_complete_payout).
 - [ ] Retiro por más del disponible → rechazado con mensaje claro.
 - [ ] Grupo NO ve comisión/desglose de la plataforma en ninguna pantalla (solo "Tu ganancia"); cliente solo ve "Total a pagar".
 

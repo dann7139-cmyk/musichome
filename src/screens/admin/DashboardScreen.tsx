@@ -241,7 +241,7 @@ export default function AdminDashboardScreen({ navigation }: any) {
   };
 
   // Opción B: forzar inicio de un evento atorado (GPS roto, etc.). Auditado
-  // en la RPC; el 50% sigue requiriendo llegada GPS (no se salta el anti-fraude).
+  // en la RPC; la llegada GPS sigue siendo obligatoria (no se salta el anti-fraude).
   const forceStartEvent = async (reservationId: string) => {
     setResolvingId(reservationId);
     try {
@@ -252,7 +252,7 @@ export default function AdminDashboardScreen({ navigation }: any) {
         Alert.alert('No se pudo forzar el inicio', (data as any)?.error ?? error?.message ?? 'Intenta de nuevo.');
         return;
       }
-      Alert.alert('Evento iniciado', 'Se marcó como en curso y se notificó al grupo y al cliente. El 50% se libera cuando el grupo marque su llegada.');
+      Alert.alert('Evento iniciado', 'Se marcó como en curso y se notificó al grupo y al cliente. El pago se libera al finalizar; la llegada GPS sigue siendo obligatoria.');
       await fetchAll();
     } finally {
       setResolvingId(null);
@@ -320,7 +320,7 @@ export default function AdminDashboardScreen({ navigation }: any) {
           text: '▶️ Forzar inicio del evento',
           onPress: () => Alert.alert(
             'Forzar inicio',
-            'Marca el evento como iniciado (GPS roto o grupo que sí llegó pero no pudo registrar). El 50% seguirá requiriendo que el grupo marque su llegada.',
+            'Marca el evento como iniciado (GPS roto o grupo que sí llegó pero no pudo registrar). La llegada GPS del grupo sigue siendo obligatoria; el pago se libera al finalizar.',
             [
               { text: 'Cancelar', style: 'cancel' },
               { text: 'Forzar inicio', onPress: () => forceStartEvent(ev.id) },
@@ -815,7 +815,7 @@ export default function AdminDashboardScreen({ navigation }: any) {
                 </Text>
               </View>
               <Text style={s.stuckHint}>
-                Confirmados y pagados, con la hora ya pasada y sin llegada GPS. Fuerza el inicio si el grupo sí está tocando. El 50% sigue requiriendo la llegada real.
+                Confirmados y pagados, con la hora ya pasada y sin llegada GPS. Fuerza el inicio si el grupo sí está tocando. La llegada real sigue siendo obligatoria; el pago se libera al finalizar.
               </Text>
               {stuckEvents.map((ev: any) => (
                 <View key={ev.id} style={s.noShowRow}>

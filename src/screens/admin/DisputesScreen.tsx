@@ -112,7 +112,7 @@ export default function AdminDisputesScreen({ navigation }: any) {
       Alert.alert(
         'Resolver a favor del CLIENTE',
         'Se revertirá el saldo pendiente del grupo y se notificará el veredicto a ambas partes.\n\n' +
-        '⚠️ IMPORTANTE: revisa manualmente el reembolso al cliente (Stripe) y el 50% ya liberado al grupo ' +
+        '⚠️ IMPORTANTE: revisa manualmente el reembolso al cliente y cualquier pago ya liberado al grupo ' +
         '— no se procesan automáticamente todavía.\n\n¿Confirmas?',
         [
           { text: 'Cancelar', style: 'cancel' },

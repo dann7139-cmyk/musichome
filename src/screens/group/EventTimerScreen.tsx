@@ -1411,7 +1411,7 @@ export default function EventTimerScreen({ route, navigation }: any) {
 
   const _doArriveFlow = async (lat: number | null, lng: number | null) => {
     // El RPC marca group_arrived_at atómicamente (candado GPS server-side,
-    // sql/424) y libera el 50%. Sin OK del server, NO se marca llegada.
+    // sql/467) — SOLO verificación; el pago completo se libera al finalizar.
     const { data: rel, error: relErr } = await supabase.rpc('release_half_on_arrival', {
       p_reservation_id: reservation.id,
       p_lat: lat,
@@ -1431,7 +1431,7 @@ export default function EventTimerScreen({ route, navigation }: any) {
       }
       return;
     }
-    if (rel?.amount_released) console.log('[Arrival] 50% liberado:', rel.amount_released);
+    console.log('[Arrival] Llegada verificada — el pago completo se libera al finalizar.');
 
     const ts = new Date().toISOString();
     setHasArrived(true);
