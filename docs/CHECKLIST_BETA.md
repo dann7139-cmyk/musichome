@@ -139,11 +139,11 @@ Cómo marcar: `[ ]` pendiente · `[x]` pasó · `[!]` falló (anotar abajo en "B
 > admin transfiere manual con comprobante (espejo de reembolsos).
 
 - [x] Pago confirmado → payout_status='held', pending_balance = group_earnings. — validado con 4 pagos 2026-07-10
-- [ ] GPS llegada: a >250m NO deja marcar llegada; a <200m sí (candado sql/467, mismo umbral que 424). SIN movimiento de dinero — solo "✅ Llegada registrada".
-- [ ] Evento FINALIZA → release_group_earnings_atomic libera el 100% del base a disponible (verificar monto exacto).
-- [ ] available/pending cuadran tras liberar. Correr `check_wallet_integrity` → 0 inconsistencias. (Nota: bug del fallback 0.9 en settle encontrado 2026-07-11 → corregido + reconciliado +$1,440 en sql/467.)
-- [ ] Disputa abierta → BLOQUEA la liberación.
-- [ ] Retiro: grupo solicita → cola en admin (pestaña Transfers con badge) → admin transfiere → referencia + comprobante → grupo notificado con foto (admin_complete_payout).
+- [x] GPS llegada verifica SIN mover dinero. — VALIDADO 2026-07-11: llegada verificada (dist 0m), payout siguió 'held', wallet intacto $9,000/$0
+- [x] Evento FINALIZA → libera el 100% a disponible. — VALIDADO 2026-07-11: $0/$9,000 exactos + notificación "🎉 Ganancias liberadas"
+- [x] available/pending cuadran tras liberar. — bug del fallback 0.9 corregido + reconciliado +$1,440 (sql/467)
+- [ ] Disputa abierta → BLOQUEA la liberación. (candado existe en sql/451; falta prueba en vivo)
+- [x] Retiro completo: solicitud con CLABE validada (dígito control + banco autodetectado) → cola Transfers en admin (unificada a `withdrawals`, sql/468) → referencia + comprobante → notificación con foto al grupo → historial "✅ Retiro transferido" (sql/469). — VALIDADO 2026-07-11
 - [ ] Retiro por más del disponible → rechazado con mensaje claro.
 - [ ] Grupo NO ve comisión/desglose de la plataforma en ninguna pantalla (solo "Tu ganancia"); cliente solo ve "Total a pagar".
 

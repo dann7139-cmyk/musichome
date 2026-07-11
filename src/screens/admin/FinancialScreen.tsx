@@ -27,6 +27,7 @@ import {
   View,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
@@ -172,7 +173,19 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
     const res = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'], quality: 0.8, allowsEditing: false,
     });
-    if (!res.canceled && res.assets?.[0]?.uri) setReceiptUri(res.assets[0].uri);
+    if (res.canceled || !res.assets?.[0]?.uri) return;
+    // Comprimir ANTES de subir (una foto de celular pesa 3-8 MB; así queda
+    // en ~100-300 KB y el "Marcar como enviado" tarda 1-2 s, no 10+)
+    try {
+      const small = await ImageManipulator.manipulateAsync(
+        res.assets[0].uri,
+        [{ resize: { width: 1200 } }],
+        { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG },
+      );
+      setReceiptUri(small.uri);
+    } catch {
+      setReceiptUri(res.assets[0].uri);   // fallback: subir original
+    }
   };
 
   const completeRefund = async () => {
@@ -895,7 +908,12 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
                 disabled={refundSaving}
               >
                 {refundSaving
-                  ? <ActivityIndicator size="small" color="#000" />
+                  ? (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <ActivityIndicator size="small" color="#000" />
+                      <Text style={s.refundBtnTx}>{receiptUri ? 'Subiendo comprobante…' : 'Enviando…'}</Text>
+                    </View>
+                  )
                   : <Text style={s.refundBtnTx}>Marcar como enviado y notificar</Text>}
               </Pressable>
               </ScrollView>
