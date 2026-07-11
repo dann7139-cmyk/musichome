@@ -587,6 +587,17 @@ function ReservationCard({ reservation: r, navigation, onUpdate, isReviewed, isJ
   const [clabeInput,          setClabeInput]          = useState('');
   const [holderInput,         setHolderInput]         = useState('');
   const [bankInput,           setBankInput]           = useState('');
+  // Estado visible del reembolso en canceladas (manual_refunds propio, RLS)
+  const [refundInfo,          setRefundInfo]          = useState<any>(null);
+  useEffect(() => {
+    if (r.status === 'cancelled' && !r._isQuote && r.mp_payment_id) {
+      supabase.from('manual_refunds')
+        .select('status, due_date, amount')
+        .eq('reservation_id', r.id)
+        .maybeSingle()
+        .then(({ data }) => setRefundInfo(data));
+    }
+  }, [r.status, r.id]);
   const [countdown,           setCountdown]           = useState('');
   const [rescheduleVisible,   setRescheduleVisible]   = useState(false);
   const [rescheduleDate,      setRescheduleDate]      = useState('');
@@ -1295,14 +1306,32 @@ function ReservationCard({ reservation: r, navigation, onUpdate, isReviewed, isJ
         </View>
       )}
 
-      {/* ── Reserva cancelada con pago: estado del reembolso ── */}
+      {/* ── Reserva cancelada con pago: estado del reembolso VISIBLE ── */}
       {r.status === 'cancelled' && !r._isQuote && !!r.mp_payment_id && (
-        <View style={styles.completedActions}>
-          <Pressable style={styles.shareBtn} onPress={viewRefundStatus}>
-            <FileText size={13} color={COLORS.muted2} />
-            <Text style={styles.shareBtnText}>Ver reembolso</Text>
-          </Pressable>
-        </View>
+        <Pressable style={styles.refundStrip} onPress={viewRefundStatus}>
+          {refundInfo?.status === 'sent' ? (
+            <>
+              <Text style={styles.refundStripEmoji}>✅</Text>
+              <Text style={[styles.refundStripText, { color: COLORS.green }]}>
+                Reembolso enviado — toca para ver el comprobante
+              </Text>
+            </>
+          ) : refundInfo ? (
+            <>
+              <Text style={styles.refundStripEmoji}>💸</Text>
+              <Text style={[styles.refundStripText, { color: COLORS.orange }]}>
+                Reembolso en camino — a más tardar el {new Date(refundInfo.due_date + 'T12:00:00').toLocaleDateString('es-MX', { day: '2-digit', month: 'short' })}
+              </Text>
+            </>
+          ) : (
+            <>
+              <Text style={styles.refundStripEmoji}>💸</Text>
+              <Text style={[styles.refundStripText, { color: COLORS.muted2 }]}>
+                Reembolso emitido a tu método de pago (3-10 días hábiles)
+              </Text>
+            </>
+          )}
+        </Pressable>
       )}
 
       {/* ── Acciones compactas del evento finalizado ── */}
@@ -1691,6 +1720,17 @@ const styles = StyleSheet.create({
     paddingVertical: 15, alignItems: 'center', marginTop: 8,
   },
   clabeSubmitTx: { fontFamily: FONTS.bodySemiBold, fontSize: 15, color: '#000' },
+
+  // Franja de estado del reembolso (reservas canceladas)
+  refundStrip: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    marginHorizontal: 14, marginBottom: 12, marginTop: 2,
+    backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: RADIUS.md,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
+    paddingHorizontal: 12, paddingVertical: 10,
+  },
+  refundStripEmoji: { fontSize: 14 },
+  refundStripText:  { fontFamily: FONTS.bodyMedium, fontSize: 12, flex: 1, lineHeight: 16 },
   rescheduleHint: {
     fontFamily: FONTS.body, fontSize: 13, color: COLORS.muted2, marginBottom: 16, lineHeight: 18,
   },

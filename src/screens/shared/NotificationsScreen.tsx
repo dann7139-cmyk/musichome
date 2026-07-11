@@ -779,7 +779,9 @@ export default function NotificationsScreen({ navigation }: any) {
         // Fallback genérico: si la notificación tiene data.screen, navegar ahí
         const screen = notif.data?.screen as string | undefined;
         if (screen) {
-          try { navigation.navigate(screen as any); } catch { /* pantalla inválida */ }
+          // Reembolso manual → abrir el panel financiero YA en la pestaña 💸
+          const params = notif.data?.manual_refund_id ? { initialTab: 'refunds' } : undefined;
+          try { navigation.navigate(screen as any, params); } catch { /* pantalla inválida */ }
         }
         break;
       }

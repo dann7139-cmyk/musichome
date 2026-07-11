@@ -114,13 +114,18 @@ function daysFrom(filter: DateFilter): number | null {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export default function AdminFinancialScreen({ navigation }: any) {
+export default function AdminFinancialScreen({ navigation, route }: any) {
   const [overview, setOverview]         = useState<FinancialOverview | null>(null);
   const [eventFinancials, setEventFins] = useState<EventFinancial[]>([]);
   const [payouts, setPayouts]           = useState<Payout[]>([]);
   const [adIncome, setAdIncome]         = useState<any[]>([]);
   const [filter, setFilter]             = useState<DateFilter>('30d');
-  const [activeTab, setActiveTab]       = useState<TabView>('overview');
+  const [activeTab, setActiveTab]       = useState<TabView>(route?.params?.initialTab ?? 'overview');
+
+  // Si la pantalla ya está montada y llega una notificación con initialTab
+  useEffect(() => {
+    if (route?.params?.initialTab) setActiveTab(route.params.initialTab);
+  }, [route?.params?.initialTab]);
   const [loading, setLoading]           = useState(true);
   const [refreshing, setRefreshing]     = useState(false);
   // Cola de reembolsos manuales (SPEI/efectivo)
@@ -380,25 +385,32 @@ export default function AdminFinancialScreen({ navigation }: any) {
             ))}
           </View>
 
-          {/* TABS */}
+          {/* TABS (scrolleables — 5 secciones ya no caben en una fila fija) */}
           <View style={s.tabRow}>
-            {(['overview', 'events', 'ads', 'transfers', 'refunds'] as TabView[]).map(tab => {
-              const pendingRefunds = refunds.filter(x => x.status !== 'sent').length;
-              return (
-              <Pressable
-                key={tab}
-                style={[s.tab, activeTab === tab && s.tabActive]}
-                onPress={() => setActiveTab(tab)}
-              >
-                <Text style={[s.tabText, activeTab === tab && s.tabTextActive]}>
-                  {tab === 'overview' ? 'Resumen'
-                    : tab === 'events' ? 'Eventos'
-                    : tab === 'ads'    ? '📢 Publicidad'
-                    : tab === 'refunds' ? `💸 Reembolsos${pendingRefunds > 0 ? ` (${pendingRefunds})` : ''}`
-                    : 'Transfers'}
-                </Text>
-              </Pressable>
-            );})}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.tabRowContent}>
+              {(['overview', 'refunds', 'events', 'ads', 'transfers'] as TabView[]).map(tab => {
+                const pendingRefunds = refunds.filter(x => x.status !== 'sent').length;
+                return (
+                <Pressable
+                  key={tab}
+                  style={[s.tab, activeTab === tab && s.tabActive]}
+                  onPress={() => setActiveTab(tab)}
+                >
+                  <Text style={[s.tabText, activeTab === tab && s.tabTextActive]}>
+                    {tab === 'overview' ? 'Resumen'
+                      : tab === 'events' ? 'Eventos'
+                      : tab === 'ads'    ? '📢 Publicidad'
+                      : tab === 'refunds' ? '💸 Reembolsos'
+                      : 'Transfers'}
+                  </Text>
+                  {tab === 'refunds' && pendingRefunds > 0 && (
+                    <View style={s.tabBadge}>
+                      <Text style={s.tabBadgeTx}>{pendingRefunds}</Text>
+                    </View>
+                  )}
+                </Pressable>
+              );})}
+            </ScrollView>
           </View>
 
           {/* ══ TAB: RESUMEN ══ */}
@@ -870,11 +882,14 @@ const s = StyleSheet.create({
   filterChipTextActive: { color: COLORS.bg },
 
   // Tabs
-  tabRow:       { flexDirection: 'row', backgroundColor: COLORS.card, borderRadius: RADIUS.lg, borderWidth: 1, borderColor: COLORS.border, padding: 4 },
-  tab:          { flex: 1, paddingVertical: 9, alignItems: 'center', borderRadius: RADIUS.md },
+  tabRow:       { backgroundColor: COLORS.card, borderRadius: RADIUS.lg, borderWidth: 1, borderColor: COLORS.border, padding: 4 },
+  tabRowContent:{ flexDirection: 'row', gap: 2 },
+  tab:          { paddingVertical: 9, paddingHorizontal: 14, alignItems: 'center', borderRadius: RADIUS.md, flexDirection: 'row', gap: 6 },
   tabActive:    { backgroundColor: COLORS.green },
   tabText:      { fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.muted },
   tabTextActive:{ color: COLORS.bg, fontFamily: FONTS.bodySemiBold },
+  tabBadge:     { backgroundColor: '#EF5350', borderRadius: RADIUS.full, minWidth: 18, height: 18, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
+  tabBadgeTx:   { fontFamily: FONTS.bodySemiBold, fontSize: 10, color: '#fff' },
 
   // KPI grid
   kpiRow: { flexDirection: 'row', gap: 12 },
