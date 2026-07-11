@@ -7,7 +7,9 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -1205,7 +1207,10 @@ function ReservationCard({ reservation: r, navigation, onUpdate, isReviewed, isJ
       {/* ── Modal Reprogramar ── */}
       {/* ── Modal CLABE — reembolso manual SPEI/efectivo ── */}
       <Modal visible={clabeOpen} transparent animationType="slide" onRequestClose={() => setClabeOpen(false)}>
-        <View style={styles.rescheduleOverlay}>
+        <KeyboardAvoidingView
+          style={styles.rescheduleOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
           <View style={styles.rescheduleSheet}>
             <View style={styles.rescheduleHeader}>
               <Text style={styles.rescheduleTitle}>¿A qué cuenta te reembolsamos?</Text>
@@ -1265,7 +1270,7 @@ function ReservationCard({ reservation: r, navigation, onUpdate, isReviewed, isJ
                 : <Text style={styles.clabeSubmitTx}>Confirmar y cancelar reserva</Text>}
             </Pressable>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       <Modal visible={rescheduleVisible} transparent animationType="slide">

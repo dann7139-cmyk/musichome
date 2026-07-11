@@ -14,7 +14,9 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -768,7 +770,10 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
 
         {/* ── Modal: completar reembolso manual ── */}
         <Modal visible={!!refundModal} transparent animationType="slide" onRequestClose={() => setRefundModal(null)}>
-          <View style={s.refundModalOverlay}>
+          <KeyboardAvoidingView
+            style={s.refundModalOverlay}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          >
             <View style={s.refundModalSheet}>
               <View style={s.refundModalHead}>
                 <Text style={s.refundModalTitle}>Confirmar transferencia</Text>
@@ -806,7 +811,7 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
                   : <Text style={s.refundBtnTx}>Marcar como enviado y notificar</Text>}
               </Pressable>
             </View>
-          </View>
+          </KeyboardAvoidingView>
         </Modal>
       </SafeAreaView>
     </View>
