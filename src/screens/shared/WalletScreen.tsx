@@ -353,39 +353,9 @@ export default function WalletScreen({ navigation }: any) {
             ) : null}
           </View>
 
-          {/* Stripe Connect */}
-          <Pressable
-            style={[st.stripeCard, stripeOk && st.stripeCardActive]}
-            onPress={handleConnectStripe}
-            disabled={stripeLoading}
-          >
-            {stripeLoading ? (
-              <ActivityIndicator size="small" color={COLORS.green} style={{ marginRight: 12 }} />
-            ) : stripeOk ? (
-              <CheckCircle size={20} color={COLORS.green} />
-            ) : (
-              <CreditCard size={20} color={COLORS.orange} />
-            )}
-            <View style={{ flex: 1, marginLeft: 12 }}>
-              {stripeOk ? (
-                <>
-                  <Text style={st.stripeTitle}>{t('wallet.stripe_verified')}</Text>
-                  <Text style={st.stripeSub}>{t('wallet.stripe_verified_sub')}</Text>
-                </>
-              ) : stripeLinked ? (
-                <>
-                  <Text style={st.stripeTitleWarn}>{t('wallet.stripe_pending')}</Text>
-                  <Text style={st.stripeSub}>{t('wallet.stripe_connect_sub')}</Text>
-                </>
-              ) : (
-                <>
-                  <Text style={st.stripeTitleWarn}>{t('wallet.stripe_connect')}</Text>
-                  <Text style={st.stripeSub}>{t('wallet.stripe_connect_sub')}</Text>
-                </>
-              )}
-            </View>
-            <ExternalLink size={16} color={stripeOk ? COLORS.green : COLORS.orange} />
-          </Pressable>
+          {/* Retiros: transferencia SPEI procesada por Daricefy con comprobante.
+              (El onboarding de Stripe Connect quedó fuera del modelo v2 —
+              la CLABE se captura en el formulario de retiro.) */}
 
           {/* Info */}
           <View style={st.feeCard}>

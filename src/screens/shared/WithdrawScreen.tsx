@@ -16,6 +16,7 @@ import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import Button from '../../components/ui/Button';
 import Particles from '../../components/ui/Particles';
+import { validateClabe, bankFromClabe } from '../../utils/clabe';
 
 function formatCurrency(n: number) {
   return '$' + Number(n ?? 0).toLocaleString('es-MX', { minimumFractionDigits: 0 });
@@ -57,19 +58,23 @@ export default function WithdrawScreen({ route, navigation }: any) {
     if (numAmount > available) {
       Alert.alert('Error', `El monto supera tu saldo disponible (${formatCurrency(available)}).`); return;
     }
-    if (clabe.length !== 18 || !/^\d{18}$/.test(clabe)) {
-      Alert.alert('Error', 'La CLABE debe tener exactamente 18 dígitos numéricos.'); return;
+    const clabeCheck = validateClabe(clabe);
+    if (!clabeCheck.valid) {
+      Alert.alert('CLABE inválida', clabeCheck.error); return;
     }
-    if (!bankName.trim()) {
+    const detectedBank = bankFromClabe(clabe);
+    const finalBank = detectedBank ?? bankName.trim();
+    if (!finalBank) {
       Alert.alert('Error', 'Ingresa el nombre del banco.'); return;
     }
+    if (detectedBank && detectedBank !== bankName.trim()) setBankName(detectedBank);
     if (!accountHolder.trim()) {
       Alert.alert('Error', 'Ingresa el nombre del titular.'); return;
     }
 
     Alert.alert(
       'Confirmar retiro',
-      `¿Retirar ${formatCurrency(numAmount)} a la cuenta CLABE ${clabe.slice(0, 4)}...${clabe.slice(-4)}?`,
+      `¿Retirar ${formatCurrency(numAmount)} a tu cuenta?\n\n${finalBank} · terminación ${clabe.slice(-4)}\nTitular: ${accountHolder.trim()}`,
       [
         { text: 'Cancelar', style: 'cancel' },
         {
@@ -79,7 +84,7 @@ export default function WithdrawScreen({ route, navigation }: any) {
             const { data, error } = await supabase.rpc('request_withdrawal', {
               p_amount:         numAmount,
               p_bank_clabe:     clabe,
-              p_bank_name:      bankName.trim(),
+              p_bank_name:      finalBank,
               p_account_holder: accountHolder.trim(),
             });
             setLoading(false);
