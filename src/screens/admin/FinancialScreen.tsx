@@ -34,6 +34,7 @@ import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import Particles from '../../components/ui/Particles';
 import { calcGroupEarnings, calcServiceFee } from '../../utils/calculations';
+import { flagFor, placeLine, methodLabel } from '../../utils/countryFormat';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -83,6 +84,11 @@ interface ManualRefund {
   folio:              string | null;
   client_name:        string | null;
   client_phone:       string | null;
+  country_code:       string | null;   // 'MX' | 'US' (sql/470)
+  country:            string | null;
+  state:              string | null;
+  city:               string | null;
+  currency:           string | null;   // 'MXN' | 'USD'
   payment_method:     string;
   amount:             number;
   clabe:              string | null;
@@ -140,15 +146,15 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
   const [refundRef, setRefundRef]       = useState('');
   const [receiptUri, setReceiptUri]     = useState<string | null>(null);
   const [refundSaving, setRefundSaving] = useState(false);
-  // Toolbar de las colas (Reembolsos/Transfers): búsqueda + filtro rápido.
-  // 🇲🇽/🇺🇸 futuro: agregar aquí chips de país y moneda — las tarjetas y
-  // filtros ya operan sobre countryOf(); nada más se rehace.
+  // Toolbar de las colas (Reembolsos/Transfers): búsqueda + filtros rápidos.
+  // Binacional 🇲🇽/🇺🇸 desde sql/470: el país/moneda vienen del servidor.
   const [qSearch, setQSearch] = useState('');
   const [qFilter, setQFilter] = useState<'pending' | 'done' | 'all'>('pending');
-  const countryOf = (_x: any) => 'MX';   // ← cuando existan grupos US: _x.country ?? 'MX'
+  const [qCountry, setQCountry] = useState<'all' | 'MX' | 'US'>('all');
 
-  const matchesQueue = (statusGroup: 'pending' | 'done', ...fields: (string | null | undefined)[]) => {
+  const matchesQueue = (statusGroup: 'pending' | 'done', countryCode: string | null | undefined, ...fields: (string | null | undefined)[]) => {
     if (qFilter !== 'all' && statusGroup !== qFilter) return false;
+    if (qCountry !== 'all' && (countryCode ?? 'MX') !== qCountry) return false;
     const q = qSearch.trim().toLowerCase();
     if (!q) return true;
     return fields.some(f => (f ?? '').toLowerCase().includes(q));
@@ -165,12 +171,17 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
 
   // Toolbar de cola: KPI de dinero pendiente + búsqueda + filtros rápidos.
   // Es una función (no componente) para no perder el foco del TextInput.
-  const renderQueueToolbar = (opts: { label: string; amount: number; count: number; overdue?: number }) => (
+  const renderQueueToolbar = (opts: { label: string; amount: number; count: number; overdue?: number; usdAmount?: number }) => (
     <>
       <View style={s.kpiPendingCard}>
         <View style={{ flex: 1 }}>
           <Text style={s.kpiPendingLabel}>{opts.label}</Text>
-          <Text style={s.kpiPendingAmount}>{fmt(opts.amount)}</Text>
+          <Text style={s.kpiPendingAmount}>{fmt(opts.amount)} <Text style={s.currencyTag}>MXN</Text></Text>
+          {(opts.usdAmount ?? 0) > 0 && (
+            <Text style={[s.kpiPendingAmount, { fontSize: 16, color: COLORS.blue }]}>
+              {fmt(opts.usdAmount!)} <Text style={s.currencyTag}>USD 🇺🇸</Text>
+            </Text>
+          )}
         </View>
         <View style={{ alignItems: 'flex-end', gap: 4 }}>
           <View style={[s.statusPill, { backgroundColor: 'rgba(255,179,0,0.14)', borderColor: COLORS.orange }]}>
@@ -199,6 +210,17 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
               onPress={() => setQFilter(key)}
             >
               <Text style={[s.queueChipTx, qFilter === key && s.queueChipTxActive]}>{lbl}</Text>
+            </Pressable>
+          ))}
+        </View>
+        <View style={s.queueChips}>
+          {([['all', '🌎 Todos'], ['MX', '🇲🇽 México'], ['US', '🇺🇸 EE.UU.']] as const).map(([key, lbl]) => (
+            <Pressable
+              key={key}
+              style={[s.queueChip, qCountry === key && s.queueChipActive]}
+              onPress={() => setQCountry(key)}
+            >
+              <Text style={[s.queueChipTx, qCountry === key && s.queueChipTxActive]}>{lbl}</Text>
             </Pressable>
           ))}
         </View>
@@ -397,26 +419,13 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
 
   // ── Historial de retiros (payout_requests) ───────────────────────────────
   const fetchPayouts = async () => {
-    // Fuente única: `withdrawals` (donde escribe request_withdrawal).
-    // payout_requests era una tabla paralela vieja que nadie alimenta.
+    // Fuente única: admin_withdrawals_queue (sql/470) — retiros de `withdrawals`
+    // enriquecidos con grupo, país/estado/ciudad, moneda y método esperado.
+    // El filtro de fecha del panel se aplica client-side (la cola trae 60 máx).
+    const { data, error } = await supabase.rpc('admin_withdrawals_queue');
+    if (error) { console.warn('[FinancialScreen] withdrawals queue:', error.message); return; }
     const from = dateFrom(filter);
-    let q = supabase
-      .from('withdrawals')
-      .select(`
-        id, user_id, status, amount, bank_clabe, bank_name, account_holder,
-        transfer_reference, receipt_path, created_at, processed_at,
-        profile:profiles!user_id(full_name)
-      `)
-      .order('created_at', { ascending: false })
-      .limit(60);
-    if (from) q = q.gte('created_at', from);
-    const { data } = await q;
-    // Pendientes primero (cola de trabajo), luego historial
-    const rows = ((data as any) ?? []).sort((a: any, b: any) => {
-      const pa = ['pending', 'processing'].includes(a.status) ? 0 : 1;
-      const pb = ['pending', 'processing'].includes(b.status) ? 0 : 1;
-      return pa - pb || (b.created_at ?? '').localeCompare(a.created_at ?? '');
-    });
+    const rows = ((data as any) ?? []).filter((x: any) => !from || x.created_at >= from);
     setPayouts(rows);
   };
 
@@ -687,27 +696,32 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
           {/* ══ TAB: RETIROS DE GRUPOS (cola de trabajo + historial) ══ */}
           {activeTab === 'transfers' && (() => {
             const pendPay = payouts.filter((x: any) => ['pending', 'processing'].includes(x.status));
+            const pendMXN = pendPay.filter((x: any) => (x.currency ?? 'MXN') === 'MXN').reduce((sum: number, x: any) => sum + Number(x.amount ?? 0), 0);
+            const pendUSD = pendPay.filter((x: any) => x.currency === 'USD').reduce((sum: number, x: any) => sum + Number(x.amount ?? 0), 0);
             const visiblePay = payouts.filter((p: any) => matchesQueue(
               ['pending', 'processing'].includes(p.status) ? 'pending' : 'done',
-              (p.profile as any)?.full_name, p.bank_name, p.bank_clabe,
+              p.country_code,
+              p.group_name, p.owner_name, p.bank_name, p.bank_clabe, p.state, p.city,
             ));
             return (
             <>
               <Text style={s.sectionTitle}>Pagos a grupos</Text>
               {renderQueueToolbar({
-                label: 'Por transferir a grupos',
-                amount: pendPay.reduce((sum: number, x: any) => sum + Number(x.amount ?? 0), 0),
+                label: pendUSD > 0 ? 'Por transferir (MXN · USD aparte)' : 'Por transferir a grupos',
+                amount: pendMXN,
                 count: pendPay.length,
+                usdAmount: pendUSD,
               })}
               {visiblePay.length === 0 && (
                 <View style={s.emptyCard}>
                   <Text style={s.emptyText}>
-                    {qSearch.trim() ? 'Sin resultados para tu búsqueda' : 'Sin retiros pendientes 🎉'}
+                    {qSearch.trim() || qCountry !== 'all' ? 'Sin resultados con estos filtros' : 'Sin retiros pendientes 🎉'}
                   </Text>
                 </View>
               )}
               {visiblePay.map((p: any) => {
                 const isPendingWork = ['pending', 'processing'].includes(p.status);
+                const isUS = p.country_code === 'US';
                 const isFail = p.status === 'rejected';
                 const stColor = isFail ? '#EF5350' : isPendingWork ? COLORS.orange : COLORS.green;
                 const stLabel = isFail ? 'Rechazado' : p.status === 'processing' ? 'Procesando' : isPendingWork ? 'Pendiente' : 'Transferido';
@@ -716,21 +730,31 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
                     <View style={s.refundHead}>
                       <View style={{ flex: 1 }}>
                         <Text style={s.payoutName} numberOfLines={1}>
-                          {(p.profile as any)?.full_name ?? '—'}
+                          {flagFor(p.country_code)} {p.group_name ?? p.owner_name ?? '—'}
+                        </Text>
+                        <Text style={s.payoutType}>
+                          {placeLine(p)} · {methodLabel(p.expected_method)}
                         </Text>
                         <Text style={s.payoutType}>
                           Solicitado el {new Date(p.created_at).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' })}
+                          {p.owner_phone ? ` · 📞 ${p.owner_phone}` : ''}
                         </Text>
                       </View>
                       <View style={{ alignItems: 'flex-end', gap: 4 }}>
-                        <Text style={[s.payoutAmount, isFail && s.payoutAmountFail]}>{fmt(p.amount)}</Text>
+                        <Text style={[s.payoutAmount, isFail && s.payoutAmountFail]}>
+                          {fmt(p.amount)} <Text style={s.currencyTag}>{p.currency ?? 'MXN'}</Text>
+                        </Text>
                         <View style={[s.statusPill, { backgroundColor: `${stColor}22`, borderColor: stColor }]}>
                           <Text style={[s.statusPillTx, { color: stColor }]}>{stLabel}</Text>
                         </View>
                       </View>
                     </View>
                     <View style={s.refundBank}>
-                      {p.bank_clabe ? (
+                      {isUS ? (
+                        <Text style={[s.refundBankTx, { color: COLORS.blue }]}>
+                          💳 Pago vía Stripe/ACH en USD — Pendiente de integración
+                        </Text>
+                      ) : p.bank_clabe ? (
                         <>
                           <Text style={s.refundBankTx} selectable>CLABE: {p.bank_clabe}{p.bank_name ? ` · ${p.bank_name}` : ''}</Text>
                           {!!p.account_holder && <Text style={s.refundBankTx}>Titular: {p.account_holder}</Text>}
@@ -748,14 +772,22 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
                       </Pressable>
                     )}
                     {isPendingWork && (
-                      <View style={s.refundActions}>
-                        <Pressable
-                          style={s.refundBtn}
-                          onPress={() => { setPayoutModal(p); setRefundRef(''); setReceiptUri(null); }}
-                        >
-                          <Text style={s.refundBtnTx}>✓ Ya transferí</Text>
-                        </Pressable>
-                      </View>
+                      isUS ? (
+                        <View style={[s.refundActions, { opacity: 0.85 }]}>
+                          <View style={[s.refundBtnGhost, { borderColor: 'rgba(66,133,244,0.5)' }]}>
+                            <Text style={[s.refundBtnGhostTx, { color: COLORS.blue }]}>🇺🇸 Se pagará por Stripe/ACH — Próximamente</Text>
+                          </View>
+                        </View>
+                      ) : (
+                        <View style={s.refundActions}>
+                          <Pressable
+                            style={s.refundBtn}
+                            onPress={() => { setPayoutModal(p); setRefundRef(''); setReceiptUri(null); }}
+                          >
+                            <Text style={s.refundBtnTx}>✓ Ya transferí</Text>
+                          </Pressable>
+                        </View>
+                      )
                     )}
                   </View>
                 );
@@ -770,7 +802,8 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
             const overdueN = pend.filter(x => new Date(x.due_date) < new Date()).length;
             const visible = refunds.filter(mr => matchesQueue(
               mr.status === 'sent' ? 'done' : 'pending',
-              mr.client_name, mr.folio, mr.payment_method,
+              mr.country_code,
+              mr.client_name, mr.folio, mr.payment_method, mr.state, mr.city,
             ));
             return (
             <>
@@ -796,14 +829,19 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
                   <View key={mr.id} style={[s.refundCard, overdue && s.refundCardOverdue]}>
                     <View style={s.refundHead}>
                       <View style={{ flex: 1 }}>
-                        <Text style={s.payoutName} numberOfLines={1}>{mr.client_name ?? '—'}</Text>
+                        <Text style={s.payoutName} numberOfLines={1}>{flagFor(mr.country_code)} {mr.client_name ?? '—'}</Text>
+                        <Text style={s.payoutType}>
+                          {placeLine(mr)}
+                        </Text>
                         <Text style={s.payoutType}>
                           Folio {mr.folio ?? 's/f'} · {mr.payment_method === 'cash' ? '🏪 Efectivo' : '🏦 SPEI'}
                           {mr.client_phone ? ` · 📞 ${mr.client_phone}` : ''}
                         </Text>
                       </View>
                       <View style={{ alignItems: 'flex-end', gap: 4 }}>
-                        <Text style={s.payoutAmount}>{fmt(mr.amount)}</Text>
+                        <Text style={s.payoutAmount}>
+                          {fmt(mr.amount)} <Text style={s.currencyTag}>{mr.currency ?? 'MXN'}</Text>
+                        </Text>
                         <View style={[s.statusPill, { backgroundColor: `${stColor}22`, borderColor: stColor }]}>
                           <Text style={[s.statusPillTx, { color: stColor }]}>{stLabel}</Text>
                         </View>
@@ -984,7 +1022,7 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
               )}
               {payoutModal && (
                 <Text style={s.refundIntro}>
-                  {(payoutModal.profile as any)?.full_name ?? 'Grupo'} · {fmt(payoutModal.amount)}
+                  {flagFor(payoutModal.country_code)} {payoutModal.group_name ?? payoutModal.owner_name ?? 'Grupo'} · {fmt(payoutModal.amount)} {payoutModal.currency ?? 'MXN'}
                   {payoutModal.bank_clabe ? ` · CLABE ···${String(payoutModal.bank_clabe).slice(-4)}` : ''}
                 </Text>
               )}
@@ -1188,6 +1226,7 @@ const s = StyleSheet.create({
     paddingHorizontal: 8, paddingVertical: 3, alignSelf: 'flex-end',
   },
   statusPillTx: { fontFamily: FONTS.bodySemiBold, fontSize: 10.5 },
+  currencyTag:  { fontFamily: FONTS.bodySemiBold, fontSize: 10, color: COLORS.muted2 },
   receiptBtn: {
     marginTop: 10, borderRadius: RADIUS.md,
     borderWidth: 1, borderColor: 'rgba(0,230,118,0.4)',

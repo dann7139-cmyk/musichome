@@ -33,6 +33,7 @@ import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import Badge from '../../components/ui/Badge';
 import Particles from '../../components/ui/Particles';
+import { flagFor, placeLine } from '../../utils/countryFormat';
 
 const { width: SW } = Dimensions.get('window');
 
@@ -895,12 +896,15 @@ export default function AdminDashboardScreen({ navigation }: any) {
                       <View key={ns.id} style={s.noShowRow}>
                         <View style={{ flex: 1 }}>
                           <Text style={s.noShowFolio}>{ns.folio ?? ns.id.substring(0, 8)}</Text>
-                          <Text style={s.noShowGroup}>{ns.group_name ?? '—'}</Text>
+                          <Text style={s.noShowGroup}>{flagFor(ns.country_code)} {ns.group_name ?? '—'}</Text>
+                          <Text style={s.noShowMeta}>
+                            {placeLine(ns)}
+                          </Text>
                           <Text style={s.noShowMeta}>
                             {ns.client_name ?? '—'}  ·  {ns.event_date}{ns.event_time ? `  ${ns.event_time}` : ''}
                           </Text>
                           <Text style={s.noShowMeta}>
-                            ${(ns.total_price ?? 0).toLocaleString('es-MX', { maximumFractionDigits: 0 })}  ·  payout: {ns.payout_status}{ns.has_strike ? '  · ⚡ Strike previo' : ''}
+                            ${(ns.total_price ?? 0).toLocaleString('es-MX', { maximumFractionDigits: 0 })} {ns.currency ?? 'MXN'}  ·  payout: {ns.payout_status}{ns.has_strike ? '  · ⚡ Strike previo' : ''}
                           </Text>
                           {renderPhones(ns)}
                         </View>
@@ -947,13 +951,13 @@ export default function AdminDashboardScreen({ navigation }: any) {
                                 <Text style={s.nsResolutionText}>{resIcon} {resLabel}</Text>
                               </View>
                             </View>
-                            <Text style={s.noShowGroup}>{ns.group_name ?? '—'}</Text>
+                            <Text style={s.noShowGroup}>{flagFor(ns.country_code)} {ns.group_name ?? '—'}</Text>
                             <Text style={s.noShowMeta}>
-                              {ns.client_name ?? '—'}  ·  {ns.event_date}
+                              {placeLine(ns)}  ·  {ns.client_name ?? '—'}  ·  {ns.event_date}
                               {ns.has_strike ? '  · ⚡ Strike' : ''}
                             </Text>
                             <Text style={s.noShowMeta}>
-                              ${(ns.total_price ?? 0).toLocaleString('es-MX', { maximumFractionDigits: 0 })}
+                              ${(ns.total_price ?? 0).toLocaleString('es-MX', { maximumFractionDigits: 0 })} {ns.currency ?? 'MXN'}
                             </Text>
                             <Text style={s.nsResolvedBy}>
                               Resolvió: {ns.resolver_name ?? 'Admin'}  ·  {resolvedDate}
