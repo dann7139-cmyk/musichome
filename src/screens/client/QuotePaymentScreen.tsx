@@ -89,10 +89,11 @@ const PAYMENT_METHODS: PayMethodDef[] = [
     lines: ['3, 6, 9 y 12 meses'],
   },
   {
-    // BNPL vía Conekta (Creditea, Aplazo, Klarna Coppel). Token 'bnpl' ya
-    // cableado en create-conekta-order. ÚNICO paso al activarlo en la cuenta
-    // Conekta: enabled: true — el checkout lo muestra solo, sin más cambios.
-    key: 'bnpl', enabled: false, emoji: '🛍️', title: 'Compra ahora, paga después',
+    // BNPL vía Conekta (Aplazo, Creditea, Coppel Pay). Token 'bnpl' cableado
+    // en create-conekta-order. Límites del proveedor: mínimo $100 MXN,
+    // línea de crédito típica ~$15,000 (montos mayores pueden rechazarse
+    // con bnpl_limit_exceeded — la página de Conekta muestra el error).
+    key: 'bnpl', enabled: true, emoji: '🛍️', title: 'Compra ahora, paga después',
     tag: 'Sin tarjeta',
     lines: ['Aplazo, Creditea y más', 'Difiere tu pago sin tarjeta de crédito'],
   },
