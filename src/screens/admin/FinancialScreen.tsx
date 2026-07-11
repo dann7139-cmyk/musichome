@@ -28,6 +28,7 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
+import * as WebBrowser from 'expo-web-browser';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
@@ -139,6 +140,71 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
   const [refundRef, setRefundRef]       = useState('');
   const [receiptUri, setReceiptUri]     = useState<string | null>(null);
   const [refundSaving, setRefundSaving] = useState(false);
+  // Toolbar de las colas (Reembolsos/Transfers): búsqueda + filtro rápido.
+  // 🇲🇽/🇺🇸 futuro: agregar aquí chips de país y moneda — las tarjetas y
+  // filtros ya operan sobre countryOf(); nada más se rehace.
+  const [qSearch, setQSearch] = useState('');
+  const [qFilter, setQFilter] = useState<'pending' | 'done' | 'all'>('pending');
+  const countryOf = (_x: any) => 'MX';   // ← cuando existan grupos US: _x.country ?? 'MX'
+
+  const matchesQueue = (statusGroup: 'pending' | 'done', ...fields: (string | null | undefined)[]) => {
+    if (qFilter !== 'all' && statusGroup !== qFilter) return false;
+    const q = qSearch.trim().toLowerCase();
+    if (!q) return true;
+    return fields.some(f => (f ?? '').toLowerCase().includes(q));
+  };
+
+  // Abrir comprobante (URL firmada — bucket privado)
+  const openReceipt = async (path: string) => {
+    const { data: signed } = await supabase.storage
+      .from('refund-receipts')
+      .createSignedUrl(path, 3600);
+    if (signed?.signedUrl) await WebBrowser.openBrowserAsync(signed.signedUrl);
+    else Alert.alert('Comprobante', 'No se pudo abrir el comprobante.');
+  };
+
+  // Toolbar de cola: KPI de dinero pendiente + búsqueda + filtros rápidos.
+  // Es una función (no componente) para no perder el foco del TextInput.
+  const renderQueueToolbar = (opts: { label: string; amount: number; count: number; overdue?: number }) => (
+    <>
+      <View style={s.kpiPendingCard}>
+        <View style={{ flex: 1 }}>
+          <Text style={s.kpiPendingLabel}>{opts.label}</Text>
+          <Text style={s.kpiPendingAmount}>{fmt(opts.amount)}</Text>
+        </View>
+        <View style={{ alignItems: 'flex-end', gap: 4 }}>
+          <View style={[s.statusPill, { backgroundColor: 'rgba(255,179,0,0.14)', borderColor: COLORS.orange }]}>
+            <Text style={[s.statusPillTx, { color: COLORS.orange }]}>{opts.count} pendiente{opts.count === 1 ? '' : 's'}</Text>
+          </View>
+          {(opts.overdue ?? 0) > 0 && (
+            <View style={[s.statusPill, { backgroundColor: 'rgba(239,83,80,0.14)', borderColor: '#EF5350' }]}>
+              <Text style={[s.statusPillTx, { color: '#EF5350' }]}>⚠️ {opts.overdue} vencido{opts.overdue === 1 ? '' : 's'}</Text>
+            </View>
+          )}
+        </View>
+      </View>
+      <View style={s.queueToolbar}>
+        <TextInput
+          style={s.queueSearch}
+          value={qSearch}
+          onChangeText={setQSearch}
+          placeholder="Buscar por grupo, cliente o folio…"
+          placeholderTextColor={COLORS.muted}
+        />
+        <View style={s.queueChips}>
+          {([['pending', 'Pendientes'], ['done', 'Hechos'], ['all', 'Todos']] as const).map(([key, lbl]) => (
+            <Pressable
+              key={key}
+              style={[s.queueChip, qFilter === key && s.queueChipActive]}
+              onPress={() => setQFilter(key)}
+            >
+              <Text style={[s.queueChipTx, qFilter === key && s.queueChipTxActive]}>{lbl}</Text>
+            </Pressable>
+          ))}
+        </View>
+      </View>
+    </>
+  );
 
   useEffect(() => { load(); }, [filter]);
 
@@ -619,19 +685,28 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
           )}
 
           {/* ══ TAB: RETIROS DE GRUPOS (cola de trabajo + historial) ══ */}
-          {activeTab === 'transfers' && (
+          {activeTab === 'transfers' && (() => {
+            const pendPay = payouts.filter((x: any) => ['pending', 'processing'].includes(x.status));
+            const visiblePay = payouts.filter((p: any) => matchesQueue(
+              ['pending', 'processing'].includes(p.status) ? 'pending' : 'done',
+              (p.profile as any)?.full_name, p.bank_name, p.bank_clabe,
+            ));
+            return (
             <>
-              <Text style={s.sectionTitle}>Retiros de grupos</Text>
-              <Text style={s.refundIntro}>
-                El grupo solicita su retiro → transfieres desde tu banca → subes el
-                comprobante y se le notifica con la foto.
-              </Text>
-              {payouts.length === 0 && (
+              <Text style={s.sectionTitle}>Pagos a grupos</Text>
+              {renderQueueToolbar({
+                label: 'Por transferir a grupos',
+                amount: pendPay.reduce((sum: number, x: any) => sum + Number(x.amount ?? 0), 0),
+                count: pendPay.length,
+              })}
+              {visiblePay.length === 0 && (
                 <View style={s.emptyCard}>
-                  <Text style={s.emptyText}>Sin retiros en este período</Text>
+                  <Text style={s.emptyText}>
+                    {qSearch.trim() ? 'Sin resultados para tu búsqueda' : 'Sin retiros pendientes 🎉'}
+                  </Text>
                 </View>
               )}
-              {payouts.map((p: any) => {
+              {visiblePay.map((p: any) => {
                 const isPendingWork = ['pending', 'processing'].includes(p.status);
                 const isFail = p.status === 'rejected';
                 const stColor = isFail ? '#EF5350' : isPendingWork ? COLORS.orange : COLORS.green;
@@ -647,9 +722,11 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
                           Solicitado el {new Date(p.created_at).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' })}
                         </Text>
                       </View>
-                      <View style={{ alignItems: 'flex-end' }}>
+                      <View style={{ alignItems: 'flex-end', gap: 4 }}>
                         <Text style={[s.payoutAmount, isFail && s.payoutAmountFail]}>{fmt(p.amount)}</Text>
-                        <Text style={[s.refundStatus, { color: stColor }]}>{stLabel}</Text>
+                        <View style={[s.statusPill, { backgroundColor: `${stColor}22`, borderColor: stColor }]}>
+                          <Text style={[s.statusPillTx, { color: stColor }]}>{stLabel}</Text>
+                        </View>
                       </View>
                     </View>
                     <View style={s.refundBank}>
@@ -662,11 +739,14 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
                         <Text style={[s.refundBankTx, { color: COLORS.orange }]}>⚠️ Sin CLABE registrada</Text>
                       )}
                       {p.status === 'completed' && (
-                        <Text style={s.refundBankTx}>
-                          Ref: {p.transfer_reference ?? '—'} · {p.receipt_path ? '📎 con comprobante' : 'sin comprobante'}
-                        </Text>
+                        <Text style={s.refundBankTx}>Ref: {p.transfer_reference ?? '—'}</Text>
                       )}
                     </View>
+                    {p.status === 'completed' && !!p.receipt_path && (
+                      <Pressable style={s.receiptBtn} onPress={() => openReceipt(p.receipt_path)}>
+                        <Text style={s.receiptBtnTx}>📎 Ver comprobante</Text>
+                      </Pressable>
+                    )}
                     {isPendingWork && (
                       <View style={s.refundActions}>
                         <Pressable
@@ -681,25 +761,37 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
                 );
               })}
             </>
-          )}
+            );
+          })()}
 
           {/* ══ TAB: REEMBOLSOS MANUALES (SPEI/efectivo) ══ */}
-          {activeTab === 'refunds' && (
+          {activeTab === 'refunds' && (() => {
+            const pend = refunds.filter(x => x.status !== 'sent');
+            const overdueN = pend.filter(x => new Date(x.due_date) < new Date()).length;
+            const visible = refunds.filter(mr => matchesQueue(
+              mr.status === 'sent' ? 'done' : 'pending',
+              mr.client_name, mr.folio, mr.payment_method,
+            ));
+            return (
             <>
-              <Text style={s.sectionTitle}>Reembolsos por transferencia</Text>
-              <Text style={s.refundIntro}>
-                Pagos SPEI/efectivo cancelados — se devuelven por transferencia manual.
-                Promesa al cliente: 5 días hábiles.
-              </Text>
-              {refunds.length === 0 && (
+              <Text style={s.sectionTitle}>Reembolsos a clientes</Text>
+              {renderQueueToolbar({
+                label: 'Por reembolsar (SPEI/efectivo)',
+                amount: pend.reduce((sum, x) => sum + Number(x.amount ?? 0), 0),
+                count: pend.length,
+                overdue: overdueN,
+              })}
+              {visible.length === 0 && (
                 <View style={s.emptyCard}>
-                  <Text style={s.emptyText}>Sin reembolsos manuales pendientes 🎉</Text>
+                  <Text style={s.emptyText}>
+                    {qSearch.trim() ? 'Sin resultados para tu búsqueda' : 'Sin reembolsos manuales pendientes 🎉'}
+                  </Text>
                 </View>
               )}
-              {refunds.map(mr => {
+              {visible.map(mr => {
                 const overdue = mr.status !== 'sent' && new Date(mr.due_date) < new Date();
                 const stColor = mr.status === 'sent' ? COLORS.green : mr.status === 'processing' ? COLORS.orange : '#EF5350';
-                const stLabel = mr.status === 'sent' ? 'Enviado' : mr.status === 'processing' ? 'Procesando' : 'Pendiente';
+                const stLabel = mr.status === 'sent' ? 'Reembolsado' : mr.status === 'processing' ? 'Procesando' : 'Pendiente';
                 return (
                   <View key={mr.id} style={[s.refundCard, overdue && s.refundCardOverdue]}>
                     <View style={s.refundHead}>
@@ -710,9 +802,11 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
                           {mr.client_phone ? ` · 📞 ${mr.client_phone}` : ''}
                         </Text>
                       </View>
-                      <View style={{ alignItems: 'flex-end' }}>
+                      <View style={{ alignItems: 'flex-end', gap: 4 }}>
                         <Text style={s.payoutAmount}>{fmt(mr.amount)}</Text>
-                        <Text style={[s.refundStatus, { color: stColor }]}>{stLabel}</Text>
+                        <View style={[s.statusPill, { backgroundColor: `${stColor}22`, borderColor: stColor }]}>
+                          <Text style={[s.statusPillTx, { color: stColor }]}>{stLabel}</Text>
+                        </View>
                       </View>
                     </View>
                     <View style={s.refundBank}>
@@ -734,9 +828,14 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
                         <Text style={s.refundApiErr} numberOfLines={2}>Fallback API: {mr.api_error}</Text>
                       )}
                       {mr.status === 'sent' && (
-                        <Text style={s.refundBankTx}>Ref: {mr.transfer_reference ?? '—'} · {mr.receipt_path ? '📎 con comprobante' : 'sin comprobante'}</Text>
+                        <Text style={s.refundBankTx}>Ref: {mr.transfer_reference ?? '—'}</Text>
                       )}
                     </View>
+                    {mr.status === 'sent' && !!mr.receipt_path && (
+                      <Pressable style={s.receiptBtn} onPress={() => openReceipt(mr.receipt_path!)}>
+                        <Text style={s.receiptBtnTx}>📎 Ver comprobante</Text>
+                      </Pressable>
+                    )}
                     {mr.status !== 'sent' && (
                       <View style={s.refundActions}>
                         {mr.status === 'pending' && (
@@ -756,7 +855,8 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
                 );
               })}
             </>
-          )}
+            );
+          })()}
 
           {/* ══ TAB: PUBLICIDAD ══ */}
           {activeTab === 'ads' && (() => {
@@ -1058,6 +1158,43 @@ const s = StyleSheet.create({
   payoutAmount: { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: COLORS.green },
   payoutAmountFail: { color: '#EF5350' },
   payoutDate:   { fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted, marginTop: 2 },
+
+  // ── Colas (Reembolsos/Transfers): KPI + toolbar ──
+  kpiPendingCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: COLORS.card, borderRadius: RADIUS.lg,
+    borderWidth: 1, borderColor: 'rgba(255,179,0,0.35)',
+    padding: 14, marginTop: 10, marginBottom: 10,
+  },
+  kpiPendingLabel:  { fontFamily: FONTS.bodyMedium, fontSize: 12, color: COLORS.muted2, marginBottom: 3 },
+  kpiPendingAmount: { fontFamily: FONTS.title, fontSize: 22, color: COLORS.text, fontVariant: ['tabular-nums'] },
+  queueToolbar: { gap: 8, marginBottom: 12 },
+  queueSearch: {
+    backgroundColor: COLORS.card, borderRadius: RADIUS.md,
+    borderWidth: 1, borderColor: COLORS.border,
+    paddingHorizontal: 14, paddingVertical: 10,
+    fontFamily: FONTS.body, fontSize: 13.5, color: COLORS.text,
+  },
+  queueChips: { flexDirection: 'row', gap: 8 },
+  queueChip: {
+    paddingHorizontal: 14, paddingVertical: 7, borderRadius: RADIUS.full,
+    backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border,
+  },
+  queueChipActive: { backgroundColor: COLORS.green, borderColor: COLORS.green },
+  queueChipTx: { fontFamily: FONTS.bodyMedium, fontSize: 12.5, color: COLORS.muted2 },
+  queueChipTxActive: { color: '#000', fontFamily: FONTS.bodySemiBold },
+  statusPill: {
+    borderRadius: RADIUS.full, borderWidth: 1,
+    paddingHorizontal: 8, paddingVertical: 3, alignSelf: 'flex-end',
+  },
+  statusPillTx: { fontFamily: FONTS.bodySemiBold, fontSize: 10.5 },
+  receiptBtn: {
+    marginTop: 10, borderRadius: RADIUS.md,
+    borderWidth: 1, borderColor: 'rgba(0,230,118,0.4)',
+    backgroundColor: 'rgba(0,230,118,0.08)',
+    paddingVertical: 10, alignItems: 'center',
+  },
+  receiptBtnTx: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.green },
 
   // ── Reembolsos manuales ──
   refundIntro: { fontFamily: FONTS.body, fontSize: 12.5, color: COLORS.muted2, marginTop: 4, marginBottom: 12, lineHeight: 17 },

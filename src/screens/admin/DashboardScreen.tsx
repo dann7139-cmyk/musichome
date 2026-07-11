@@ -860,6 +860,11 @@ export default function AdminDashboardScreen({ navigation }: any) {
                 <Text style={[s.sectionTitle, noShows.length > 0 && { color: COLORS.red }]}>
                   No-Shows
                 </Text>
+                {noShows.length > 0 && (
+                  <Text style={s.nsMoneyAtStake}>
+                    ${noShows.reduce((sum: number, n: any) => sum + (n.total_price ?? 0), 0).toLocaleString('es-MX', { maximumFractionDigits: 0 })} en juego
+                  </Text>
+                )}
               </View>
 
               {/* Toggle pendientes / historial */}
@@ -1068,6 +1073,7 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: COLORS.border, padding: 16,
   },
   sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 14 },
+  nsMoneyAtStake: { fontFamily: FONTS.bodySemiBold, fontSize: 12, color: COLORS.red, marginLeft: 'auto' },
   sectionTitle:  { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: COLORS.text, flex: 1 },
   seeAll:        { fontFamily: FONTS.bodyMedium, fontSize: 12, color: COLORS.green },
   liveIndicator: { width: 8, height: 8, borderRadius: 4, backgroundColor: COLORS.red },
