@@ -28,8 +28,10 @@ const METHOD_MAP: Record<string, string[]> = {
   spei: ['bank_transfer'],
   cash: ['cash'],
   msi:  ['card'],
-  // BNPL (Kueski Pay). ⚠️ Confirmar el token exacto de Conekta al habilitarlo
-  // en la cuenta; se mantiene oculto en el frontend hasta entonces.
+  // BNPL — token oficial confirmado en docs de Conekta (guía de activación):
+  // allowed_payment_methods acepta 'bnpl'. Proveedores: Creditea, Aplazo,
+  // Klarna Coppel (Azteca próximamente). Requiere ACTIVACIÓN en la cuenta
+  // Conekta; mientras, el frontend lo mantiene oculto (enabled: false).
   bnpl: ['bnpl'],
 };
 

@@ -89,10 +89,12 @@ const PAYMENT_METHODS: PayMethodDef[] = [
     lines: ['3, 6, 9 y 12 meses'],
   },
   {
-    // Compra ahora, paga después (BNPL / Kueski). Oculto hasta habilitar en Conekta.
+    // BNPL vía Conekta (Creditea, Aplazo, Klarna Coppel). Token 'bnpl' ya
+    // cableado en create-conekta-order. ÚNICO paso al activarlo en la cuenta
+    // Conekta: enabled: true — el checkout lo muestra solo, sin más cambios.
     key: 'bnpl', enabled: false, emoji: '🛍️', title: 'Compra ahora, paga después',
     tag: 'Sin tarjeta',
-    lines: ['Difiere tu pago sin tarjeta de crédito'],
+    lines: ['Aplazo, Creditea y más', 'Difiere tu pago sin tarjeta de crédito'],
   },
 ];
 
