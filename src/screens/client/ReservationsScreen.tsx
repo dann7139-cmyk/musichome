@@ -627,7 +627,7 @@ function ReservationCard({ reservation: r, navigation, onUpdate, isReviewed, isJ
   useEffect(() => {
     if (r.status === 'cancelled' && !r._isQuote && r.mp_payment_id) {
       supabase.from('manual_refunds')
-        .select('status, due_date, amount')
+        .select('status, due_date, amount, receipt_path')
         .eq('reservation_id', r.id)
         .maybeSingle()
         .then(({ data }) => setRefundInfo(data));
@@ -1351,7 +1351,9 @@ function ReservationCard({ reservation: r, navigation, onUpdate, isReviewed, isJ
             <>
               <Text style={styles.refundStripEmoji}>✅</Text>
               <Text style={[styles.refundStripText, { color: COLORS.green }]}>
-                Reembolso enviado — toca para ver el comprobante
+                {refundInfo.receipt_path
+                  ? 'Reembolso enviado — toca para ver el comprobante'
+                  : 'Reembolso enviado — toca para ver el detalle'}
               </Text>
             </>
           ) : refundInfo ? (
