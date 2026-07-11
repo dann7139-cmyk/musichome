@@ -330,7 +330,13 @@ export default function ClientReservationsScreen({ navigation, route }: any) {
     .filter(Boolean);
 
   const eventItems = [...reservations, ...acceptedQuoteItems]
-    .filter(r => r && !['cancelled', 'rejected', 'expired'].includes(r.status ?? ''))
+    // Canceladas ocultas, EXCEPTO las que tienen reembolso en proceso:
+    // esas se muestran como "Cancelada · reembolso en camino" hasta que el
+    // admin lo marque enviado (fetchAll ya filtró las reembolsadas).
+    .filter(r => r && (
+      !['cancelled', 'rejected', 'expired'].includes(r.status ?? '') ||
+      (r.status === 'cancelled' && r.payout_status === 'refunded' && !!r.mp_payment_id)
+    ))
     .filter((r, i, arr) => r && arr.findIndex(x => x?.id === r.id) === i)
     .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''));
 
