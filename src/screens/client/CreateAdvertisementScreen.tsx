@@ -552,7 +552,8 @@ export default function CreateAdvertisementScreen({ navigation, route }: any) {
         headers: { Authorization: `Bearer ${paySession.access_token}` },
       });
 
-      console.log('[handlePay] stripeData:', JSON.stringify(stripeData), 'error:', stripeErr);
+      // No loguear stripeData completo: contiene el client_secret de Stripe
+      console.log('[handlePay] ok:', !!(stripeData as any)?.client_secret, 'error:', stripeErr?.message ?? 'none');
 
       if (stripeErr) throw new Error(`Error de función: ${stripeErr.message ?? JSON.stringify(stripeErr)}`);
       if (!stripeData) throw new Error('Sin respuesta del servidor de pagos.');

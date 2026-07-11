@@ -364,12 +364,8 @@ export default function QuoteFormScreen({ route, navigation }: any) {
       } : {}),
     };
 
-    console.log('🟡 INSERT quote payload:', JSON.stringify(insertPayload, null, 2));
-
     setLoading(true);
     const { data: insertData, error } = await supabase.from('quotes').insert(insertPayload).select('id');
-
-    console.log('🟢 INSERT quote response:', JSON.stringify({ insertData, error }));
     setLoading(false);
 
     if (error) {

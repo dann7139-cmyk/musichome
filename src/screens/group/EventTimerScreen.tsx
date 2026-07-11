@@ -1308,7 +1308,8 @@ export default function EventTimerScreen({ route, navigation }: any) {
           headers: { Authorization: `Bearer ${sd.session?.access_token}` },
         },
       );
-      console.log('[PayNow] Edge fn → piErr:', piErr?.message ?? 'none', '| piData:', JSON.stringify(piData));
+      // No loguear piData completo: contiene el client_secret de Stripe
+      console.log('[PayNow] Edge fn → piErr:', piErr?.message ?? 'none', '| ok:', !!piData?.client_secret);
       if (piErr) throw new Error(`Error de pago: ${piErr.message}`);
       if (!piData?.client_secret) throw new Error(piData?.error ?? 'Sin respuesta del servidor.');
 
