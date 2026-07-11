@@ -1043,6 +1043,15 @@ function ReservationCard({ reservation: r, navigation, onUpdate, isReviewed, isJ
             <Text style={[styles.packageName, isExpress && { marginTop: 2 }]}>
               {isExpress ? `Solicitud express · ${r.hours_count ?? '?'}h` : (r.quote?.event_type ?? 'Cotización')}
             </Text>
+            {r.group?.id && (
+              <Pressable
+                onPress={(e: any) => { e.stopPropagation?.(); navigation.navigate('GroupDetail', { group: r.group }); }}
+                hitSlop={8}
+                style={({ pressed }: any) => [styles.profileLink, pressed && { opacity: 0.6 }]}
+              >
+                <Text style={styles.profileLinkText}>Ver perfil ›</Text>
+              </Pressable>
+            )}
           </View>
           <View style={{ alignItems: 'flex-end', gap: 6 }}>
             <Badge label={s.label} variant={s.variant} dot />
@@ -1050,15 +1059,6 @@ function ReservationCard({ reservation: r, navigation, onUpdate, isReviewed, isJ
               <View style={[styles.expressBadge, !isExpress && { borderColor: 'rgba(0,230,118,0.30)' }]}>
                 <Text style={styles.expressBadgeText}>{typeLabel}</Text>
               </View>
-            )}
-            {r.group?.id && (
-              <Pressable
-                onPress={(e: any) => { e.stopPropagation?.(); navigation.navigate('GroupDetail', { group: r.group }); }}
-                hitSlop={8}
-                style={({ pressed }: any) => [styles.expressBadge, { borderColor: 'rgba(0,230,118,0.35)' }, pressed && { opacity: 0.6 }]}
-              >
-                <Text style={styles.expressBadgeText}>Ver perfil ›</Text>
-              </Pressable>
             )}
           </View>
         </View>
@@ -1781,6 +1781,10 @@ const styles = StyleSheet.create({
   },
   refundStripEmoji: { fontSize: 14 },
   refundStripText:  { fontFamily: FONTS.bodyMedium, fontSize: 12, flex: 1, lineHeight: 16 },
+
+  // Link "Ver perfil" bajo el nombre del grupo
+  profileLink:     { alignSelf: 'flex-start', marginTop: 4 },
+  profileLinkText: { fontFamily: FONTS.bodySemiBold, fontSize: 12, color: COLORS.green },
   rescheduleHint: {
     fontFamily: FONTS.body, fontSize: 13, color: COLORS.muted2, marginBottom: 16, lineHeight: 18,
   },
