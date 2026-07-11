@@ -1,4 +1,5 @@
 import { ArrowLeft, BellOff, CheckCheck } from 'lucide-react-native';
+import * as WebBrowser from 'expo-web-browser';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -389,11 +390,21 @@ export default function NotificationsScreen({ navigation }: any) {
         break;
 
       // ── Other types ────────────────────────────────────────────────────────
-      case 'payment':
+      case 'payment': {
+        // Reembolso manual ENVIADO → abrir el comprobante directo (el evento
+        // ya se ocultó de Mis Eventos al completarse el reembolso).
+        const receiptPath = notif.data?.receipt_path as string | undefined;
+        if (receiptPath) {
+          const { data: signed } = await supabase.storage
+            .from('refund-receipts')
+            .createSignedUrl(receiptPath, 3600);
+          if (signed?.signedUrl) { await WebBrowser.openBrowserAsync(signed.signedUrl); break; }
+        }
         // Cliente (reembolso emitido) → su reserva en Mis Eventos;
         // grupo (payout) → su reserva. Antes el cliente no ruteaba a nada.
         await goToReservation(role === 'group');
         break;
+      }
 
       case 'review':
         if (role === 'group') {

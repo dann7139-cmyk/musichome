@@ -122,10 +122,33 @@ export default function ClientReservationsScreen({ navigation, route }: any) {
 
     if (resData.data) {
       setResHasMore(resData.data.length === RES_PAGE_SIZE);
+
+      // Canceladas: visibles mientras el reembolso está EN PROCESO
+      // ("Cancelado · reembolso en camino"); al completarse el reembolso
+      // (manual enviado, o automático de tarjeta) el evento SE OCULTA.
+      const cancelledIds = resData.data
+        .filter((r: any) => r.status === 'cancelled' && r.payout_status === 'refunded')
+        .map((r: any) => r.id);
+      let pendingRefundIds = new Set<string>();
+      if (cancelledIds.length > 0) {
+        const { data: mrData } = await supabase
+          .from('manual_refunds')
+          .select('reservation_id, status')
+          .in('reservation_id', cancelledIds);
+        pendingRefundIds = new Set(
+          (mrData ?? [])
+            .filter((m: any) => m.status !== 'sent')
+            .map((m: any) => m.reservation_id),
+        );
+      }
+      const visibleRes = resData.data.filter((r: any) =>
+        !(r.status === 'cancelled' && r.payout_status === 'refunded' && !pendingRefundIds.has(r.id))
+      );
+
       if (pageNum === 0) {
-        setReservations(resData.data);
+        setReservations(visibleRes);
       } else {
-        setReservations(prev => [...prev, ...resData.data!]);
+        setReservations(prev => [...prev, ...visibleRes]);
       }
       setResPage(pageNum);
       // IDs de reservas completadas que ya tienen reseña
