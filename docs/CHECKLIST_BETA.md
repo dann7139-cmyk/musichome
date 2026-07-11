@@ -189,8 +189,8 @@ Cómo marcar: `[ ]` pendiente · `[x]` pasó · `[!]` falló (anotar abajo en "B
 ## 18. Logs y fallos silenciosos
 
 - [x] Quitado console.log de BANNER ADS en HomeScreen (2026-07-10).
-- [ ] Barrer console.log restantes con datos sensibles (CitySelectScreen 12, AuthContext 10, EventTimerScreen 8 — revisar que ninguno imprima tokens/IDs de pago).
-- [ ] Revisar catch vacíos en flujos de dinero: ningún error de pago/webhook debe tragarse sin log en payment_event_logs.
+- [x] Barrida de logs sensibles (2026-07-11): fuera el payload completo de cotizaciones (datos personales) y el client_secret de Stripe en 3 pantallas. Push token solo imprime últimos 8. CitySelectScreen es huérfana (no se toca).
+- [x] Sin catch vacíos en flujos de dinero: todos alertan al usuario o auditan en payment_event_logs (verificado 2026-07-11).
 - [ ] `SELECT * FROM payment_event_logs WHERE is_mismatch = true;` → investigar cada fila.
 - [ ] Edge Functions: revisar logs de create-conekta-order / webhooks en Supabase → sin errores 500 recurrentes.
 - [x] ⚠️ PENDIENTE CONOCIDO: redeploy de create-conekta-order (limpieza MSI + método) — desplegado 2026-07-10.
