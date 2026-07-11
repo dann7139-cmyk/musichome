@@ -318,13 +318,15 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
 
   // ── Historial de retiros (payout_requests) ───────────────────────────────
   const fetchPayouts = async () => {
+    // Fuente única: `withdrawals` (donde escribe request_withdrawal).
+    // payout_requests era una tabla paralela vieja que nadie alimenta.
     const from = dateFrom(filter);
     let q = supabase
-      .from('payout_requests')
+      .from('withdrawals')
       .select(`
-        id, group_id, status, amount, clabe, bank_name, transfer_reference,
-        receipt_path, notes, created_at, reviewed_at,
-        group:groups(name, owner_id)
+        id, user_id, status, amount, bank_clabe, bank_name, account_holder,
+        transfer_reference, receipt_path, created_at, processed_at,
+        profile:profiles!user_id(full_name)
       `)
       .order('created_at', { ascending: false })
       .limit(60);
@@ -332,8 +334,8 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
     const { data } = await q;
     // Pendientes primero (cola de trabajo), luego historial
     const rows = ((data as any) ?? []).sort((a: any, b: any) => {
-      const pa = ['pending', 'approved'].includes(a.status) ? 0 : 1;
-      const pb = ['pending', 'approved'].includes(b.status) ? 0 : 1;
+      const pa = ['pending', 'processing'].includes(a.status) ? 0 : 1;
+      const pb = ['pending', 'processing'].includes(b.status) ? 0 : 1;
       return pa - pb || (b.created_at ?? '').localeCompare(a.created_at ?? '');
     });
     setPayouts(rows);
@@ -347,7 +349,7 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
     setRefundSaving(true);
     try {
       let receiptPath: string | null = null;
-      const ownerId = (payoutModal.group as any)?.owner_id;
+      const ownerId = payoutModal.user_id;
       if (receiptUri && ownerId) {
         receiptPath = `${ownerId}/payout_${payoutModal.id}.jpg`;
         const buf = await fetch(receiptUri).then(r => r.arrayBuffer());
@@ -455,9 +457,9 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
                       <Text style={s.tabBadgeTx}>{pendingRefunds}</Text>
                     </View>
                   )}
-                  {tab === 'transfers' && payouts.filter((x: any) => ['pending','approved'].includes(x.status)).length > 0 && (
+                  {tab === 'transfers' && payouts.filter((x: any) => ['pending','processing'].includes(x.status)).length > 0 && (
                     <View style={s.tabBadge}>
-                      <Text style={s.tabBadgeTx}>{payouts.filter((x: any) => ['pending','approved'].includes(x.status)).length}</Text>
+                      <Text style={s.tabBadgeTx}>{payouts.filter((x: any) => ['pending','processing'].includes(x.status)).length}</Text>
                     </View>
                   )}
                 </Pressable>
@@ -617,16 +619,16 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
                 </View>
               )}
               {payouts.map((p: any) => {
-                const isPendingWork = ['pending', 'approved'].includes(p.status);
+                const isPendingWork = ['pending', 'processing'].includes(p.status);
                 const isFail = p.status === 'rejected';
                 const stColor = isFail ? '#EF5350' : isPendingWork ? COLORS.orange : COLORS.green;
-                const stLabel = isFail ? 'Rechazado' : isPendingWork ? 'Pendiente' : 'Pagado';
+                const stLabel = isFail ? 'Rechazado' : p.status === 'processing' ? 'Procesando' : isPendingWork ? 'Pendiente' : 'Transferido';
                 return (
                   <View key={p.id} style={[s.refundCard, isPendingWork && { borderColor: 'rgba(255,179,0,0.45)' }]}>
                     <View style={s.refundHead}>
                       <View style={{ flex: 1 }}>
                         <Text style={s.payoutName} numberOfLines={1}>
-                          {(p.group as any)?.name ?? p.group_id?.slice(0, 8) ?? '—'}
+                          {(p.profile as any)?.full_name ?? '—'}
                         </Text>
                         <Text style={s.payoutType}>
                           Solicitado el {new Date(p.created_at).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' })}
@@ -638,12 +640,15 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
                       </View>
                     </View>
                     <View style={s.refundBank}>
-                      {p.clabe ? (
-                        <Text style={s.refundBankTx} selectable>CLABE: {p.clabe}{p.bank_name ? ` · ${p.bank_name}` : ''}</Text>
+                      {p.bank_clabe ? (
+                        <>
+                          <Text style={s.refundBankTx} selectable>CLABE: {p.bank_clabe}{p.bank_name ? ` · ${p.bank_name}` : ''}</Text>
+                          {!!p.account_holder && <Text style={s.refundBankTx}>Titular: {p.account_holder}</Text>}
+                        </>
                       ) : (
                         <Text style={[s.refundBankTx, { color: COLORS.orange }]}>⚠️ Sin CLABE registrada</Text>
                       )}
-                      {p.status === 'paid' && (
+                      {p.status === 'completed' && (
                         <Text style={s.refundBankTx}>
                           Ref: {p.transfer_reference ?? '—'} · {p.receipt_path ? '📎 con comprobante' : 'sin comprobante'}
                         </Text>
@@ -866,8 +871,8 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
               )}
               {payoutModal && (
                 <Text style={s.refundIntro}>
-                  {(payoutModal.group as any)?.name ?? 'Grupo'} · {fmt(payoutModal.amount)}
-                  {payoutModal.clabe ? ` · CLABE ···${String(payoutModal.clabe).slice(-4)}` : ''}
+                  {(payoutModal.profile as any)?.full_name ?? 'Grupo'} · {fmt(payoutModal.amount)}
+                  {payoutModal.bank_clabe ? ` · CLABE ···${String(payoutModal.bank_clabe).slice(-4)}` : ''}
                 </Text>
               )}
               <Text style={s.refundModalLabel}>Referencia / clave de rastreo *</Text>

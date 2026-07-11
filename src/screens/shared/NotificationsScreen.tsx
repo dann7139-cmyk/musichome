@@ -602,11 +602,11 @@ export default function NotificationsScreen({ navigation }: any) {
         await goToReservation(role === 'group');
         break;
 
-      // ── Admin: retiros ────────────────────────────────────────────────────
+      // ── Admin: retiros → cola de Transfers del panel financiero ──────────
       case 'payout':
       case 'wallet':
         if (role === 'admin') {
-          navigation.navigate('AdminWithdrawals');
+          navigation.navigate('AdminFinancial', { initialTab: 'transfers' });
         } else if (role === 'group') {
           navigation.navigate('Wallet');
         }
