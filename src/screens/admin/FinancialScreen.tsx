@@ -14,6 +14,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -166,6 +167,7 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
   };
 
   const pickReceipt = async () => {
+    Keyboard.dismiss();
     const res = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'], quality: 0.8, allowsEditing: false,
     });
@@ -781,6 +783,7 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
                   <X size={20} color={COLORS.muted2} />
                 </Pressable>
               </View>
+              <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
               {refundModal && (
                 <Text style={s.refundIntro}>
                   {refundModal.client_name} · {fmt(refundModal.amount)}
@@ -810,6 +813,7 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
                   ? <ActivityIndicator size="small" color="#000" />
                   : <Text style={s.refundBtnTx}>Marcar como enviado y notificar</Text>}
               </Pressable>
+              </ScrollView>
             </View>
           </KeyboardAvoidingView>
         </Modal>
@@ -983,7 +987,7 @@ const s = StyleSheet.create({
   refundModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
   refundModalSheet: {
     backgroundColor: COLORS.card, borderTopLeftRadius: 20, borderTopRightRadius: 20,
-    padding: SPACING.xl, paddingBottom: 36,
+    padding: SPACING.xl, paddingBottom: 36, maxHeight: '85%',
   },
   refundModalHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
   refundModalTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 17, color: COLORS.text },
