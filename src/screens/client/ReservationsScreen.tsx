@@ -1010,12 +1010,19 @@ function ReservationCard({ reservation: r, navigation, onUpdate, isReviewed, isJ
         </View>
       )}
 
-      {/* ── Mapa de zona (estilo ExpressCard) ── */}
+      {/* ── Mapa de zona (estilo ExpressCard) — folio discreto encima ── */}
       {mapCenter && (
-        <RequestZoneMap
-          mapId={String(r.id)} center={mapCenter} typeLabel={typeLabel}
-          userLocation={groupApprox} groupPhotoUrl={r.group?.profile_image ?? null}
-        />
+        <View style={{ position: 'relative' }}>
+          <RequestZoneMap
+            mapId={String(r.id)} center={mapCenter} typeLabel={typeLabel}
+            userLocation={groupApprox} groupPhotoUrl={r.group?.profile_image ?? null}
+          />
+          {r.folio && (
+            <View style={styles.folioOnMap}>
+              <Text style={styles.folioOnMapText}>{r.folio}</Text>
+            </View>
+          )}
+        </View>
       )}
 
       {/* ── Info card ── */}
@@ -1028,29 +1035,32 @@ function ReservationCard({ reservation: r, navigation, onUpdate, isReviewed, isJ
         }}
       >
         <View style={styles.cardTop}>
-          {/* Avatar del grupo */}
-          {r.group?.profile_image ? (
-            <Image source={{ uri: r.group.profile_image }} style={styles.groupAvatar} />
-          ) : (
-            <View style={styles.groupAvatarPlaceholder}>
-              <Text style={styles.groupAvatarInitial}>
-                {(r.group?.name ?? 'G').charAt(0).toUpperCase()}
-              </Text>
-            </View>
-          )}
-          <View style={styles.cardLeft}>
-            <Text style={styles.groupName}>{r.group?.name ?? 'Grupo'}</Text>
-            <Text style={[styles.packageName, isExpress && { marginTop: 2 }]}>
-              {isExpress ? `Solicitud express · ${r.hours_count ?? '?'}h` : (r.quote?.event_type ?? 'Cotización')}
-            </Text>
+          {/* Avatar del grupo + Ver perfil debajo */}
+          <View style={styles.avatarCol}>
+            {r.group?.profile_image ? (
+              <Image source={{ uri: r.group.profile_image }} style={styles.groupAvatar} />
+            ) : (
+              <View style={styles.groupAvatarPlaceholder}>
+                <Text style={styles.groupAvatarInitial}>
+                  {(r.group?.name ?? 'G').charAt(0).toUpperCase()}
+                </Text>
+              </View>
+            )}
             {r.group?.id && (
               <Pressable
                 onPress={(e: any) => { e.stopPropagation?.(); navigation.navigate('GroupDetail', { group: r.group }); }}
                 hitSlop={8}
-                style={({ pressed }: any) => [styles.profileLink, pressed && { opacity: 0.6 }]}
+                style={({ pressed }: any) => pressed && { opacity: 0.6 }}
               >
                 <Text style={styles.profileLinkText}>Ver perfil ›</Text>
               </Pressable>
+            )}
+          </View>
+          <View style={styles.cardLeft}>
+            <Text style={styles.groupName}>{r.group?.name ?? 'Grupo'}</Text>
+            {/* Tipo de evento solo en programadas (en express el mapa ya lo dice) */}
+            {!isExpress && (
+              <Text style={styles.packageName}>{r.quote?.event_type ?? 'Cotización'}</Text>
             )}
           </View>
           <View style={{ alignItems: 'flex-end', gap: 6 }}>
@@ -1085,9 +1095,9 @@ function ReservationCard({ reservation: r, navigation, onUpdate, isReviewed, isJ
           </View>
         </View>
 
-        {/* Folio */}
-        {r.folio && (
-          <Text style={styles.folioText}>{r.folio}</Text>
+        {/* Folio — vive dentro del mapa; aquí solo cuando NO hay mapa (centrado) */}
+        {r.folio && !mapCenter && (
+          <Text style={[styles.folioText, { textAlign: 'center' }]}>{r.folio}</Text>
         )}
 
         {/* Payment status badge — con el MÉTODO de pago (Tarjeta/SPEI/Efectivo/Meses) */}
@@ -1782,9 +1792,18 @@ const styles = StyleSheet.create({
   refundStripEmoji: { fontSize: 14 },
   refundStripText:  { fontFamily: FONTS.bodyMedium, fontSize: 12, flex: 1, lineHeight: 16 },
 
-  // Link "Ver perfil" bajo el nombre del grupo
-  profileLink:     { alignSelf: 'flex-start', marginTop: 4 },
-  profileLinkText: { fontFamily: FONTS.bodySemiBold, fontSize: 12, color: COLORS.green },
+  // Avatar + "Ver perfil" debajo
+  avatarCol:       { alignItems: 'center', gap: 4 },
+  profileLinkText: { fontFamily: FONTS.bodySemiBold, fontSize: 10.5, color: COLORS.green },
+
+  // Folio discreto dentro del mapa (abajo a la izquierda)
+  folioOnMap: {
+    position: 'absolute', bottom: 8, left: 8,
+    backgroundColor: 'rgba(0,0,0,0.55)', borderRadius: RADIUS.full,
+    paddingHorizontal: 8, paddingVertical: 3,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)',
+  },
+  folioOnMapText: { fontFamily: FONTS.bodyMedium, fontSize: 9.5, color: 'rgba(255,255,255,0.8)', letterSpacing: 0.5 },
   rescheduleHint: {
     fontFamily: FONTS.body, fontSize: 13, color: COLORS.muted2, marginBottom: 16, lineHeight: 18,
   },
