@@ -125,27 +125,31 @@ export default function ClientReservationsScreen({ navigation, route }: any) {
     if (resData.data) {
       setResHasMore(resData.data.length === RES_PAGE_SIZE);
 
-      // Canceladas: visibles mientras el reembolso está EN PROCESO
-      // ("Cancelado · reembolso en camino"); al completarse el reembolso
-      // (manual enviado, o automático de tarjeta) el evento SE OCULTA.
+      // Canceladas con reembolso — ciclo de vida visible:
+      //   · en proceso  → visible ("Reembolso en camino") hasta que se envíe
+      //   · enviado     → visible 7 días más ("✅ Reembolso enviado" + comprobante)
+      //   · automático  → visible 7 días desde la cancelación
+      //   después de eso, el evento se oculta solo.
+      const GRACE_MS = 7 * 24 * 60 * 60 * 1000;
       const cancelledIds = resData.data
         .filter((r: any) => r.status === 'cancelled' && r.payout_status === 'refunded')
         .map((r: any) => r.id);
-      let pendingRefundIds = new Set<string>();
+      const mrByRes: Record<string, any> = {};
       if (cancelledIds.length > 0) {
         const { data: mrData } = await supabase
           .from('manual_refunds')
-          .select('reservation_id, status')
+          .select('reservation_id, status, processed_at')
           .in('reservation_id', cancelledIds);
-        pendingRefundIds = new Set(
-          (mrData ?? [])
-            .filter((m: any) => m.status !== 'sent')
-            .map((m: any) => m.reservation_id),
-        );
+        (mrData ?? []).forEach((m: any) => { mrByRes[m.reservation_id] = m; });
       }
-      const visibleRes = resData.data.filter((r: any) =>
-        !(r.status === 'cancelled' && r.payout_status === 'refunded' && !pendingRefundIds.has(r.id))
-      );
+      const visibleRes = resData.data.filter((r: any) => {
+        if (!(r.status === 'cancelled' && r.payout_status === 'refunded')) return true;
+        const mr = mrByRes[r.id];
+        if (mr && mr.status !== 'sent') return true;   // reembolso manual en camino
+        const doneAt = mr?.processed_at ?? r.cancelled_at;
+        if (!doneAt) return false;
+        return (Date.now() - new Date(doneAt).getTime()) < GRACE_MS;
+      });
 
       if (pageNum === 0) {
         setReservations(visibleRes);
