@@ -1090,11 +1090,21 @@ function ReservationCard({ reservation: r, navigation, onUpdate, isReviewed, isJ
           <Text style={styles.folioText}>{r.folio}</Text>
         )}
 
-        {/* Payment status badge — solo en completadas es redundante; en una
-            cancelada-pero-pagada avisa que hay dinero comprometido (reembolso) */}
+        {/* Payment status badge — con el MÉTODO de pago (Tarjeta/SPEI/Efectivo/Meses) */}
         {isPaidReservation && r.status !== 'completed' && (
           <View style={[styles.paidBadge, { backgroundColor: 'rgba(0,230,118,0.12)', borderColor: COLORS.green }]}>
-            <Text style={[styles.paidBadgeText, { color: COLORS.green }]}>✅ Pagado</Text>
+            <Text style={[styles.paidBadgeText, { color: COLORS.green }]}>
+              ✅ Pagado{(() => {
+                if ((r.msi_months ?? 0) > 1) return ` · 📅 ${r.msi_months} meses`;
+                switch (r.payment_method_type) {
+                  case 'card': return ' · 💳 Tarjeta';
+                  case 'spei': return ' · 🏦 SPEI';
+                  case 'cash': return ' · 🏪 Efectivo';
+                }
+                if (r.payment_provider === 'stripe') return ' · 💳 Tarjeta';
+                return '';
+              })()}
+            </Text>
           </View>
         )}
 
