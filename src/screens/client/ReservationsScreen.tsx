@@ -26,6 +26,8 @@ import Badge from '../../components/ui/Badge';
 import RequestZoneMap from '../../components/requests/RequestZoneMap';
 import { eventCardCenter, privacyOffsetZone } from '../../utils/mapUtils';
 import { openSupport } from '../../utils/support';
+import { validateClabe, bankFromClabe, normalizeClabe, clabeLast4 } from '../../utils/clabe';
+import * as WebBrowser from 'expo-web-browser';
 
 const STATUS_MAP: Record<string, { label: string; variant: any }> = {
   pending:                    { label: 'Pendiente',        variant: 'orange' },
@@ -580,6 +582,11 @@ function ReservationCard({ reservation: r, navigation, onUpdate, isReviewed, isJ
     return STATUS_MAP[r.status] ?? STATUS_MAP.pending;
   })();
   const [cancelling,          setCancelling]          = useState(false);
+  // Reembolso manual (SPEI/efectivo): datos bancarios del cliente
+  const [clabeOpen,           setClabeOpen]           = useState(false);
+  const [clabeInput,          setClabeInput]          = useState('');
+  const [holderInput,         setHolderInput]         = useState('');
+  const [bankInput,           setBankInput]           = useState('');
   const [countdown,           setCountdown]           = useState('');
   const [rescheduleVisible,   setRescheduleVisible]   = useState(false);
   const [rescheduleDate,      setRescheduleDate]      = useState('');
@@ -801,6 +808,13 @@ function ReservationCard({ reservation: r, navigation, onUpdate, isReviewed, isJ
       return `${anticip}.\n\n💰 Recuperas: ${fmt(refund)}\n📌 Se retiene ${pct} (${fmt(retain)}) como compensación al grupo y tarifa.` + whyCopy;
     })();
 
+    // SPEI/efectivo con reembolso a recibir → pedimos CLABE para la
+    // transferencia manual (Conekta solo reembolsa tarjeta por API)
+    const needsBankData =
+      r.payment_provider === 'conekta' &&
+      ['spei', 'cash'].includes(String(r.payment_method_type ?? '')) &&
+      !!charge?.ok && refund > 0;
+
     Alert.alert(
       'Cancelar reserva',
       breakdownMsg + '\n\n¿Confirmas la cancelación?',
@@ -808,38 +822,124 @@ function ReservationCard({ reservation: r, navigation, onUpdate, isReviewed, isJ
         { text: 'No', style: 'cancel' },
         {
           text: 'Sí, cancelar', style: 'destructive',
-          onPress: async () => {
-            setCancelling(true);
-            const { data, error } = await supabase.functions.invoke('process-refund', {
-              // El servidor recalcula el monto (tiers); el cliente no lo decide.
-              // Idempotente por cancel-{id}: reintentar no duplica reembolso.
-              body: { reservation_id: r.id, mode: 'cancellation' },
-            });
-            setCancelling(false);
-            const failed = error || (data as any)?.error || (data as any)?.ok === false;
-            if (failed) {
-              const detail = (data as any)?.error ?? error?.message ?? 'Intenta de nuevo.';
-              Alert.alert(
-                'No se pudo cancelar',
-                `${detail}\n\nSi ya se emitió el reembolso, reintentar no genera doble cargo.`,
-                [
-                  { text: 'Cerrar', style: 'cancel' },
-                  { text: 'Reintentar', onPress: () => handleCancel() },
-                ],
-              );
-              return;
-            }
-            const b = (data as any)?.breakdown;
-            Alert.alert(
-              'Reserva cancelada',
-              b && Number(b.refund_amount) > 0
-                ? `Se emitió tu reembolso de ${fmt(Number(b.refund_amount))}. Aparecerá en tu cuenta en 3-10 días hábiles.`
-                : 'Tu reserva fue cancelada.',
-            );
-            onUpdate();
+          onPress: () => {
+            if (needsBankData) { setClabeOpen(true); return; }
+            executeCancellation();
           },
         },
       ]
+    );
+  };
+
+  // Ejecuta la cancelación (con datos bancarios si es reembolso manual).
+  // El servidor recalcula el monto (tiers); el cliente no lo decide.
+  // Idempotente por cancel-{id}: reintentar no duplica reembolso.
+  const executeCancellation = async (bank?: { clabe: string; account_holder: string; bank_name: string }) => {
+    const fmt = (n: number) => `$${Number(n).toLocaleString('es-MX')} MXN`;
+    setCancelling(true);
+    const { data, error } = await supabase.functions.invoke('process-refund', {
+      body: {
+        reservation_id: r.id,
+        mode: 'cancellation',
+        ...(bank ? { clabe: bank.clabe, account_holder: bank.account_holder, bank_name: bank.bank_name } : {}),
+      },
+    });
+    setCancelling(false);
+    const failed = error || (data as any)?.error || (data as any)?.ok === false;
+    if (failed) {
+      const detail = (data as any)?.error ?? error?.message ?? 'Intenta de nuevo.';
+      Alert.alert(
+        'No se pudo cancelar',
+        `${detail}\n\nSi ya se emitió el reembolso, reintentar no genera doble cargo.`,
+        [
+          { text: 'Cerrar', style: 'cancel' },
+          { text: 'Reintentar', onPress: () => (bank ? executeCancellation(bank) : handleCancel()) },
+        ],
+      );
+      return;
+    }
+    const b = (data as any)?.breakdown;
+    const refundAmt = Number(b?.refund_amount ?? (data as any)?.amount ?? 0);
+    if ((data as any)?.refund_mode === 'manual_pending') {
+      Alert.alert(
+        'Reserva cancelada',
+        `Tu reembolso de ${fmt(refundAmt)} se enviará por transferencia bancaria${bank ? ` a tu cuenta terminación ${clabeLast4(bank.clabe)}` : ''} en un máximo de 5 días hábiles. Te avisaremos cuando esté enviado.`,
+      );
+    } else {
+      Alert.alert(
+        'Reserva cancelada',
+        refundAmt > 0
+          ? `Se emitió tu reembolso de ${fmt(refundAmt)}. Aparecerá en tu cuenta en 3-10 días hábiles.`
+          : 'Tu reserva fue cancelada.',
+      );
+    }
+    onUpdate();
+  };
+
+  // Estado del reembolso de una reserva cancelada (automático o manual)
+  const viewRefundStatus = async () => {
+    const fmt = (n: number) => `$${Number(n).toLocaleString('es-MX')} MXN`;
+    const { data: mr } = await supabase
+      .from('manual_refunds')
+      .select('amount, status, due_date, transfer_reference, receipt_path, clabe')
+      .eq('reservation_id', r.id)
+      .maybeSingle();
+
+    if (!mr) {
+      Alert.alert(
+        'Reembolso',
+        'Tu reembolso se emitió automáticamente a tu método de pago original. Aparece en tu cuenta en 3-10 días hábiles.',
+      );
+      return;
+    }
+    const dueTxt = new Date(mr.due_date + 'T12:00:00').toLocaleDateString('es-MX', { day: '2-digit', month: 'long' });
+    if (mr.status === 'sent') {
+      const openReceipt = async () => {
+        if (!mr.receipt_path) return;
+        const { data: signed } = await supabase.storage
+          .from('refund-receipts')
+          .createSignedUrl(mr.receipt_path, 3600);
+        if (signed?.signedUrl) await WebBrowser.openBrowserAsync(signed.signedUrl);
+        else Alert.alert('Comprobante', 'No se pudo abrir el comprobante. Intenta más tarde.');
+      };
+      Alert.alert(
+        '✅ Reembolso enviado',
+        `Enviamos ${fmt(Number(mr.amount))} por transferencia${mr.clabe ? ` a tu cuenta terminación ${String(mr.clabe).slice(-4)}` : ''}.` +
+        (mr.transfer_reference ? `\n\nReferencia: ${mr.transfer_reference}` : ''),
+        mr.receipt_path
+          ? [{ text: 'Cerrar', style: 'cancel' }, { text: '📎 Ver comprobante', onPress: openReceipt }]
+          : [{ text: 'Cerrar' }],
+      );
+    } else {
+      Alert.alert(
+        '💸 Reembolso en proceso',
+        `Tu reembolso de ${fmt(Number(mr.amount))} se enviará por transferencia bancaria a más tardar el ${dueTxt}. Te avisaremos cuando esté enviado.`,
+      );
+    }
+  };
+
+  // Confirmación de datos bancarios del modal CLABE
+  const submitClabe = () => {
+    const clabe = normalizeClabe(clabeInput);
+    const check = validateClabe(clabe);
+    if (!check.valid) { Alert.alert('CLABE inválida', check.error); return; }
+    const holder = holderInput.trim();
+    if (holder.length < 5) { Alert.alert('Falta el titular', 'Escribe el nombre completo del titular de la cuenta.'); return; }
+    const bank = (bankFromClabe(clabe) ?? bankInput.trim());
+    if (!bank) { Alert.alert('Falta el banco', 'No reconocimos el banco de tu CLABE — escríbelo.'); return; }
+    Alert.alert(
+      'Confirma tu cuenta',
+      `Tu reembolso se enviará a:\n\n${bank} · cuenta terminación ${clabeLast4(clabe)}\nTitular: ${holder}\n\n¿Es correcta?`,
+      [
+        { text: 'Revisar', style: 'cancel' },
+        {
+          text: 'Sí, cancelar reserva', style: 'destructive',
+          onPress: () => {
+            setClabeOpen(false);
+            executeCancellation({ clabe, account_holder: holder, bank_name: bank });
+          },
+        },
+      ],
     );
   };
 
@@ -1063,6 +1163,71 @@ function ReservationCard({ reservation: r, navigation, onUpdate, isReviewed, isJ
       )}
 
       {/* ── Modal Reprogramar ── */}
+      {/* ── Modal CLABE — reembolso manual SPEI/efectivo ── */}
+      <Modal visible={clabeOpen} transparent animationType="slide" onRequestClose={() => setClabeOpen(false)}>
+        <View style={styles.rescheduleOverlay}>
+          <View style={styles.rescheduleSheet}>
+            <View style={styles.rescheduleHeader}>
+              <Text style={styles.rescheduleTitle}>¿A qué cuenta te reembolsamos?</Text>
+              <Pressable onPress={() => setClabeOpen(false)} hitSlop={8}>
+                <X size={20} color={COLORS.muted2} />
+              </Pressable>
+            </View>
+            <Text style={styles.clabeHint}>
+              Pagaste por {r.payment_method_type === 'cash' ? 'efectivo' : 'transferencia'}, así que tu
+              reembolso se envía por transferencia bancaria en un máximo de 5 días hábiles.
+            </Text>
+            <Text style={styles.clabeLabel}>CLABE (18 dígitos)</Text>
+            <TextInput
+              style={styles.clabeInput}
+              value={clabeInput}
+              onChangeText={(t) => { setClabeInput(normalizeClabe(t).slice(0, 18)); }}
+              keyboardType="number-pad"
+              maxLength={18}
+              placeholder="000000000000000000"
+              placeholderTextColor={COLORS.muted}
+            />
+            {normalizeClabe(clabeInput).length >= 3 && (
+              <Text style={styles.clabeBankDetected}>
+                {bankFromClabe(clabeInput)
+                  ? `🏦 ${bankFromClabe(clabeInput)}`
+                  : 'Banco no reconocido — escríbelo abajo'}
+              </Text>
+            )}
+            {!bankFromClabe(clabeInput) && normalizeClabe(clabeInput).length >= 3 && (
+              <>
+                <Text style={styles.clabeLabel}>Banco</Text>
+                <TextInput
+                  style={styles.clabeInput}
+                  value={bankInput}
+                  onChangeText={setBankInput}
+                  placeholder="Nombre de tu banco"
+                  placeholderTextColor={COLORS.muted}
+                />
+              </>
+            )}
+            <Text style={styles.clabeLabel}>Nombre completo del titular</Text>
+            <TextInput
+              style={styles.clabeInput}
+              value={holderInput}
+              onChangeText={setHolderInput}
+              placeholder="Como aparece en tu cuenta"
+              placeholderTextColor={COLORS.muted}
+              autoCapitalize="words"
+            />
+            <Pressable
+              style={[styles.clabeSubmitBtn, cancelling && { opacity: 0.5 }]}
+              onPress={submitClabe}
+              disabled={cancelling}
+            >
+              {cancelling
+                ? <ActivityIndicator size="small" color="#000" />
+                : <Text style={styles.clabeSubmitTx}>Confirmar y cancelar reserva</Text>}
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
       <Modal visible={rescheduleVisible} transparent animationType="slide">
         <View style={styles.rescheduleOverlay}>
           <View style={styles.rescheduleSheet}>
@@ -1126,6 +1291,16 @@ function ReservationCard({ reservation: r, navigation, onUpdate, isReviewed, isJ
                 <Text style={styles.cancelBtnText}>{t('reservations.btn_cancel')}</Text>
               </>
             )}
+          </Pressable>
+        </View>
+      )}
+
+      {/* ── Reserva cancelada con pago: estado del reembolso ── */}
+      {r.status === 'cancelled' && !r._isQuote && !!r.mp_payment_id && (
+        <View style={styles.completedActions}>
+          <Pressable style={styles.shareBtn} onPress={viewRefundStatus}>
+            <FileText size={13} color={COLORS.muted2} />
+            <Text style={styles.shareBtnText}>Ver reembolso</Text>
           </Pressable>
         </View>
       )}
@@ -1500,6 +1675,22 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8,
   },
   rescheduleTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 17, color: COLORS.text },
+
+  // ── Modal CLABE (reembolso manual) ──
+  clabeHint: { fontFamily: FONTS.body, fontSize: 13, color: COLORS.muted2, marginBottom: 14, lineHeight: 18 },
+  clabeLabel: { fontFamily: FONTS.bodyMedium, fontSize: 12, color: COLORS.muted2, marginBottom: 6, marginTop: 4 },
+  clabeInput: {
+    backgroundColor: COLORS.card2, borderRadius: RADIUS.md,
+    borderWidth: 1, borderColor: COLORS.border,
+    paddingHorizontal: 14, paddingVertical: 12, marginBottom: 10,
+    fontFamily: FONTS.bodyMedium, fontSize: 15, color: COLORS.text, letterSpacing: 1,
+  },
+  clabeBankDetected: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.green, marginBottom: 8 },
+  clabeSubmitBtn: {
+    backgroundColor: COLORS.green, borderRadius: RADIUS.lg,
+    paddingVertical: 15, alignItems: 'center', marginTop: 8,
+  },
+  clabeSubmitTx: { fontFamily: FONTS.bodySemiBold, fontSize: 15, color: '#000' },
   rescheduleHint: {
     fontFamily: FONTS.body, fontSize: 13, color: COLORS.muted2, marginBottom: 16, lineHeight: 18,
   },

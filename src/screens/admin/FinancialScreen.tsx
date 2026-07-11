@@ -12,13 +12,18 @@ import {
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
+  Image,
+  Modal,
   Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
@@ -63,7 +68,29 @@ interface Payout {
 }
 
 type DateFilter = '7d' | '30d' | '90d' | 'all';
-type TabView    = 'overview' | 'events' | 'transfers' | 'ads';
+type TabView    = 'overview' | 'events' | 'transfers' | 'ads' | 'refunds';
+
+// Reembolso manual (SPEI/efectivo) — cola de admin_manual_refund_queue
+interface ManualRefund {
+  id:                 string;
+  reservation_id:     string;
+  client_id:          string;
+  folio:              string | null;
+  client_name:        string | null;
+  client_phone:       string | null;
+  payment_method:     string;
+  amount:             number;
+  clabe:              string | null;
+  account_holder:     string | null;
+  bank_name:          string | null;
+  due_date:           string;
+  status:             'pending' | 'processing' | 'sent';
+  transfer_reference: string | null;
+  receipt_path:       string | null;
+  api_error:          string | null;
+  created_at:         string;
+  processed_at:       string | null;
+}
 
 const DATE_OPTIONS: { label: string; value: DateFilter }[] = [
   { label: '7 días',  value: '7d' },
@@ -96,6 +123,12 @@ export default function AdminFinancialScreen({ navigation }: any) {
   const [activeTab, setActiveTab]       = useState<TabView>('overview');
   const [loading, setLoading]           = useState(true);
   const [refreshing, setRefreshing]     = useState(false);
+  // Cola de reembolsos manuales (SPEI/efectivo)
+  const [refunds, setRefunds]           = useState<ManualRefund[]>([]);
+  const [refundModal, setRefundModal]   = useState<ManualRefund | null>(null);
+  const [refundRef, setRefundRef]       = useState('');
+  const [receiptUri, setReceiptUri]     = useState<string | null>(null);
+  const [refundSaving, setRefundSaving] = useState(false);
 
   useEffect(() => { load(); }, [filter]);
 
@@ -103,10 +136,66 @@ export default function AdminFinancialScreen({ navigation }: any) {
     if (isRefresh) setRefreshing(true);
     else setLoading(true);
     try {
-      await Promise.all([fetchOverview(), fetchEventFinancials(), fetchPayouts(), fetchAdIncome()]);
+      await Promise.all([fetchOverview(), fetchEventFinancials(), fetchPayouts(), fetchAdIncome(), fetchRefunds()]);
     } finally {
       setLoading(false);
       setRefreshing(false);
+    }
+  };
+
+  // ── Cola de reembolsos manuales ───────────────────────────────────────────
+  const fetchRefunds = async () => {
+    const { data, error } = await supabase.rpc('admin_manual_refund_queue');
+    if (error) { console.warn('[FinancialScreen] refund queue:', error.message); return; }
+    setRefunds((data ?? []) as ManualRefund[]);
+  };
+
+  const markProcessing = async (mr: ManualRefund) => {
+    const { data } = await supabase.rpc('admin_process_manual_refund', {
+      p_refund_id: mr.id, p_action: 'processing',
+    });
+    if ((data as any)?.ok === false) { Alert.alert('Error', (data as any)?.error ?? 'Intenta de nuevo'); return; }
+    fetchRefunds();
+  };
+
+  const pickReceipt = async () => {
+    const res = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'], quality: 0.8, allowsEditing: false,
+    });
+    if (!res.canceled && res.assets?.[0]?.uri) setReceiptUri(res.assets[0].uri);
+  };
+
+  const completeRefund = async () => {
+    if (!refundModal) return;
+    const reference = refundRef.trim();
+    if (!reference) { Alert.alert('Falta la referencia', 'Escribe la clave de rastreo o folio de la transferencia.'); return; }
+    setRefundSaving(true);
+    try {
+      // 1. Subir comprobante (opcional pero recomendado)
+      let receiptPath: string | null = null;
+      if (receiptUri) {
+        receiptPath = `${refundModal.client_id}/${refundModal.id}.jpg`;
+        const buf = await fetch(receiptUri).then(r => r.arrayBuffer());
+        const { error: upErr } = await supabase.storage
+          .from('refund-receipts')
+          .upload(receiptPath, buf, { contentType: 'image/jpeg', upsert: true });
+        if (upErr) throw new Error(`No se pudo subir el comprobante: ${upErr.message}`);
+      }
+      // 2. Marcar enviado + notificar al cliente
+      const { data, error } = await supabase.rpc('admin_process_manual_refund', {
+        p_refund_id: refundModal.id, p_action: 'sent',
+        p_transfer_reference: reference, p_receipt_path: receiptPath,
+      });
+      if (error || (data as any)?.ok === false) {
+        throw new Error((data as any)?.error ?? error?.message ?? 'No se pudo completar');
+      }
+      Alert.alert('✅ Reembolso completado', 'El cliente fue notificado de que su dinero fue enviado.');
+      setRefundModal(null); setRefundRef(''); setReceiptUri(null);
+      fetchRefunds();
+    } catch (e: any) {
+      Alert.alert('Error', e.message ?? 'Intenta de nuevo.');
+    } finally {
+      setRefundSaving(false);
     }
   };
 
@@ -293,7 +382,9 @@ export default function AdminFinancialScreen({ navigation }: any) {
 
           {/* TABS */}
           <View style={s.tabRow}>
-            {(['overview', 'events', 'ads', 'transfers'] as TabView[]).map(tab => (
+            {(['overview', 'events', 'ads', 'transfers', 'refunds'] as TabView[]).map(tab => {
+              const pendingRefunds = refunds.filter(x => x.status !== 'sent').length;
+              return (
               <Pressable
                 key={tab}
                 style={[s.tab, activeTab === tab && s.tabActive]}
@@ -303,10 +394,11 @@ export default function AdminFinancialScreen({ navigation }: any) {
                   {tab === 'overview' ? 'Resumen'
                     : tab === 'events' ? 'Eventos'
                     : tab === 'ads'    ? '📢 Publicidad'
+                    : tab === 'refunds' ? `💸 Reembolsos${pendingRefunds > 0 ? ` (${pendingRefunds})` : ''}`
                     : 'Transfers'}
                 </Text>
               </Pressable>
-            ))}
+            );})}
           </View>
 
           {/* ══ TAB: RESUMEN ══ */}
@@ -489,6 +581,81 @@ export default function AdminFinancialScreen({ navigation }: any) {
             </>
           )}
 
+          {/* ══ TAB: REEMBOLSOS MANUALES (SPEI/efectivo) ══ */}
+          {activeTab === 'refunds' && (
+            <>
+              <Text style={s.sectionTitle}>Reembolsos por transferencia</Text>
+              <Text style={s.refundIntro}>
+                Pagos SPEI/efectivo cancelados — se devuelven por transferencia manual.
+                Promesa al cliente: 5 días hábiles.
+              </Text>
+              {refunds.length === 0 && (
+                <View style={s.emptyCard}>
+                  <Text style={s.emptyText}>Sin reembolsos manuales pendientes 🎉</Text>
+                </View>
+              )}
+              {refunds.map(mr => {
+                const overdue = mr.status !== 'sent' && new Date(mr.due_date) < new Date();
+                const stColor = mr.status === 'sent' ? COLORS.green : mr.status === 'processing' ? COLORS.orange : '#EF5350';
+                const stLabel = mr.status === 'sent' ? 'Enviado' : mr.status === 'processing' ? 'Procesando' : 'Pendiente';
+                return (
+                  <View key={mr.id} style={[s.refundCard, overdue && s.refundCardOverdue]}>
+                    <View style={s.refundHead}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={s.payoutName} numberOfLines={1}>{mr.client_name ?? '—'}</Text>
+                        <Text style={s.payoutType}>
+                          Folio {mr.folio ?? 's/f'} · {mr.payment_method === 'cash' ? '🏪 Efectivo' : '🏦 SPEI'}
+                          {mr.client_phone ? ` · 📞 ${mr.client_phone}` : ''}
+                        </Text>
+                      </View>
+                      <View style={{ alignItems: 'flex-end' }}>
+                        <Text style={s.payoutAmount}>{fmt(mr.amount)}</Text>
+                        <Text style={[s.refundStatus, { color: stColor }]}>{stLabel}</Text>
+                      </View>
+                    </View>
+                    <View style={s.refundBank}>
+                      {mr.clabe ? (
+                        <>
+                          <Text style={s.refundBankTx} selectable>CLABE: {mr.clabe}</Text>
+                          <Text style={s.refundBankTx}>{mr.bank_name ?? 'Banco s/d'} · {mr.account_holder ?? 'Titular s/d'}</Text>
+                        </>
+                      ) : (
+                        <Text style={[s.refundBankTx, { color: COLORS.orange }]}>
+                          ⚠️ Sin CLABE — contactar al cliente{mr.client_phone ? ` (${mr.client_phone})` : ''}
+                        </Text>
+                      )}
+                      <Text style={[s.refundDue, overdue && { color: '#EF5350' }]}>
+                        Fecha límite: {new Date(mr.due_date + 'T12:00:00').toLocaleDateString('es-MX', { day: '2-digit', month: 'short' })}
+                        {overdue ? ' · ⚠️ VENCIDO' : ''}
+                      </Text>
+                      {!!mr.api_error && (
+                        <Text style={s.refundApiErr} numberOfLines={2}>Fallback API: {mr.api_error}</Text>
+                      )}
+                      {mr.status === 'sent' && (
+                        <Text style={s.refundBankTx}>Ref: {mr.transfer_reference ?? '—'} · {mr.receipt_path ? '📎 con comprobante' : 'sin comprobante'}</Text>
+                      )}
+                    </View>
+                    {mr.status !== 'sent' && (
+                      <View style={s.refundActions}>
+                        {mr.status === 'pending' && (
+                          <Pressable style={s.refundBtnGhost} onPress={() => markProcessing(mr)}>
+                            <Text style={s.refundBtnGhostTx}>Marcar procesando</Text>
+                          </Pressable>
+                        )}
+                        <Pressable
+                          style={s.refundBtn}
+                          onPress={() => { setRefundModal(mr); setRefundRef(''); setReceiptUri(null); }}
+                        >
+                          <Text style={s.refundBtnTx}>✓ Ya transferí</Text>
+                        </Pressable>
+                      </View>
+                    )}
+                  </View>
+                );
+              })}
+            </>
+          )}
+
           {/* ══ TAB: PUBLICIDAD ══ */}
           {activeTab === 'ads' && (() => {
             const adRows    = adIncome.filter(t => t.type === 'ad_income');
@@ -586,6 +753,49 @@ export default function AdminFinancialScreen({ navigation }: any) {
 
           <View style={{ height: 40 }} />
         </ScrollView>
+
+        {/* ── Modal: completar reembolso manual ── */}
+        <Modal visible={!!refundModal} transparent animationType="slide" onRequestClose={() => setRefundModal(null)}>
+          <View style={s.refundModalOverlay}>
+            <View style={s.refundModalSheet}>
+              <View style={s.refundModalHead}>
+                <Text style={s.refundModalTitle}>Confirmar transferencia</Text>
+                <Pressable onPress={() => setRefundModal(null)} hitSlop={8}>
+                  <X size={20} color={COLORS.muted2} />
+                </Pressable>
+              </View>
+              {refundModal && (
+                <Text style={s.refundIntro}>
+                  {refundModal.client_name} · {fmt(refundModal.amount)}
+                  {refundModal.clabe ? ` · CLABE ···${String(refundModal.clabe).slice(-4)}` : ''}
+                </Text>
+              )}
+              <Text style={s.refundModalLabel}>Referencia / clave de rastreo *</Text>
+              <TextInput
+                style={s.refundModalInput}
+                value={refundRef}
+                onChangeText={setRefundRef}
+                placeholder="Ej. clave de rastreo SPEI"
+                placeholderTextColor={COLORS.muted}
+              />
+              <Text style={s.refundModalLabel}>Comprobante (foto/captura)</Text>
+              <Pressable style={s.refundReceiptPick} onPress={pickReceipt}>
+                {receiptUri
+                  ? <Image source={{ uri: receiptUri }} style={s.refundReceiptImg} resizeMode="cover" />
+                  : <Text style={s.refundReceiptTx}>📎 Subir comprobante</Text>}
+              </Pressable>
+              <Pressable
+                style={[s.refundBtn, { marginTop: 14 }, refundSaving && { opacity: 0.5 }]}
+                onPress={completeRefund}
+                disabled={refundSaving}
+              >
+                {refundSaving
+                  ? <ActivityIndicator size="small" color="#000" />
+                  : <Text style={s.refundBtnTx}>Marcar como enviado y notificar</Text>}
+              </Pressable>
+            </View>
+          </View>
+        </Modal>
       </SafeAreaView>
     </View>
   );
@@ -721,6 +931,56 @@ const s = StyleSheet.create({
   payoutAmount: { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: COLORS.green },
   payoutAmountFail: { color: '#EF5350' },
   payoutDate:   { fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted, marginTop: 2 },
+
+  // ── Reembolsos manuales ──
+  refundIntro: { fontFamily: FONTS.body, fontSize: 12.5, color: COLORS.muted2, marginTop: 4, marginBottom: 12, lineHeight: 17 },
+  refundCard: {
+    backgroundColor: COLORS.card, borderRadius: RADIUS.lg,
+    borderWidth: 1, borderColor: COLORS.border,
+    padding: 14, marginBottom: 10,
+  },
+  refundCardOverdue: { borderColor: 'rgba(239,83,80,0.55)' },
+  refundHead: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  refundStatus: { fontFamily: FONTS.bodySemiBold, fontSize: 11, marginTop: 2 },
+  refundBank: { marginTop: 10, gap: 3 },
+  refundBankTx: { fontFamily: FONTS.bodyMedium, fontSize: 12.5, color: COLORS.text },
+  refundDue: { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2 },
+  refundApiErr: { fontFamily: FONTS.body, fontSize: 11, color: COLORS.orange },
+  refundActions: { flexDirection: 'row', gap: 8, marginTop: 12 },
+  refundBtn: {
+    flex: 1, backgroundColor: COLORS.green, borderRadius: RADIUS.md,
+    paddingVertical: 11, alignItems: 'center',
+  },
+  refundBtnTx: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: '#000' },
+  refundBtnGhost: {
+    flex: 1, backgroundColor: 'transparent', borderRadius: RADIUS.md,
+    borderWidth: 1, borderColor: COLORS.border,
+    paddingVertical: 11, alignItems: 'center',
+  },
+  refundBtnGhostTx: { fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.muted2 },
+
+  // Modal completar reembolso
+  refundModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
+  refundModalSheet: {
+    backgroundColor: COLORS.card, borderTopLeftRadius: 20, borderTopRightRadius: 20,
+    padding: SPACING.xl, paddingBottom: 36,
+  },
+  refundModalHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
+  refundModalTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 17, color: COLORS.text },
+  refundModalLabel: { fontFamily: FONTS.bodyMedium, fontSize: 12, color: COLORS.muted2, marginBottom: 6, marginTop: 6 },
+  refundModalInput: {
+    backgroundColor: COLORS.card2, borderRadius: RADIUS.md,
+    borderWidth: 1, borderColor: COLORS.border,
+    paddingHorizontal: 14, paddingVertical: 12, marginBottom: 6,
+    fontFamily: FONTS.bodyMedium, fontSize: 14, color: COLORS.text,
+  },
+  refundReceiptPick: {
+    height: 110, borderRadius: RADIUS.md, borderWidth: 1, borderStyle: 'dashed',
+    borderColor: COLORS.border, backgroundColor: COLORS.card2,
+    alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+  },
+  refundReceiptImg: { width: '100%', height: '100%' },
+  refundReceiptTx: { fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.muted2 },
 });
 
 const kpi = StyleSheet.create({

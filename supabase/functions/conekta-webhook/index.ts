@@ -35,7 +35,7 @@ const serviceHeaders: Record<string, string> = {
 // v1: re-consulta la orden en Conekta y confirma que está pagada.
 // Futuro: reemplazar el cuerpo por verificación de firma sin tocar el webhook.
 async function verifyConektaPayment(orderId: string): Promise<{
-  paid: boolean; amountCentavos: number; reservationId: string | null;
+  paid: boolean; amountCentavos: number; reservationId: string | null; methodType: string | null;
 }> {
   const auth = btoa(`${PRIVATE_KEY}:`);
   const res = await fetch(`https://api.conekta.io/orders/${orderId}`, {
@@ -46,13 +46,24 @@ async function verifyConektaPayment(orderId: string): Promise<{
   });
   if (!res.ok) {
     console.error('[conekta-webhook] verify: no se pudo consultar la orden', orderId, res.status);
-    return { paid: false, amountCentavos: 0, reservationId: null };
+    return { paid: false, amountCentavos: 0, reservationId: null, methodType: null };
   }
   const order = await res.json() as any;
+
+  // Método real con el que se pagó (card / spei / cash). Los reembolsos por
+  // API solo existen para tarjeta; SPEI/efectivo van a la cola manual.
+  const rawType = String(order?.charges?.data?.[0]?.payment_method?.type ?? '').toLowerCase();
+  const methodType =
+    rawType.includes('spei') || rawType.includes('bank')            ? 'spei' :
+    rawType.includes('cash') || rawType.includes('oxxo')            ? 'cash' :
+    rawType.includes('card')                                        ? 'card' :
+    rawType || null;
+
   return {
     paid:          order?.payment_status === 'paid',
     amountCentavos: Number(order?.amount ?? 0),
     reservationId: order?.metadata?.reservation_id ?? null,
+    methodType,
   };
 }
 
@@ -100,11 +111,12 @@ Deno.serve(async (req) => {
       });
     }
 
-    // 3. Marcar el proveedor (para que el refund vuelva por Conekta)
+    // 3. Marcar proveedor + método real (el refund decide su ruta con esto:
+    //    tarjeta → API de Conekta; SPEI/efectivo → cola de reembolso manual)
     await fetch(`${SUPABASE_URL}/rest/v1/reservations?id=eq.${v.reservationId}`, {
       method: 'PATCH',
       headers: { ...serviceHeaders, Prefer: 'return=minimal' },
-      body: JSON.stringify({ payment_provider: 'conekta' }),
+      body: JSON.stringify({ payment_provider: 'conekta', payment_method_type: v.methodType }),
     });
 
     console.log(`[conekta-webhook] ✅ order=${orderId} reservation=${v.reservationId} acreditado (${JSON.stringify(rpcData)})`);

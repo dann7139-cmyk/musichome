@@ -69,7 +69,9 @@ Deno.serve(async (req) => {
         p_mp_payment_id:  paymentId,
         p_external_ref:   reservationId,
         p_reservation_id: reservationId,
-        p_mp_status:      eventType === 'refund_issued' ? 'refunded' : 'refund_failed',
+        p_mp_status:      eventType === 'refund_issued' ? 'refunded'
+                        : eventType === 'refund_manual_pending' ? 'manual_pending'
+                        : 'refund_failed',
         p_mp_amount:      amount,
         p_event_type:     eventType,
         p_notes:          notes,
@@ -98,6 +100,10 @@ Deno.serve(async (req) => {
       refund_amount?:   number;
       idempotency_key?: string;
       mode?:            'full' | 'cancellation';
+      // Datos bancarios del cliente para reembolso MANUAL (SPEI/efectivo)
+      clabe?:           string;
+      account_holder?:  string;
+      bank_name?:       string;
     };
     const { reservation_id, refund_amount } = body;
     const mode = body.mode ?? 'full';
@@ -106,7 +112,7 @@ Deno.serve(async (req) => {
     // ── Cargar reserva ────────────────────────────────────────────────
     const { data: reservation, error: resErr } = await admin
       .from('reservations')
-      .select('id,total_price,base_price,client_id,payment_status,payout_status,mp_payment_id,payment_provider,event_date,group_id')
+      .select('id,total_price,base_price,client_id,payment_status,payout_status,mp_payment_id,payment_provider,payment_method_type,event_date,group_id')
       .eq('id', reservation_id)
       .single();
 
@@ -185,7 +191,86 @@ Deno.serve(async (req) => {
       return jsonRes({ error: `El reembolso ($${amountToRef}) excede el total ($${totalPrice})` }, 422);
     }
 
-    console.log(`[REFUND_INIT] reservation=${reservation_id} provider=${isStripe ? 'stripe' : 'mercadopago'} payment=${paymentId} amount=$${amountToRef} by=${isAdmin ? 'admin' : 'client'}`);
+    console.log(`[REFUND_INIT] reservation=${reservation_id} provider=${isConekta ? 'conekta' : isStripe ? 'stripe' : 'mercadopago'} payment=${paymentId} amount=$${amountToRef} by=${isAdmin ? 'admin' : 'client'}`);
+
+    // ── Ruta MANUAL (SPEI/efectivo por Conekta) ───────────────────────
+    // Conekta solo reembolsa por API los pagos con TARJETA. Para SPEI y
+    // efectivo: la cancelación y la reversión de wallet se completan igual,
+    // y la devolución entra a la cola manual_refunds (transferencia del
+    // admin, promesa de 5 días hábiles). El cliente NUNCA ve un error.
+    const methodType = String((reservation as any).payment_method_type ?? '').toLowerCase();
+
+    const settleManual = async (apiError: string | null): Promise<Response> => {
+      // 1. Liquidar en DB (idéntico al camino automático)
+      let settleResult: any;
+      if (mode === 'cancellation') {
+        const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/settle_cancellation`, {
+          method: 'POST', headers: serviceHeaders,
+          body: JSON.stringify({ p_reservation_id: reservation_id, p_refund_id: 'manual-pending' }),
+        });
+        settleResult = await r.json();
+        if (!r.ok || settleResult?.ok === false) {
+          return jsonRes({ error: settleResult?.error ?? 'No se pudo liquidar la cancelación' }, 422);
+        }
+      } else {
+        const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/process_refund_reversal`, {
+          method: 'POST', headers: serviceHeaders,
+          body: JSON.stringify({
+            p_reservation_id: reservation_id,
+            p_mp_refund_id:   'manual-pending',
+            p_refund_amount:  amountToRef,
+          }),
+        });
+        settleResult = await r.json();
+      }
+
+      // 2. Encolar el reembolso manual (idempotente: 1 por reserva)
+      const { data: mr, error: mrErr } = await admin.rpc('create_manual_refund', {
+        p_reservation_id: reservation_id,
+        p_amount:         amountToRef,
+        p_method:         ['spei', 'cash'].includes(methodType) ? methodType : 'unknown',
+        p_clabe:          body.clabe ?? null,
+        p_account_holder: body.account_holder ?? null,
+        p_bank_name:      body.bank_name ?? null,
+        p_api_error:      apiError,
+      });
+      if (mrErr || mr?.ok === false) {
+        console.error('[REFUND_MANUAL] create_manual_refund falló:', mrErr?.message ?? JSON.stringify(mr));
+        return jsonRes({ error: mr?.error ?? mrErr?.message ?? 'No se pudo registrar el reembolso manual' }, 500);
+      }
+      const dueDate = mr?.due_date ?? null;
+
+      // 3. Auditoría (incluye el error original de la API si fue fallback)
+      logPaymentEvent(paymentId, reservation_id, 'refund_manual_pending', amountToRef,
+        `Reembolso manual ${methodType || 'unknown'} encolado (due ${dueDate})` +
+        (apiError ? ` — API error original: ${apiError}` : ''));
+
+      // 4. Notificar al cliente (promesa de 5 días hábiles)
+      const last4 = body.clabe ? ` a tu cuenta terminación ${String(body.clabe).slice(-4)}` : '';
+      await admin.from('notifications').insert({
+        user_id: reservation.client_id,
+        type:    'payment',
+        title:   '💸 Reembolso en proceso',
+        body:    `Tu reserva fue cancelada. Como pagaste por ${methodType === 'cash' ? 'efectivo' : 'transferencia'}, tu reembolso de $${Number(amountToRef).toLocaleString('es-MX')} MXN se enviará por transferencia bancaria${last4} en un máximo de 5 días hábiles.`,
+        data:    { reservation_id, screen: 'Reservations', manual_refund_id: mr?.id ?? null },
+      });
+
+      return jsonRes({
+        ok:            true,
+        mode,
+        provider:      'conekta',
+        refund_mode:   'manual_pending',
+        refund_id:     null,
+        amount:        amountToRef,
+        due_date:      dueDate,
+        reservation_id,
+        breakdown:     cancellationCharge,
+      });
+    };
+
+    if (isConekta && ['spei', 'cash'].includes(methodType)) {
+      return await settleManual(null);
+    }
 
     // ── Emitir el reembolso según proveedor ───────────────────────────
     let refundId = '';
@@ -248,6 +333,14 @@ Deno.serve(async (req) => {
         const msg = ckData?.details?.[0]?.message ?? 'Error al procesar reembolso en Conekta';
         console.error('[REFUND_ERROR] Conekta refund failed:', JSON.stringify(ckData));
         logPaymentEvent(paymentId, reservation_id, 'refund_failed', amountToRef, `Conekta: ${msg}`);
+        // Red de seguridad: si el método NO es tarjeta (o es desconocido en
+        // reservas viejas sin payment_method_type), el rechazo de la API es
+        // esperado → convertir a reembolso MANUAL en lugar de atorar al
+        // cliente en "Reintentar". El error original ya quedó auditado.
+        if (methodType !== 'card') {
+          console.warn('[REFUND_FALLBACK] método no reembolsable por API → cola manual');
+          return await settleManual(msg);
+        }
         return jsonRes({ error: msg, provider: 'conekta' }, 502);
       }
       refundId = String(ckData?.id ?? ckData?.charges?.data?.[0]?.id ?? `conekta-refund-${reservation_id}`);
@@ -309,7 +402,7 @@ Deno.serve(async (req) => {
     // ── Audit log ─────────────────────────────────────────────────────
     logPaymentEvent(
       paymentId, reservation_id, 'refund_issued', amountToRef,
-      `Refund ${isStripe ? 'Stripe' : 'MP'}:${refundId} by ${isAdmin ? 'admin' : 'client'}(${callerId})`,
+      `Refund ${isStripe ? 'Stripe' : isConekta ? 'Conekta' : 'MP'}:${refundId} by ${isAdmin ? 'admin' : 'client'}(${callerId})`,
     );
 
     // ── Notificar al cliente ──────────────────────────────────────────
