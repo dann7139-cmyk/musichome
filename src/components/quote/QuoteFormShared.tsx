@@ -401,6 +401,12 @@ export interface QuoteFormSharedProps {
   isOvertimeRequired?: boolean;
   /** El grupo tiene OTRA tocada después ese día: no se ofrecen horas extra */
   hideOvertime?: boolean;
+  /** Tocadas del grupo ese día (horas decimales) → rejilla de disponibilidad */
+  busyRanges?: { bs: number; be: number }[];
+  /** Duración del evento a proponer (para calcular qué horas caben) */
+  proposeDurationHours?: number;
+  /** Tap en una hora libre de la rejilla → fijarla como inicio de tocada */
+  onPickStartHour?: (h: number) => void;
   /** Perfil PÚBLICO del cliente (get_client_public_profile — sin teléfono/email) */
   clientProfile?: {
     full_name: string | null;
@@ -773,6 +779,65 @@ export default function QuoteFormShared(p: QuoteFormSharedProps) {
               </>
             )}
 
+            {/* ⏰ Rejilla del día (mode='propose'): si el grupo YA tiene tocada
+                ese día (programada o express), ve qué horas le dan tiempo.
+                El día viene fijo en la solicitud — aquí solo se eligen horas. */}
+            {p.mode === 'propose' && (p.busyRanges?.length ?? 0) > 0 && (() => {
+              const dur = p.proposeDurationHours ?? 3;
+              const ranges = p.busyRanges!;
+              const fits = (startH: number, gapH: number) =>
+                ranges.every(r => startH + dur + gapH <= r.bs || startH >= r.be + gapH);
+              const fmtH = (h: number) => { const hh = h % 24; return `${hh % 12 || 12}${hh >= 12 ? 'pm' : 'am'}`; };
+              const selH0 = p.startTime ? parseInt(p.startTime.split(':')[0], 10) : null;
+              const selH = selH0 === 0 ? 24 : selH0;
+              const cells: { h: number; status: 'free' | 'tight' | 'buffer' | 'busy' }[] = [];
+              for (let h = 9; h <= 24; h++) {
+                const insideBusy = ranges.some(r => h >= r.bs && h < r.be);
+                cells.push({
+                  h,
+                  status: insideBusy ? 'busy' : fits(h, 3) ? 'free' : fits(h, 2) ? 'tight' : 'buffer',
+                });
+              }
+              return (
+                <View style={s.dayGridWrap}>
+                  <Text style={s.dayGridTitle}>
+                    ⏰ Ese día ya tienes tocada — estas horas te dan tiempo ({dur}h de evento)
+                  </Text>
+                  <View style={s.dayGrid}>
+                    {cells.map(c => {
+                      const disabled = c.status === 'busy' || c.status === 'buffer';
+                      const selected = selH === c.h;
+                      return (
+                        <Pressable
+                          key={c.h}
+                          disabled={disabled || isReadOnly}
+                          onPress={() => p.onPickStartHour?.(c.h)}
+                          style={[
+                            s.dayCell,
+                            c.status === 'busy'   && s.dayCellBusy,
+                            c.status === 'buffer' && s.dayCellBuffer,
+                            c.status === 'tight'  && s.dayCellTight,
+                            selected && s.dayCellSel,
+                          ]}
+                        >
+                          <Text style={[
+                            s.dayCellTx,
+                            disabled && s.dayCellTxDim,
+                            c.status === 'tight' && !selected && s.dayCellTxTight,
+                            selected && s.dayCellTxSel,
+                          ]}>{fmtH(c.h)}</Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                  <Text style={s.dayGridHint}>
+                    🟩 te da tiempo · 🟨 muy justa (tú decides) · 🟥 tocando · ⬜ traslado.
+                    Toca una hora para ponerla como inicio de tocada.
+                  </Text>
+                </View>
+              );
+            })()}
+
             {/* Hora de llegada / inicio (mode='propose') */}
             {p.mode === 'propose' && (
               <>
@@ -1112,6 +1177,28 @@ const s = StyleSheet.create({
   contactWarnText: { fontFamily: FONTS.bodyMedium, fontSize: 12, color: '#FFB300', lineHeight: 17 },
 
   timeSelected: { borderColor: COLORS.green, backgroundColor: 'rgba(0,230,118,0.06)' },
+
+  // ⏰ Rejilla de disponibilidad del día (express con otra tocada)
+  dayGridWrap: {
+    backgroundColor: COLORS.card2, borderRadius: RADIUS.md,
+    borderWidth: 1, borderColor: 'rgba(0,230,118,0.25)',
+    padding: 12, marginBottom: 16,
+  },
+  dayGridTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 12.5, color: COLORS.text, marginBottom: 10, lineHeight: 17 },
+  dayGrid:      { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  dayCell: {
+    width: '17.5%', paddingVertical: 8, borderRadius: 8, alignItems: 'center',
+    backgroundColor: 'rgba(0,230,118,0.10)', borderWidth: 1, borderColor: 'rgba(0,230,118,0.35)',
+  },
+  dayCellBusy:   { backgroundColor: 'rgba(239,83,80,0.12)', borderColor: 'rgba(239,83,80,0.4)' },
+  dayCellBuffer: { backgroundColor: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.12)' },
+  dayCellTight:  { backgroundColor: 'rgba(255,193,7,0.10)', borderColor: 'rgba(255,193,7,0.55)' },
+  dayCellSel:    { backgroundColor: COLORS.green, borderColor: COLORS.green },
+  dayCellTx:      { fontFamily: FONTS.bodyMedium, fontSize: 12, color: COLORS.text },
+  dayCellTxDim:   { color: COLORS.muted },
+  dayCellTxTight: { color: '#FFC107' },
+  dayCellTxSel:   { color: '#000', fontFamily: FONTS.bodySemiBold },
+  dayGridHint: { fontFamily: FONTS.body, fontSize: 10.5, color: COLORS.muted2, marginTop: 9, lineHeight: 15 },
 
   surgeRow: {
     paddingVertical: 7, paddingHorizontal: 12,

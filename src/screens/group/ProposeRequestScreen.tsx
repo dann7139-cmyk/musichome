@@ -32,6 +32,8 @@ export default function ProposeRequestScreen({ route, navigation }: any) {
   const [myGroupId,    setMyGroupId]    = useState<string | null>(null);
   // Otra tocada después ese día → sin horas extra en esta propuesta
   const [boxedIn,      setBoxedIn]      = useState(false);
+  // Tocadas del grupo el día de la solicitud → rejilla de horas disponibles
+  const [busyRanges,   setBusyRanges]   = useState<{ bs: number; be: number }[]>([]);
   const [notesWarn,    setNotesWarn]    = useState(false);
   const [arrivalTime,     setArrivalTime]     = useState('');
   const [startTime,       setStartTime]       = useState('');
@@ -73,6 +75,23 @@ export default function ProposeRequestScreen({ route, navigation }: any) {
           eventTime:     request.event_time,
           durationHours: request.hours ?? 3,
         }).then(cap => setBoxedIn(cap <= 0));
+
+        // Sus tocadas de ese día (programadas o express) para la rejilla
+        supabase.rpc('get_group_busy_days', {
+          p_group_id: grp.id,
+          p_from:     request.event_date,
+          p_to:       request.event_date,
+        }).then(({ data: busy }) => {
+          setBusyRanges(
+            (Array.isArray(busy) ? busy : [])
+              .filter((b: any) => b.event_time)
+              .map((b: any) => {
+                const [hh, mm] = String(b.event_time).split(':').map(Number);
+                const bs = hh + (mm || 0) / 60;
+                return { bs, be: bs + (Number(b.hours_count) || 3) };
+              })
+          );
+        });
       }
 
       const [{ data: ownerProfile }, { data: memberships }] = await Promise.all([
@@ -359,6 +378,17 @@ export default function ProposeRequestScreen({ route, navigation }: any) {
         onArrivalTimePress={() => setShowTimePicker(true)}
         startTime={startTime}
         onStartTimePress={() => setShowStartPicker(true)}
+        busyRanges={busyRanges}
+        proposeDurationHours={request?.hours ?? 3}
+        onPickStartHour={(h: number) => {
+          const hh = h % 24;
+          setStartTime(`${String(hh).padStart(2, '0')}:00`);
+          // Llegada sugerida 30 min antes para instalarse (solo si no la ha puesto)
+          if (!arrivalTime) {
+            const am = h * 60 - 30;
+            setArrivalTime(`${String(Math.floor(am / 60) % 24).padStart(2, '0')}:${String(am % 60).padStart(2, '0')}`);
+          }
+        }}
         hasSurge={hasSurge}
         isOvertimeRequired={!boxedIn}
         hideOvertime={boxedIn}
