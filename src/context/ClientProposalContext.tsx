@@ -78,6 +78,11 @@ export interface ClientProposal {
   created_at:     string;
   group:          ClientProposalGroup | null;
   request:        ClientProposalRequest | null;
+  // 'scheduled' = cotización PROGRAMADA respondida (misma experiencia Uber
+  // que las propuestas express — decisión 2026-07-11). raw = quote completo
+  // para navegar a QuotePayment al contratar.
+  kind?:          'express' | 'scheduled';
+  raw?:           any;
 }
 
 // ── Context ───────────────────────────────────────────────────────────────────
@@ -119,59 +124,97 @@ export function ClientProposalProvider({
   const loadProposals = useCallback(async (silent = false) => {
     if (!clientId) { setProposals([]); return; }
 
-    // 1. Solicitudes activas del cliente con propuestas recibidas
-    const { data: reqs } = await supabase
-      .from('event_requests')
-      .select('id, event_type, genre, event_date, hours, guest_count, location_city, location_municipio, location_estado, latitude, longitude, event_lat, event_lng, status')
-      .eq('client_id', clientId)
-      .in('status', ['en_negociacion', 'negotiating'])
-      .order('created_at', { ascending: false });
+    // 1. En paralelo: solicitudes EXPRESS activas + cotizaciones PROGRAMADAS
+    //    respondidas (misma experiencia Uber para ambas — 2026-07-11)
+    const [{ data: reqs }, { data: schedQuotes }] = await Promise.all([
+      supabase
+        .from('event_requests')
+        .select('id, event_type, genre, event_date, hours, guest_count, location_city, location_municipio, location_estado, latitude, longitude, event_lat, event_lng, status')
+        .eq('client_id', clientId)
+        .in('status', ['en_negociacion', 'negotiating'])
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('quotes')
+        .select('*, group:groups(id, owner_id, name, genre, profile_image, city, state)')
+        .eq('client_id', clientId)
+        .eq('status', 'responded')
+        .order('created_at', { ascending: false }),
+    ]);
 
-    if (!reqs || reqs.length === 0) {
+    // ── Express (flujo original, intacto) ────────────────────────────
+    let expressAll: ClientProposal[] = [];
+    if (reqs && reqs.length > 0) {
+      const reqIds = reqs.map((r: any) => r.id);
+      activeReqIds.current = new Set(reqIds);
+      const reqMap: Record<string, any> = Object.fromEntries(reqs.map((r: any) => [r.id, r]));
+
+      const { data: props } = await supabase
+        .from('event_request_proposals')
+        .select('id, request_id, group_id, group_owner_id, proposal_data, created_at')
+        .in('request_id', reqIds)
+        .order('created_at', { ascending: true });
+
+      if (props && props.length > 0) {
+        const ownerIds = [...new Set((props as any[]).map((p: any) => p.group_owner_id))];
+        const { data: groups } = await supabase
+          .from('groups')
+          .select('id, owner_id, name, genre, profile_image, city, state')
+          .in('owner_id', ownerIds);
+        const groupByOwner: Record<string, any> = Object.fromEntries(
+          (groups ?? []).map((g: any) => [g.owner_id, g])
+        );
+        expressAll = (props as any[]).map(p => ({
+          id:             p.id,
+          request_id:     p.request_id,
+          group_id:       p.group_id,
+          group_owner_id: p.group_owner_id,
+          proposal_data:  p.proposal_data ?? {},
+          created_at:     p.created_at,
+          group:          groupByOwner[p.group_owner_id] ?? null,
+          request:        reqMap[p.request_id] ?? null,
+          kind:           'express' as const,
+        }));
+      }
+    } else {
       activeReqIds.current = new Set();
-      prevCountRef.current = 0;
-      setProposals([]);
-      return;
     }
 
-    const reqIds = reqs.map((r: any) => r.id);
-    activeReqIds.current = new Set(reqIds);
-    const reqMap: Record<string, any> = Object.fromEntries(reqs.map((r: any) => [r.id, r]));
-
-    // 2. Propuestas de grupos para esas solicitudes
-    const { data: props } = await supabase
-      .from('event_request_proposals')
-      .select('id, request_id, group_id, group_owner_id, proposal_data, created_at')
-      .in('request_id', reqIds)
-      .order('created_at', { ascending: true });
-
-    if (!props || props.length === 0) {
-      prevCountRef.current = 0;
-      setProposals([]);
-      return;
-    }
-
-    // 3. Info de grupo (incluyendo lat/lng para el mapa)
-    const ownerIds = [...new Set((props as any[]).map((p: any) => p.group_owner_id))];
-    const { data: groups } = await supabase
-      .from('groups')
-      .select('id, owner_id, name, genre, profile_image, city, state')
-      .in('owner_id', ownerIds);
-
-    const groupByOwner: Record<string, any> = Object.fromEntries(
-      (groups ?? []).map((g: any) => [g.owner_id, g])
-    );
-
-    const all: ClientProposal[] = (props as any[]).map(p => ({
-      id:             p.id,
-      request_id:     p.request_id,
-      group_id:       p.group_id,
-      group_owner_id: p.group_owner_id,
-      proposal_data:  p.proposal_data ?? {},
-      created_at:     p.created_at,
-      group:          groupByOwner[p.group_owner_id] ?? null,
-      request:        reqMap[p.request_id] ?? null,
+    // ── Programadas respondidas → misma forma de tarjeta ─────────────
+    const schedAll: ClientProposal[] = (schedQuotes ?? []).map((q: any) => ({
+      id:             `q-${q.id}`,
+      request_id:     q.id,
+      group_id:       q.group?.id ?? q.group_id,
+      group_owner_id: q.group?.owner_id ?? '',
+      proposal_data: {
+        total_amount: q.total_amount ?? null,
+        start_time:   q.event_time ? String(q.event_time).slice(0, 5) : null,
+        notes:        q.group_notes ?? null,
+      } as any,
+      created_at:     q.responded_at ?? q.created_at,
+      group:          q.group ?? null,
+      request: {
+        id:               q.id,
+        event_type:       q.event_type ?? 'otro',
+        genre:            q.group?.genre ?? '',
+        event_date:       q.event_date,
+        hours:            q.duration_hours ?? null,
+        guest_count:      q.num_persons ?? q.guest_count ?? null,
+        location_city:    q.event_municipio ?? '',
+        location_estado:  q.event_estado ?? '',
+        latitude:         q.latitude ?? null,
+        longitude:        q.longitude ?? null,
+        status:           q.status,
+      } as any,
+      kind: 'scheduled' as const,
+      raw:  q,
     }));
+
+    const all: ClientProposal[] = [...expressAll, ...schedAll];
+    if (all.length === 0) {
+      prevCountRef.current = 0;
+      setProposals([]);
+      return;
+    }
 
     const visible = all.filter(p => !dismissedIdsRef.current.has(p.id));
 
@@ -209,6 +252,12 @@ export function ClientProposalProvider({
           // when we last loaded (group's proposal transitions it to en_negociacion)
           void loadProposals();
         }
+      )
+      .on(
+        'postgres_changes' as any,
+        // Programadas: el grupo respondió una cotización → brota el carrusel
+        { event: 'UPDATE', schema: 'public', table: 'quotes', filter: `client_id=eq.${clientId}` },
+        (_payload: any) => { void loadProposals(); }
       )
       .subscribe();
 

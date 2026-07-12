@@ -480,13 +480,10 @@ export default function NotificationsScreen({ navigation }: any) {
       }
 
       case 'quote_received': {
-        // Cliente: ir a ver la cotización recibida
-        const quoteId = notif.data?.quote_id as string | undefined;
-        if (quoteId) {
-          navigation.navigate('ClientQuoteDetail', { quoteId });
-        } else {
-          navigation.navigate('ClientReservations');
-        }
+        // Cliente: la cotización llega en el carrusel tipo Uber (2026-07-11),
+        // mismo patrón que new_proposal (express).
+        void reviveClientProposals();
+        navigation.navigate('Home');
         break;
       }
 

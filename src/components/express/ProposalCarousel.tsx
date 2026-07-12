@@ -167,6 +167,16 @@ export default function ProposalCarousel() {
   // ── Handler: contratar y pagar ────────────────────────────────────────────
   const handleHire = useCallback(async (proposal: ClientProposal) => {
     if (hiringId) return;
+
+    // Cotización PROGRAMADA: directo al checkout con la cotización (el
+    // checkout crea evento + reserva y la marca aceptada al pagar — mismo
+    // flujo que aceptar desde el detalle). Sin RPC express.
+    if (proposal.kind === 'scheduled' && proposal.raw) {
+      dismiss(proposal.id);   // cierra la tarjeta (y el sheet si era la única)
+      navigation.navigate('QuotePayment', { quote: proposal.raw });
+      return;
+    }
+
     setHiringId(proposal.id);
     console.log('[⚡ TAP] Contratar y pagar', { proposalId: proposal.id, requestId: proposal.request_id, groupOwnerId: proposal.group_owner_id });
 
@@ -245,7 +255,7 @@ export default function ProposalCarousel() {
     } finally {
       setHiringId(null);
     }
-  }, [hiringId, navigation, reviveAll]);
+  }, [hiringId, navigation, reviveAll, dismiss]);
 
   // ── Callbacks de lista ────────────────────────────────────────────────────
   const handleMomentumScrollEnd = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
