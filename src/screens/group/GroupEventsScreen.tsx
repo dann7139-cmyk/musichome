@@ -875,9 +875,8 @@ export default function GroupEventsScreen({ navigation }: any) {
                     <Text style={[st.sectionTitle, { marginTop: liveEvents.length > 0 ? 20 : 0 }]}>
                       Próximos · {upcoming.length}
                     </Text>
-                    <CalendarStrip events={upcoming} />
-
-                    {/* 📅 Calendario del mes: eventos por día + tachar fechas */}
+                    {/* 📅 Calendario del mes: eventos por día + tachar fechas
+                        (reemplaza a la tira horizontal de días — 2026-07-11) */}
                     <Pressable style={st.calToggle} onPress={() => setCalOpen(o => !o)}>
                       <Text style={st.calToggleTx}>
                         {calOpen ? 'Ocultar calendario ▲' : '📅 Ver calendario y disponibilidad'}
