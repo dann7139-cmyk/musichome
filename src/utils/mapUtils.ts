@@ -180,7 +180,15 @@ export function approxGroupLocation(
   const cityHit   = city   ? CITY_COORDS[normalizeCity(city)]   : undefined;
   const estadoHit = estado ? CITY_COORDS[normalizeCity(estado)] : undefined;
   const hit = cityHit ?? estadoHit;
-  if (hit) return { latitude: hit.lat, longitude: hit.lng };
+  if (hit) {
+    // "Su colonia": offset determinístico por grupo (±~1.5 km del centro)
+    // para que cada grupo tenga SU zona propia dentro de la ciudad. La
+    // posición EXACTA solo existe cuando comparte trayecto (Voy en camino).
+    const hz   = idHash(groupId);
+    const dlat = ((hz % 600) - 300) / 20_000;
+    const dlng = (((hz * 31) % 600) - 300) / 20_000;
+    return { latitude: hit.lat + dlat, longitude: hit.lng + dlng };
+  }
 
   const h     = idHash(groupId);
   const dist  = 0.06 + (h % 80) / 1000;

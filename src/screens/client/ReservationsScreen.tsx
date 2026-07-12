@@ -26,7 +26,7 @@ import { isPaid, parseEventDateMX } from '../../utils/calculations';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import Badge from '../../components/ui/Badge';
 import RequestZoneMap from '../../components/requests/RequestZoneMap';
-import { eventCardCenter } from '../../utils/mapUtils';
+import { eventCardCenter, approxGroupLocation } from '../../utils/mapUtils';
 import { openSupport } from '../../utils/support';
 import { validateClabe, bankFromClabe, normalizeClabe, clabeLast4 } from '../../utils/clabe';
 import * as WebBrowser from 'expo-web-browser';
@@ -1005,14 +1005,17 @@ function ReservationCard({ reservation: r, navigation, onUpdate, isReviewed, isJ
   // Finalizados/cancelados: tarjeta COMPACTA — sin mapa, sin badge de pago,
   // sin botones grandes; solo resumen + acciones chicas (calificar/ticket/compartir)
   const mapCenter = showMap && !isFinished ? eventCardCenter(r) : null;
-  // 🚐 Posición EN VIVO del grupo (solo mientras va en camino, antes de la
-  // llegada — la manda group_update_transit y llega por realtime). Sin
-  // trayecto activo no se pinta ningún marcador falso del grupo.
+  // 🚐 Posición EN VIVO del grupo (mientras va en camino — group_update_transit
+  // + realtime). Sin trayecto activo: su zona APROXIMADA (su ciudad), misma
+  // semántica que el carrusel de cotizaciones. Verde = evento, foto = grupo.
   const transitPos = (!isFinished && r.group_en_route_at && !r.group_arrived_at
     && r.transit_lat != null && r.transit_lng != null)
     ? { latitude: r.transit_lat, longitude: r.transit_lng }
     : null;
-  const groupApprox = transitPos;
+  const groupApprox = transitPos
+    ?? (mapCenter
+      ? approxGroupLocation(r.group?.id ?? String(r.id), r.group?.city, r.group?.state, mapCenter)
+      : null);
 
   return (
     <View style={[styles.card, isPast && { opacity: 0.5 }, isExpress && styles.cardExpress, isLive && styles.cardLive, isFinished && styles.cardFinished]}>

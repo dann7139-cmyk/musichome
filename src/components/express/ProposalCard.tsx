@@ -15,12 +15,11 @@ import { COLORS, FONTS, RADIUS } from '../../config/theme';
 import { EARTH_STYLE } from '../../constants/mapStyle';
 import {
   cameraForPoints,
+  approxGroupLocation,
   formatDist,
   haversineKm,
-  idHash,
   mapRegionForPoints,
   privacyOffset,
-  resolveCoords,
 } from '../../utils/mapUtils';
 import type { ClientProposal } from '../../context/ClientProposalContext';
 
@@ -212,22 +211,12 @@ const ProposalCard = React.memo(function ProposalCard({
     return privacyOffset(id, request?.location_city ?? '', request?.location_estado, null, null);
   })();
 
-  // Coordenadas del grupo: ciudad/estado → fallback hash del group_id
-  // Siempre devuelve un punto para que el mapa muestre el círculo y la línea.
-  const groupLocation = (() => {
-    if (group?.city || group?.state) {
-      const c = resolveCoords(group?.city ?? '', group?.state ?? null);
-      return { latitude: c.lat, longitude: c.lng };
-    }
-    // Si el grupo no tiene ciudad, derivar offset pseudoaleatorio ~8-15 km del evento
-    const h     = idHash(proposal.group_id);
-    const dist  = 0.06 + (h % 80) / 1000;
-    const angle = ((h * 37) % 628) / 100;
-    return {
-      latitude:  eventCenter.latitude  + dist * Math.cos(angle),
-      longitude: eventCenter.longitude + dist * Math.sin(angle),
-    };
-  })();
+  // Zona del grupo ("su colonia"): misma función que la tarjeta del evento —
+  // punto determinístico por grupo dentro de su ciudad (consistente en toda
+  // la app). Sin ciudad: offset ~8-15 km del evento.
+  const groupLocation = approxGroupLocation(
+    proposal.group_id, group?.city, group?.state, eventCenter,
+  );
 
   // Distancia grupo → evento (siempre calculable)
   const distKm = haversineKm(
