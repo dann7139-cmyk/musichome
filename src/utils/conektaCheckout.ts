@@ -54,11 +54,13 @@ export async function startConektaCheckout(
   await WebBrowser.openBrowserAsync(url);
 
   // 3. Al volver: consultar la reserva. El webhook es la fuente de verdad.
-  //    Tarjeta: reintentar ~20 s por si el webhook tarda unos segundos.
+  //    Tarjeta/BNPL: ~6 s de espera máx — si el usuario CERRÓ sin pagar, la
+  //    UI se libera rápido para elegir otro método (antes eran 20 s con todo
+  //    bloqueado). Si sí pagó y el webhook tarda más, igual confirma solo y
+  //    la reserva aparece pagada al refrescar.
   //    SPEI/efectivo: el pago NO ocurre ahora (el cliente transfiere después),
-  //    así que 1 sola consulta y regresamos 'pending' de inmediato para
-  //    mostrar la CLABE/referencia sin hacerlo esperar 20 s.
-  const attempts = (method === 'spei' || method === 'cash') ? 1 : 10;
+  //    así que 1 sola consulta y regresamos 'pending' de inmediato.
+  const attempts = (method === 'spei' || method === 'cash') ? 1 : 4;
   for (let i = 0; i < attempts; i++) {
     const { data: r } = await supabase
       .from('reservations')
@@ -68,7 +70,7 @@ export async function startConektaCheckout(
     if (r && ['paid', 'fully_paid'].includes(r.payment_status)) {
       return { status: 'paid', orderId };
     }
-    if (i < attempts - 1) await new Promise((res) => setTimeout(res, 2000));
+    if (i < attempts - 1) await new Promise((res) => setTimeout(res, 1500));
   }
   return { status: 'pending', orderId };
 }
