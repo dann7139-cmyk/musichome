@@ -215,7 +215,9 @@ Cómo marcar: `[ ]` pendiente · `[x]` pasó · `[!]` falló (anotar abajo en "B
 
 ## 🏁 Cierre
 
-- [ ] Todos los puntos S (bloqueantes) resueltos.
-- [ ] Commit estable de la auditoría.
-- [ ] Tag: `git tag v0.9.0-beta`.
+- [x] Todos los puntos S (bloqueantes) resueltos. — CLABE perdida (#2) corregida y validada; el resto son N
+- [x] Commit estable de la auditoría + Tag `v0.9.0-beta` (2026-07-11).
+- [ ] Correr `sql/471_limpieza_pre_beta.sql` (borrón y cuenta nueva) JUSTO antes de invitar usuarios.
+- [ ] Recorrido de pantallas/navegación (secciones 15-17) — los hallazgos se parchan sobre el tag.
+- [ ] Cambiar llaves Conekta a PRODUCCIÓN cuando valide el registro (secret CONEKTA_PRIVATE_KEY + webhook prod).
 - [ ] Lista de 3–5 usuarios reales para la beta cerrada + cómo recibir su feedback (grupo de WhatsApp).

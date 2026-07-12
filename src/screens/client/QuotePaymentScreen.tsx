@@ -90,11 +90,11 @@ const PAYMENT_METHODS: PayMethodDef[] = [
   },
   {
     // BNPL vía Conekta (Aplazo min $20, Creditea min $500, sin máximo).
-    // Integración COMPLETA y desplegada; apagado porque la cuenta requiere
-    // "finalizar registro + validación" de Conekta (confirmado por su chat
-    // 2026-07-11; sandbox daba 'error inesperado' por lo mismo). Al validar:
-    // enabled: true y probar con Aplazo +52 9902949001 / OTP 123456.
-    key: 'bnpl', enabled: false, emoji: '🛍️', title: 'Compra ahora, paga después',
+    // Registro de producción ENVIADO 2026-07-11 — probando si sandbox ya lo
+    // acepta. Prueba: Aplazo +52 9902949001 / OTP 123456. Si vuelve el
+    // "error inesperado" en la página de Conekta → enabled: false hasta que
+    // la validación (~48h) termine.
+    key: 'bnpl', enabled: true, emoji: '🛍️', title: 'Compra ahora, paga después',
     tag: 'Sin tarjeta',
     lines: ['Aplazo, Creditea y más', 'Difiere tu pago sin tarjeta de crédito'],
   },
