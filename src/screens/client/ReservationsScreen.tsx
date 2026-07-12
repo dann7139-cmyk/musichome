@@ -1005,9 +1005,14 @@ function ReservationCard({ reservation: r, navigation, onUpdate, isReviewed, isJ
   // Finalizados/cancelados: tarjeta COMPACTA — sin mapa, sin badge de pago,
   // sin botones grandes; solo resumen + acciones chicas (calificar/ticket/compartir)
   const mapCenter = showMap && !isFinished ? eventCardCenter(r) : null;
-  // Sin marcador falso del grupo: a este zoom quedaba ENCIMA del círculo del
-  // evento y confundía. El cliente solo necesita ver la zona de su evento.
-  const groupApprox = null;
+  // 🚐 Posición EN VIVO del grupo (solo mientras va en camino, antes de la
+  // llegada — la manda group_update_transit y llega por realtime). Sin
+  // trayecto activo no se pinta ningún marcador falso del grupo.
+  const transitPos = (!isFinished && r.group_en_route_at && !r.group_arrived_at
+    && r.transit_lat != null && r.transit_lng != null)
+    ? { latitude: r.transit_lat, longitude: r.transit_lng }
+    : null;
+  const groupApprox = transitPos;
 
   return (
     <View style={[styles.card, isPast && { opacity: 0.5 }, isExpress && styles.cardExpress, isLive && styles.cardLive, isFinished && styles.cardFinished]}>
@@ -1016,6 +1021,16 @@ function ReservationCard({ reservation: r, navigation, onUpdate, isReviewed, isJ
         <View style={styles.liveBanner}>
           <Animated.View style={[styles.liveDot, { opacity: pulseAnim }]} />
           <Text style={styles.liveBannerText}>EN VIVO AHORA</Text>
+        </View>
+      )}
+
+      {/* ── 🚐 El grupo va en camino (tracking en vivo) ── */}
+      {!isLive && transitPos && (
+        <View style={styles.enRouteBanner}>
+          <Animated.Text style={{ opacity: pulseAnim, fontSize: 14 }}>🚐</Animated.Text>
+          <Text style={styles.enRouteBannerText}>
+            ¡{r.group?.name ?? 'Tu grupo'} va en camino! Míralo acercarse en el mapa
+          </Text>
         </View>
       )}
 
@@ -1644,6 +1659,14 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     backgroundColor: '#dc2626',
   },
+  // 🚐 En camino
+  enRouteBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: 'rgba(0,230,118,0.12)',
+    paddingVertical: 7, paddingHorizontal: 12,
+    borderBottomWidth: 1, borderBottomColor: 'rgba(0,230,118,0.35)',
+  },
+  enRouteBannerText: { fontFamily: FONTS.bodySemiBold, fontSize: 12, color: COLORS.green, flex: 1 },
   liveBannerText: {
     fontFamily: FONTS.bodySemiBold,
     color: '#15803d',

@@ -458,6 +458,54 @@ export default function EventTimerScreen({ route, navigation }: any) {
   const [hasArrived, setHasArrived] = useState<boolean>(!!reservation.group_arrived_at);
   const [arrivedAt, setArrivedAt] = useState<string | null>(reservation.group_arrived_at ?? null);
   const [arriving, setArriving] = useState(false);   // verificando GPS al marcar llegada
+
+  // 🚐 "En camino" — comparte el GPS del trayecto con el cliente (sql/473).
+  // Solo mientras el timer está abierto y ANTES de marcar llegada.
+  const [enRoute, setEnRoute] = useState<boolean>(!!(reservation as any).group_en_route_at);
+  const transitWatchRef = useRef<Location.LocationSubscription | null>(null);
+
+  const startEnRoute = async () => {
+    try {
+      const { status: locStatus } = await Location.requestForegroundPermissionsAsync();
+      if (locStatus !== 'granted') {
+        Alert.alert('📍 Activa tu ubicación', 'Necesitamos tu ubicación para que el cliente vea que vas en camino.');
+        return;
+      }
+      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const { data: trData } = await supabase.rpc('group_update_transit', {
+        p_reservation_id: reservation.id,
+        p_lat: pos.coords.latitude, p_lng: pos.coords.longitude,
+        p_start: true,
+      });
+      if ((trData as any)?.ok === false) {
+        Alert.alert('No se pudo iniciar', (trData as any)?.error ?? 'Intenta de nuevo.');
+        return;
+      }
+      setEnRoute(true);
+      // Cada ~15 s o 100 m — el cliente ve la foto del grupo acercándose
+      transitWatchRef.current = await Location.watchPositionAsync(
+        { accuracy: Location.Accuracy.Balanced, timeInterval: 15000, distanceInterval: 100 },
+        (p) => {
+          void supabase.rpc('group_update_transit', {
+            p_reservation_id: reservation.id,
+            p_lat: p.coords.latitude, p_lng: p.coords.longitude,
+            p_start: false,
+          });
+        },
+      );
+    } catch {
+      Alert.alert('Error', 'No se pudo compartir tu trayecto. Intenta de nuevo.');
+    }
+  };
+
+  // Al marcar llegada (o salir de la pantalla) se deja de compartir
+  useEffect(() => () => { transitWatchRef.current?.remove(); }, []);
+  useEffect(() => {
+    if (hasArrived && transitWatchRef.current) {
+      transitWatchRef.current.remove();
+      transitWatchRef.current = null;
+    }
+  }, [hasArrived]);
   const [eventFolio, setEventFolio] = useState<string | null>((reservation as any).folio ?? null);
   const [showArrivalCodeModal, setShowArrivalCodeModal] = useState(false);
   const [arrivalCodeInput, setArrivalCodeInput] = useState(['', '', '', '']);
@@ -2443,6 +2491,18 @@ export default function EventTimerScreen({ route, navigation }: any) {
               {/* (a) Pre-llegada, pre-inicio */}
               {!isRunning && !startedAt && !hasArrived && (
                 <>
+                  {/* 🚐 En camino — el cliente ve al grupo acercándose en su mapa */}
+                  <Pressable
+                    style={({ pressed }) => [st.iconBtn, st.iconBtnOutline, enRoute && { opacity: 0.75 }, pressed && !enRoute && { opacity: 0.8 }]}
+                    onPress={startEnRoute}
+                    disabled={enRoute}
+                  >
+                    <Text style={{ fontSize: 17 }}>🚐</Text>
+                    <Text style={[st.iconBtnLabel, { color: enRoute ? COLORS.green : '#000' }]}>
+                      {enRoute ? 'En camino — el cliente te ve acercarte' : 'Voy en camino'}
+                    </Text>
+                  </Pressable>
+                  <View style={{ height: 10 }} />
                   <Pressable
                     style={({ pressed }) => [st.iconBtn, st.iconBtnPrimary, arriving && st.iconBtnDisabled, pressed && !arriving && { opacity: 0.8 }]}
                     onPress={handleArrivePress}
