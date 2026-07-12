@@ -94,9 +94,9 @@ const PAYMENT_METHODS: PayMethodDef[] = [
     // acepta. Prueba: Aplazo +52 9902949001 / OTP 123456. Si vuelve el
     // "error inesperado" en la página de Conekta → enabled: false hasta que
     // la validación (~48h) termine.
-    key: 'bnpl', enabled: true, emoji: '🛍️', title: 'Compra ahora, paga después',
+    key: 'bnpl', enabled: true, emoji: '🎶', title: 'Compra ahora, paga después',
     tag: 'Sin tarjeta',
-    lines: ['Aplazo, Creditea y más', 'Difiere tu pago sin tarjeta de crédito'],
+    lines: ['La música suena hoy, la pagas después', 'Aplazo, Creditea y más'],
   },
 ];
 
