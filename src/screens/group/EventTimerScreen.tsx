@@ -3522,10 +3522,12 @@ const st = StyleSheet.create({
 
   selectBreakBtn: {
     width: '100%', flexDirection: 'row', alignItems: 'center', gap: 10,
-    backgroundColor: COLORS.greenMuted, borderRadius: RADIUS.lg,
-    borderWidth: 1, borderColor: COLORS.green, padding: 14, marginBottom: 14,
+    backgroundColor: '#FFFFFF', borderRadius: RADIUS.full,
+    padding: 14, marginBottom: 14,
+    shadowColor: '#00E676', shadowOpacity: 0.25, shadowRadius: 8, shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
   },
-  selectBreakText: { fontFamily: FONTS.bodyMedium, fontSize: 14, color: COLORS.green },
+  selectBreakText: { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: '#000' },
 
   // ── Status, info, warning ──────────────────────────────────
   statusRow: { marginBottom: 14 },
@@ -3538,11 +3540,12 @@ const st = StyleSheet.create({
   infoText: { fontFamily: FONTS.body, fontSize: 14, color: COLORS.text, flex: 1 },
   mapBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
-    backgroundColor: COLORS.greenMuted, borderRadius: RADIUS.md,
-    borderWidth: 1, borderColor: COLORS.green,
+    backgroundColor: '#FFFFFF', borderRadius: RADIUS.full,
     paddingVertical: 10, paddingHorizontal: 14, marginTop: 6,
+    shadowColor: '#00E676', shadowOpacity: 0.25, shadowRadius: 8, shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
   },
-  mapBtnText: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.green, flex: 1 },
+  mapBtnText: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: '#000', flex: 1 },
   warningBanner: {
     width: '100%', backgroundColor: 'rgba(255,152,0,0.12)',
     borderRadius: RADIUS.lg, borderWidth: 1, borderColor: COLORS.orange,
@@ -4134,7 +4137,15 @@ const st = StyleSheet.create({
   },
   exactMapWrap:  { marginTop: 12 },
   exactMapLabel: { fontFamily: FONTS.bodyMedium, fontSize: 12, color: COLORS.muted2, marginBottom: 6 },
-  folioChip:     { fontFamily: FONTS.title, fontSize: 13, color: COLORS.green, letterSpacing: 1, textAlign: 'center', paddingBottom: 6, borderBottomWidth: 1, borderColor: COLORS.border },
+  folioChip: {
+    fontFamily: FONTS.title, fontSize: 14, color: COLORS.green,
+    letterSpacing: 2.5, textAlign: 'center',
+    alignSelf: 'center', overflow: 'hidden',
+    backgroundColor: 'rgba(0,230,118,0.08)',
+    borderWidth: 1, borderColor: 'rgba(0,230,118,0.35)',
+    borderRadius: RADIUS.full, paddingHorizontal: 16, paddingVertical: 6,
+    marginBottom: 4,
+  },
   supportRow:     { alignSelf: 'center', marginTop: 14, paddingVertical: 8, paddingHorizontal: 14 },
   supportRowText: { fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.muted2, textDecorationLine: 'underline' },
   exactMap:      { width: '100%', height: 220, borderRadius: RADIUS.lg, overflow: 'hidden' },
@@ -4280,13 +4291,15 @@ const st = StyleSheet.create({
   },
   paymentMethodBadgeText: { fontFamily: FONTS.bodyMedium, fontSize: 13, color: '#4285F4' },
 
-  // ── Icon buttons (reemplazo de Button con Lucide icons) ──
+  // ── Icon buttons — píldoras blancas elegantes (Llegué / Iniciar evento) ──
   iconBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 8, borderRadius: RADIUS.md, paddingVertical: 18, paddingHorizontal: 24, width: '100%',
+    gap: 8, borderRadius: RADIUS.full, paddingVertical: 17, paddingHorizontal: 24, width: '100%',
+    shadowColor: '#00E676', shadowOpacity: 0.3, shadowRadius: 10, shadowOffset: { width: 0, height: 3 },
+    elevation: 5,
   },
-  iconBtnPrimary: { backgroundColor: COLORS.green },
-  iconBtnOutline: { backgroundColor: 'transparent', borderWidth: 1, borderColor: COLORS.green },
+  iconBtnPrimary: { backgroundColor: '#FFFFFF' },
+  iconBtnOutline: { backgroundColor: '#FFFFFF' },
   iconBtnDisabled: { opacity: 0.45 },
   iconBtnLabel: { fontFamily: FONTS.bodySemiBold, fontSize: 16, letterSpacing: 0.3 },
 });
