@@ -41,20 +41,23 @@ const GENRE_EMOJI: Record<string, string> = {
 };
 
 // ── MapSection ────────────────────────────────────────────────────────────────
-// Vista del CLIENTE: inverso a la vista del grupo.
-//   - Foto del cliente → marcador en eventCenter (tu evento)
-//   - Círculo verde   → zona del grupo (de donde viene)
-//   - Instrumentos    → viajan del grupo hacia la foto del cliente
+// Vista del CLIENTE — misma semántica que el mapa del grupo (2026-07-11):
+//   - Círculo verde   → LA TOCADA (el evento, coords exactas del cliente)
+//   - Foto del cliente → dentro del círculo (su evento)
+//   - Foto del grupo   → su zona aproximada (ciudad; el GPS real del grupo
+//                        no se comparte hasta el día del evento)
+//   - Instrumentos     → viajan del grupo hacia el evento
 interface MapSectionProps {
   proposalId:     string;
   eventCenter:    { latitude: number; longitude: number };
   genre:          string;
   groupLocation:  { latitude: number; longitude: number };  // always resolved
   clientPhotoUrl: string | null;
+  groupPhotoUrl:  string | null;
 }
 
 const MapSection = React.memo(function MapSection({
-  proposalId, eventCenter, genre, groupLocation, clientPhotoUrl,
+  proposalId, eventCenter, genre, groupLocation, clientPhotoUrl, groupPhotoUrl,
 }: MapSectionProps) {
   // Instrumentos animados — 80 ms tick igual que ExpressCard
   const [instrT, setInstrT] = useState(0);
@@ -100,22 +103,36 @@ const MapSection = React.memo(function MapSection({
         pointerEvents="none"
         {...mapProps}
       >
-        {/* Círculo verde — zona aproximada del grupo (sin foto, sin ubicación exacta) */}
+        {/* Círculo verde = LA TOCADA (misma semántica que el mapa del grupo:
+            verde siempre es el evento; las fotos son personas) */}
         <Circle
-          center={groupLocation}
-          radius={900}
+          center={eventCenter}
+          radius={500}
           strokeColor="rgba(0,230,118,0.65)"
           fillColor="rgba(0,230,118,0.13)"
           strokeWidth={2}
         />
 
-        {/* Foto del cliente en la ubicación de su evento */}
+        {/* Foto del cliente EN su evento (dentro del círculo) */}
         <Marker coordinate={eventCenter} anchor={{ x: 0.5, y: 0.5 }} tracksViewChanges={false}>
           <View style={s.clientMarker}>
             {clientPhotoUrl
               ? <Image source={{ uri: clientPhotoUrl }} style={s.clientMarkerImg} />
               : <View style={s.clientMarkerFallback}>
                   <Text style={{ fontSize: 14 }}>🎵</Text>
+                </View>
+            }
+          </View>
+        </Marker>
+
+        {/* Foto del GRUPO en su zona aproximada (su ciudad — el GPS real del
+            grupo no se comparte hasta el día del evento) */}
+        <Marker coordinate={groupLocation} anchor={{ x: 0.5, y: 0.5 }} tracksViewChanges={false}>
+          <View style={s.clientMarker}>
+            {groupPhotoUrl
+              ? <Image source={{ uri: groupPhotoUrl }} style={s.clientMarkerImg} />
+              : <View style={s.clientMarkerFallback}>
+                  <Text style={{ fontSize: 14 }}>🎤</Text>
                 </View>
             }
           </View>
@@ -235,6 +252,7 @@ const ProposalCard = React.memo(function ProposalCard({
           genre={genre}
           groupLocation={groupLocation}
           clientPhotoUrl={clientPhotoUrl}
+          groupPhotoUrl={group?.profile_image ?? null}
         />
 
         {/* ── Body ── */}
