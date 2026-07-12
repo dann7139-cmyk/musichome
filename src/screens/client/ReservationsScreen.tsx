@@ -622,6 +622,17 @@ function ReservationCard({ reservation: r, navigation, onUpdate, isReviewed, isJ
   const [clabeInput,          setClabeInput]          = useState('');
   const [holderInput,         setHolderInput]         = useState('');
   const [bankInput,           setBankInput]           = useState('');
+  // Pulso de la tarjetita del botón de pagar (llama la atención al CTA)
+  const payPulse = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    const loop = Animated.loop(Animated.sequence([
+      Animated.timing(payPulse, { toValue: 1.22, duration: 650, useNativeDriver: true }),
+      Animated.timing(payPulse, { toValue: 1,    duration: 650, useNativeDriver: true }),
+    ]));
+    loop.start();
+    return () => loop.stop();
+  }, []);
+
   // Estado visible del reembolso en canceladas (manual_refunds propio, RLS)
   const [refundInfo,          setRefundInfo]          = useState<any>(null);
   useEffect(() => {
@@ -1190,9 +1201,9 @@ function ReservationCard({ reservation: r, navigation, onUpdate, isReviewed, isJ
           }}
         >
           <View style={styles.payBtnInner}>
-            <View style={styles.payBtnIconCircle}>
-              <CreditCard size={15} color={COLORS.green2} />
-            </View>
+            <Animated.View style={[styles.payBtnIconCircle, { transform: [{ scale: payPulse }] }]}>
+              <CreditCard size={15} color="#4285F4" />
+            </Animated.View>
             <View style={{ flex: 1 }}>
               <Text style={styles.payBtnText}>{payLabel}</Text>
               <Text style={styles.payBtnSub}>Elige tu forma de pago al confirmar</Text>
@@ -1514,7 +1525,7 @@ const styles = StyleSheet.create({
   payBtnInner: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   payBtnIconCircle: {
     width: 32, height: 32, borderRadius: 16,
-    backgroundColor: 'rgba(0,200,83,0.14)',
+    backgroundColor: 'rgba(66,133,244,0.14)',
     alignItems: 'center', justifyContent: 'center',
   },
   payBtnText:  { fontFamily: FONTS.bodySemiBold, fontSize: 13.5, color: '#000' },
