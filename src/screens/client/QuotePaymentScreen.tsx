@@ -133,6 +133,17 @@ export default function QuotePaymentScreen({ route, navigation }: any) {
   // Animación del checkmark de éxito
   const checkScale = useRef(new Animated.Value(0)).current;
   const checkOp    = useRef(new Animated.Value(0)).current;
+
+  // Pulso del pill "⭐ Recomendado" — guía al cliente al mejor método
+  const recPulse = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    const loop = Animated.loop(Animated.sequence([
+      Animated.timing(recPulse, { toValue: 1.12, duration: 650, useNativeDriver: true }),
+      Animated.timing(recPulse, { toValue: 1,    duration: 650, useNativeDriver: true }),
+    ]));
+    loop.start();
+    return () => loop.stop();
+  }, []);
   useEffect(() => {
     if (!paid) return;
     Animated.parallel([
@@ -540,9 +551,9 @@ export default function QuotePaymentScreen({ route, navigation }: any) {
                       </View>
                     ) : null}
                     {m.recommended ? (
-                      <View style={s.recPill}>
+                      <Animated.View style={[s.recPill, { transform: [{ scale: recPulse }] }]}>
                         <Text style={s.recPillText}>⭐ Recomendado</Text>
-                      </View>
+                      </Animated.View>
                     ) : null}
                   </View>
 
@@ -716,16 +727,16 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: 'rgba(0,0,0,0.1)', paddingHorizontal: 7, paddingVertical: 2,
   },
   methodTagText:  { fontFamily: FONTS.bodyMedium, fontSize: 9.5, color: 'rgba(0,0,0,0.55)' },
-  recPill:        { backgroundColor: 'rgba(0,230,118,0.15)', borderRadius: RADIUS.full, paddingHorizontal: 8, paddingVertical: 3 },
-  recPillText:    { fontFamily: FONTS.bodyMedium, fontSize: 10, color: COLORS.green },
+  recPill:        { backgroundColor: COLORS.green2, borderRadius: RADIUS.full, paddingHorizontal: 8, paddingVertical: 3 },
+  recPillText:    { fontFamily: FONTS.bodySemiBold, fontSize: 10, color: '#FFFFFF' },
   soonPill:       { backgroundColor: 'rgba(255,179,0,0.15)', borderRadius: RADIUS.full, borderWidth: 1, borderColor: 'rgba(255,179,0,0.4)', paddingHorizontal: 8, paddingVertical: 3 },
   soonPillText:   { fontFamily: FONTS.bodySemiBold, fontSize: 10, color: '#FFB300' },
   methodLine:     { fontFamily: FONTS.body, fontSize: 11.5, color: 'rgba(0,0,0,0.55)', lineHeight: 16 },
   savingsPill: {
-    alignSelf: 'flex-start', backgroundColor: 'rgba(0,200,83,0.12)',
+    alignSelf: 'flex-start', backgroundColor: COLORS.green2,
     borderRadius: RADIUS.md, paddingHorizontal: 9, paddingVertical: 4, marginTop: 6,
   },
-  savingsText:     { fontFamily: FONTS.bodySemiBold, fontSize: 11, color: COLORS.green2 },
+  savingsText:     { fontFamily: FONTS.bodySemiBold, fontSize: 11, color: '#FFFFFF' },
   methodRight:     { alignItems: 'flex-end', justifyContent: 'center', minWidth: 58, gap: 2, paddingLeft: 6 },
   methodAmt:       { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: COLORS.green2, fontVariant: ['tabular-nums'] },
   methodAmtStrike: { fontFamily: FONTS.body, fontSize: 10.5, color: 'rgba(0,0,0,0.35)', textDecorationLine: 'line-through' },
