@@ -1023,9 +1023,16 @@ export default function GroupEventsScreen({ navigation }: any) {
             )
           )}
 
-          {/* Soporte discreto al pie de la lista de eventos */}
+          {/* Soporte + políticas, discretos al pie de la lista de eventos */}
           <Pressable style={st.supportFooter} hitSlop={8} onPress={() => openSupport()}>
             <Text style={st.supportFooterText}>💬 ¿Necesitas ayuda? Contacta a soporte</Text>
+          </Pressable>
+          <Pressable
+            style={st.policyFooter}
+            hitSlop={8}
+            onPress={() => navigation.navigate('CancellationPolicy', { role: 'group' })}
+          >
+            <Text style={st.policyFooterText}>📋 Políticas de cancelación</Text>
           </Pressable>
 
         </ScrollView>
@@ -1113,6 +1120,8 @@ const st = StyleSheet.create({
   },
   supportFooter:     { alignSelf: 'center', marginTop: 24, marginBottom: 8, paddingVertical: 8, paddingHorizontal: 14 },
   supportFooterText: { fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.muted2, textDecorationLine: 'underline' },
+  policyFooter:      { alignSelf: 'center', marginBottom: 12, paddingVertical: 4, paddingHorizontal: 14 },
+  policyFooterText:  { fontFamily: FONTS.body, fontSize: 11.5, color: COLORS.muted, textDecorationLine: 'underline' },
 
   // Contenedor vertical estilo ExpressCard: mapa arriba (opcional) + fila de contenido
   card: {

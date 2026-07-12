@@ -113,6 +113,7 @@ import PromocionarseScreen from '../src/screens/shared/PromocionarseScreen';
 import ProfileScreen from '../src/screens/shared/ProfileScreen';
 import NotificationsScreen from '../src/screens/shared/NotificationsScreen';
 import ChatScreen from '../src/screens/shared/ChatScreen';
+import CancellationPolicyScreen from '../src/screens/shared/CancellationPolicyScreen';
 import WalletScreen from '../src/screens/shared/WalletScreen';
 import WithdrawScreen from '../src/screens/shared/WithdrawScreen';
 import EventPayoutsScreen from '../src/screens/shared/EventPayoutsScreen';
@@ -993,6 +994,7 @@ export default function AppNavigator() {
             <Stack.Screen name="Wallet"               component={WalletScreen} />
             <Stack.Screen name="Withdraw"             component={WithdrawScreen} />
             <Stack.Screen name="Chat"                 component={ChatScreen} />
+            <Stack.Screen name="CancellationPolicy"   component={CancellationPolicyScreen} />
             <Stack.Screen name="Notifications"          component={NotificationsScreen} />
             <Stack.Screen name="Profile"               component={ProfileScreen} />
             <Stack.Screen name="EventPayouts"          component={EventPayoutsScreen} />
@@ -1056,6 +1058,7 @@ export default function AppNavigator() {
             <Stack.Screen name="LiveEvent"          component={LiveEventScreen} />
             <Stack.Screen name="EventTimer"         component={EventTimerScreen} />
             <Stack.Screen name="Chat"               component={ChatScreen} />
+            <Stack.Screen name="CancellationPolicy" component={CancellationPolicyScreen} />
             <Stack.Screen name="QuoteForm"          component={QuoteFormScreen} />
             <Stack.Screen name="ClientQuoteDetail"  component={ClientQuoteDetailScreen} />
             <Stack.Screen name="QuotePayment"        component={QuotePaymentScreen} />
