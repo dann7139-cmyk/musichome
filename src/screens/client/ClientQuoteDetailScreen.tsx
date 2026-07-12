@@ -18,7 +18,7 @@ import { ArrowLeft, CheckCircle, XCircle } from 'lucide-react-native';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import RequestZoneMap from '../../components/requests/RequestZoneMap';
-import { eventCardCenter, privacyOffsetZone } from '../../utils/mapUtils';
+import { eventCardCenter } from '../../utils/mapUtils';
 
 const EVENT_TYPE_LABELS: Record<string, string> = {
   fiesta_privada: '🎉 Fiesta privada',
@@ -345,15 +345,13 @@ export default function ClientQuoteDetailScreen({ route, navigation }: any) {
         {(() => {
           const center = eventCardCenter(quote);
           if (!center) return null;
-          // El grupo se muestra en la ZONA del evento con un jitter de privacidad
-          // (~±200 m), no en el centro genérico de su ciudad (que quedaba en un
-          // punto fijo desplazado). Determinístico por grupo.
-          const groupLoc = privacyOffsetZone(quote.group?.id ?? String(quote.id), '', null, center.latitude, center.longitude);
+          // Sin marcador falso del grupo: a este zoom quedaba encima del
+          // círculo del evento. El cliente solo ve la zona de su evento.
           return (
             <View style={s.mapCard}>
               <RequestZoneMap
                 mapId={String(quote.id)} center={center} typeLabel="📅 Programada"
-                userLocation={groupLoc} groupPhotoUrl={quote.group?.profile_image ?? null}
+                userLocation={null} groupPhotoUrl={null}
               />
             </View>
           );

@@ -184,14 +184,16 @@ const ProposalCard = React.memo(function ProposalCard({
     ]).start();
   }, []);
 
-  // Coordenadas del evento: prioridad map-picker → GPS → fallback ciudad
-  const eventCenter = privacyOffset(
-    id,
-    request?.location_city ?? '',
-    request?.location_estado,
-    request?.latitude ?? request?.event_lat ?? null,
-    request?.longitude ?? request?.event_lng ?? null,
-  );
+  // Coordenadas del evento: este mapa lo ve el PROPIO cliente, así que se
+  // pintan EXACTAS (el jitter de privacidad es para ocultarle la dirección
+  // a los grupos, no al dueño del evento — con jitter "su casa" salía ~1 km
+  // corrida y se veía mal). Fallback a ciudad solo si no hay coords.
+  const eventCenter = (() => {
+    const la = request?.latitude ?? request?.event_lat ?? null;
+    const ln = request?.longitude ?? request?.event_lng ?? null;
+    if (la != null && ln != null) return { latitude: la, longitude: ln };
+    return privacyOffset(id, request?.location_city ?? '', request?.location_estado, null, null);
+  })();
 
   // Coordenadas del grupo: ciudad/estado → fallback hash del group_id
   // Siempre devuelve un punto para que el mapa muestre el círculo y la línea.
