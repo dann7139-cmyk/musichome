@@ -99,7 +99,9 @@ Deno.serve(async (req) => {
       reservation_id?:  string;
       refund_amount?:   number;
       idempotency_key?: string;
-      mode?:            'full' | 'cancellation';
+      //   'group_cancellation' → el GRUPO cancela: reembolso 100% al cliente
+      //   + strike y castigos (settle_group_cancellation, sql/480)
+      mode?:            'full' | 'cancellation' | 'group_cancellation';
       // Datos bancarios del cliente para reembolso MANUAL (SPEI/efectivo)
       clabe?:           string;
       account_holder?:  string;
@@ -129,7 +131,21 @@ Deno.serve(async (req) => {
     const isClient = (reservation.client_id as string) === callerId;
     const isPre    = new Date(reservation.event_date as string) > new Date();
 
-    if (!isAdmin && !(isClient && isPre)) {
+    if (mode === 'group_cancellation') {
+      // Solo el DUEÑO del grupo (o admin) puede cancelar como grupo
+      const { data: grp } = await admin
+        .from('groups')
+        .select('owner_id')
+        .eq('id', reservation.group_id)
+        .single();
+      const isGroupOwner = grp?.owner_id === callerId;
+      if (!isAdmin && !isGroupOwner) {
+        return jsonRes({ error: 'Solo el dueño del grupo puede cancelar como grupo' }, 403);
+      }
+      if (!isAdmin && !isPre) {
+        return jsonRes({ error: 'El evento ya pasó — no se puede cancelar' }, 422);
+      }
+    } else if (!isAdmin && !(isClient && isPre)) {
       return jsonRes({ error: 'Sin permiso para emitir reembolso' }, 403);
     }
 
@@ -163,7 +179,10 @@ Deno.serve(async (req) => {
     // ignora cualquier refund_amount del cliente. mode 'full': el que venga.
     let amountToRef: number;
     let cancellationCharge: any = null;
-    if (mode === 'cancellation') {
+    if (mode === 'group_cancellation') {
+      // El grupo cancela → el cliente SIEMPRE recupera el 100%
+      amountToRef = totalPrice;
+    } else if (mode === 'cancellation') {
       const { data: charge, error: chargeErr } = await admin
         .rpc('compute_cancellation_charge', { p_reservation_id: reservation_id });
       if (chargeErr || !charge?.ok) {
@@ -203,8 +222,10 @@ Deno.serve(async (req) => {
     const settleManual = async (apiError: string | null): Promise<Response> => {
       // 1. Liquidar en DB (idéntico al camino automático)
       let settleResult: any;
-      if (mode === 'cancellation') {
-        const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/settle_cancellation`, {
+      if (mode === 'cancellation' || mode === 'group_cancellation') {
+        const settleFn = mode === 'group_cancellation'
+          ? 'settle_group_cancellation' : 'settle_cancellation';
+        const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${settleFn}`, {
           method: 'POST', headers: serviceHeaders,
           body: JSON.stringify({ p_reservation_id: reservation_id, p_refund_id: 'manual-pending' }),
         });
@@ -247,11 +268,17 @@ Deno.serve(async (req) => {
 
       // 4. Notificar al cliente (promesa de 5 días hábiles)
       const last4 = body.clabe ? ` a tu cuenta terminación ${String(body.clabe).slice(-4)}` : '';
+      const introTxt = mode === 'group_cancellation'
+        ? 'El grupo canceló tu evento — recuperas el 100% de tu pago.'
+        : 'Tu reserva fue cancelada.';
+      const bankTxt = body.clabe
+        ? `se enviará por transferencia bancaria${last4} en un máximo de 5 días hábiles.`
+        : 'se enviará por transferencia bancaria en un máximo de 5 días hábiles — te contactaremos para confirmar tu cuenta.';
       await admin.from('notifications').insert({
         user_id: reservation.client_id,
         type:    'payment',
         title:   '💸 Reembolso en proceso',
-        body:    `Tu reserva fue cancelada. Como pagaste por ${methodType === 'cash' ? 'efectivo' : 'transferencia'}, tu reembolso de $${Number(amountToRef).toLocaleString('es-MX')} MXN se enviará por transferencia bancaria${last4} en un máximo de 5 días hábiles.`,
+        body:    `${introTxt} Como pagaste por ${methodType === 'cash' ? 'efectivo' : 'transferencia'}, tu reembolso de $${Number(amountToRef).toLocaleString('es-MX')} MXN ${bankTxt}`,
         data:    { reservation_id, screen: 'Reservations', manual_refund_id: mr?.id ?? null },
       });
 
@@ -282,7 +309,7 @@ Deno.serve(async (req) => {
       // original de create-payment-intent)
       const amountCentavos = Math.round(amountToRef * 100);
       const idemKey = body.idempotency_key
-        ?? (mode === 'cancellation'
+        ?? (mode === 'cancellation' || mode === 'group_cancellation'
               ? `cancel-${reservation_id}`
               : `refund-${reservation_id}-${amountCentavos}`);
 
@@ -290,7 +317,7 @@ Deno.serve(async (req) => {
       form.set('payment_intent', paymentId);
       form.set('amount', String(amountCentavos));
       form.set('metadata[reservation_id]', reservation_id);
-      form.set('metadata[issued_by]', isAdmin ? 'admin' : 'client');
+      form.set('metadata[issued_by]', isAdmin ? 'admin' : mode === 'group_cancellation' ? 'group' : 'client');
 
       const stripeRes = await fetch('https://api.stripe.com/v1/refunds', {
         method:  'POST',
@@ -377,14 +404,16 @@ Deno.serve(async (req) => {
     // cancellation → settle_cancellation (grupo conserva compensación).
     // full → process_refund_reversal (reversión completa).
     let rpcResult: any;
-    if (mode === 'cancellation') {
-      const settleRes = await fetch(`${SUPABASE_URL}/rest/v1/rpc/settle_cancellation`, {
+    if (mode === 'cancellation' || mode === 'group_cancellation') {
+      const settleFn = mode === 'group_cancellation'
+        ? 'settle_group_cancellation' : 'settle_cancellation';
+      const settleRes = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${settleFn}`, {
         method:  'POST',
         headers: serviceHeaders,
         body:    JSON.stringify({ p_reservation_id: reservation_id, p_refund_id: refundId }),
       });
       rpcResult = await settleRes.json();
-      console.log('[settle_cancellation]', JSON.stringify(rpcResult));
+      console.log(`[${settleFn}]`, JSON.stringify(rpcResult));
     } else {
       const rpcRes = await fetch(`${SUPABASE_URL}/rest/v1/rpc/process_refund_reversal`, {
         method:  'POST',
@@ -410,7 +439,9 @@ Deno.serve(async (req) => {
       user_id: reservation.client_id,
       type:    'payment',
       title:   '💸 Reembolso emitido',
-      body:    `Se emitió un reembolso de $${Number(amountToRef).toLocaleString('es-MX')} MXN. Aparecerá en tu cuenta en 3-10 días hábiles.`,
+      body:    (mode === 'group_cancellation'
+        ? `El grupo canceló tu evento — recuperas el 100%. Se emitió un reembolso de $${Number(amountToRef).toLocaleString('es-MX')} MXN a tu método de pago; aparecerá en tu cuenta en 3-10 días hábiles.`
+        : `Se emitió un reembolso de $${Number(amountToRef).toLocaleString('es-MX')} MXN. Aparecerá en tu cuenta en 3-10 días hábiles.`),
       data:    { reservation_id, screen: 'Reservations' },
     });
 

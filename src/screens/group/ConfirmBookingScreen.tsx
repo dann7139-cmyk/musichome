@@ -221,6 +221,53 @@ export default function GroupConfirmBookingScreen({ route, navigation }: any) {
   // (handleFinishEvent eliminado 2026-07-12: cobraba con charge-remaining,
   //  EF del modelo de anticipo retirado. El evento termina solo — auto-stop.)
 
+  // ── 🚨 El grupo cancela un evento PAGADO ("No podré asistir") ─────────────
+  // Política visible antes de confirmar: reembolso 100% al cliente, strike
+  // (3 = suspensión), pierde verificado, menos visibilidad 30 días.
+  const handleGroupCancel = async () => {
+    const { data: grp } = await supabase
+      .from('groups')
+      .select('strike_count')
+      .eq('id', reservation.group_id)
+      .single();
+    const nextStrike = Math.min(3, (grp?.strike_count ?? 0) + 1);
+    Alert.alert(
+      '🚨 Política de cancelación de grupos',
+      'Si cancelas este evento pagado:\n\n' +
+      '💸 El cliente recibe su reembolso del 100%\n' +
+      `⚡ Recibes un strike — sería el ${nextStrike} de 3 (al 3º tu grupo se SUSPENDE)\n` +
+      '❌ Pierdes tu insignia de verificado\n' +
+      '📉 Tu grupo baja al fondo del explorador por 30 días\n\n' +
+      'Cancelar afecta al cliente y a tu reputación. ¿Seguros que no podrán asistir?',
+      [
+        { text: 'No, sí asistiremos', style: 'cancel' },
+        {
+          text: 'Sí, cancelar', style: 'destructive',
+          onPress: async () => {
+            setLoading(true);
+            const { data, error } = await supabase.functions.invoke('process-refund', {
+              body: { reservation_id: reservation.id, mode: 'group_cancellation' },
+            });
+            setLoading(false);
+            const failed = error || (data as any)?.error || (data as any)?.ok === false;
+            if (failed) {
+              Alert.alert(
+                'No se pudo cancelar',
+                `${(data as any)?.error ?? error?.message ?? 'Intenta de nuevo.'}\n\nSi el problema sigue, contacta a soporte.`,
+              );
+              return;
+            }
+            Alert.alert(
+              'Evento cancelado',
+              'El cliente y tus integrantes fueron notificados. El cliente recibirá su reembolso completo.',
+              [{ text: 'OK', onPress: () => navigation.goBack() }],
+            );
+          },
+        },
+      ],
+    );
+  };
+
   const handleArrive = () => {
     // La llegada se registra en el Temporizador con verificación GPS
     // (release_half_on_arrival, sql/424) — una sola ruta de llegada.
@@ -668,6 +715,14 @@ export default function GroupConfirmBookingScreen({ route, navigation }: any) {
                     onPress={() => navigation.navigate('EventTimer', { reservation })}
                     size="lg"
                   />
+                </>
+              )}
+              {/* 🚨 Cancelación del grupo — solo eventos PAGADOS aún no iniciados */}
+              {['accepted', 'confirmed'].includes(reservation.status) &&
+               ['paid', 'fully_paid', 'deposit_paid'].includes(reservation.payment_status) && (
+                <>
+                  <View style={{ height: 10 }} />
+                  <Button label="🚨 No podré asistir" onPress={handleGroupCancel} variant="danger" size="lg" />
                 </>
               )}
             </View>
