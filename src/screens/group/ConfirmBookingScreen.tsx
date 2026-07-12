@@ -48,7 +48,6 @@ export default function GroupConfirmBookingScreen({ route, navigation }: any) {
   const [reservation, setReservation] = useState<any>(initialReservation);
   const [loading, setLoading]               = useState(false);
   const [confirmLoading, setConfirmLoading] = useState(false);
-  const [chargeLoading, setChargeLoading]   = useState(false);
   const [clientProfile, setClientProfile]           = useState<any>(null);
   const [clientCompletedCount, setClientCompletedCount] = useState<number>(0);
   const [groupStripeComplete, setGroupStripeComplete] = useState(true); // optimistic
@@ -202,6 +201,16 @@ export default function GroupConfirmBookingScreen({ route, navigation }: any) {
         onPress: async () => {
           setLoading(true);
           await supabase.from('reservations').update({ status: 'rejected' }).eq('id', reservation.id);
+          // El cliente se entera (antes el rechazo era silencioso)
+          if (reservation.client_id) {
+            await supabase.from('notifications').insert({
+              user_id: reservation.client_id,
+              type:    'reservation',
+              title:   '❌ El grupo no puede tomar tu evento',
+              body:    'El grupo rechazó tu solicitud de reserva. No se hizo ningún cargo — explora otros grupos disponibles.',
+              data:    { reservation_id: reservation.id },
+            });
+          }
           setLoading(false);
           navigation.goBack();
         },
@@ -209,55 +218,8 @@ export default function GroupConfirmBookingScreen({ route, navigation }: any) {
     ]);
   };
 
-  const handleFinishEvent = async () => {
-    Alert.alert(
-      'Finalizar evento',
-      '¿Confirmas que el evento ha terminado? El pago ya fue procesado.',
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Finalizar y cobrar',
-          onPress: async () => {
-            setChargeLoading(true);
-            try {
-              const { data: sd } = await supabase.auth.getSession();
-              const token = sd.session?.access_token;
-              const { data, error } = await supabase.functions.invoke('charge-remaining', {
-                body:    { reservation_id: reservation.id },
-                headers: { Authorization: `Bearer ${token}` },
-              });
-
-              setChargeLoading(false);
-
-              if (error || data?.error) {
-                Alert.alert('Error', data?.error ?? 'No se pudo cobrar. Intenta de nuevo.');
-                return;
-              }
-
-              if (!data?.success && data?.reason === 'no_payment_method') {
-                Alert.alert(
-                  'Sin tarjeta guardada',
-                  'El cliente no tiene tarjeta guardada. Se le envió una notificación para que pague manualmente.',
-                );
-              } else if (!data?.success && data?.reason === 'charge_failed') {
-                Alert.alert(
-                  '⚠️ Cobro fallido',
-                  `No se pudo cobrar la tarjeta del cliente: ${data.message}. Se le notificó para que actualice su método de pago.`,
-                );
-              } else {
-                Alert.alert('✅ Evento finalizado', 'El saldo fue cobrado exitosamente. ¡Buen trabajo!', [
-                  { text: 'OK', onPress: () => navigation.goBack() },
-                ]);
-              }
-            } catch (e: any) {
-              setChargeLoading(false);
-              Alert.alert('Error', e.message ?? 'Error al finalizar el evento');
-            }
-          },
-        },
-      ],
-    );
-  };
+  // (handleFinishEvent eliminado 2026-07-12: cobraba con charge-remaining,
+  //  EF del modelo de anticipo retirado. El evento termina solo — auto-stop.)
 
   const handleArrive = () => {
     // La llegada se registra en el Temporizador con verificación GPS
@@ -697,17 +659,13 @@ export default function GroupConfirmBookingScreen({ route, navigation }: any) {
               )}
               {reservation.status === 'in_progress' && (
                 <>
+                  {/* Sin finalización manual: el evento termina solo al cumplirse
+                      el tiempo (auto-stop del temporizador) — regla 2026-07-12.
+                      El botón "🏁 Finalizar" legacy cobraba con charge-remaining
+                      (modelo de anticipo, ya retirado). */}
                   <Button
                     label="⏱ Ver temporizador"
                     onPress={() => navigation.navigate('EventTimer', { reservation })}
-                    variant="outline"
-                    size="lg"
-                  />
-                  <View style={{ height: 10 }} />
-                  <Button
-                    label={chargeLoading ? 'Finalizando...' : '🏁 Finalizar evento'}
-                    onPress={handleFinishEvent}
-                    loading={chargeLoading}
                     size="lg"
                   />
                 </>
