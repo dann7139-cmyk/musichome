@@ -63,6 +63,8 @@ interface Notification {
         'extra_hour_payment_required' |
         'extra_hour_expired' |           // solicitud venció por timeout (cliente/grupo)
         'extra_hour_payment_expired' |   // cliente no pagó en 20 min (grupo recibe)
+        // Disputas (cliente/grupo/admin — sql 184/425/427)
+        'dispute' |
         // Calificaciones recibidas
         'review_received';
   title: string;
@@ -240,7 +242,24 @@ export default function NotificationsScreen({ navigation }: any) {
     switch (notif.type) {
       // ── Legacy type ────────────────────────────────────────────────────────
       case 'reservation':
+        // Avisos de tránsito/puntualidad/rush (sql 473-477): al grupo lo
+        // llevan directo al temporizador del evento, no a confirmar reserva
+        if (role === 'group' && notif.data?.screen === 'EventTimer' && reservationId) {
+          const { data: tRes } = await supabase
+            .from('reservations')
+            .select('*, client:profiles(full_name, phone), group:groups(id, name, genre, city, profile_image, owner_id)')
+            .eq('id', reservationId)
+            .single();
+          if (tRes) { navigation.navigate('EventTimer', { reservation: tRes }); break; }
+        }
         await goToReservation(role === 'group');
+        break;
+
+      // ── Disputas (cliente/grupo/admin) ────────────────────────────────────
+      case 'dispute':
+        if (role === 'admin') navigation.navigate('AdminDisputes');
+        else if (role === 'group') navigation.navigate('GroupReservations');
+        else await goToReservation(false);
         break;
 
       // ── New booking flow types ─────────────────────────────────────────────
@@ -784,8 +803,17 @@ export default function NotificationsScreen({ navigation }: any) {
       }
 
       default: {
-        // Fallback genérico: si la notificación tiene data.screen, navegar ahí
-        const screen = notif.data?.screen as string | undefined;
+        // Fallback genérico: si la notificación tiene data.screen, navegar ahí.
+        // Nombres legacy de la BD → rutas reales del stack según el rol.
+        const LEGACY_SCREENS: Record<string, string> = {
+          Disputes:      'AdminDisputes',
+          Verifications: 'AdminVerifications',
+          Withdrawals:   'AdminFinancial',
+          Reservations:  role === 'group' ? 'GroupReservations' : 'ClientReservations',
+          GroupEvents:   'GroupReservations',
+        };
+        const rawScreen = notif.data?.screen as string | undefined;
+        const screen = rawScreen ? (LEGACY_SCREENS[rawScreen] ?? rawScreen) : undefined;
         if (screen) {
           // Reembolso manual → abrir el panel financiero YA en la pestaña 💸
           const params = notif.data?.manual_refund_id ? { initialTab: 'refunds' } : undefined;
