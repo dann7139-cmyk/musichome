@@ -85,14 +85,23 @@ Deno.serve(async (req) => {
     const nextDateStr = fmt(nextDay);
 
     // ── Consultar otros eventos del grupo en ±1 día ────────────────────
-    const { data: others } = await supabase
+    // Cubre reservas de AMBOS flujos (programadas y express): todas viven en
+    // reservations. Duración real: hours_count → quote.duration_hours → 3.
+    // (La tabla packages fue erradicada — sql/445; no referenciarla.)
+    let query = supabase
       .from('reservations')
-      .select('id, event_date, event_time, event_lat, event_lng, packages(duration_hours)')
+      .select('id, event_date, event_time, event_lat, event_lng, hours_count, quote:quotes!quote_id(duration_hours)')
       .eq('group_id', group_id)
       .in('event_date', [prevDateStr, event_date, nextDateStr])
-      .in('status', ['confirmed', 'accepted', 'in_progress'])
-      .neq('id', skip_id);
+      .in('status', ['confirmed', 'accepted', 'in_progress']);
+    if (skip_id) query = query.neq('id', skip_id);
+    const { data: others, error: qErr } = await query;
 
+    if (qErr) {
+      // No fallar cerrado por un error de consulta, pero dejarlo VISIBLE en logs
+      console.error('check-travel-conflict query error:', qErr.message);
+      return ok({ conflict: false, warning: 'query_failed' });
+    }
     if (!others || others.length === 0) {
       return ok({ conflict: false });
     }
@@ -104,7 +113,9 @@ Deno.serve(async (req) => {
     for (const ev of others) {
       if (!ev.event_time) continue;
 
-      const evDuration = (ev.packages as any)?.duration_hours ?? 3;
+      const evDuration = Number(ev.hours_count)
+        || (ev.quote as any)?.duration_hours
+        || 3;
       const evStartRaw = toMin(ev.event_time as string);
       const evEndRaw   = evStartRaw + evDuration * 60;
 
