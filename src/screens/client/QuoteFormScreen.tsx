@@ -702,9 +702,11 @@ export default function QuoteFormScreen({ route, navigation }: any) {
             // h=24 = 12am (medianoche de esa noche) — tocadas nocturnas
             for (let h = 9; h <= 24; h++) {
               const insideBusy = ranges.some(r => h >= r.bs && h < r.be);
+              // 2h de traslado son OBLIGATORIAS. "Muy cercana" = cae justo en
+              // el límite (ej. tocada 8pm: 3pm+3h termina 6pm, ni un minuto más).
               const status = insideBusy ? 'busy'
-                : fitsWithGap(h, dur, 2, ranges) ? 'free'
-                : fitsWithGap(h, dur, 1, ranges) ? 'tight'   // margen de 1h — el grupo decide
+                : fitsWithGap(h, dur, 3, ranges) ? 'free'
+                : fitsWithGap(h, dur, 2, ranges) ? 'tight'
                 : 'buffer';
               slots.push({ h, status });
             }
@@ -734,7 +736,7 @@ export default function QuoteFormScreen({ route, navigation }: any) {
                         onPress={() => {
                           setEventTime(`${String(sl.h % 24).padStart(2, '0')}:00`);
                           // Si la duración elegida ya no cabe con esta hora, se re-elige
-                          if (duration && !fitsWithGap(sl.h, duration, 1, ranges)) setDuration(null);
+                          if (duration && !fitsWithGap(sl.h, duration, 2, ranges)) setDuration(null);
                         }}
                         style={[
                           s.hourCell,
@@ -763,7 +765,7 @@ export default function QuoteFormScreen({ route, navigation }: any) {
                 </View>
                 {selSlot?.status === 'tight' ? (
                   <Text style={s.hourTightTx}>
-                    🕐 Hora muy cercana a otra tocada — el grupo verá si alcanza a llegar y te lo confirma al cotizar.
+                    🕐 Hora muy cercana a la otra tocada del grupo — el tiempo le queda justo. El grupo decidirá si la acepta al cotizarte.
                   </Text>
                 ) : firstFree.length > 0 && !eventTime ? (
                   <Text style={s.hourSuggestTx}>
@@ -843,24 +845,25 @@ export default function QuoteFormScreen({ route, navigation }: any) {
           {/* ─── 5. DURACIÓN ─────────────────────────────────────── */}
           <SectionTitle>5. Duración *  <Text style={s.minNote}>(mínimo 3 horas)</Text></SectionTitle>
           {(() => {
-            // Día con otra tocada: solo se pueden contratar las horas que le
-            // dan tiempo al grupo (ej. tocada 8pm → a las 3pm caben solo 3h,
-            // a la 1pm caben 5h). Margen de 1h = ámbar, el grupo decide.
+            // Día con otra tocada: solo las horas que dejan las 2h de traslado
+            // (tocada 8pm → 3pm caben 3h, 2pm caben 4h, 1pm caben 5h). La
+            // duración máxima (termina justo 2h antes) va en ámbar: el grupo
+            // decidirá si la acepta.
             const ranges = rangesFor(eventDate);
             const selH0 = eventTime ? parseInt(eventTime.split(':')[0], 10) : null;
             const selH = selH0 === 0 ? 24 : selH0;   // 12am = medianoche de esa noche
             const constrained = ranges.length > 0 && selH != null;
             const anyBlocked = constrained &&
-              DURATION_OPTIONS.some(d => !fitsWithGap(selH!, d.value, 1, ranges));
+              DURATION_OPTIONS.some(d => !fitsWithGap(selH!, d.value, 2, ranges));
             return (
               <>
                 <ChipRow
                   options={DURATION_OPTIONS.map(d => ({
                     key: d.value, label: d.label,
                     ...(constrained ? {
-                      disabled: !fitsWithGap(selH!, d.value, 1, ranges),
-                      warn:     fitsWithGap(selH!, d.value, 1, ranges) &&
-                                !fitsWithGap(selH!, d.value, 2, ranges),
+                      disabled: !fitsWithGap(selH!, d.value, 2, ranges),
+                      warn:     fitsWithGap(selH!, d.value, 2, ranges) &&
+                                !fitsWithGap(selH!, d.value, 3, ranges),
                     } : {}),
                   }))}
                   selected={duration}
