@@ -52,6 +52,7 @@ export default function GroupConfirmBookingScreen({ route, navigation }: any) {
   const [clientCompletedCount, setClientCompletedCount] = useState<number>(0);
   const [groupStripeComplete, setGroupStripeComplete] = useState(true); // optimistic
   const [members, setMembers]               = useState<MemberConfirmation[]>([]);
+  const [myInviteType, setMyInviteType]     = useState<string | null>(null);
   const [currentUserId, setCurrentUserId]   = useState<string | null>(null);
   const [distAmounts, setDistAmounts]       = useState<Record<string, string>>({});
   const [distSaving, setDistSaving]         = useState(false);
@@ -116,6 +117,24 @@ export default function GroupConfirmBookingScreen({ route, navigation }: any) {
       p_reservation_id: initialReservation.id,
     });
     if (conf) setMembers(conf as MemberConfirmation[]);
+
+    // ¿Soy integrante fijo (membership) o invitado solo a esta tocada (job)?
+    // Los integrantes fijos NO pueden marcar "No puedo" — solo los invitados.
+    if (initialReservation.group_id) {
+      const { data: authU } = await supabase.auth.getUser();
+      if (authU.user) {
+        const { data: inv } = await supabase
+          .from('job_invitations')
+          .select('invitation_type')
+          .eq('group_id', initialReservation.group_id)
+          .eq('invited_user_id', authU.user.id)
+          .eq('status', 'accepted')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        setMyInviteType(inv?.invitation_type ?? null);
+      }
+    }
 
     // Pre-cargar distribución express si ya existe
     if (initialReservation.event_request_id) {
@@ -374,14 +393,19 @@ export default function GroupConfirmBookingScreen({ route, navigation }: any) {
                 <View style={styles.myConfirmRow}>
                   <Text style={styles.myConfirmLabel}>¿Puedes asistir?</Text>
                   <View style={styles.myConfirmBtns}>
-                    <Pressable
-                      style={[styles.myConfirmBtn, styles.myConfirmDecline]}
-                      onPress={() => handleMemberConfirm('declined')}
-                      disabled={confirmLoading}
-                    >
-                      <XCircle size={15} color="#EF5350" />
-                      <Text style={styles.myConfirmDeclineText}>No puedo</Text>
-                    </Pressable>
+                    {/* Solo el INVITADO de la tocada puede marcar "No puedo"
+                        (por si al último no puede). Los integrantes fijos del
+                        grupo no cancelan por la app: lo hablan con el dueño. */}
+                    {myInviteType === 'job' && (
+                      <Pressable
+                        style={[styles.myConfirmBtn, styles.myConfirmDecline]}
+                        onPress={() => handleMemberConfirm('declined')}
+                        disabled={confirmLoading}
+                      >
+                        <XCircle size={15} color="#EF5350" />
+                        <Text style={styles.myConfirmDeclineText}>No puedo</Text>
+                      </Pressable>
+                    )}
                     <Pressable
                       style={[styles.myConfirmBtn, styles.myConfirmAccept]}
                       onPress={() => handleMemberConfirm('confirmed')}
