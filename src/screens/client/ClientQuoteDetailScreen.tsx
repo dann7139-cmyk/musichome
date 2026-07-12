@@ -84,7 +84,7 @@ export default function ClientQuoteDetailScreen({ route, navigation }: any) {
       .from('job_invitations')
       .select('invited_user_id')
       .eq('group_id', groupId)
-      .eq('invitation_type', 'job')
+      .eq('invitation_type', 'event')
       .eq('status', 'accepted');
 
     if (invited?.length) {

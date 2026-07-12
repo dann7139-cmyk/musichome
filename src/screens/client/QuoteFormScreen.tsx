@@ -455,7 +455,7 @@ export default function QuoteFormScreen({ route, navigation }: any) {
           .from('job_invitations')
           .select('invited_user_id')
           .eq('group_id', group.id)
-          .eq('invitation_type', 'job')
+          .eq('invitation_type', 'event')
           .eq('status', 'accepted');
 
         if (jobInvites && jobInvites.length > 0) {

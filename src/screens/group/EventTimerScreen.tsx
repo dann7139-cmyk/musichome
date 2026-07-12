@@ -919,7 +919,7 @@ export default function EventTimerScreen({ route, navigation }: any) {
     const q = supabase
       .from('job_invitations')
       .select('id, invited_user_id, status, proposed_payment_amount, profile:invited_user_id(full_name, avatar_url)')
-      .eq('invitation_type', 'job')
+      .eq('invitation_type', 'event')
       .in('status', ['accepted']);
     if (reservation.event_id) q.eq('event_id', reservation.event_id);
     else if (reservation.event_request_id) q.eq('event_request_id', reservation.event_request_id);
@@ -1115,7 +1115,7 @@ export default function EventTimerScreen({ route, navigation }: any) {
           const evQ = supabase
             .from('job_invitations')
             .select('invited_user_id')
-            .eq('invitation_type', 'job')
+            .eq('invitation_type', 'event')
             .eq('status', 'accepted');
           if (reservation.event_id) evQ.eq('event_id', reservation.event_id);
           else evQ.eq('event_request_id', reservation.event_request_id);

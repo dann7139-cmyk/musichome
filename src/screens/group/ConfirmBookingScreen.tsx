@@ -393,10 +393,10 @@ export default function GroupConfirmBookingScreen({ route, navigation }: any) {
                 <View style={styles.myConfirmRow}>
                   <Text style={styles.myConfirmLabel}>¿Puedes asistir?</Text>
                   <View style={styles.myConfirmBtns}>
-                    {/* Solo el INVITADO de la tocada puede marcar "No puedo"
-                        (por si al último no puede). Los integrantes fijos del
-                        grupo no cancelan por la app: lo hablan con el dueño. */}
-                    {myInviteType === 'job' && (
+                    {/* Solo el INVITADO de la tocada ('event') puede marcar "No
+                        puedo" (por si al último no puede). Los integrantes fijos
+                        (membership) no cancelan por la app: lo hablan con el dueño. */}
+                    {myInviteType === 'event' && (
                       <Pressable
                         style={[styles.myConfirmBtn, styles.myConfirmDecline]}
                         onPress={() => handleMemberConfirm('declined')}

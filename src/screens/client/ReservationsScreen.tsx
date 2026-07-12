@@ -256,7 +256,7 @@ export default function ClientReservationsScreen({ navigation, route }: any) {
                   supabase.from('job_invitations').select('invited_user_id')
                     .eq('group_id', q.group.id).eq('invitation_type', 'membership').eq('status', 'accepted'),
                   supabase.from('job_invitations').select('invited_user_id')
-                    .eq('group_id', q.group.id).eq('invitation_type', 'job').eq('status', 'accepted'),
+                    .eq('group_id', q.group.id).eq('invitation_type', 'event').eq('status', 'accepted'),
                 ]);
 
                 [...(members ?? []), ...(jobs ?? [])].forEach((m: any) =>
@@ -823,7 +823,7 @@ function ReservationCard({ reservation: r, navigation, onUpdate, isReviewed, isJ
                     supabase.from('job_invitations').select('invited_user_id')
                       .eq('group_id', r._quoteData.group.id).eq('invitation_type', 'membership').eq('status', 'accepted'),
                     supabase.from('job_invitations').select('invited_user_id')
-                      .eq('group_id', r._quoteData.group.id).eq('invitation_type', 'job').eq('status', 'accepted'),
+                      .eq('group_id', r._quoteData.group.id).eq('invitation_type', 'event').eq('status', 'accepted'),
                   ]);
                   [...(members ?? []), ...(jobs ?? [])].forEach((m: any) =>
                     notifs.push({ user_id: m.invited_user_id, type: 'quote_cancelled',

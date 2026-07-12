@@ -206,7 +206,7 @@ export default function ChatScreen({ route, navigation }: any) {
               .select('invited_user_id')
               .eq('group_id', groupId)
               .eq('status', 'accepted')
-              .in('invitation_type', ['membership', 'job']);
+              .in('invitation_type', ['membership', 'event']);
             (members ?? []).forEach((m: any) => {
               if (m.invited_user_id !== ownerId) {
                 notifs.push({ user_id: m.invited_user_id, type: 'chat', title: `💬 Mensaje del cliente`, body: notifBody, data: notifData });
