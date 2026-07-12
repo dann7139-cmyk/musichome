@@ -494,7 +494,6 @@ export default function GroupEventsScreen({ navigation }: any) {
   // 📅 Calendario mensual integrado: eventos por día + días tachados
   const [myGroupId,    setMyGroupId]    = useState<string | null>(null);
   const [blockedDates, setBlockedDates] = useState<Set<string>>(new Set());
-  const [calOpen,      setCalOpen]      = useState(false);
   const [dayModal,     setDayModal]     = useState<string | null>(null);   // fecha con eventos abierta
   const [loading,      setLoading]      = useState(true);
   const [refreshing,   setRefreshing]   = useState(false);
@@ -851,13 +850,6 @@ export default function GroupEventsScreen({ navigation }: any) {
 
           {/* ── Tab: Próximos eventos ── */}
           {activeTab === 'proximos' && (
-            liveEvents.length === 0 && upcoming.length === 0 ? (
-              <View style={st.emptyState}>
-                <Text style={st.emptyIcon}>📅</Text>
-                <Text style={st.emptyTitle}>Sin eventos próximos</Text>
-                <Text style={st.emptyText}>Los eventos pagados y confirmados aparecerán aquí</Text>
-              </View>
-            ) : (
               <>
                 {/* En curso */}
                 {liveEvents.length > 0 && (
@@ -869,21 +861,12 @@ export default function GroupEventsScreen({ navigation }: any) {
                     ))}
                   </>
                 )}
-                {/* Próximos */}
-                {upcoming.length > 0 && (
-                  <>
-                    <Text style={[st.sectionTitle, { marginTop: liveEvents.length > 0 ? 20 : 0 }]}>
-                      Próximos · {upcoming.length}
-                    </Text>
-                    {/* 📅 Calendario del mes: eventos por día + tachar fechas
-                        (reemplaza a la tira horizontal de días — 2026-07-11) */}
-                    <Pressable style={st.calToggle} onPress={() => setCalOpen(o => !o)}>
-                      <Text style={st.calToggleTx}>
-                        {calOpen ? 'Ocultar calendario ▲' : '📅 Ver calendario y disponibilidad'}
-                      </Text>
-                    </Pressable>
-                    {calOpen && (
-                      <View style={st.monthCalWrap}>
+                {/* 📅 Calendario del mes SIEMPRE abierto: eventos por día + tachar fechas.
+                    Los eventos se ven solo al tocar una fecha (sheet del día). */}
+                <Text style={[st.sectionTitle, { marginTop: liveEvents.length > 0 ? 20 : 0 }]}>
+                  📅 Calendario y disponibilidad{upcoming.length > 0 ? ` · ${upcoming.length}` : ''}
+                </Text>
+                <View style={st.monthCalWrap}>
                         <Calendar
                           firstDay={1}
                           theme={{
@@ -919,23 +902,14 @@ export default function GroupEventsScreen({ navigation }: any) {
                             );
                           }}
                         />
-                        <View style={st.mcLegend}>
-                          <Text style={st.mcLegendTx}>🟢 próximos</Text>
-                          <Text style={st.mcLegendTx}>⚪ pasados</Text>
-                          <Text style={st.mcLegendTx}>🚫 tachado (tócalo para cambiar)</Text>
-                        </View>
-                      </View>
-                    )}
-
-                    {/* Mapa solo en las primeras tarjetas — listas largas con N mapas causan jank */}
-                    {upcoming.map((r, idx) => (
-                      <EventCard key={r.id} reservation={r} navigation={navigation} showMap={idx < 6} userLocation={userLocation} groupPhotoUrl={groupPhotoUrl}
-                        onViewProfile={r.client_id ? () => setProfileClientId(r.client_id) : null} />
-                    ))}
-                  </>
-                )}
+                  <View style={st.mcLegend}>
+                    <Text style={st.mcLegendTx}>🟢 próximos</Text>
+                    <Text style={st.mcLegendTx}>⚪ pasados</Text>
+                    <Text style={st.mcLegendTx}>🚫 tachado (tócalo para cambiar)</Text>
+                  </View>
+                </View>
+                <Text style={st.calHint}>Toca una fecha verde para ver sus eventos</Text>
               </>
-            )
           )}
 
           {/* ── Tab: Pendientes ── */}
@@ -1197,13 +1171,10 @@ const st = StyleSheet.create({
   calDot:      { width: 5, height: 5, borderRadius: 3, backgroundColor: COLORS.green },
 
   // ── 📅 Calendario mensual integrado ──
-  calToggle: {
-    alignSelf: 'center', marginBottom: 12,
-    backgroundColor: COLORS.card, borderRadius: RADIUS.full,
-    borderWidth: 1, borderColor: 'rgba(0,230,118,0.35)',
-    paddingHorizontal: 16, paddingVertical: 8,
+  calHint: {
+    fontFamily: FONTS.body, fontSize: 11.5, color: COLORS.muted2,
+    textAlign: 'center', marginBottom: 16,
   },
-  calToggleTx: { fontFamily: FONTS.bodySemiBold, fontSize: 12.5, color: COLORS.green },
   monthCalWrap: {
     backgroundColor: COLORS.card, borderRadius: RADIUS.lg,
     borderWidth: 1, borderColor: COLORS.border,

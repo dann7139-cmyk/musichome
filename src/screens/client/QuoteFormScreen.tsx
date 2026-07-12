@@ -653,9 +653,10 @@ export default function QuoteFormScreen({ route, navigation }: any) {
                 const bs = hh + (mm || 0) / 60;
                 return { bs, be: bs + Number(b.hours ?? 3) };
               });
-            const fmtH = (h: number) => `${h % 12 || 12}${h >= 12 ? 'pm' : 'am'}`;
+            const fmtH = (h: number) => { const hh = h % 24; return `${hh % 12 || 12}${hh >= 12 ? 'pm' : 'am'}`; };
             const slots = [];
-            for (let h = 9; h <= 23; h++) {
+            // h=24 = 12am (medianoche de esa noche) — tocadas nocturnas
+            for (let h = 9; h <= 24; h++) {
               const insideBusy = ranges.some(r => h >= r.bs && h < r.be);
               const conflict   = ranges.some(r => !(h + dur + BUFFER <= r.bs || h >= r.be + BUFFER));
               slots.push({ h, status: insideBusy ? 'busy' : conflict ? 'buffer' : 'free' });
@@ -669,12 +670,12 @@ export default function QuoteFormScreen({ route, navigation }: any) {
                   {slots.map(sl => {
                     const disabled = sl.status !== 'free';
                     const suggested = firstFree.includes(sl.h);
-                    const selected = selH === sl.h;
+                    const selected = selH === sl.h || (sl.h === 24 && selH === 0);
                     return (
                       <Pressable
                         key={sl.h}
                         disabled={disabled}
-                        onPress={() => setEventTime(`${String(sl.h).padStart(2, '0')}:00`)}
+                        onPress={() => setEventTime(`${String(sl.h % 24).padStart(2, '0')}:00`)}
                         style={[
                           s.hourCell,
                           sl.status === 'busy'   && s.hourCellBusy,
