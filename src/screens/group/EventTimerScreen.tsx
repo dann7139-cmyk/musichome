@@ -550,7 +550,6 @@ export default function EventTimerScreen({ route, navigation }: any) {
   const [showClientNearEndModal, setShowClientNearEndModal] = useState(false);
   const clientNearEndShownRef = useRef(false);
   const partialExtraReleasedRef = useRef(false);
-  const [showEndModal, setShowEndModal] = useState(false);
   const [showMsiModal, setShowMsiModal] = useState(false);
   const [msiPendingChoice, setMsiPendingChoice] = useState<{ hours: number; price: number } | null>(null);
   const [msiSelectedMonths, setMsiSelectedMonths] = useState<number>(1);
@@ -2637,9 +2636,9 @@ export default function EventTimerScreen({ route, navigation }: any) {
                       <View style={{ height: 10 }} />
                     </>
                   )}
-                  <Pressable style={st.endEventLink} onPress={() => setShowEndModal(true)}>
-                    <Text style={st.endEventLinkText}>Finalizar evento ↗</Text>
-                  </Pressable>
+                  {/* Sin finalización manual: el evento termina SOLO cuando se
+                      cumple el tiempo (auto-stop) — decisión de producto 2026-07-12.
+                      Emergencias las resuelve el admin. */}
                 </>
               )}
             </View>
@@ -3145,37 +3144,8 @@ export default function EventTimerScreen({ route, navigation }: any) {
       </Modal>
 
 
-      {/* ── FINALIZAR EVENTO — confirmación destructiva ────────── */}
-      <Modal visible={showEndModal} transparent animationType="fade">
-        <View style={st.endConfirmOverlay}>
-          <View style={st.endConfirmCard}>
-            <Text style={st.endConfirmTitle}>¿Terminar el evento ahora?</Text>
-            <Text style={st.endConfirmBody}>
-              El tiempo restante NO se descontará de tu ganancia.
-            </Text>
-            <View style={st.endConfirmRow}>
-              <Pressable
-                style={[st.endConfirmBtn, st.endConfirmCancel]}
-                onPress={() => setShowEndModal(false)}
-              >
-                <Text style={st.endConfirmCancelText}>Cancelar</Text>
-              </Pressable>
-              <Pressable
-                style={[st.endConfirmBtn, st.endConfirmOk]}
-                onPress={() => {
-                  setShowEndModal(false);
-                  if (!autoFinishedRef.current) {
-                    autoFinishedRef.current = true;
-                    finishEvent();
-                  }
-                }}
-              >
-                <Text style={st.endConfirmOkText}>Sí, finalizar</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
+      {/* (El modal de "Finalizar evento" manual fue retirado — el evento
+          termina automáticamente al cumplirse el tiempo contratado + extras) */}
 
       {/* ── PAGO PENDIENTE / COBRO FALLIDO ────────────────────── */}
       <Modal visible={paymentPending} transparent={false} animationType="fade">

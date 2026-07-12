@@ -2,11 +2,11 @@
 -- sql/479_finish_guard_and_noshow_cron.sql
 -- 🔒 Auditoría 2026-07-12 — 3 fixes de servidor:
 --
---  1. complete_event v2: GUARD contra finalización temprana.
---     Antes un grupo podía "Finalizar evento" al minuto 1 y
---     release_group_earnings_atomic liberaba el 100%.
---     Ahora: bloqueado antes del 50% del tiempo contratado;
---     entre 50% y 90% se permite pero se avisa a los admins.
+--  1. complete_event v2: el evento SOLO termina cuando se cumple el
+--     tiempo (contratado + horas extra). Nadie lo finaliza a mano:
+--     el botón "Finalizar evento" fue retirado de la app y este guard
+--     rechaza cualquier llamada antes de tiempo (tolerancia 10 min).
+--     Antes un grupo podía finalizar al minuto 1 y liberar el 100%.
 --  2. mark_abandoned_reservations v3 (no-shows):
 --     a) incluye status 'accepted' — las reservas pagadas de la app
 --        viven en 'accepted', el filtro solo-'confirmed' hacía que
@@ -36,8 +36,8 @@ DECLARE
   v_caller_id   UUID := auth.uid();
   v_res         RECORD;
   v_duration    INT;
-  v_contract    INT;   -- minutos contratados
-  v_admin       UUID;
+  v_required    INT;   -- minutos que DEBE durar: contratados + extras (75 min c/u)
+  v_extras      NUMERIC := 0;
 BEGIN
   IF v_caller_id IS NULL THEN
     RETURN jsonb_build_object('ok', false, 'error', 'unauthorized: sesión requerida');
@@ -68,18 +68,25 @@ BEGIN
     RETURN jsonb_build_object('ok', false, 'error', 'El evento aún no ha iniciado.');
   END IF;
 
-  v_duration := GREATEST(0, EXTRACT(EPOCH FROM (NOW() - v_res.event_started_at))::INT / 60);
-  v_contract := GREATEST(60, COALESCE(v_res.hours_count, v_res.quote_hours, 3)::INT * 60);
+  -- Horas extra aceptadas/pagadas extienden la duración (75 min por hora:
+  -- 60 de música + 15 de descanso — mismo cálculo que el temporizador)
+  SELECT COALESCE(SUM(hours_added), 0) INTO v_extras
+  FROM extra_hours
+  WHERE reservation_id = p_reservation_id
+    AND status IN ('accepted', 'paid');
 
-  -- 🔒 Guard: antes del 50% del tiempo contratado NO se libera nada.
-  -- (El pago se libera completo al finalizar — finalizar al minuto 1
-  --  sería cobrar sin tocar. Si el cliente pidió terminar antes de la
-  --  mitad, que lo resuelva soporte/admin.)
-  IF v_duration < (v_contract / 2) THEN
+  v_duration := GREATEST(0, EXTRACT(EPOCH FROM (NOW() - v_res.event_started_at))::INT / 60);
+  v_required := GREATEST(60, COALESCE(v_res.hours_count, v_res.quote_hours, 3)::INT * 60)
+                + (v_extras * 75)::INT;
+
+  -- 🔒 Guard: el evento termina SOLO cuando el tiempo se cumple.
+  -- Nadie (ni grupo ni cliente) finaliza a mano — la app llama esto en el
+  -- auto-stop del temporizador. Tolerancia de 10 min por desfase de relojes.
+  IF v_duration < (v_required - 10) THEN
     RETURN jsonb_build_object(
       'ok', false,
-      'error', format('Aún es muy pronto para finalizar: van %s min de %s contratados. Si el cliente pidió terminar antes, contacta a soporte.',
-                      v_duration, v_contract)
+      'error', format('El evento aún no termina: van %s min de %s. El evento finaliza automáticamente al cumplirse el tiempo.',
+                      v_duration, v_required)
     );
   END IF;
 
@@ -89,19 +96,6 @@ BEGIN
       actual_duration_minutes  = COALESCE(actual_duration_minutes, v_duration),
       updated_at               = NOW()
   WHERE id = p_reservation_id;
-
-  -- ⚠️ Entre 50% y 90%: permitido, pero los admins se enteran
-  IF v_duration < (v_contract * 9 / 10) THEN
-    FOR v_admin IN SELECT id FROM profiles WHERE role = 'admin' LOOP
-      INSERT INTO notifications (user_id, type, title, body, data)
-      VALUES (v_admin, 'admin',
-        '⚠️ Evento finalizado temprano',
-        format('%s finalizó el evento %s con %s de %s min tocados (%s%%). El pago se liberó completo — revisar si el cliente reporta.',
-               COALESCE(v_res.gname, 'Un grupo'), COALESCE(v_res.folio, p_reservation_id::text),
-               v_duration, v_contract, ROUND(100.0 * v_duration / v_contract)),
-        jsonb_build_object('reservation_id', p_reservation_id, 'screen', 'AdminFinancial'));
-    END LOOP;
-  END IF;
 
   RETURN jsonb_build_object(
     'ok',           true,
@@ -195,9 +189,10 @@ SELECT cron.schedule(
 );
 
 -- ── VERIFICACIÓN ──────────────────────────────────────────────────────────────
-SELECT prosrc LIKE '%muy pronto para finalizar%' AS guard_temprano
+SELECT prosrc LIKE '%aún no termina%' AS guard_tiempo_completo,
+       prosrc LIKE '%extra_hours%'    AS considera_extras
 FROM pg_proc WHERE proname = 'complete_event';
--- Esperado: true
+-- Esperado: true | true
 
 SELECT prosrc LIKE '%''accepted''%' AS detecta_accepted,
        prosrc LIKE '%No-show detectado%' AS avisa_admin
