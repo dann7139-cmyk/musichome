@@ -54,6 +54,11 @@ BEGIN
   IF v_res.status IN ('cancelled', 'rejected', 'expired', 'completed') THEN
     RETURN jsonb_build_object('ok', false, 'error', 'not_active');
   END IF;
+  -- Solo el DÍA del evento (hora de México) — no días antes
+  IF v_res.event_date IS NOT NULL
+     AND v_res.event_date > (NOW() AT TIME ZONE 'America/Mexico_City')::date THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'Aún no es el día del evento.');
+  END IF;
 
   UPDATE reservations SET
     group_en_route_at  = COALESCE(group_en_route_at, CASE WHEN p_start THEN NOW() END),

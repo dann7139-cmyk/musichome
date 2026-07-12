@@ -464,7 +464,20 @@ export default function EventTimerScreen({ route, navigation }: any) {
   const [enRoute, setEnRoute] = useState<boolean>(!!(reservation as any).group_en_route_at);
   const transitWatchRef = useRef<Location.LocationSubscription | null>(null);
 
+  // Solo se puede salir "en camino" el DÍA del evento, no días antes
+  const isEventDay = (() => {
+    const ev = reservation.event_date ? String(reservation.event_date).substring(0, 10) : null;
+    if (!ev) return true;
+    const n = new Date();
+    const today = `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`;
+    return today >= ev;
+  })();
+
   const startEnRoute = async () => {
+    if (!isEventDay) {
+      Alert.alert('🗓️ Aún no es el día', 'Podrás avisar que vas en camino el día del evento.');
+      return;
+    }
     try {
       const { status: locStatus } = await Location.requestForegroundPermissionsAsync();
       if (locStatus !== 'granted') {
@@ -2493,13 +2506,15 @@ export default function EventTimerScreen({ route, navigation }: any) {
                 <>
                   {/* 🚐 En camino — el cliente ve al grupo acercándose en su mapa */}
                   <Pressable
-                    style={({ pressed }) => [st.iconBtn, st.iconBtnOutline, enRoute && { opacity: 0.75 }, pressed && !enRoute && { opacity: 0.8 }]}
+                    style={({ pressed }) => [st.iconBtn, st.iconBtnOutline, enRoute && { opacity: 0.75 }, !isEventDay && { opacity: 0.45 }, pressed && !enRoute && { opacity: 0.8 }]}
                     onPress={startEnRoute}
                     disabled={enRoute}
                   >
                     <Text style={{ fontSize: 17 }}>🚐</Text>
                     <Text style={[st.iconBtnLabel, { color: enRoute ? COLORS.green : '#000' }]}>
-                      {enRoute ? 'En camino — el cliente te ve acercarte' : 'Voy en camino'}
+                      {enRoute ? 'En camino — el cliente te ve acercarte'
+                        : isEventDay ? 'Voy en camino'
+                        : 'Voy en camino (el día del evento)'}
                     </Text>
                   </Pressable>
                   <View style={{ height: 10 }} />
