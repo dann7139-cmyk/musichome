@@ -785,14 +785,16 @@ export default function QuoteFormShared(p: QuoteFormSharedProps) {
             {p.mode === 'propose' && (p.busyRanges?.length ?? 0) > 0 && (() => {
               const dur = p.proposeDurationHours ?? 3;
               const ranges = p.busyRanges!;
+              // Colchón asimétrico: 2h ANTES de otra tocada (llegar+instalar),
+              // 1h DESPUÉS (quitar sonido y traslado)
               const fits = (startH: number, gapH: number) =>
-                ranges.every(r => startH + dur + gapH <= r.bs || startH >= r.be + gapH);
+                ranges.every(r => startH + dur + gapH <= r.bs || startH >= r.be + 1);
               const fmtH = (h: number) => { const hh = h % 24; return `${hh % 12 || 12}${hh >= 12 ? 'pm' : 'am'}`; };
               const selH0 = p.startTime ? parseInt(p.startTime.split(':')[0], 10) : null;
-              const selH = selH0 === 0 ? 24 : selH0;
+              const selH = selH0 != null && selH0 <= 2 ? selH0 + 24 : selH0;
               const cells: { h: number; status: 'free' | 'tight' | 'buffer' | 'busy' }[] = [];
-              for (let h = 9; h <= 24; h++) {
-                const insideBusy = ranges.some(r => h >= r.bs && h < r.be);
+              for (let h = 9; h <= 26; h++) {
+                const insideBusy = ranges.some(r => h >= r.bs && h <= r.be);
                 cells.push({
                   h,
                   status: insideBusy ? 'busy' : fits(h, 3) ? 'free' : fits(h, 2) ? 'tight' : 'buffer',

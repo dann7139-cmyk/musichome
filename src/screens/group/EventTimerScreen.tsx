@@ -2168,14 +2168,11 @@ export default function EventTimerScreen({ route, navigation }: any) {
                  Oculto si hay otra tocada después ese día — no hay tiempo. ── */}
           {!readOnly && isRunning && !isOnBreak && extraHoursCap > 0 && (
             <Pressable
-              style={({ pressed }) => [
-                st.iconBtn, st.iconBtnOutline,
-                { alignSelf: 'center', width: '80%', marginTop: 12 },
-                pressed && { opacity: 0.8 },
-              ]}
+              style={({ pressed }) => [st.extraSmallBtn, pressed && { opacity: 0.8 }]}
               onPress={() => navigation.navigate('ExtraHours', { reservation, maxExtra: extraHoursCap })}
             >
-              <Text style={[st.iconBtnLabel, { color: COLORS.green }]}>🎵 Ofrecer horas extra</Text>
+              <Text style={{ fontSize: 13 }}>🎵</Text>
+              <Text style={st.extraSmallBtnTx}>Ofrecer horas extra</Text>
             </Pressable>
           )}
 
@@ -4391,4 +4388,14 @@ const st = StyleSheet.create({
   iconBtnOutline: { backgroundColor: '#FFFFFF' },
   iconBtnDisabled: { opacity: 0.45 },
   iconBtnLabel: { fontFamily: FONTS.bodySemiBold, fontSize: 16, letterSpacing: 0.3 },
+  // Pill chico blanco para "Ofrecer horas extra" (separado del timer)
+  extraSmallBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    alignSelf: 'center', gap: 6, marginTop: 26,
+    backgroundColor: '#FFFFFF', borderRadius: RADIUS.full,
+    paddingVertical: 9, paddingHorizontal: 18,
+    shadowColor: '#00E676', shadowOpacity: 0.3, shadowRadius: 8, shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
+  },
+  extraSmallBtnTx: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: '#000', letterSpacing: 0.2 },
 });

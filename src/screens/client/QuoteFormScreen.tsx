@@ -346,10 +346,12 @@ export default function QuoteFormScreen({ route, navigation }: any) {
         return { bs, be: bs + Number(b.hours ?? 3) };
       });
 
-  // ¿Cabe un evento de durH horas iniciando en startH, dejando gapH horas de
-  // margen a cada lado de las tocadas existentes del grupo?
+  // ¿Cabe un evento de durH horas iniciando en startH?
+  // Colchón ASIMÉTRICO: antes de una tocada existente se exigen gapH horas
+  // (2 = límite, 3 = cómodo); después de una tocada solo 1h (quitar sonido
+  // y trasladarse) — ej. tocada termina 11pm → se puede iniciar 12am.
   const fitsWithGap = (startH: number, durH: number, gapH: number, ranges: { bs: number; be: number }[]) =>
-    ranges.every(r => startH + durH + gapH <= r.bs || startH >= r.be + gapH);
+    ranges.every(r => startH + durH + gapH <= r.bs || startH >= r.be + 1);
 
   // ── Enviar ───────────────────────────────────────────────────────────────
   const handleSubmit = async () => {
@@ -468,6 +470,22 @@ export default function QuoteFormScreen({ route, navigation }: any) {
           );
         }
       }
+      // Si esta solicitud cae DESPUÉS de una tocada del grupo ese día, avisar:
+      // al grupo (que pregunte por horas extra de su evento actual) y al
+      // primer cliente (que decida pronto si querrá horas extra). Best-effort.
+      try {
+        const ranges = rangesFor(eventDate);
+        const h0 = parseInt(eventTime.split(':')[0], 10);
+        const hSel = h0 <= 2 ? h0 + 24 : h0;
+        if (ranges.some(r => hSel >= r.be)) {
+          void supabase.rpc('notify_prior_event_extra_hours', {
+            p_group_id:   group.id,
+            p_event_date: eventDate,
+            p_event_time: eventTime,
+          });
+        }
+      } catch {}
+
       Alert.alert(
         '✅ Solicitud enviada',
         `Tu solicitud de cotización a "${group.name}" fue enviada. Te notificaremos cuando el grupo responda.`,
@@ -699,11 +717,12 @@ export default function QuoteFormScreen({ route, navigation }: any) {
             const ranges = rangesFor(eventDate);
             const fmtH = (h: number) => { const hh = h % 24; return `${hh % 12 || 12}${hh >= 12 ? 'pm' : 'am'}`; };
             const slots: { h: number; status: 'free' | 'tight' | 'buffer' | 'busy' }[] = [];
-            // h=24 = 12am (medianoche de esa noche) — tocadas nocturnas
-            for (let h = 9; h <= 24; h++) {
-              const insideBusy = ranges.some(r => h >= r.bs && h < r.be);
-              // 2h de traslado son OBLIGATORIAS. "Muy cercana" = cae justo en
-              // el límite (ej. tocada 8pm: 3pm+3h termina 6pm, ni un minuto más).
+            // h=24/25/26 = 12am/1am/2am (madrugada de esa noche) — tocadas nocturnas
+            for (let h = 9; h <= 26; h++) {
+              // La hora en que TERMINA la tocada también se pinta roja (h <= be)
+              const insideBusy = ranges.some(r => h >= r.bs && h <= r.be);
+              // Antes de otra tocada: 2h obligatorias ("muy cercana" = justo en
+              // el límite). Después de una tocada: 1h de quitar sonido y traslado.
               const status = insideBusy ? 'busy'
                 : fitsWithGap(h, dur, 3, ranges) ? 'free'
                 : fitsWithGap(h, dur, 2, ranges) ? 'tight'
@@ -711,16 +730,20 @@ export default function QuoteFormScreen({ route, navigation }: any) {
               slots.push({ h, status });
             }
             // Sugerencias: primeras horas libres + la primera libre DESPUÉS de
-            // la última tocada (por si el cliente quiere más noche)
+            // la última tocada (por si el cliente quiere más noche). No se
+            // sugiere más allá de la 1am — acabarían de madrugada.
             const lastEnd = Math.max(...ranges.map(r => r.be), 0);
-            const nightH = slots.find(sl => sl.status === 'free' && sl.h >= lastEnd)?.h;
+            const nightH = slots.find(sl => sl.status === 'free' && sl.h >= lastEnd && sl.h <= 25)?.h;
             const firstFree = [...new Set([
-              ...slots.filter(sl => sl.status === 'free').slice(0, 2).map(sl => sl.h),
+              ...slots.filter(sl => sl.status === 'free' && sl.h <= 25).slice(0, 2).map(sl => sl.h),
               ...(nightH != null ? [nightH] : []),
             ])].sort((a, b) => a - b);
-            const selH = eventTime ? parseInt(eventTime.split(':')[0], 10) : null;
-            const selSlot = selH == null ? undefined
-              : slots.find(sl => sl.h === selH || (sl.h === 24 && selH === 0));
+            const selH0 = eventTime ? parseInt(eventTime.split(':')[0], 10) : null;
+            // 00/01/02 guardadas = madrugada de esa noche (celdas 24/25/26)
+            const selH = selH0 != null && selH0 <= 2 ? selH0 + 24 : selH0;
+            const selSlot = selH == null ? undefined : slots.find(sl => sl.h === selH);
+            // ¿La hora elegida es DESPUÉS de una tocada del grupo?
+            const afterPriorGig = selH != null && ranges.some(r => selH >= r.be);
             return (
               <View style={s.hourGridCard}>
                 <Text style={s.hourGridTitle}>Horarios de tu grupo ese día ({dur}h de evento)</Text>
@@ -728,7 +751,7 @@ export default function QuoteFormScreen({ route, navigation }: any) {
                   {slots.map(sl => {
                     const disabled = sl.status === 'busy' || sl.status === 'buffer';
                     const suggested = firstFree.includes(sl.h);
-                    const selected = selH === sl.h || (sl.h === 24 && selH === 0);
+                    const selected = selH === sl.h;
                     return (
                       <Pressable
                         key={sl.h}
@@ -766,6 +789,10 @@ export default function QuoteFormScreen({ route, navigation }: any) {
                 {selSlot?.status === 'tight' ? (
                   <Text style={s.hourTightTx}>
                     🕐 Hora muy cercana a la otra tocada del grupo — el tiempo le queda justo. El grupo decidirá si la acepta al cotizarte.
+                  </Text>
+                ) : afterPriorGig && selSlot ? (
+                  <Text style={s.hourSuggestTx}>
+                    ℹ️ El grupo tiene un evento antes de tu horario. Verá si ese evento pide horas extra y te confirma al cotizarte.
                   </Text>
                 ) : firstFree.length > 0 && !eventTime ? (
                   <Text style={s.hourSuggestTx}>
@@ -851,7 +878,8 @@ export default function QuoteFormScreen({ route, navigation }: any) {
             // decidirá si la acepta.
             const ranges = rangesFor(eventDate);
             const selH0 = eventTime ? parseInt(eventTime.split(':')[0], 10) : null;
-            const selH = selH0 === 0 ? 24 : selH0;   // 12am = medianoche de esa noche
+            // 12am/1am/2am = madrugada de esa noche
+            const selH = selH0 != null && selH0 <= 2 ? selH0 + 24 : selH0;
             const constrained = ranges.length > 0 && selH != null;
             const anyBlocked = constrained &&
               DURATION_OPTIONS.some(d => !fitsWithGap(selH!, d.value, 2, ranges));
@@ -884,7 +912,7 @@ export default function QuoteFormScreen({ route, navigation }: any) {
             // sugerir que "puede extender".
             const ranges = rangesFor(eventDate);
             const selH0 = eventTime ? parseInt(eventTime.split(':')[0], 10) : null;
-            const selH = selH0 === 0 ? 24 : selH0;
+            const selH = selH0 != null && selH0 <= 2 ? selH0 + 24 : selH0;
             const boxedIn = selH != null && ranges.some(r => r.bs > selH + 0.01);
             return (
               <View style={s.extraHoursHint}>

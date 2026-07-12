@@ -286,6 +286,24 @@ export default function ProposeRequestScreen({ route, navigation }: any) {
                 `Error: ${code || 'No se pudo enviar. Inténtalo de nuevo.'}`;
               Alert.alert('No disponible', msg);
             } else {
+              // Si esta propuesta cae DESPUÉS de una tocada suya ese día,
+              // avisar al cliente del primer evento que decida pronto sus
+              // horas extra (best-effort, no bloquea el flujo).
+              try {
+                const tSel = startTime || arrivalTime;
+                if (tSel && busyRanges.length > 0) {
+                  const h0 = parseInt(tSel.split(':')[0], 10);
+                  const hSel = h0 <= 2 ? h0 + 24 : h0;
+                  if (busyRanges.some(r => hSel >= r.be)) {
+                    void supabase.rpc('notify_prior_event_extra_hours', {
+                      p_group_id:   myGroupId,
+                      p_event_date: request.event_date,
+                      p_event_time: tSel,
+                    });
+                  }
+                }
+              } catch {}
+
               if (dispatchId) {
                 // 1) Quitar la tarjeta del carrusel YA (local, no depende del
                 //    RPC/realtime). 2) Persistir status='quoted' en la DB.

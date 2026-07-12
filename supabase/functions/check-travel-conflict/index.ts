@@ -29,7 +29,8 @@ const supabase = createClient(
 );
 
 const GOOGLE_KEY    = Deno.env.get('GOOGLE_MAPS_API_KEY') ?? '';
-const BUFFER_MIN    = 120;  // minutos de buffer mínimo entre eventos
+const BUFFER_MIN    = 120;  // min ANTES de otra tocada (llegar + instalarse)
+const AFTER_MIN     = 60;   // min DESPUÉS de otra tocada (desconectar + traslado)
 const SETUP_MIN     = 30;   // minutos de instalación/prep (se descuenta del gap)
 
 const cors = {
@@ -127,13 +128,20 @@ Deno.serve(async (req) => {
       const evStart = evStartRaw + offset;
       const evEnd   = evEndRaw   + offset;
 
-      // Gap mínimo entre los dos eventos (negativo = traslape)
+      // Gap real entre los dos eventos. En intervalos disjuntos EXACTAMENTE
+      // uno de los dos gaps es >= 0 (el lado real); el otro es muy negativo.
+      // Math.max toma el real; si ambos son negativos hay traslape.
+      // (BUG histórico: Math.min hacía que TODO par del día pareciera traslape.)
       const gapAfterEv  = newStart - evEnd;   // nuevo empieza X min después de ev
       const gapBeforeEv = evStart - newEnd;   // ev empieza X min después de nuevo
+      const gap = Math.max(gapAfterEv, gapBeforeEv);
 
-      const gap = Math.min(gapAfterEv, gapBeforeEv);
+      // Colchón asimétrico:
+      //  - nuevo DESPUÉS de la tocada existente: 1h (quitar sonido + traslado)
+      //  - nuevo ANTES de la tocada existente: 2h (llegar + instalarse a tiempo)
+      const required = gapAfterEv >= 0 ? AFTER_MIN : BUFFER_MIN;
 
-      if (gap >= BUFFER_MIN) continue;  // suficiente buffer — no hay conflicto
+      if (gap >= required) continue;  // suficiente colchón — no hay conflicto
 
       // ── Verificar si hay traslado real (Google Distance Matrix) ────
       let travel_minutes: number | undefined;
@@ -172,8 +180,8 @@ Deno.serve(async (req) => {
         });
       }
 
-      // Sin distancia: verificar buffer mínimo puro
-      if (gap < BUFFER_MIN) {
+      // Sin distancia: verificar colchón mínimo puro (asimétrico)
+      if (gap < required) {
         return ok({
           conflict:       true,
           reason:         gap < 0 ? 'overlap' : 'time_buffer',
@@ -184,7 +192,7 @@ Deno.serve(async (req) => {
             : 'Este grupo no está disponible por logística y tiempo de traslado.',
           message_group: gap < 0
             ? `Los eventos se traslapan (${Math.abs(gap)} min de traslape).`
-            : `Buffer insuficiente entre eventos: ${gap} min disponibles, mínimo ${BUFFER_MIN} min.`,
+            : `Colchón insuficiente entre eventos: ${gap} min disponibles, mínimo ${required} min.`,
         });
       }
     }
