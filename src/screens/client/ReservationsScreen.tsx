@@ -1175,25 +1175,7 @@ function ReservationCard({ reservation: r, navigation, onUpdate, isReviewed, isJ
         </View>
       ) : null}
 
-      {/* ── Banner MSI ── */}
-      {canPay && (
-        <View style={styles.msiBanner}>
-          <View style={styles.msiBannerRow}>
-            <Text style={styles.msiEmoji}>💳</Text>
-            <Text style={styles.msiTitle}>Hasta 12 cuotas mensuales</Text>
-            <View style={styles.msiPills}>
-              {['3x', '6x', '12x'].map(m => (
-                <View key={m} style={styles.msiPill}>
-                  <Text style={styles.msiPillText}>{m}</Text>
-                </View>
-              ))}
-            </View>
-          </View>
-          <Text style={styles.msiSub}>Con tarjeta de crédito participante</Text>
-        </View>
-      )}
-
-      {/* ── Botón Pagar ── */}
+      {/* ── Botón Pagar — blanco, letras negras, precio verde ── */}
       {canPay && (
         <Pressable
           style={styles.payBtn}
@@ -1208,11 +1190,14 @@ function ReservationCard({ reservation: r, navigation, onUpdate, isReviewed, isJ
           }}
         >
           <View style={styles.payBtnInner}>
-            <CreditCard size={16} color={COLORS.bg} />
-            <View>
-              <Text style={styles.payBtnText}>{payLabel}</Text>
-              <Text style={styles.payBtnSub}>Elige tu plan de pago al confirmar</Text>
+            <View style={styles.payBtnIconCircle}>
+              <CreditCard size={15} color={COLORS.green2} />
             </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.payBtnText}>{payLabel}</Text>
+              <Text style={styles.payBtnSub}>Elige tu forma de pago al confirmar</Text>
+            </View>
+            <Text style={styles.payBtnPrice}>${r.total_price?.toLocaleString()}</Text>
           </View>
         </Pressable>
       )}
@@ -1519,13 +1504,18 @@ const styles = StyleSheet.create({
 
   // ── Pay button ──
   payBtn: {
-    backgroundColor: COLORS.green,
-    paddingVertical: 10, paddingHorizontal: SPACING.md,
-    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    paddingVertical: 11, paddingHorizontal: SPACING.md,
   },
   payBtnInner: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  payBtnText:  { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.bg },
-  payBtnSub:   { fontFamily: FONTS.body, fontSize: 10, color: 'rgba(0,0,0,0.5)', marginTop: 1 },
+  payBtnIconCircle: {
+    width: 32, height: 32, borderRadius: 16,
+    backgroundColor: 'rgba(0,200,83,0.14)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  payBtnText:  { fontFamily: FONTS.bodySemiBold, fontSize: 13.5, color: '#000' },
+  payBtnSub:   { fontFamily: FONTS.body, fontSize: 10, color: 'rgba(0,0,0,0.55)', marginTop: 1 },
+  payBtnPrice: { fontFamily: FONTS.bodySemiBold, fontSize: 15, color: COLORS.green2, fontVariant: ['tabular-nums'] },
 
   // ── Cancel button ──
   cancelBtnWrapper: {
