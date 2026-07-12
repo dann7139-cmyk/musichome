@@ -253,6 +253,7 @@ export default function ScheduledQuotesCarousel({ groupId }: { groupId: string |
 
   const [visible,     setVisible]     = useState(false);
   const [quotes,      setQuotes]      = useState<any[]>([]);
+  const [carouselIdx, setCarouselIdx] = useState(0);   // posición visible (3/12)
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const [userLocation,    setUserLocation]    = useState<{ latitude: number; longitude: number } | null>(null);
   const [groupPhotoUrl,   setGroupPhotoUrl]   = useState<string | null>(null);
@@ -452,6 +453,8 @@ export default function ScheduledQuotesCarousel({ groupId }: { groupId: string |
   if (!visible || visibleQuotes.length === 0) return null;
 
   const count = visibleQuotes.length;
+  // Con muchas solicitudes, que el grupo sepa en cuál va (indicador 3/12)
+  const posLabel = count > 1 ? ` · ${Math.min(carouselIdx + 1, count)}/${count}` : '';
 
   return (
     <>
@@ -464,7 +467,7 @@ export default function ScheduledQuotesCarousel({ groupId }: { groupId: string |
           <View style={st.headerLeft}>
             <View style={st.dot} />
             <Text style={st.headerTx}>
-              {count === 1 ? '1 solicitud programada' : `${count} solicitudes programadas`}
+              {count === 1 ? '1 solicitud programada' : `${count} solicitudes programadas`}{posLabel}
             </Text>
           </View>
           <Pressable onPress={hide} hitSlop={10}
@@ -485,6 +488,9 @@ export default function ScheduledQuotesCarousel({ groupId }: { groupId: string |
           snapToInterval={SNAP_INTERVAL}
           snapToAlignment="start"
           decelerationRate="fast"
+          onMomentumScrollEnd={(e) => {
+            setCarouselIdx(Math.round(e.nativeEvent.contentOffset.x / SNAP_INTERVAL));
+          }}
           renderItem={({ item }) => (
             <ScheduledQuoteCard
               item={item}
