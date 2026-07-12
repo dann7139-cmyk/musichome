@@ -189,6 +189,10 @@ export default function QuoteFormScreen({ route, navigation }: any) {
 
   // [Lote 2] Días bloqueados/ocupados del grupo — mismo patrón que BookingScreen
   const [unavailMarked, setUnavailMarked] = useState<any>({});
+  // Horarios ocupados del grupo por fecha (aviso sin bloquear el día:
+  // el grupo puede tocar dos eventos el mismo día en horarios distintos)
+  const [busyByDate, setBusyByDate] = useState<Record<string, { time: string | null; hours: number | null }[]>>({});
+
   useEffect(() => {
     (async () => {
       const today = new Date();
@@ -203,29 +207,34 @@ export default function QuoteFormScreen({ route, navigation }: any) {
         supabase.from('group_unavailability').select('date').eq('group_id', group.id),
       ]);
       const marked: any = {};
+      const byDate: Record<string, { time: string | null; hours: number | null }[]> = {};
+      // Días CON evento: NARANJA y SELECCIONABLES — el grupo puede tocar dos
+      // veces el mismo día; al elegirlo se muestra el horario ocupado.
       (busy ?? []).forEach((r: any) => {
-        if (r.event_date) {
-          marked[r.event_date] = {
-            disabled: true, disableTouchEvent: true,
-            customStyles: {
-              container: { backgroundColor: 'rgba(239,83,80,0.2)' },
-              text: { color: COLORS.red },
-            },
-          };
-        }
+        if (!r.event_date) return;
+        (byDate[r.event_date] ??= []).push({ time: r.event_time ?? null, hours: r.hours_count ?? null });
+        marked[r.event_date] = {
+          customStyles: {
+            container: { backgroundColor: 'rgba(255,179,0,0.18)' },
+            text: { color: '#FFB300', fontWeight: '700' },
+          },
+        };
       });
+      // Días BLOQUEADOS por el grupo: esos sí quedan deshabilitados.
       (blocked ?? []).forEach((b: any) => {
-        if (b.date && !marked[b.date]) {
+        if (b.date) {
           marked[b.date] = {
             disabled: true, disableTouchEvent: true,
             customStyles: {
               container: { backgroundColor: COLORS.card2 },
-              text: { color: COLORS.muted },
+              text: { color: COLORS.muted, textDecorationLine: 'line-through' },
             },
           };
+          delete byDate[b.date];
         }
       });
       setUnavailMarked(marked);
+      setBusyByDate(byDate);
     })();
   }, [group.id]);
   const [eventTime,    setEventTime]    = useState('');   // 'HH:MM'
@@ -581,6 +590,31 @@ export default function QuoteFormScreen({ route, navigation }: any) {
                 : '📅 Seleccionar fecha'}
             </Text>
           </Pressable>
+
+          {/* Aviso: el grupo ya tiene evento ese día (se puede contratar en otro horario) */}
+          {eventDate && busyByDate[eventDate]?.length ? (
+            <View style={s.busyNotice}>
+              <Text style={s.busyNoticeTitle}>🎪 El grupo ya tiene evento este día:</Text>
+              {busyByDate[eventDate].map((ev, i) => {
+                const fmt12 = (t: string) => {
+                  const [h, m] = t.split(':').map(Number);
+                  return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`;
+                };
+                const start = ev.time ? fmt12(ev.time) : null;
+                const end = ev.time && ev.hours
+                  ? fmt12(`${(parseInt(ev.time.split(':')[0], 10) + Math.round(Number(ev.hours))) % 24}:${ev.time.split(':')[1]}`)
+                  : null;
+                return (
+                  <Text key={i} style={s.busyNoticeLine}>
+                    · {start ? `De ${start}${end ? ` a ${end}` : ''}` : 'Horario por confirmar'}
+                  </Text>
+                );
+              })}
+              <Text style={s.busyNoticeHint}>
+                Puedes contratarlo en un horario diferente — elige tu hora considerando este compromiso.
+              </Text>
+            </View>
+          ) : null}
 
           {/* ─── 4. HORA ─────────────────────────────────────────── */}
           <SectionTitle>4. Hora de inicio *</SectionTitle>
@@ -1084,6 +1118,15 @@ const s = StyleSheet.create({
     paddingHorizontal: 14, paddingVertical: 14,
     marginBottom: 10,
   },
+  // Aviso de día con evento existente (contratable en otro horario)
+  busyNotice: {
+    backgroundColor: 'rgba(255,179,0,0.10)', borderRadius: RADIUS.md,
+    borderWidth: 1, borderColor: 'rgba(255,179,0,0.4)',
+    paddingHorizontal: 13, paddingVertical: 11, marginBottom: 10, gap: 3,
+  },
+  busyNoticeTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: '#FFB300' },
+  busyNoticeLine:  { fontFamily: FONTS.bodyMedium, fontSize: 12.5, color: COLORS.text },
+  busyNoticeHint:  { fontFamily: FONTS.body, fontSize: 11.5, color: COLORS.muted2, marginTop: 3, lineHeight: 15 },
   dateBtnText: { fontFamily: FONTS.bodyMedium, fontSize: 14, color: COLORS.text },
 
   // ── Chips ─────────────────────────────────────────────────────────────────
