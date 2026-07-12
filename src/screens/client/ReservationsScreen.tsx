@@ -1178,7 +1178,7 @@ function ReservationCard({ reservation: r, navigation, onUpdate, isReviewed, isJ
       {/* ── Botón Pagar — blanco, letras negras, precio verde ── */}
       {canPay && (
         <Pressable
-          style={styles.payBtn}
+          style={({ pressed }) => [styles.payBtn, pressed && styles.payBtnPressed]}
           onPress={() => {
             if (r._isQuote && r._quoteData) {
               // Cotización aceptada sin reserva creada → flujo nuevo
@@ -1506,7 +1506,11 @@ const styles = StyleSheet.create({
   payBtn: {
     backgroundColor: '#FFFFFF',
     paddingVertical: 11, paddingHorizontal: SPACING.md,
+    marginHorizontal: 12, marginBottom: 12, borderRadius: RADIUS.full,
+    shadowColor: '#00E676', shadowOpacity: 0.35, shadowRadius: 10, shadowOffset: { width: 0, height: 3 },
+    elevation: 5,
   },
+  payBtnPressed: { transform: [{ scale: 0.97 }], opacity: 0.9 },
   payBtnInner: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   payBtnIconCircle: {
     width: 32, height: 32, borderRadius: 16,

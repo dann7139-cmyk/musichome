@@ -64,6 +64,7 @@ interface PayMethodDef {
   title: string;
   tag?: string;            // etiqueta corta ("Sin tarjeta", "Tarjeta de crédito")
   recommended?: boolean;   // ⭐ Recomendado
+  comingSoon?: boolean;    // visible pero deshabilitado con "Próximamente"
   lines: string[];         // bullets descriptivos
   expandsMonths?: boolean; // despliega el selector 3/6/9/12 (solo 'msi')
 }
@@ -90,11 +91,11 @@ const PAYMENT_METHODS: PayMethodDef[] = [
   },
   {
     // BNPL vía Conekta (Aplazo min $20, Creditea min $500, sin máximo).
-    // Registro de producción ENVIADO 2026-07-11 — probando si sandbox ya lo
-    // acepta. Prueba: Aplazo +52 9902949001 / OTP 123456. Si vuelve el
-    // "error inesperado" en la página de Conekta → enabled: false hasta que
-    // la validación (~48h) termine.
-    key: 'bnpl', enabled: true, emoji: '🎶', title: 'Compra ahora, paga después',
+    // Registro de producción enviado 2026-07-11; la página de Conekta da
+    // "error inesperado" hasta que validen la cuenta (~48h) → se muestra
+    // como PRÓXIMAMENTE (visible, no seleccionable). Al validar:
+    // comingSoon: false y probar con Aplazo +52 9902949001 / OTP 123456.
+    key: 'bnpl', enabled: true, comingSoon: true, emoji: '💰', title: 'Compra ahora, paga después',
     tag: 'Sin tarjeta',
     lines: ['La música suena hoy, la pagas después', 'Aplazo, Creditea y más'],
   },
@@ -505,6 +506,7 @@ export default function QuotePaymentScreen({ route, navigation }: any) {
         {PAYMENT_METHODS.filter((m) => m.enabled).map((m) => {
           const isMsi = !!m.expandsMonths;
           const busy  = busyKey === m.key;
+          const soon  = !!m.comingSoon;
           return (
             <View key={m.key}>
               <Pressable
@@ -512,8 +514,15 @@ export default function QuotePaymentScreen({ route, navigation }: any) {
                   s.methodCard,
                   m.recommended && s.methodCardRec,
                   loading && !busy && { opacity: 0.5 },
+                  soon && { opacity: 0.55 },
                 ]}
-                onPress={() => (isMsi ? setMesesOpen((o) => !o) : pay(m.key))}
+                onPress={() => {
+                  if (soon) {
+                    Alert.alert('🎶 Muy pronto', 'Estamos habilitando el pago a plazos (Aplazo, Creditea y más). ¡Podrás usarlo muy pronto!');
+                    return;
+                  }
+                  isMsi ? setMesesOpen((o) => !o) : pay(m.key);
+                }}
                 disabled={loading}
               >
                 <Text style={s.methodEmoji}>{m.emoji}</Text>
@@ -521,7 +530,11 @@ export default function QuotePaymentScreen({ route, navigation }: any) {
                 <View style={{ flex: 1 }}>
                   <View style={s.methodTitleRow}>
                     <Text style={s.methodTitle}>{m.title}</Text>
-                    {m.tag ? (
+                    {soon ? (
+                      <View style={s.soonPill}>
+                        <Text style={s.soonPillText}>Próximamente</Text>
+                      </View>
+                    ) : m.tag ? (
                       <View style={s.methodTag}>
                         <Text style={s.methodTagText}>{m.tag}</Text>
                       </View>
@@ -704,6 +717,8 @@ const s = StyleSheet.create({
   methodTagText:  { fontFamily: FONTS.bodyMedium, fontSize: 10, color: COLORS.muted2 },
   recPill:        { backgroundColor: 'rgba(0,230,118,0.15)', borderRadius: RADIUS.full, paddingHorizontal: 8, paddingVertical: 3 },
   recPillText:    { fontFamily: FONTS.bodyMedium, fontSize: 10, color: COLORS.green },
+  soonPill:       { backgroundColor: 'rgba(255,179,0,0.15)', borderRadius: RADIUS.full, borderWidth: 1, borderColor: 'rgba(255,179,0,0.4)', paddingHorizontal: 8, paddingVertical: 3 },
+  soonPillText:   { fontFamily: FONTS.bodySemiBold, fontSize: 10, color: '#FFB300' },
   methodLine:     { fontFamily: FONTS.body, fontSize: 12.5, color: COLORS.muted2, lineHeight: 18 },
   savingsPill: {
     alignSelf: 'flex-start', backgroundColor: 'rgba(0,230,118,0.12)',

@@ -105,6 +105,16 @@ Deno.serve(async (req) => {
     const { data: profile } = await admin
       .from('profiles').select('full_name, phone').eq('id', user.id).single();
 
+    // Teléfono en E.164 (+52XXXXXXXXXX): BNPL manda OTP por SMS y algunos
+    // proveedores rechazan la orden con teléfono mal formado (los perfiles
+    // guardan 10 dígitos locales sin +52).
+    const rawPhone = String(profile?.phone ?? '').replace(/\D/g, '');
+    const e164Phone =
+      rawPhone.length === 10                            ? `+52${rawPhone}` :
+      rawPhone.length === 12 && rawPhone.startsWith('52') ? `+${rawPhone}` :
+      rawPhone.length === 13 && rawPhone.startsWith('521') ? `+52${rawPhone.slice(3)}` :
+      '+525555555555';
+
     const totalPrice = res.total_price as number;
     // Descuento SPEI: el cliente paga total − $100 por transferencia. El grupo
     // cobra completo (la RPC del webhook deriva group_earnings del precio base);
@@ -121,7 +131,7 @@ Deno.serve(async (req) => {
       customer_info: {
         name:  profile?.full_name ?? 'Cliente Daricefy',
         email: user.email ?? 'cliente@daricefy.com',
-        phone: profile?.phone ?? '+525555555555',
+        phone: e164Phone,
       },
       line_items: [
         { name: `Evento — ${groupName}`, unit_price: amountCentavos, quantity: 1 },
