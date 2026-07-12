@@ -61,6 +61,49 @@ export async function checkGroupLogistics(params: {
   }
 }
 
+/**
+ * ¿Cuántas horas extra caben después de un evento sin invadir las 2h de
+ * traslado hacia la siguiente tocada del grupo ese mismo día?
+ *
+ * - Devuelve Infinity si el grupo NO tiene otra tocada después ese día
+ *   (horas extra sin restricción).
+ * - Devuelve 0 si el evento queda "encajonado" (no cabe ni una hora extra).
+ * - Falla abierto (Infinity) si no se puede consultar — no bloquear por red.
+ */
+export async function maxExtraHoursAfter(params: {
+  groupId:        string;
+  eventDate:      string;          // 'YYYY-MM-DD'
+  eventTime?:     string | null;   // 'HH:MM' o 'HH:MM:SS'
+  durationHours?: number | null;   // horas contratadas (default 3)
+}): Promise<number> {
+  try {
+    if (!params.groupId || !params.eventDate || !params.eventTime) return Infinity;
+    const [h, m] = String(params.eventTime).split(':').map(Number);
+    if (!Number.isFinite(h)) return Infinity;
+    const start = h + (m || 0) / 60;
+    const end   = start + (Number(params.durationHours) || 3);
+
+    const { data, error } = await supabase.rpc('get_group_busy_days', {
+      p_group_id: params.groupId,
+      p_from:     params.eventDate,
+      p_to:       params.eventDate,
+    });
+    if (error || !Array.isArray(data)) return Infinity;
+
+    let cap = Infinity;
+    for (const row of data as any[]) {
+      if (!row?.event_time) continue;
+      const [bh, bm] = String(row.event_time).split(':').map(Number);
+      const bs = bh + (bm || 0) / 60;
+      if (bs <= start + 0.01) continue;          // el propio evento o uno anterior
+      cap = Math.min(cap, bs - 2 - end);         // 2h de traslado obligatorias
+    }
+    return cap === Infinity ? Infinity : Math.max(0, Math.floor(cap + 1e-9));
+  } catch {
+    return Infinity;
+  }
+}
+
 /** Detecta currency_code basado en el país del evento. */
 export function currencyForCountry(country: 'MX' | 'US' | string): 'MXN' | 'USD' {
   return country === 'US' ? 'USD' : 'MXN';

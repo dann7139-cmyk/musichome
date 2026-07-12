@@ -15,6 +15,7 @@ import i18n from '../../i18n';
 import QuoteFormShared, { GroupMember } from '../../components/quote/QuoteFormShared';
 import ClientProfileModal from '../../components/requests/ClientProfileModal';
 import { calcClientPrice } from '../../utils/calculations';
+import { maxExtraHoursAfter } from '../../utils/logistics';
 
 export default function GroupQuoteDetailScreen({ route, navigation }: any) {
   const { quote: initialQuote } = route.params as { quote: any };
@@ -47,6 +48,17 @@ export default function GroupQuoteDetailScreen({ route, navigation }: any) {
   const [isOwner,      setIsOwner]      = useState<boolean | null>(null);
   const [ownerName,    setOwnerName]    = useState<string>('');
   const [groupMembers, setGroupMembers] = useState<GroupMember[]>([]);
+  // El grupo tiene otra tocada DESPUÉS ese día → sin horas extra en este evento
+  const [boxedIn,      setBoxedIn]      = useState(false);
+
+  useEffect(() => {
+    maxExtraHoursAfter({
+      groupId:       quote.group_id,
+      eventDate:     quote.event_date,
+      eventTime:     quote.event_time,
+      durationHours: quote.duration_hours,
+    }).then(cap => setBoxedIn(cap <= 0));
+  }, []);
 
   useEffect(() => {
     supabase.auth.getUser().then(async ({ data }) => {
@@ -143,7 +155,8 @@ export default function GroupQuoteDetailScreen({ route, navigation }: any) {
     setMemberAmounts(Array.from({ length: numAdditional }, () => String(perMember)));
   };
 
-  const canSend = () => pph > 0 && !!overtime1h && !!overtime2h && !!overtime3h;
+  // Con otra tocada después, los paquetes de horas extra no aplican
+  const canSend = () => pph > 0 && (boxedIn || (!!overtime1h && !!overtime2h && !!overtime3h));
 
   const handleSendQuote = async () => {
     if (notesWarn || containsBlockedContact(groupNotes)) {
@@ -179,9 +192,9 @@ export default function GroupQuoteDetailScreen({ route, navigation }: any) {
                 commission_pct:      parseFloat(commPct),
                 total_amount:        contadoPublico,
                 group_earnings:      total,
-                overtime_1h_price:   ot1ClientPrice,
-                overtime_2h_price:   ot2ClientPrice,
-                overtime_3h_price:   ot3ClientPrice,
+                overtime_1h_price:   boxedIn ? null : ot1ClientPrice,
+                overtime_2h_price:   boxedIn ? null : ot2ClientPrice,
+                overtime_3h_price:   boxedIn ? null : ot3ClientPrice,
                 num_integrantes:     parseInt(numIntegrantes),
                 member_distribution: memberDistribution,
                 group_notes:         groupNotes.trim() || null,
@@ -349,6 +362,7 @@ export default function GroupQuoteDetailScreen({ route, navigation }: any) {
         numAdditional={numAdditional}
         // Overtime
         isOvertimeRequired={false}
+        hideOvertime={boxedIn}
         // Actions
         canSend={canSend()}
         loading={loading}

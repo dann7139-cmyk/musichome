@@ -399,6 +399,8 @@ export interface QuoteFormSharedProps {
   onStartTimePress?: () => void;
   hasSurge?: boolean;
   isOvertimeRequired?: boolean;
+  /** El grupo tiene OTRA tocada después ese día: no se ofrecen horas extra */
+  hideOvertime?: boolean;
   /** Perfil PÚBLICO del cliente (get_client_public_profile — sin teléfono/email) */
   clientProfile?: {
     full_name: string | null;
@@ -838,7 +840,17 @@ export default function QuoteFormShared(p: QuoteFormSharedProps) {
             </View>
           )}
 
-          {/* Paquetes de horas extra */}
+          {/* Paquetes de horas extra — ocultos si el grupo tiene otra tocada
+              después ese día (el traslado de 2h es obligatorio) */}
+          {p.hideOvertime ? (
+            <View style={s.section}>
+              <Text style={s.sectionTitle}>Paquetes de horas extra</Text>
+              <Text style={s.hint}>
+                🚐 Ese día tienes otra tocada después de este evento, así que no
+                se ofrecerán horas extra — el tiempo de traslado es obligatorio.
+              </Text>
+            </View>
+          ) : (
           <View style={s.section}>
             <Text style={s.sectionTitle}>
               {overtimeReqd ? 'Paquetes de horas extra *' : 'Paquetes de horas extra'}
@@ -888,6 +900,7 @@ export default function QuoteFormShared(p: QuoteFormSharedProps) {
               </View>
             )}
           </View>
+          )}
 
           {/* Banners de estado (mode='quote', read-only) */}
           {p.mode === 'quote' && isReadOnly && (

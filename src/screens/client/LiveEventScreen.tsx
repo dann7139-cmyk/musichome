@@ -17,6 +17,7 @@ import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import Particles from '../../components/ui/Particles';
 import { generateBreakSchedule } from '../../utils/calculations';
+import { maxExtraHoursAfter } from '../../utils/logistics';
 
 // ── Ring constants (igual que EventTimerScreen) ─────────────────────────────
 const RING_R  = 130;
@@ -155,6 +156,8 @@ export default function LiveEventScreen({ route, navigation }: any) {
   const [isRunning, setIsRunning] = useState(false);
   const [showExtraModal, setShowExtraModal] = useState(false);
   const [pricePerHourState, setPricePerHour] = useState<number | null>(null);
+  // Con OTRA tocada del grupo después ese día no hay horas extra posibles
+  const [extraHoursCap, setExtraHoursCap] = useState<number>(Infinity);
   // Horas extra confirmadas (extienden el timer)
   const [extraHoursConfirmed, setExtraHoursConfirmed] = useState(0);
   // Estado del flujo de doble confirmación
@@ -285,15 +288,25 @@ export default function LiveEventScreen({ route, navigation }: any) {
     };
   }, []);
 
-  // ── Auto-trigger modal a 15 min del fin ───────────────────────────────────
+  // ¿El grupo tiene otra tocada después ese día? → no ofrecer horas extra
   useEffect(() => {
-    if (!isRunning || warned15MinRef.current) return;
+    maxExtraHoursAfter({
+      groupId:       reservation.group_id,
+      eventDate:     reservation.event_date,
+      eventTime:     reservation.event_time,
+      durationHours: contractHours,
+    }).then(setExtraHoursCap);
+  }, []);
+
+  // ── Auto-trigger modal a 15 min del fin (solo si caben horas extra) ───────
+  useEffect(() => {
+    if (!isRunning || warned15MinRef.current || extraHoursCap <= 0) return;
     const remaining = Math.max(0, totalSecs - elapsed);
     if (remaining <= 900 && remaining > 0) {
       warned15MinRef.current = true;
       setShowExtraModal(true);
     }
-  }, [elapsed, isRunning, totalSecs]);
+  }, [elapsed, isRunning, totalSecs, extraHoursCap]);
 
   // ── Realtime: escuchar horas extra aceptadas por el grupo ─────────────────
   useEffect(() => {

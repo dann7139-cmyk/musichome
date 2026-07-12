@@ -878,11 +878,24 @@ export default function QuoteFormScreen({ route, navigation }: any) {
             );
           })()}
 
-          <View style={s.extraHoursHint}>
-            <Text style={s.extraHoursHintText}>
-              💡 Elige bien las horas desde ahora. Si el evento se extiende, cada hora extra se cobra por separado y puede salir más caro que contratarlas de antemano.
-            </Text>
-          </View>
+          {(() => {
+            // Si después de este evento el grupo tiene otra tocada ese día, NO
+            // habrá horas extra (el traslado es obligatorio) — avisar en vez de
+            // sugerir que "puede extender".
+            const ranges = rangesFor(eventDate);
+            const selH0 = eventTime ? parseInt(eventTime.split(':')[0], 10) : null;
+            const selH = selH0 === 0 ? 24 : selH0;
+            const boxedIn = selH != null && ranges.some(r => r.bs > selH + 0.01);
+            return (
+              <View style={s.extraHoursHint}>
+                <Text style={s.extraHoursHintText}>
+                  {boxedIn
+                    ? 'ℹ️ Después de tu evento el grupo tiene otra tocada, así que NO habrá horas extra ese día. Contrata desde ahora todas las horas que necesitas.'
+                    : '💡 Elige bien las horas desde ahora. Si el evento se extiende, cada hora extra se cobra por separado y puede salir más caro que contratarlas de antemano.'}
+                </Text>
+              </View>
+            );
+          })()}
 
           {/* ─── 6. TIPO DE DESCANSO — oculto: el grupo elige en EventTimerScreen */}
           {false && (<>

@@ -31,6 +31,7 @@ import Badge from '../../components/ui/Badge';
 import RatingModal, { type RatingSubject } from '../../components/ui/RatingModal';
 import { generateBreakSchedule, isPaid, parseEventDateMX } from '../../utils/calculations';
 import { haversineKm, formatDist } from '../../utils/mapUtils';
+import { maxExtraHoursAfter } from '../../utils/logistics';
 import { ARRIVAL_RADIUS_M } from '../../utils/constants';
 import { openSupport } from '../../utils/support';
 
@@ -423,6 +424,18 @@ export default function EventTimerScreen({ route, navigation }: any) {
       { hours: 3, price: (q?.overtime_3h_price ?? 0) as number },
     ].filter(o => o.price > 0);
   }, [liveQuote, reservation.quote]);
+
+  // ⏳ Tope de horas extra: si el grupo tiene OTRA tocada después ese día,
+  // no se pueden ofrecer horas extra (el traslado de 2h es obligatorio).
+  const [extraHoursCap, setExtraHoursCap] = useState<number>(Infinity);
+  useEffect(() => {
+    maxExtraHoursAfter({
+      groupId:       reservation.group_id,
+      eventDate:     reservation.event_date,
+      eventTime:     reservation.event_time,
+      durationHours: contractHours,
+    }).then(setExtraHoursCap);
+  }, [contractHours]);
 
   const { initPaymentSheet, presentPaymentSheet } = useStripe();
 
@@ -2151,15 +2164,16 @@ export default function EventTimerScreen({ route, navigation }: any) {
             />
           </View>
 
-          {/* ── OFRECER HORAS EXTRA (grupo dueño, solo durante evento activo) ── */}
-          {!readOnly && isRunning && !isOnBreak && (
+          {/* ── OFRECER HORAS EXTRA (grupo dueño, solo durante evento activo).
+                 Oculto si hay otra tocada después ese día — no hay tiempo. ── */}
+          {!readOnly && isRunning && !isOnBreak && extraHoursCap > 0 && (
             <Pressable
               style={({ pressed }) => [
                 st.iconBtn, st.iconBtnOutline,
                 { alignSelf: 'center', width: '80%', marginTop: 12 },
                 pressed && { opacity: 0.8 },
               ]}
-              onPress={() => navigation.navigate('ExtraHours', { reservation })}
+              onPress={() => navigation.navigate('ExtraHours', { reservation, maxExtra: extraHoursCap })}
             >
               <Text style={[st.iconBtnLabel, { color: COLORS.green }]}>🎵 Ofrecer horas extra</Text>
             </Pressable>

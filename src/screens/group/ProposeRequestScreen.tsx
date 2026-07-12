@@ -17,7 +17,7 @@ import i18n from '../../i18n';
 import QuoteFormShared, { GroupMember } from '../../components/quote/QuoteFormShared';
 import ClientProfileModal from '../../components/requests/ClientProfileModal';
 import { markExpressDispatchQuoted } from '../../context/ExpressContext';
-import { checkGroupLogistics } from '../../utils/logistics';
+import { checkGroupLogistics, maxExtraHoursAfter } from '../../utils/logistics';
 
 export default function ProposeRequestScreen({ route, navigation }: any) {
   const { request, dispatchId } = route.params as { request: any; dispatchId?: string };
@@ -30,6 +30,8 @@ export default function ProposeRequestScreen({ route, navigation }: any) {
   const [overtime3h,   setOvertime3h]   = useState('');
   const [groupNotes,   setGroupNotes]   = useState('');
   const [myGroupId,    setMyGroupId]    = useState<string | null>(null);
+  // Otra tocada después ese día → sin horas extra en esta propuesta
+  const [boxedIn,      setBoxedIn]      = useState(false);
   const [notesWarn,    setNotesWarn]    = useState(false);
   const [arrivalTime,     setArrivalTime]     = useState('');
   const [startTime,       setStartTime]       = useState('');
@@ -62,6 +64,16 @@ export default function ProposeRequestScreen({ route, navigation }: any) {
         .single();
       if (!grp) return;
       setMyGroupId(grp.id);
+
+      // Con otra tocada DESPUÉS ese día no se ofrecen horas extra
+      if (request?.event_date) {
+        maxExtraHoursAfter({
+          groupId:       grp.id,
+          eventDate:     request.event_date,
+          eventTime:     request.event_time,
+          durationHours: request.hours ?? 3,
+        }).then(cap => setBoxedIn(cap <= 0));
+      }
 
       const [{ data: ownerProfile }, { data: memberships }] = await Promise.all([
         supabase.from('profiles').select('id, full_name, avatar_url').eq('id', grp.owner_id).single(),
@@ -160,7 +172,7 @@ export default function ProposeRequestScreen({ route, navigation }: any) {
 
   const canSend = () =>
     pph > 0 && !!arrivalTime && !notesWarn &&
-    !!overtime1h && !!overtime2h && !!overtime3h;
+    (boxedIn || (!!overtime1h && !!overtime2h && !!overtime3h));
 
   const handleSend = async () => {
     if (!canSend()) {
@@ -234,9 +246,9 @@ export default function ProposeRequestScreen({ route, navigation }: any) {
               p_request_id:     request.id,
               p_price_per_hour: pph,
               p_travel_cost:    travel,
-              p_overtime_1h:    parseFloat(overtime1h) || null,
-              p_overtime_2h:    parseFloat(overtime2h) || null,
-              p_overtime_3h:    parseFloat(overtime3h) || null,
+              p_overtime_1h:    boxedIn ? null : (parseFloat(overtime1h) || null),
+              p_overtime_2h:    boxedIn ? null : (parseFloat(overtime2h) || null),
+              p_overtime_3h:    boxedIn ? null : (parseFloat(overtime3h) || null),
               p_notes:          groupNotes.trim() || null,
               p_member_dist:    memberDistribution.length > 0 ? memberDistribution : null,
               p_arrival_time:   arrivalTime,
@@ -348,7 +360,8 @@ export default function ProposeRequestScreen({ route, navigation }: any) {
         startTime={startTime}
         onStartTimePress={() => setShowStartPicker(true)}
         hasSurge={hasSurge}
-        isOvertimeRequired={true}
+        isOvertimeRequired={!boxedIn}
+        hideOvertime={boxedIn}
         // Actions
         canSend={canSend()}
         loading={loading}

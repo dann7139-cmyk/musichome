@@ -25,15 +25,19 @@ import { calcGroupEarnings, formatCurrency } from '../../utils/calculations';
 import Particles from '../../components/ui/Particles';
 
 export default function ExtraHoursScreen({ route, navigation }: any) {
-  const { reservation, initialHours } = route.params;
+  const { reservation, initialHours, maxExtra } = route.params;
   const q = reservation.quote;
+  // Tope por logística: con otra tocada después ese día no caben todas
+  // (lo calcula EventTimerScreen con maxExtraHoursAfter; sin param = sin tope)
+  const extraCap: number = typeof maxExtra === 'number' ? maxExtra : Infinity;
 
-  // Precios pactados en cotización (si los hay)
-  const quoteOpts: { hours: number; total: number }[] = [
+  // Precios pactados en cotización (si los hay), limitados al tope logístico
+  const quoteOpts: { hours: number; total: number }[] = ([
     q?.overtime_1h_price != null ? { hours: 1, total: q.overtime_1h_price } : null,
     q?.overtime_2h_price != null ? { hours: 2, total: q.overtime_2h_price } : null,
     q?.overtime_3h_price != null ? { hours: 3, total: q.overtime_3h_price } : null,
-  ].filter(Boolean) as { hours: number; total: number }[];
+  ].filter(Boolean) as { hours: number; total: number }[])
+    .filter(o => o.hours <= extraCap);
 
   const hasQuotePrices = quoteOpts.length > 0;
 
@@ -106,6 +110,10 @@ export default function ExtraHoursScreen({ route, navigation }: any) {
 
   // ── Proponer hora extra (cliente paga desde saldo) ──────────────────────────
   const handleRequest = async () => {
+    if (hoursToAdd > extraCap) {
+      Alert.alert('🚐 No hay tiempo', 'Tienes otra tocada después de este evento — el traslado es obligatorio y esas horas extra ya no caben.');
+      return;
+    }
     setLoading(true);
     const { data, error } = await supabase
       .from('extra_hours')
@@ -136,6 +144,10 @@ export default function ExtraHoursScreen({ route, navigation }: any) {
 
   // ── Registrar pago en efectivo (saldo insuficiente) ─────────────────────────
   const handleCashRequest = async () => {
+    if (hoursToAdd > extraCap) {
+      Alert.alert('🚐 No hay tiempo', 'Tienes otra tocada después de este evento — el traslado es obligatorio y esas horas extra ya no caben.');
+      return;
+    }
     Alert.alert(
       '💵 Registrar hora extra en efectivo',
       `¿Confirmas ${hoursToAdd}h extra en efectivo?\n\nEl cliente te pagará directamente: ${formatCurrency(groupNet)}`,
@@ -188,7 +200,8 @@ export default function ExtraHoursScreen({ route, navigation }: any) {
     }
   };
 
-  const hourOptions = hasQuotePrices ? quoteOpts.map(o => o.hours) : [1, 2];
+  const hourOptions = (hasQuotePrices ? quoteOpts.map(o => o.hours) : [1, 2])
+    .filter(h => h <= extraCap);
 
   // ── RENDER: Confirmación de efectivo recibido ───────────────────────────────
   if (cashConfirmed) {
