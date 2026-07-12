@@ -269,9 +269,9 @@ export default function QuotePaymentScreen({ route, navigation }: any) {
             return;
           }
           Alert.alert(
-            'Estamos confirmando tu pago…',
-            'Tu pago se está procesando. En un momento verás tu evento confirmado en "Mis Eventos".',
-            [{ text: 'Ver mis eventos', onPress: () => navigation.navigate('ClientReservations') }],
+            'Pago sin completar',
+            'Si terminaste el pago, se confirmará en un momento y verás tu evento en "Mis Eventos". Si no lo completaste, puedes reintentarlo desde el aviso "⚡ Pago pendiente" en tu inicio.',
+            [{ text: 'Entendido', onPress: () => navigation.navigate('ClientReservations') }],
           );
         } else {
           throw new Error('No se pudo iniciar el pago con Conekta. Intenta de nuevo.');
