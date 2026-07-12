@@ -479,7 +479,7 @@ export default function GroupEventsScreen({ navigation }: any) {
     })();
     supabase.auth.getUser().then(({ data }) => {
       if (!data.user) return;
-      supabase.from('groups').select('id, profile_image').eq('owner_id', data.user.id).single()
+      supabase.from('groups').select('id, profile_image').eq('owner_id', data.user.id).limit(1).maybeSingle()
         .then(({ data: g }) => {
           if (g?.profile_image) setGroupPhotoUrl(g.profile_image);
           if (g?.id) {
@@ -731,18 +731,30 @@ export default function GroupEventsScreen({ navigation }: any) {
   [reservations]);
 
   // Tocar un día: con eventos → abrirlos; sin eventos futuros → tachar/destachar
-  const onCalDayPress = useCallback((ds: string) => {
+  const onCalDayPress = useCallback(async (ds: string) => {
     if (eventsOfDay(ds).length > 0) { setDayModal(ds); return; }
     const today = localDate(new Date());
-    if (ds < today || !myGroupId) return;
+    if (ds < today) return;
+    // Respaldo por si el grupo aún no cargó (dueños con varios grupos, red lenta)
+    let gid = myGroupId;
+    if (!gid) {
+      const { data: u } = await supabase.auth.getUser();
+      if (!u.user) return;
+      const { data: g } = await supabase.from('groups').select('id')
+        .eq('owner_id', u.user.id).limit(1).maybeSingle();
+      if (!g?.id) { Alert.alert('Error', 'No pudimos identificar tu grupo. Intenta de nuevo.'); return; }
+      gid = g.id;
+      setMyGroupId(g.id);
+    }
     if (blockedDates.has(ds)) {
       Alert.alert('Día tachado', '¿Quitar el tachado y volver a estar disponible este día?', [
         { text: 'Cancelar', style: 'cancel' },
         {
           text: 'Quitar tachado',
           onPress: async () => {
-            await supabase.from('group_unavailability').delete()
-              .eq('group_id', myGroupId).eq('date', ds);
+            const { error } = await supabase.from('group_unavailability').delete()
+              .eq('group_id', gid).eq('date', ds);
+            if (error) { Alert.alert('Error', error.message); return; }
             setBlockedDates(prev => { const n = new Set(prev); n.delete(ds); return n; });
           },
         },
@@ -753,7 +765,13 @@ export default function GroupEventsScreen({ navigation }: any) {
         {
           text: 'Tachar', style: 'destructive',
           onPress: async () => {
-            await supabase.from('group_unavailability').insert({ group_id: myGroupId, date: ds });
+            const { error } = await supabase.from('group_unavailability')
+              .insert({ group_id: gid, date: ds });
+            // 23505 = ya estaba tachada (p.ej. desde la pantalla vieja) — solo sincronizar
+            if (error && (error as any)?.code !== '23505') {
+              Alert.alert('Error', error.message);
+              return;
+            }
             setBlockedDates(prev => new Set(prev).add(ds));
           },
         },
@@ -895,6 +913,7 @@ export default function GroupEventsScreen({ navigation }: any) {
                                 <Text style={[
                                   st.mcDayTx,
                                   state === 'disabled' && { color: COLORS.muted },
+                                  !hasFuture && (info?.past ?? 0) > 0 && { color: COLORS.muted2 },
                                   hasFuture && { color: COLORS.green, fontFamily: FONTS.bodySemiBold },
                                   blocked && st.mcDayTxBlocked,
                                 ]}>{date?.day}</Text>
@@ -903,12 +922,23 @@ export default function GroupEventsScreen({ navigation }: any) {
                           }}
                         />
                   <View style={st.mcLegend}>
-                    <Text style={st.mcLegendTx}>🟢 próximos</Text>
-                    <Text style={st.mcLegendTx}>⚪ pasados</Text>
-                    <Text style={st.mcLegendTx}>🚫 tachado (tócalo para cambiar)</Text>
+                    <View style={st.mcLegendItem}>
+                      <View style={[st.mcLegendDot, { backgroundColor: COLORS.green }]} />
+                      <Text style={st.mcLegendTx}>evento próximo</Text>
+                    </View>
+                    <View style={st.mcLegendItem}>
+                      <View style={[st.mcLegendDot, { backgroundColor: COLORS.muted }]} />
+                      <Text style={st.mcLegendTx}>evento pasado</Text>
+                    </View>
+                    <View style={st.mcLegendItem}>
+                      <Text style={[st.mcLegendTx, { color: '#EF5350', textDecorationLine: 'line-through' }]}>15</Text>
+                      <Text style={st.mcLegendTx}> tachado (no disponible)</Text>
+                    </View>
                   </View>
                 </View>
-                <Text style={st.calHint}>Toca una fecha verde para ver sus eventos</Text>
+                <Text style={st.calHint}>
+                  Toca una fecha con número para ver sus eventos · toca un día libre para tacharlo
+                </Text>
               </>
           )}
 
@@ -1195,8 +1225,10 @@ const st = StyleSheet.create({
     backgroundColor: COLORS.green, alignItems: 'center', justifyContent: 'center',
   },
   mcBadgeTx: { fontFamily: FONTS.bodySemiBold, fontSize: 9, color: '#000' },
-  mcLegend:   { flexDirection: 'row', flexWrap: 'wrap', gap: 12, paddingHorizontal: 14, paddingTop: 8 },
-  mcLegendTx: { fontFamily: FONTS.body, fontSize: 10.5, color: COLORS.muted2 },
+  mcLegend:     { flexDirection: 'row', flexWrap: 'wrap', gap: 12, paddingHorizontal: 14, paddingTop: 8, alignItems: 'center' },
+  mcLegendItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  mcLegendDot:  { width: 8, height: 8, borderRadius: 4 },
+  mcLegendTx:   { fontFamily: FONTS.body, fontSize: 10.5, color: COLORS.muted2 },
 
   // Modal de eventos del día
   dayModalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)' },

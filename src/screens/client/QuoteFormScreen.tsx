@@ -106,7 +106,7 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 function ChipRow<T extends string | number>({
   options, selected, onSelect,
 }: {
-  options: { key: T; label: string }[];
+  options: { key: T; label: string; disabled?: boolean; warn?: boolean }[];
   selected: T | null;
   onSelect: (v: T) => void;
 }) {
@@ -115,10 +115,21 @@ function ChipRow<T extends string | number>({
       {options.map(o => (
         <Pressable
           key={String(o.key)}
-          style={[s.chip, selected === o.key && s.chipActive]}
+          disabled={o.disabled}
+          style={[
+            s.chip,
+            o.warn && selected !== o.key && s.chipWarn,
+            o.disabled && s.chipDisabled,
+            selected === o.key && s.chipActive,
+          ]}
           onPress={() => onSelect(o.key)}
         >
-          <Text style={[s.chipText, selected === o.key && s.chipTextActive]}>
+          <Text style={[
+            s.chipText,
+            o.warn && selected !== o.key && s.chipTextWarn,
+            o.disabled && s.chipTextDisabled,
+            selected === o.key && s.chipTextActive,
+          ]}>
             {o.label}
           </Text>
         </Pressable>
@@ -325,6 +336,21 @@ export default function QuoteFormScreen({ route, navigation }: any) {
     proximityLevel !== 'past' &&
     (proximityLevel !== 'block' || bypassProximityBlock);
 
+  // ── Horarios del día: rangos ocupados y encaje con colchón ───────────────
+  const rangesFor = (dateStr: string | null | undefined) =>
+    (dateStr ? (busyByDate[dateStr] ?? []) : [])
+      .filter(b => b.time)
+      .map(b => {
+        const [hh, mm] = String(b.time).split(':').map(Number);
+        const bs = hh + (mm || 0) / 60;
+        return { bs, be: bs + Number(b.hours ?? 3) };
+      });
+
+  // ¿Cabe un evento de durH horas iniciando en startH, dejando gapH horas de
+  // margen a cada lado de las tocadas existentes del grupo?
+  const fitsWithGap = (startH: number, durH: number, gapH: number, ranges: { bs: number; be: number }[]) =>
+    ranges.every(r => startH + durH + gapH <= r.bs || startH >= r.be + gapH);
+
   // ── Enviar ───────────────────────────────────────────────────────────────
   const handleSubmit = async () => {
     if (!canSubmit()) {
@@ -374,28 +400,7 @@ export default function QuoteFormScreen({ route, navigation }: any) {
       } : {}),
     };
 
-    setLoading(true);
-
-    // Validación logística AUTORITATIVA (check-travel-conflict): traslape,
-    // colchón de 2h entre tocadas y tiempo de traslado real si hay coords.
-    const logistics = await checkGroupLogistics({
-      groupId:       group.id,
-      eventDate,
-      eventTime,
-      durationHours: duration ?? 3,
-      lat:           latitude ?? undefined,
-      lng:           longitude ?? undefined,
-    });
-    if (logistics.conflict) {
-      setLoading(false);
-      Alert.alert(
-        '⏰ Ese horario no le da al grupo',
-        logistics.messageClient ??
-          'El grupo tiene otra tocada muy cerca de ese horario y no alcanzaría a llegar. Revisa la rejilla de horarios disponibles y elige otra hora.',
-      );
-      return;
-    }
-
+    const sendQuote = async () => {
     const { data: insertData, error } = await supabase.from('quotes').insert(insertPayload).select('id');
     setLoading(false);
 
@@ -469,6 +474,52 @@ export default function QuoteFormScreen({ route, navigation }: any) {
         [{ text: 'Entendido', onPress: () => navigation.goBack() }],
       );
     }
+    };
+
+    setLoading(true);
+
+    // Validación logística AUTORITATIVA (check-travel-conflict): traslape,
+    // colchón de 2h entre tocadas y tiempo de traslado real si hay coords.
+    const logistics = await checkGroupLogistics({
+      groupId:       group.id,
+      eventDate,
+      eventTime,
+      durationHours: duration ?? 3,
+      lat:           latitude ?? undefined,
+      lng:           longitude ?? undefined,
+    });
+
+    // Hora "muy cercana": solo falta colchón pero queda ≥1h de margen — se
+    // permite enviar y el grupo decide si alcanza a llegar.
+    const tightButPossible =
+      logistics.conflict &&
+      logistics.reason === 'time_buffer' &&
+      (logistics.gapMinutes ?? 0) >= 60;
+
+    if (logistics.conflict && !tightButPossible) {
+      setLoading(false);
+      Alert.alert(
+        '⏰ Ese horario no le da al grupo',
+        logistics.messageClient ??
+          'El grupo tiene otra tocada muy cerca de ese horario y no alcanzaría a llegar. Revisa la rejilla de horarios disponibles y elige otra hora.',
+      );
+      return;
+    }
+
+    if (tightButPossible) {
+      setLoading(false);
+      Alert.alert(
+        '🕐 Hora muy cercana a otra tocada',
+        'Ese día el grupo tiene otra tocada y el tiempo para trasladarse queda muy justo. Puedes enviar tu solicitud de todos modos: el grupo verá los horarios y decidirá si alcanza a llegar.',
+        [
+          { text: 'Cambiar hora', style: 'cancel' },
+          { text: 'Enviar así', onPress: () => { setLoading(true); void sendQuote(); } },
+        ],
+      );
+      return;
+    }
+
+    await sendQuote();
   };
 
   // ── Render ───────────────────────────────────────────────────────────────
@@ -645,41 +696,51 @@ export default function QuoteFormScreen({ route, navigation }: any) {
               ocupadas (tocada + 2h de colchón para desconectar y trasladarse) */}
           {eventDate && (busyByDate[eventDate]?.length ?? 0) > 0 && (() => {
             const dur = duration ?? 3;
-            const BUFFER = 2;
-            const ranges = (busyByDate[eventDate] ?? [])
-              .filter(b => b.time)
-              .map(b => {
-                const [hh, mm] = String(b.time).split(':').map(Number);
-                const bs = hh + (mm || 0) / 60;
-                return { bs, be: bs + Number(b.hours ?? 3) };
-              });
+            const ranges = rangesFor(eventDate);
             const fmtH = (h: number) => { const hh = h % 24; return `${hh % 12 || 12}${hh >= 12 ? 'pm' : 'am'}`; };
-            const slots = [];
+            const slots: { h: number; status: 'free' | 'tight' | 'buffer' | 'busy' }[] = [];
             // h=24 = 12am (medianoche de esa noche) — tocadas nocturnas
             for (let h = 9; h <= 24; h++) {
               const insideBusy = ranges.some(r => h >= r.bs && h < r.be);
-              const conflict   = ranges.some(r => !(h + dur + BUFFER <= r.bs || h >= r.be + BUFFER));
-              slots.push({ h, status: insideBusy ? 'busy' : conflict ? 'buffer' : 'free' });
+              const status = insideBusy ? 'busy'
+                : fitsWithGap(h, dur, 2, ranges) ? 'free'
+                : fitsWithGap(h, dur, 1, ranges) ? 'tight'   // margen de 1h — el grupo decide
+                : 'buffer';
+              slots.push({ h, status });
             }
-            const firstFree = slots.filter(sl => sl.status === 'free').slice(0, 3).map(sl => sl.h);
+            // Sugerencias: primeras horas libres + la primera libre DESPUÉS de
+            // la última tocada (por si el cliente quiere más noche)
+            const lastEnd = Math.max(...ranges.map(r => r.be), 0);
+            const nightH = slots.find(sl => sl.status === 'free' && sl.h >= lastEnd)?.h;
+            const firstFree = [...new Set([
+              ...slots.filter(sl => sl.status === 'free').slice(0, 2).map(sl => sl.h),
+              ...(nightH != null ? [nightH] : []),
+            ])].sort((a, b) => a - b);
             const selH = eventTime ? parseInt(eventTime.split(':')[0], 10) : null;
+            const selSlot = selH == null ? undefined
+              : slots.find(sl => sl.h === selH || (sl.h === 24 && selH === 0));
             return (
               <View style={s.hourGridCard}>
                 <Text style={s.hourGridTitle}>Horarios de tu grupo ese día ({dur}h de evento)</Text>
                 <View style={s.hourGrid}>
                   {slots.map(sl => {
-                    const disabled = sl.status !== 'free';
+                    const disabled = sl.status === 'busy' || sl.status === 'buffer';
                     const suggested = firstFree.includes(sl.h);
                     const selected = selH === sl.h || (sl.h === 24 && selH === 0);
                     return (
                       <Pressable
                         key={sl.h}
                         disabled={disabled}
-                        onPress={() => setEventTime(`${String(sl.h % 24).padStart(2, '0')}:00`)}
+                        onPress={() => {
+                          setEventTime(`${String(sl.h % 24).padStart(2, '0')}:00`);
+                          // Si la duración elegida ya no cabe con esta hora, se re-elige
+                          if (duration && !fitsWithGap(sl.h, duration, 1, ranges)) setDuration(null);
+                        }}
                         style={[
                           s.hourCell,
                           sl.status === 'busy'   && s.hourCellBusy,
                           sl.status === 'buffer' && s.hourCellBuffer,
+                          sl.status === 'tight'  && s.hourCellTight,
                           suggested && !selected && s.hourCellSuggested,
                           selected && s.hourCellSelected,
                         ]}
@@ -687,6 +748,7 @@ export default function QuoteFormScreen({ route, navigation }: any) {
                         <Text style={[
                           s.hourCellTx,
                           disabled && s.hourCellTxDisabled,
+                          sl.status === 'tight' && !selected && s.hourCellTxTight,
                           selected && s.hourCellTxSelected,
                         ]}>{fmtH(sl.h)}</Text>
                       </Pressable>
@@ -695,10 +757,15 @@ export default function QuoteFormScreen({ route, navigation }: any) {
                 </View>
                 <View style={s.hourLegend}>
                   <Text style={s.hourLegendItem}>🟩 disponible</Text>
+                  <Text style={s.hourLegendItem}>🟨 muy cercana</Text>
                   <Text style={s.hourLegendItem}>🟥 tocando</Text>
-                  <Text style={s.hourLegendItem}>⬜ traslado (2h)</Text>
+                  <Text style={s.hourLegendItem}>⬜ traslado</Text>
                 </View>
-                {firstFree.length > 0 && !eventTime ? (
+                {selSlot?.status === 'tight' ? (
+                  <Text style={s.hourTightTx}>
+                    🕐 Hora muy cercana a otra tocada — el grupo verá si alcanza a llegar y te lo confirma al cotizar.
+                  </Text>
+                ) : firstFree.length > 0 && !eventTime ? (
                   <Text style={s.hourSuggestTx}>
                     💡 Te sugerimos las {firstFree.map(fmtH).join(', ')} — le dan tiempo al grupo entre tocadas
                   </Text>
@@ -775,11 +842,38 @@ export default function QuoteFormScreen({ route, navigation }: any) {
 
           {/* ─── 5. DURACIÓN ─────────────────────────────────────── */}
           <SectionTitle>5. Duración *  <Text style={s.minNote}>(mínimo 3 horas)</Text></SectionTitle>
-          <ChipRow
-            options={DURATION_OPTIONS.map(d => ({ key: d.value, label: d.label }))}
-            selected={duration}
-            onSelect={v => setDuration(Number(v))}
-          />
+          {(() => {
+            // Día con otra tocada: solo se pueden contratar las horas que le
+            // dan tiempo al grupo (ej. tocada 8pm → a las 3pm caben solo 3h,
+            // a la 1pm caben 5h). Margen de 1h = ámbar, el grupo decide.
+            const ranges = rangesFor(eventDate);
+            const selH0 = eventTime ? parseInt(eventTime.split(':')[0], 10) : null;
+            const selH = selH0 === 0 ? 24 : selH0;   // 12am = medianoche de esa noche
+            const constrained = ranges.length > 0 && selH != null;
+            const anyBlocked = constrained &&
+              DURATION_OPTIONS.some(d => !fitsWithGap(selH!, d.value, 1, ranges));
+            return (
+              <>
+                <ChipRow
+                  options={DURATION_OPTIONS.map(d => ({
+                    key: d.value, label: d.label,
+                    ...(constrained ? {
+                      disabled: !fitsWithGap(selH!, d.value, 1, ranges),
+                      warn:     fitsWithGap(selH!, d.value, 1, ranges) &&
+                                !fitsWithGap(selH!, d.value, 2, ranges),
+                    } : {}),
+                  }))}
+                  selected={duration}
+                  onSelect={v => setDuration(Number(v))}
+                />
+                {anyBlocked && (
+                  <Text style={s.durLockTx}>
+                    🔒 Ese día tu grupo tiene otra tocada — solo puedes contratar las horas que le dan tiempo de llegar. Elige más temprano para contratar más horas.
+                  </Text>
+                )}
+              </>
+            );
+          })()}
 
           <View style={s.extraHoursHint}>
             <Text style={s.extraHoursHintText}>
@@ -1233,6 +1327,7 @@ const s = StyleSheet.create({
   },
   hourCellBusy:      { backgroundColor: 'rgba(239,83,80,0.15)', borderColor: 'rgba(239,83,80,0.45)' },
   hourCellBuffer:    { backgroundColor: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.12)' },
+  hourCellTight:     { backgroundColor: 'rgba(255,193,7,0.10)', borderColor: 'rgba(255,193,7,0.55)' },
   hourCellSuggested: { borderColor: COLORS.green, borderWidth: 1.5 },
   hourCellSelected:  { backgroundColor: COLORS.green, borderColor: COLORS.green },
   hourCellTx:         { fontFamily: FONTS.bodySemiBold, fontSize: 12, color: COLORS.green },
@@ -1241,6 +1336,9 @@ const s = StyleSheet.create({
   hourLegend: { flexDirection: 'row', gap: 12, marginTop: 9, flexWrap: 'wrap' },
   hourLegendItem: { fontFamily: FONTS.body, fontSize: 10.5, color: COLORS.muted2 },
   hourSuggestTx: { fontFamily: FONTS.bodyMedium, fontSize: 11.5, color: COLORS.green, marginTop: 7, lineHeight: 15 },
+  hourCellTxTight: { color: '#FFC107' },
+  hourTightTx:   { fontFamily: FONTS.bodyMedium, fontSize: 11.5, color: '#FFC107', marginTop: 7, lineHeight: 15 },
+  durLockTx:     { fontFamily: FONTS.body, fontSize: 11.5, color: COLORS.muted2, marginTop: 8, lineHeight: 15 },
   dateBtnText: { fontFamily: FONTS.bodyMedium, fontSize: 14, color: COLORS.text },
 
   // ── Chips ─────────────────────────────────────────────────────────────────
@@ -1256,9 +1354,13 @@ const s = StyleSheet.create({
     borderRadius: RADIUS.lg,
     backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border,
   },
-  chipActive:     { backgroundColor: 'rgba(0,230,118,0.12)', borderColor: COLORS.green },
-  chipText:       { fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.muted2 },
-  chipTextActive: { color: COLORS.green },
+  chipActive:       { backgroundColor: 'rgba(0,230,118,0.12)', borderColor: COLORS.green },
+  chipWarn:         { borderColor: 'rgba(255,193,7,0.55)', backgroundColor: 'rgba(255,193,7,0.08)' },
+  chipDisabled:     { opacity: 0.3 },
+  chipText:         { fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.muted2 },
+  chipTextWarn:     { color: '#FFC107' },
+  chipTextDisabled: { textDecorationLine: 'line-through' },
+  chipTextActive:   { color: COLORS.green },
 
   // ── Progreso ──────────────────────────────────────────────────────────────
   progressWrap:  { paddingHorizontal: SPACING.xl, paddingTop: 10, paddingBottom: 6 },

@@ -187,13 +187,32 @@ export default function ProposeRequestScreen({ route, navigation }: any) {
         lat:           request.latitude ?? request.event_lat ?? undefined,
         lng:           request.longitude ?? request.event_lng ?? undefined,
       });
-      if (logistics.conflict) {
+      // Margen justo (≥1h, solo colchón): el grupo decide — "nos queda cerca,
+      // sí alcanzamos a llegar". Traslape o traslado imposible sí bloquean.
+      const tightButPossible =
+        logistics.conflict &&
+        logistics.reason === 'time_buffer' &&
+        (logistics.gapMinutes ?? 0) >= 60;
+      if (logistics.conflict && !tightButPossible) {
         Alert.alert(
           '⏰ Choca con otra tocada tuya',
           logistics.messageGroup ??
             'Ya tienes un evento muy cerca de ese horario y no alcanzarías a llegar. Revisa tu agenda antes de proponerte.',
         );
         return;
+      }
+      if (tightButPossible) {
+        const goAnyway = await new Promise<boolean>(resolve => {
+          Alert.alert(
+            '🕐 Te queda muy pegado a otra tocada',
+            `Entre este evento y tu otra tocada te queda ~${Math.round((logistics.gapMinutes ?? 60) / 60 * 10) / 10}h para desconectar y trasladarte. ¿Seguros que alcanzan a llegar?`,
+            [
+              { text: 'Mejor no', style: 'cancel', onPress: () => resolve(false) },
+              { text: 'Sí alcanzamos, proponer', onPress: () => resolve(true) },
+            ],
+          );
+        });
+        if (!goAnyway) return;
       }
     }
 
