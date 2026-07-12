@@ -374,7 +374,7 @@ export default function QuotePaymentScreen({ route, navigation }: any) {
       <SafeAreaView style={s.successRoot}>
         <Text style={{ fontSize: 44 }}>{isSpei ? '🏦' : '🏪'}</Text>
         <View style={{ alignItems: 'center', gap: 8 }}>
-          <Text style={s.successTitle}>{isSpei ? 'Transfiere para confirmar' : 'Paga en tienda para confirmar'}</Text>
+          <Text style={s.refBigTitle}>{isSpei ? 'Transfiere para confirmar' : 'Paga en tienda para confirmar'}</Text>
           <Text style={s.successSub}>
             {isSpei
               ? 'Haz una transferencia SPEI desde tu banca con estos datos:'
@@ -404,10 +404,10 @@ export default function QuotePaymentScreen({ route, navigation }: any) {
         </Text>
 
         <Pressable
-          style={s.successBtn}
+          style={s.whiteBtn}
           onPress={() => navigation.navigate('ClientReservations')}
         >
-          <Text style={s.successBtnText}>Ver mis eventos</Text>
+          <Text style={s.whiteBtnText}>Ver mis eventos</Text>
         </Pressable>
       </SafeAreaView>
     );
@@ -828,10 +828,26 @@ const s = StyleSheet.create({
   refAmount: { fontFamily: FONTS.bodySemiBold, fontSize: 15, color: COLORS.green, marginTop: 2 },
   refCopyBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
-    backgroundColor: COLORS.green, borderRadius: RADIUS.full,
+    backgroundColor: '#FFFFFF', borderRadius: RADIUS.full,
     paddingHorizontal: 18, paddingVertical: 10, marginTop: 10,
+    shadowColor: '#00E676', shadowOpacity: 0.3, shadowRadius: 8, shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
   },
   refCopyText: { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: '#000' },
+
+  // Título grande y verde de "Transfiere para confirmar"
+  refBigTitle: {
+    fontFamily: FONTS.title, fontSize: 26, color: COLORS.green,
+    textAlign: 'center', lineHeight: 32,
+  },
+  // Botón blanco (Ver mis eventos en la pantalla de referencia)
+  whiteBtn: {
+    width: '100%', backgroundColor: '#FFFFFF', borderRadius: RADIUS.full,
+    paddingVertical: 16, alignItems: 'center', marginTop: 8,
+    shadowColor: '#00E676', shadowOpacity: 0.3, shadowRadius: 10, shadowOffset: { width: 0, height: 3 },
+    elevation: 5,
+  },
+  whiteBtnText: { fontFamily: FONTS.bodySemiBold, fontSize: 16, color: '#000' },
   refNote: {
     fontFamily: FONTS.body, fontSize: 12.5, color: COLORS.muted2,
     textAlign: 'center', lineHeight: 18, paddingHorizontal: 10,
