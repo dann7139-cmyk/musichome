@@ -34,7 +34,13 @@ export const EVENT_LABELS: Record<string, string> = {
 };
 
 export function fmtDate(d: string) {
-  try { return new Date(d).toLocaleDateString('es-MX', { weekday: 'short', day: 'numeric', month: 'short' }); }
+  // ⚠️ 'YYYY-MM-DD' a secas se parsea como medianoche UTC → en México
+  // (UTC-6) se pintaba UN DÍA ANTES del que pidió el cliente. Anclamos a
+  // mediodía local para que la fecha mostrada sea SIEMPRE la solicitada.
+  try {
+    const iso = /^\d{4}-\d{2}-\d{2}$/.test(d) ? `${d}T12:00:00` : d;
+    return new Date(iso).toLocaleDateString('es-MX', { weekday: 'short', day: 'numeric', month: 'short' });
+  }
   catch { return d; }
 }
 
