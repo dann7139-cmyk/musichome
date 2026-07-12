@@ -1469,6 +1469,21 @@ export default function EventTimerScreen({ route, navigation }: any) {
       }]);
     }
 
+    // Integrantes/talentos también se enteran del arranque (recibían
+    // llegada/descansos/fin pero no el inicio — auditoría 2026-07-12)
+    const startMembersToNotify = groupMemberIds.filter(uid => uid !== currentUserId);
+    if (startMembersToNotify.length > 0) {
+      supabase.from('notifications').insert(
+        startMembersToNotify.map(uid => ({
+          user_id: uid,
+          type: 'reservation',
+          title: '🎵 ¡El evento inició!',
+          body: 'El temporizador está corriendo. ¡A tocar!',
+          data: { reservation_id: reservation.id },
+        }))
+      ).then();
+    }
+
     // Modelo A: NO se libera pago al inicio. El 100% se transfiere al finalizar.
     setLoading(false);
     setStartedAt(startTime);

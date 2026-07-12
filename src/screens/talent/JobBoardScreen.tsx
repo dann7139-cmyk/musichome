@@ -863,7 +863,8 @@ export default function TalentJobBoardScreen({ navigation }: any) {
                   style={s.resCard}
                   onPress={() => {
                     if (res.status === 'in_progress' || res.status === 'confirmed') {
-                      navigation.navigate('EventTimer', { reservation: res, readOnly: true });
+                      // userRole:'talent' → banner "Observando en vivo" + detalles
+                      navigation.navigate('EventTimer', { reservation: res, readOnly: true, userRole: 'talent' });
                     } else {
                       navigation.navigate('GroupReservationDetail', { reservation: res, readOnly: true });
                     }
