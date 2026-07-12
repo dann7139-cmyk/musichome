@@ -137,7 +137,8 @@ export function ClientProposalProvider({
         .from('quotes')
         .select('*, group:groups(id, owner_id, name, genre, profile_image, city, state)')
         .eq('client_id', clientId)
-        .eq('status', 'responded')
+        // El grupo responde con status 'quoted' (QuoteDetailScreen:174)
+        .in('status', ['quoted', 'responded'])
         .order('created_at', { ascending: false }),
     ]);
 

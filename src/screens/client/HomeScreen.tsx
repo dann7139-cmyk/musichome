@@ -33,6 +33,7 @@ import { getSafeCity } from '../../utils/cityUtils';
 import { stateToCountry } from '../../utils/locationUtils';
 import { useBackgroundLocation } from '../../hooks/useBackgroundLocation';
 import LocationBanner from '../../components/ui/LocationBanner';
+import { reviveClientProposals } from '../../context/ClientProposalContext';
 
 interface Promotion {
   id: string;
@@ -719,9 +720,13 @@ export default function HomeScreen({ navigation }: any) {
           const groupText = count === 1
             ? `${first.group?.name ?? 'Grupo'} · ${first.duration_hours}h`
             : `${first.group?.name ?? 'Grupo'} y ${count - 1} más han cotizado`;
-          const onPress = count === 1
-            ? () => navigation.navigate('ClientQuoteDetail', { quoteId: first.id })
-            : () => navigation.navigate('ClientReservations', { initialTab: 'quotes' });
+          // Con respuesta → abrir el CARRUSEL tipo Uber (2026-07-11); sin
+          // respuesta aún → detalle/lista como antes.
+          const onPress = hasResponse
+            ? () => { void reviveClientProposals(); }
+            : count === 1
+              ? () => navigation.navigate('ClientQuoteDetail', { quoteId: first.id })
+              : () => navigation.navigate('ClientReservations', { initialTab: 'quotes' });
           return (
             <Pressable style={styles.quoteBanner} onPress={onPress}>
               <LinearGradient
