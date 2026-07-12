@@ -9,7 +9,9 @@ import { isUpcoming, snapshotNow } from '../../utils/eventFilter';
 import { parseEventDateMX } from '../../utils/calculations';
 import {
   ActivityIndicator,
+  Alert,
   Image,
+  Modal,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -17,6 +19,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import { Calendar } from 'react-native-calendars';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
 import { supabase } from '../../config/supabase';
@@ -476,11 +479,23 @@ export default function GroupEventsScreen({ navigation }: any) {
     })();
     supabase.auth.getUser().then(({ data }) => {
       if (!data.user) return;
-      supabase.from('groups').select('profile_image').eq('owner_id', data.user.id).single()
-        .then(({ data: g }) => { if (g?.profile_image) setGroupPhotoUrl(g.profile_image); });
+      supabase.from('groups').select('id, profile_image').eq('owner_id', data.user.id).single()
+        .then(({ data: g }) => {
+          if (g?.profile_image) setGroupPhotoUrl(g.profile_image);
+          if (g?.id) {
+            setMyGroupId(g.id);
+            supabase.from('group_unavailability').select('date').eq('group_id', g.id)
+              .then(({ data: bl }) => setBlockedDates(new Set((bl ?? []).map((b: any) => b.date))));
+          }
+        });
     });
   }, []);
   const [groupName,    setGroupName]    = useState<string | null>(null);
+  // 📅 Calendario mensual integrado: eventos por día + días tachados
+  const [myGroupId,    setMyGroupId]    = useState<string | null>(null);
+  const [blockedDates, setBlockedDates] = useState<Set<string>>(new Set());
+  const [calOpen,      setCalOpen]      = useState(false);
+  const [dayModal,     setDayModal]     = useState<string | null>(null);   // fecha con eventos abierta
   const [loading,      setLoading]      = useState(true);
   const [refreshing,   setRefreshing]   = useState(false);
   const [unreadCount,  setUnreadCount]  = useState(0);
@@ -698,6 +713,55 @@ export default function GroupEventsScreen({ navigation }: any) {
     };
   }, [reservations]);
 
+  // 📅 Calendario mensual: cuántos eventos hay por día (futuros/pasados)
+  const calDayInfo = useMemo(() => {
+    const m: Record<string, { future: number; past: number }> = {};
+    [...liveEvents, ...upcoming].forEach((r: any) => {
+      if (r.event_date) { (m[r.event_date] ??= { future: 0, past: 0 }).future++; }
+    });
+    [...completedEvts, ...historyEvts].forEach((r: any) => {
+      if (r.event_date) { (m[r.event_date] ??= { future: 0, past: 0 }).past++; }
+    });
+    return m;
+  }, [liveEvents, upcoming, completedEvts, historyEvts]);
+
+  // Eventos de un día (para el modal al tocar la fecha)
+  const eventsOfDay = useCallback((ds: string) =>
+    reservations.filter((r: any) => r.event_date === ds &&
+      !['cancelled', 'rejected', 'expired'].includes(r.status)),
+  [reservations]);
+
+  // Tocar un día: con eventos → abrirlos; sin eventos futuros → tachar/destachar
+  const onCalDayPress = useCallback((ds: string) => {
+    if (eventsOfDay(ds).length > 0) { setDayModal(ds); return; }
+    const today = localDate(new Date());
+    if (ds < today || !myGroupId) return;
+    if (blockedDates.has(ds)) {
+      Alert.alert('Día tachado', '¿Quitar el tachado y volver a estar disponible este día?', [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Quitar tachado',
+          onPress: async () => {
+            await supabase.from('group_unavailability').delete()
+              .eq('group_id', myGroupId).eq('date', ds);
+            setBlockedDates(prev => { const n = new Set(prev); n.delete(ds); return n; });
+          },
+        },
+      ]);
+    } else {
+      Alert.alert('Tachar día', 'Los clientes NO podrán cotizarte para esta fecha. ¿Tacharla?', [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Tachar', style: 'destructive',
+          onPress: async () => {
+            await supabase.from('group_unavailability').insert({ group_id: myGroupId, date: ds });
+            setBlockedDates(prev => new Set(prev).add(ds));
+          },
+        },
+      ]);
+    }
+  }, [eventsOfDay, myGroupId, blockedDates]);
+
   if (loading) {
     return (
       <View style={st.container}>
@@ -812,6 +876,58 @@ export default function GroupEventsScreen({ navigation }: any) {
                       Próximos · {upcoming.length}
                     </Text>
                     <CalendarStrip events={upcoming} />
+
+                    {/* 📅 Calendario del mes: eventos por día + tachar fechas */}
+                    <Pressable style={st.calToggle} onPress={() => setCalOpen(o => !o)}>
+                      <Text style={st.calToggleTx}>
+                        {calOpen ? 'Ocultar calendario ▲' : '📅 Ver calendario y disponibilidad'}
+                      </Text>
+                    </Pressable>
+                    {calOpen && (
+                      <View style={st.monthCalWrap}>
+                        <Calendar
+                          firstDay={1}
+                          theme={{
+                            backgroundColor: COLORS.card, calendarBackground: COLORS.card,
+                            monthTextColor: COLORS.text, arrowColor: COLORS.green,
+                            textSectionTitleColor: COLORS.muted2,
+                          }}
+                          dayComponent={({ date, state }: any) => {
+                            const ds = date?.dateString ?? '';
+                            const info = calDayInfo[ds];
+                            const blocked = blockedDates.has(ds);
+                            const count = (info?.future ?? 0) + (info?.past ?? 0);
+                            const hasFuture = (info?.future ?? 0) > 0;
+                            return (
+                              <Pressable onPress={() => onCalDayPress(ds)} style={[
+                                st.mcDay,
+                                hasFuture && st.mcDayFuture,
+                                !hasFuture && (info?.past ?? 0) > 0 && st.mcDayPast,
+                                blocked && st.mcDayBlocked,
+                              ]}>
+                                {count > 0 && (
+                                  <View style={[st.mcBadge, !hasFuture && { backgroundColor: COLORS.muted }]}>
+                                    <Text style={st.mcBadgeTx}>{count}</Text>
+                                  </View>
+                                )}
+                                <Text style={[
+                                  st.mcDayTx,
+                                  state === 'disabled' && { color: COLORS.muted },
+                                  hasFuture && { color: COLORS.green, fontFamily: FONTS.bodySemiBold },
+                                  blocked && st.mcDayTxBlocked,
+                                ]}>{date?.day}</Text>
+                              </Pressable>
+                            );
+                          }}
+                        />
+                        <View style={st.mcLegend}>
+                          <Text style={st.mcLegendTx}>🟢 próximos</Text>
+                          <Text style={st.mcLegendTx}>⚪ pasados</Text>
+                          <Text style={st.mcLegendTx}>🚫 tachado (tócalo para cambiar)</Text>
+                        </View>
+                      </View>
+                    )}
+
                     {/* Mapa solo en las primeras tarjetas — listas largas con N mapas causan jank */}
                     {upcoming.map((r, idx) => (
                       <EventCard key={r.id} reservation={r} navigation={navigation} showMap={idx < 6} userLocation={userLocation} groupPhotoUrl={groupPhotoUrl}
@@ -914,6 +1030,32 @@ export default function GroupEventsScreen({ navigation }: any) {
 
       {/* Perfil público del cliente (RPC 435 — sin teléfono/email) */}
       <ClientProfileModal clientId={profileClientId} onClose={() => setProfileClientId(null)} />
+
+      {/* 📅 Eventos del día seleccionado en el calendario */}
+      <Modal visible={!!dayModal} transparent animationType="slide" onRequestClose={() => setDayModal(null)}>
+        <Pressable style={st.dayModalBackdrop} onPress={() => setDayModal(null)} />
+        <View style={st.dayModalSheet}>
+          <View style={st.dayModalHead}>
+            <Text style={st.dayModalTitle}>
+              {dayModal
+                ? new Date(dayModal + 'T12:00:00').toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long' })
+                : ''}
+            </Text>
+            <Pressable onPress={() => setDayModal(null)} hitSlop={10}>
+              <Text style={{ color: COLORS.muted2, fontSize: 18 }}>✕</Text>
+            </Pressable>
+          </View>
+          <ScrollView style={{ maxHeight: 520 }} showsVerticalScrollIndicator={false}>
+            {(dayModal ? eventsOfDay(dayModal) : []).map((r: any) => (
+              <EventCard
+                key={r.id} reservation={r} navigation={navigation} showMap
+                userLocation={userLocation} groupPhotoUrl={groupPhotoUrl}
+                onViewProfile={r.client_id ? () => { setDayModal(null); setProfileClientId(r.client_id); } : null}
+              />
+            ))}
+          </ScrollView>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1054,6 +1196,46 @@ const st = StyleSheet.create({
   calDayName:  { fontFamily: FONTS.bodyMedium, fontSize: 9, color: COLORS.muted, textTransform: 'uppercase' },
   calDayNum:   { fontFamily: FONTS.bodySemiBold, fontSize: 15, color: COLORS.muted2 },
   calDot:      { width: 5, height: 5, borderRadius: 3, backgroundColor: COLORS.green },
+
+  // ── 📅 Calendario mensual integrado ──
+  calToggle: {
+    alignSelf: 'center', marginBottom: 12,
+    backgroundColor: COLORS.card, borderRadius: RADIUS.full,
+    borderWidth: 1, borderColor: 'rgba(0,230,118,0.35)',
+    paddingHorizontal: 16, paddingVertical: 8,
+  },
+  calToggleTx: { fontFamily: FONTS.bodySemiBold, fontSize: 12.5, color: COLORS.green },
+  monthCalWrap: {
+    backgroundColor: COLORS.card, borderRadius: RADIUS.lg,
+    borderWidth: 1, borderColor: COLORS.border,
+    paddingBottom: 10, marginBottom: 14, overflow: 'hidden',
+  },
+  mcDay: {
+    width: 40, height: 40, borderRadius: RADIUS.md,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  mcDayFuture:  { backgroundColor: 'rgba(0,230,118,0.10)', borderWidth: 1, borderColor: 'rgba(0,230,118,0.4)' },
+  mcDayPast:    { backgroundColor: 'rgba(255,255,255,0.05)' },
+  mcDayBlocked: { backgroundColor: 'rgba(239,83,80,0.12)', borderWidth: 1, borderColor: 'rgba(239,83,80,0.4)' },
+  mcDayTx:        { fontFamily: FONTS.bodyMedium, fontSize: 14, color: COLORS.text },
+  mcDayTxBlocked: { color: '#EF5350', textDecorationLine: 'line-through' },
+  mcBadge: {
+    position: 'absolute', top: 1, right: 1, zIndex: 2,
+    minWidth: 15, height: 15, borderRadius: 8, paddingHorizontal: 3,
+    backgroundColor: COLORS.green, alignItems: 'center', justifyContent: 'center',
+  },
+  mcBadgeTx: { fontFamily: FONTS.bodySemiBold, fontSize: 9, color: '#000' },
+  mcLegend:   { flexDirection: 'row', flexWrap: 'wrap', gap: 12, paddingHorizontal: 14, paddingTop: 8 },
+  mcLegendTx: { fontFamily: FONTS.body, fontSize: 10.5, color: COLORS.muted2 },
+
+  // Modal de eventos del día
+  dayModalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)' },
+  dayModalSheet: {
+    backgroundColor: COLORS.bg, borderTopLeftRadius: 20, borderTopRightRadius: 20,
+    paddingHorizontal: SPACING.xl, paddingTop: 16, paddingBottom: 30,
+  },
+  dayModalHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
+  dayModalTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 16, color: COLORS.text, textTransform: 'capitalize' },
 
   walletWidget: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
