@@ -17,6 +17,7 @@ import i18n from '../../i18n';
 import QuoteFormShared, { GroupMember } from '../../components/quote/QuoteFormShared';
 import ClientProfileModal from '../../components/requests/ClientProfileModal';
 import { markExpressDispatchQuoted } from '../../context/ExpressContext';
+import { checkGroupLogistics } from '../../utils/logistics';
 
 export default function ProposeRequestScreen({ route, navigation }: any) {
   const { request, dispatchId } = route.params as { request: any; dispatchId?: string };
@@ -28,6 +29,7 @@ export default function ProposeRequestScreen({ route, navigation }: any) {
   const [overtime2h,   setOvertime2h]   = useState('');
   const [overtime3h,   setOvertime3h]   = useState('');
   const [groupNotes,   setGroupNotes]   = useState('');
+  const [myGroupId,    setMyGroupId]    = useState<string | null>(null);
   const [notesWarn,    setNotesWarn]    = useState(false);
   const [arrivalTime,     setArrivalTime]     = useState('');
   const [startTime,       setStartTime]       = useState('');
@@ -59,6 +61,7 @@ export default function ProposeRequestScreen({ route, navigation }: any) {
         .eq('owner_id', user.id)
         .single();
       if (!grp) return;
+      setMyGroupId(grp.id);
 
       const [{ data: ownerProfile }, { data: memberships }] = await Promise.all([
         supabase.from('profiles').select('id, full_name, avatar_url').eq('id', grp.owner_id).single(),
@@ -171,6 +174,27 @@ export default function ProposeRequestScreen({ route, navigation }: any) {
     if (!arrivalTime) {
       Alert.alert('Hora requerida', 'Indica la hora exacta a la que llegará tu grupo al evento.');
       return;
+    }
+
+    // ⏰ Candado logístico: no proponerse si choca con otra tocada del grupo
+    // (traslape, colchón de 2h o traslado imposible entre eventos)
+    if (myGroupId) {
+      const logistics = await checkGroupLogistics({
+        groupId:       myGroupId,
+        eventDate:     request.event_date,
+        eventTime:     startTime || arrivalTime || request.event_time || undefined,
+        durationHours: request.hours ?? 3,
+        lat:           request.latitude ?? request.event_lat ?? undefined,
+        lng:           request.longitude ?? request.event_lng ?? undefined,
+      });
+      if (logistics.conflict) {
+        Alert.alert(
+          '⏰ Choca con otra tocada tuya',
+          logistics.messageGroup ??
+            'Ya tienes un evento muy cerca de ese horario y no alcanzarías a llegar. Revisa tu agenda antes de proponerte.',
+        );
+        return;
+      }
     }
 
     const memberDistribution = memberAmounts

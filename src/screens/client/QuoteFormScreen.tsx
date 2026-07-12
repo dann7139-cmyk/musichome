@@ -24,6 +24,7 @@ import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import TimePickerModal from '../../components/ui/TimePickerModal';
 import MapAddressPicker, { AddressResult } from '../../components/ui/MapAddressPicker';
 import { analyzeMessage, PHONE_WARNING } from '../../utils/phoneFilter';
+import { checkGroupLogistics } from '../../utils/logistics';
 import { containsBlockedContact } from '../../utils/contentModeration';
 import i18n from '../../i18n';
 
@@ -374,6 +375,27 @@ export default function QuoteFormScreen({ route, navigation }: any) {
     };
 
     setLoading(true);
+
+    // Validación logística AUTORITATIVA (check-travel-conflict): traslape,
+    // colchón de 2h entre tocadas y tiempo de traslado real si hay coords.
+    const logistics = await checkGroupLogistics({
+      groupId:       group.id,
+      eventDate,
+      eventTime,
+      durationHours: duration ?? 3,
+      lat:           latitude ?? undefined,
+      lng:           longitude ?? undefined,
+    });
+    if (logistics.conflict) {
+      setLoading(false);
+      Alert.alert(
+        '⏰ Ese horario no le da al grupo',
+        logistics.messageClient ??
+          'El grupo tiene otra tocada muy cerca de ese horario y no alcanzaría a llegar. Revisa la rejilla de horarios disponibles y elige otra hora.',
+      );
+      return;
+    }
+
     const { data: insertData, error } = await supabase.from('quotes').insert(insertPayload).select('id');
     setLoading(false);
 
@@ -618,6 +640,72 @@ export default function QuoteFormScreen({ route, navigation }: any) {
 
           {/* ─── 4. HORA ─────────────────────────────────────────── */}
           <SectionTitle>4. Hora de inicio *</SectionTitle>
+
+          {/* Día con evento del grupo: rejilla de horas disponibles vs
+              ocupadas (tocada + 2h de colchón para desconectar y trasladarse) */}
+          {eventDate && (busyByDate[eventDate]?.length ?? 0) > 0 && (() => {
+            const dur = duration ?? 3;
+            const BUFFER = 2;
+            const ranges = (busyByDate[eventDate] ?? [])
+              .filter(b => b.time)
+              .map(b => {
+                const [hh, mm] = String(b.time).split(':').map(Number);
+                const bs = hh + (mm || 0) / 60;
+                return { bs, be: bs + Number(b.hours ?? 3) };
+              });
+            const fmtH = (h: number) => `${h % 12 || 12}${h >= 12 ? 'pm' : 'am'}`;
+            const slots = [];
+            for (let h = 9; h <= 23; h++) {
+              const insideBusy = ranges.some(r => h >= r.bs && h < r.be);
+              const conflict   = ranges.some(r => !(h + dur + BUFFER <= r.bs || h >= r.be + BUFFER));
+              slots.push({ h, status: insideBusy ? 'busy' : conflict ? 'buffer' : 'free' });
+            }
+            const firstFree = slots.filter(sl => sl.status === 'free').slice(0, 3).map(sl => sl.h);
+            const selH = eventTime ? parseInt(eventTime.split(':')[0], 10) : null;
+            return (
+              <View style={s.hourGridCard}>
+                <Text style={s.hourGridTitle}>Horarios de tu grupo ese día ({dur}h de evento)</Text>
+                <View style={s.hourGrid}>
+                  {slots.map(sl => {
+                    const disabled = sl.status !== 'free';
+                    const suggested = firstFree.includes(sl.h);
+                    const selected = selH === sl.h;
+                    return (
+                      <Pressable
+                        key={sl.h}
+                        disabled={disabled}
+                        onPress={() => setEventTime(`${String(sl.h).padStart(2, '0')}:00`)}
+                        style={[
+                          s.hourCell,
+                          sl.status === 'busy'   && s.hourCellBusy,
+                          sl.status === 'buffer' && s.hourCellBuffer,
+                          suggested && !selected && s.hourCellSuggested,
+                          selected && s.hourCellSelected,
+                        ]}
+                      >
+                        <Text style={[
+                          s.hourCellTx,
+                          disabled && s.hourCellTxDisabled,
+                          selected && s.hourCellTxSelected,
+                        ]}>{fmtH(sl.h)}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+                <View style={s.hourLegend}>
+                  <Text style={s.hourLegendItem}>🟩 disponible</Text>
+                  <Text style={s.hourLegendItem}>🟥 tocando</Text>
+                  <Text style={s.hourLegendItem}>⬜ traslado (2h)</Text>
+                </View>
+                {firstFree.length > 0 && !eventTime ? (
+                  <Text style={s.hourSuggestTx}>
+                    💡 Te sugerimos las {firstFree.map(fmtH).join(', ')} — le dan tiempo al grupo entre tocadas
+                  </Text>
+                ) : null}
+              </View>
+            );
+          })()}
+
           <Pressable
             style={[s.timeChip, !!eventTime && s.timeChipActive]}
             onPress={() => setTimePickerOpen(true)}
@@ -1127,6 +1215,31 @@ const s = StyleSheet.create({
   busyNoticeTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: '#FFB300' },
   busyNoticeLine:  { fontFamily: FONTS.bodyMedium, fontSize: 12.5, color: COLORS.text },
   busyNoticeHint:  { fontFamily: FONTS.body, fontSize: 11.5, color: COLORS.muted2, marginTop: 3, lineHeight: 15 },
+
+  // ── Rejilla de horas (día con evento del grupo) ──
+  hourGridCard: {
+    backgroundColor: COLORS.card, borderRadius: RADIUS.md,
+    borderWidth: 1, borderColor: COLORS.border,
+    padding: 12, marginBottom: 10,
+  },
+  hourGridTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 12.5, color: COLORS.text, marginBottom: 9 },
+  hourGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  hourCell: {
+    width: '18%', paddingVertical: 8, borderRadius: RADIUS.sm,
+    backgroundColor: 'rgba(0,230,118,0.10)',
+    borderWidth: 1, borderColor: 'rgba(0,230,118,0.35)',
+    alignItems: 'center',
+  },
+  hourCellBusy:      { backgroundColor: 'rgba(239,83,80,0.15)', borderColor: 'rgba(239,83,80,0.45)' },
+  hourCellBuffer:    { backgroundColor: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.12)' },
+  hourCellSuggested: { borderColor: COLORS.green, borderWidth: 1.5 },
+  hourCellSelected:  { backgroundColor: COLORS.green, borderColor: COLORS.green },
+  hourCellTx:         { fontFamily: FONTS.bodySemiBold, fontSize: 12, color: COLORS.green },
+  hourCellTxDisabled: { color: COLORS.muted },
+  hourCellTxSelected: { color: '#000' },
+  hourLegend: { flexDirection: 'row', gap: 12, marginTop: 9, flexWrap: 'wrap' },
+  hourLegendItem: { fontFamily: FONTS.body, fontSize: 10.5, color: COLORS.muted2 },
+  hourSuggestTx: { fontFamily: FONTS.bodyMedium, fontSize: 11.5, color: COLORS.green, marginTop: 7, lineHeight: 15 },
   dateBtnText: { fontFamily: FONTS.bodyMedium, fontSize: 14, color: COLORS.text },
 
   // ── Chips ─────────────────────────────────────────────────────────────────
