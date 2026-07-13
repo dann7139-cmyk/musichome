@@ -113,6 +113,7 @@ import PromocionarseScreen from '../src/screens/shared/PromocionarseScreen';
 import ProfileScreen from '../src/screens/shared/ProfileScreen';
 import NotificationsScreen from '../src/screens/shared/NotificationsScreen';
 import ChatScreen from '../src/screens/shared/ChatScreen';
+import GroupChatScreen from '../src/screens/shared/GroupChatScreen';
 import CancellationPolicyScreen from '../src/screens/shared/CancellationPolicyScreen';
 import WalletScreen from '../src/screens/shared/WalletScreen';
 import WithdrawScreen from '../src/screens/shared/WithdrawScreen';
@@ -994,6 +995,7 @@ export default function AppNavigator() {
             <Stack.Screen name="Wallet"               component={WalletScreen} />
             <Stack.Screen name="Withdraw"             component={WithdrawScreen} />
             <Stack.Screen name="Chat"                 component={ChatScreen} />
+            <Stack.Screen name="GroupChat"            component={GroupChatScreen} />
             <Stack.Screen name="CancellationPolicy"   component={CancellationPolicyScreen} />
             <Stack.Screen name="Notifications"          component={NotificationsScreen} />
             <Stack.Screen name="Profile"               component={ProfileScreen} />
@@ -1030,6 +1032,7 @@ export default function AppNavigator() {
             <Stack.Screen name="ClientReservations"      component={ClientReservationsScreen} />
             <Stack.Screen name="GroupReservationDetail"  component={GroupConfirmBookingScreen} />
             <Stack.Screen name="EventTimer"              component={EventTimerScreen} />
+            <Stack.Screen name="GroupChat"               component={GroupChatScreen} />
             <Stack.Screen name="TalentStats"             component={TalentStatsScreen} />
             <Stack.Screen name="GroupQuotes"             component={GroupQuotesScreen} />
             <Stack.Screen name="GroupQuoteDetail"        component={GroupQuoteDetailScreen} />

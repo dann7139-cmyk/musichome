@@ -335,6 +335,15 @@ export default function NotificationsScreen({ navigation }: any) {
         break;
 
       case 'chat':
+        // 💬 Chat interno del grupo (direct_messages, sql/481): 1:1 o grupal
+        if (notif.data?.dm && notif.data?.group_id) {
+          navigation.navigate('GroupChat' as any, {
+            groupId: notif.data.group_id,
+            mode:    notif.data.chat_mode === 'general' ? 'general' : 'dm',
+            ...(notif.data.peer_id ? { peerId: notif.data.peer_id } : {}),
+          });
+          break;
+        }
         // La pantalla Chat solo existe en los stacks de grupo y cliente
         if (reservationId && role !== 'talent') {
           const { data: resChat } = await supabase

@@ -844,6 +844,21 @@ export default function TalentJobBoardScreen({ navigation }: any) {
                     <GroupStat icon={<Users size={12} color={COLORS.green} />}
                       value={String(inv.group.members_count ?? 1)} label="Integrantes" />
                   </View>
+                  {/* 💬 Chats internos: 1:1 con el dueño + chat grupal (integrante) */}
+                  <View style={s.groupChatRow}>
+                    <Pressable
+                      style={s.groupChatBtn}
+                      onPress={() => navigation.navigate('GroupChat', { groupId: inv.group!.id, mode: 'dm' })}
+                    >
+                      <Text style={s.groupChatBtnTx}>💬 Chat con el dueño</Text>
+                    </Pressable>
+                    <Pressable
+                      style={s.groupChatBtn}
+                      onPress={() => navigation.navigate('GroupChat', { groupId: inv.group!.id, mode: 'general' })}
+                    >
+                      <Text style={s.groupChatBtnTx}>👥 Chat del grupo</Text>
+                    </Pressable>
+                  </View>
                 </View>
               ))}
             </>
@@ -1348,6 +1363,12 @@ const s = StyleSheet.create({
   groupStat:      { flex: 1, alignItems: 'center', gap: 3 },
   groupStatValue: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.text },
   groupStatLabel: { fontFamily: FONTS.body, fontSize: 10, color: COLORS.muted },
+  groupChatRow: { flexDirection: 'row', gap: 8, marginTop: 10 },
+  groupChatBtn: {
+    flex: 1, alignItems: 'center', paddingVertical: 9, borderRadius: RADIUS.full,
+    backgroundColor: 'rgba(0,230,118,0.08)', borderWidth: 1, borderColor: 'rgba(0,230,118,0.35)',
+  },
+  groupChatBtnTx: { fontFamily: FONTS.bodySemiBold, fontSize: 11.5, color: COLORS.green },
   groupStatDivider: { width: 1, height: 28, backgroundColor: COLORS.border },
 
   // Invitations header

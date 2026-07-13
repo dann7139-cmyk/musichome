@@ -30,6 +30,7 @@ import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 interface SentInvitation {
   id: string;
   status: 'pending' | 'accepted' | 'rejected';
+  invited_user_id: string | null;
   event_id: string | null;
   proposed_payment_amount: number | null;
   message: string | null;
@@ -48,6 +49,7 @@ interface SentInvitation {
 
 export default function SentInvitationsScreen({ navigation }: any) {
   const [invitations, setInvitations] = useState<SentInvitation[]>([]);
+  const [groupId, setGroupId]         = useState<string | null>(null);
   const [loading, setLoading]         = useState(true);
   const [refreshing, setRefreshing]   = useState(false);
 
@@ -58,6 +60,7 @@ export default function SentInvitationsScreen({ navigation }: any) {
 
     const { data: grp } = await supabase.rpc('get_my_group').maybeSingle();
     const gid = (grp as any)?.id ?? null;
+    setGroupId(gid);
 
     if (gid) {
       const { data, error } = await supabase
@@ -65,6 +68,7 @@ export default function SentInvitationsScreen({ navigation }: any) {
         .select(`
           id,
           status,
+          invited_user_id,
           event_id,
           proposed_payment_amount,
           message,
@@ -202,6 +206,11 @@ export default function SentInvitationsScreen({ navigation }: any) {
                   invitation={inv}
                   onCancel={() => handleCancel(inv)}
                   onRemove={() => handleRemove(inv)}
+                  onChat={groupId && inv.invited_user_id
+                    ? () => navigation.navigate('GroupChat', {
+                        groupId, mode: 'dm', peerId: inv.invited_user_id,
+                      })
+                    : undefined}
                 />
               ))
             )}
@@ -231,10 +240,12 @@ function InvitationCard({
   invitation: inv,
   onCancel,
   onRemove,
+  onChat,
 }: {
   invitation: SentInvitation;
   onCancel: () => void;
   onRemove: () => void;
+  onChat?: () => void;
 }) {
   const isPending  = inv.status === 'pending';
   const isAccepted = inv.status === 'accepted';
@@ -283,6 +294,13 @@ function InvitationCard({
         {isPending && (
           <Pressable style={icard.cancelBtn} onPress={onCancel}>
             <Trash2 size={16} color={COLORS.red} />
+          </Pressable>
+        )}
+
+        {/* Chat 1:1 con el talento — accepted only */}
+        {isAccepted && onChat && (
+          <Pressable style={icard.chatBtn} onPress={onChat} hitSlop={6}>
+            <Text style={{ fontSize: 14 }}>💬</Text>
           </Pressable>
         )}
 
@@ -416,6 +434,12 @@ const icard = StyleSheet.create({
     width: 36, height: 36, borderRadius: 10,
     backgroundColor: 'rgba(239,83,80,0.1)',
     borderWidth: 1, borderColor: 'rgba(239,83,80,0.3)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  chatBtn: {
+    width: 36, height: 36, borderRadius: 10, marginRight: 6,
+    backgroundColor: 'rgba(0,230,118,0.08)',
+    borderWidth: 1, borderColor: 'rgba(0,230,118,0.35)',
     alignItems: 'center', justifyContent: 'center',
   },
   infoRow:   { flexDirection: 'row', gap: 16, flexWrap: 'wrap' },

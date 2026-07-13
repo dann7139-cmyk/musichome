@@ -1258,7 +1258,18 @@ export default function GroupDashboardScreen({ navigation }: any) {
 
             {/* Team card: lineup + clientes frecuentes */}
             <View style={s.teamCard}>
-              <Text style={s.teamCardTitle}>🎸 Formación</Text>
+              <View style={s.teamCardHead}>
+                <Text style={[s.teamCardTitle, { marginBottom: 0, flex: 1 }]}>🎸 Formación</Text>
+                {/* 💬 Chat grupal: dueño + integrantes fijos (fotos/videos/números OK) */}
+                {members.length > 0 && group?.id && (
+                  <Pressable
+                    style={s.teamChatBtn}
+                    onPress={() => navigation.navigate('GroupChat', { groupId: group.id, mode: 'general' })}
+                  >
+                    <Text style={s.teamChatBtnTx}>💬 Chat del grupo</Text>
+                  </Pressable>
+                )}
+              </View>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 4 }}>
                 {/* Dueño */}
                 <View style={s.memberChip}>
@@ -1287,12 +1298,26 @@ export default function GroupDashboardScreen({ navigation }: any) {
                         isVerified: m.invited_user?.id_verified ?? false,
                       })}
                     >
-                      {m.invited_user?.avatar_url
-                        ? <Image source={{ uri: m.invited_user.avatar_url }} style={s.memberChipAvatar} />
-                        : <View style={[s.memberChipAvatar, s.memberChipAvatarEmpty]}>
-                            <Text style={s.memberChipInitial}>{name.charAt(0).toUpperCase()}</Text>
-                          </View>
-                      }
+                      <View>
+                        {m.invited_user?.avatar_url
+                          ? <Image source={{ uri: m.invited_user.avatar_url }} style={s.memberChipAvatar} />
+                          : <View style={[s.memberChipAvatar, s.memberChipAvatarEmpty]}>
+                              <Text style={s.memberChipInitial}>{name.charAt(0).toUpperCase()}</Text>
+                            </View>
+                        }
+                        {/* 💬 arribita de la foto → chat 1:1 con este talento */}
+                        {group?.id && m.invited_user?.id && (
+                          <Pressable
+                            style={s.memberChatBadge}
+                            hitSlop={6}
+                            onPress={() => navigation.navigate('GroupChat', {
+                              groupId: group.id, mode: 'dm', peerId: m.invited_user.id,
+                            })}
+                          >
+                            <Text style={{ fontSize: 10 }}>💬</Text>
+                          </Pressable>
+                        )}
+                      </View>
                       <Text style={s.memberChipName} numberOfLines={1}>{name.split(' ')[0]}</Text>
                       {m.artist?.instrument_or_role && (
                         <Text style={s.memberChipRole} numberOfLines={1}>{m.artist.instrument_or_role}</Text>
@@ -2904,6 +2929,17 @@ const s = StyleSheet.create({
     padding: 14,
   },
   teamCardTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.text, marginBottom: 12 },
+  teamCardHead:  { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
+  teamChatBtn: {
+    paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999,
+    backgroundColor: 'rgba(0,230,118,0.08)', borderWidth: 1, borderColor: 'rgba(0,230,118,0.35)',
+  },
+  teamChatBtnTx: { fontFamily: FONTS.bodySemiBold, fontSize: 11, color: COLORS.green },
+  memberChatBadge: {
+    position: 'absolute', top: -3, right: -3,
+    width: 20, height: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: COLORS.card, borderWidth: 1, borderColor: 'rgba(0,230,118,0.45)',
+  },
   teamDivider: { height: 1, backgroundColor: COLORS.border, marginVertical: 14 },
 
   // Member chips (horizontal scroll)
