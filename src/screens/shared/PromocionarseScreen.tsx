@@ -189,6 +189,15 @@ export default function PromocionarseScreen({ navigation }: any) {
             El pago se procesa de forma segura vía Stripe.
           </Text>
         </View>
+
+        {/* Políticas — una sola para todos los productos */}
+        <Pressable
+          style={s.policyLink}
+          hitSlop={8}
+          onPress={() => navigation.navigate('PromotionPolicy')}
+        >
+          <Text style={s.policyLinkText}>📋 Políticas de promoción</Text>
+        </Pressable>
       </ScrollView>
     </SafeAreaView>
   );
@@ -303,4 +312,6 @@ const s = StyleSheet.create({
     lineHeight: 18,
     textAlign: 'center',
   },
+  policyLink:     { alignSelf: 'center', marginTop: 4, marginBottom: 10, paddingVertical: 6, paddingHorizontal: 14 },
+  policyLinkText: { fontFamily: FONTS.body, fontSize: 11.5, color: COLORS.muted, textDecorationLine: 'underline' },
 });

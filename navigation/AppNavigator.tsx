@@ -108,6 +108,7 @@ import AdvertisingPackagesScreen      from '../src/screens/client/AdvertisingPac
 
 // Shared — catálogo de promociones (rol-aware)
 import PromocionarseScreen from '../src/screens/shared/PromocionarseScreen';
+import PromotionPolicyScreen from '../src/screens/shared/PromotionPolicyScreen';
 
 // Shared
 import ProfileScreen from '../src/screens/shared/ProfileScreen';
@@ -1001,6 +1002,7 @@ export default function AppNavigator() {
             <Stack.Screen name="Profile"               component={ProfileScreen} />
             <Stack.Screen name="EventPayouts"          component={EventPayoutsScreen} />
             <Stack.Screen name="Promocionarse"         component={PromocionarseScreen} />
+            <Stack.Screen name="PromotionPolicy"       component={PromotionPolicyScreen} />
             <Stack.Screen name="CreateAdvertisement"   component={CreateAdvertisementScreen} />
             <Stack.Screen name="AdvertisingPackages"   component={AdvertisingPackagesScreen} />
             <Stack.Screen name="Bidding"               component={BiddingScreen} />
@@ -1062,6 +1064,7 @@ export default function AppNavigator() {
             <Stack.Screen name="EventTimer"         component={EventTimerScreen} />
             <Stack.Screen name="Chat"               component={ChatScreen} />
             <Stack.Screen name="CancellationPolicy" component={CancellationPolicyScreen} />
+            <Stack.Screen name="PromotionPolicy"    component={PromotionPolicyScreen} />
             <Stack.Screen name="QuoteForm"          component={QuoteFormScreen} />
             <Stack.Screen name="ClientQuoteDetail"  component={ClientQuoteDetailScreen} />
             <Stack.Screen name="QuotePayment"        component={QuotePaymentScreen} />
