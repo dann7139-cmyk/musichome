@@ -302,7 +302,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     (async () => {
       try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
+        // Solo detectar si el permiso YA fue otorgado — el prompt del sistema
+        // lo dispara LocationRequestScreen cuando el usuario toca "Activar"
+        // (mejor práctica de tiendas: pedir permiso en contexto, no al abrir).
+        const { status } = await Location.getForegroundPermissionsAsync();
         if (status !== 'granted') return;
 
         const loc = await Promise.race([

@@ -258,6 +258,42 @@ export default function ProfileScreen({ navigation }: any) {
 
   const handleSignOut = () => { signOut(); };
 
+  // 🗑️ Eliminar cuenta (requisito de App Store 5.1.1v) — doble confirmación.
+  // El RPC bloquea si hay eventos activos o saldo pendiente, anonimiza los
+  // datos personales y avisa al admin para completar la baja (sql/482).
+  const handleDeleteAccount = () => {
+    Alert.alert(
+      '🗑️ Eliminar mi cuenta',
+      'Esta acción es PERMANENTE:\n\n• Tus datos personales se eliminan de inmediato.\n• Tu perfil, grupo y visibilidad desaparecen.\n• Los registros de pagos se conservan solo por obligación legal (ver Aviso de privacidad).\n\nNo podrás eliminarla si tienes eventos activos o saldo pendiente.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Continuar', style: 'destructive',
+          onPress: () => Alert.alert(
+            '¿Estás completamente seguro?',
+            'Tu cuenta se eliminará y no se puede deshacer.',
+            [
+              { text: 'No, conservar mi cuenta', style: 'cancel' },
+              {
+                text: 'Sí, eliminar', style: 'destructive',
+                onPress: async () => {
+                  const { data, error } = await supabase.rpc('request_account_deletion');
+                  if (error || (data as any)?.ok === false) {
+                    Alert.alert('No se pudo eliminar', (data as any)?.error ?? error?.message ?? 'Intenta de nuevo.');
+                    return;
+                  }
+                  Alert.alert('Cuenta eliminada', 'Lamentamos verte ir. Tus datos personales fueron eliminados.', [
+                    { text: 'OK', onPress: () => signOut() },
+                  ]);
+                },
+              },
+            ],
+          ),
+        },
+      ],
+    );
+  };
+
   const openCityModal = async () => {
     setCityModalVisible(true);
     setCityLoading(true);
@@ -838,6 +874,11 @@ export default function ProfileScreen({ navigation }: any) {
             <Text style={st.logoutText}>Cerrar sesión</Text>
           </Pressable>
 
+          {/* Eliminar cuenta — requisito App Store (5.1.1v), discreto */}
+          <Pressable style={st.deleteAccountBtn} onPress={handleDeleteAccount} hitSlop={8}>
+            <Text style={st.deleteAccountText}>Eliminar mi cuenta</Text>
+          </Pressable>
+
           <Text style={st.version}>Daricefy v1.0</Text>
         </ScrollView>
       </SafeAreaView>
@@ -1339,6 +1380,8 @@ const st = StyleSheet.create({
     backgroundColor: 'rgba(239,83,80,0.08)', marginBottom: 20,
   },
   logoutText: { fontFamily: FONTS.bodySemiBold, fontSize: 15, color: COLORS.red },
+  deleteAccountBtn:  { alignSelf: 'center', marginTop: 2, marginBottom: 10, paddingVertical: 6, paddingHorizontal: 14 },
+  deleteAccountText: { fontFamily: FONTS.body, fontSize: 11.5, color: COLORS.muted, textDecorationLine: 'underline' },
   version: { textAlign: 'center', fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted, marginBottom: 32 },
 
   // ── Modals ──────────────────────────────────────────────────────────────────

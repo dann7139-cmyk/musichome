@@ -83,6 +83,7 @@ export default function RegisterScreen({ navigation, route }: any) {
   );
 
   const [loading, setLoading]                = useState(false);
+  const [termsAccepted, setTermsAccepted]    = useState(false);
   const [registered, setRegistered]          = useState(false);
   const [stripeConnectLoading, setStripeConnectLoading] = useState(false);
 
@@ -100,6 +101,13 @@ export default function RegisterScreen({ navigation, route }: any) {
     }
     if (role === 'talent' && !instrument.trim()) {
       Alert.alert(t('common.error'), t('common.required'));
+      return;
+    }
+    if (!termsAccepted) {
+      Alert.alert(
+        '📜 Falta aceptar los términos',
+        'Para crear tu cuenta marca la casilla de aceptación de los Términos y condiciones y el Aviso de privacidad.',
+      );
       return;
     }
 
@@ -132,6 +140,8 @@ export default function RegisterScreen({ navigation, route }: any) {
           phone: (role === 'talent' || role === 'group') && phone.trim() ? phone.trim() : null,
           phone_verified: false,
           id_verified: false,
+          // Registro de aceptación (clickwrap) — columna de sql/482
+          terms_accepted_at: new Date().toISOString(),
         },
         { onConflict: 'id' }
       );
@@ -460,21 +470,26 @@ export default function RegisterScreen({ navigation, route }: any) {
               </View>
             )}
 
+            {/* Aceptación legal EXPLÍCITA (clickwrap) — requerida para crear cuenta */}
+            <Pressable style={styles.legalRow} onPress={() => setTermsAccepted(v => !v)} hitSlop={6}>
+              <View style={[styles.legalCheck, termsAccepted && styles.legalCheckOn]}>
+                {termsAccepted && <Text style={styles.legalCheckMark}>✓</Text>}
+              </View>
+              <Text style={styles.legalNote}>
+                Acepto los{' '}
+                <Text style={styles.legalLink} onPress={() => navigation?.navigate?.('Legal', { doc: 'terms' })}>
+                  Términos y condiciones
+                </Text>{' '}
+                y el{' '}
+                <Text style={styles.legalLink} onPress={() => navigation?.navigate?.('Legal', { doc: 'privacy' })}>
+                  Aviso de privacidad
+                </Text>.
+              </Text>
+            </Pressable>
+
             <View style={{ marginTop: 8 }}>
               <Button label={t('auth.register.submit')} onPress={handleRegister} loading={loading} size="lg" />
             </View>
-
-            {/* Aceptación legal — al crear la cuenta aceptas términos y privacidad */}
-            <Text style={styles.legalNote}>
-              Al crear tu cuenta aceptas los{' '}
-              <Text style={styles.legalLink} onPress={() => navigation?.navigate?.('Legal', { doc: 'terms' })}>
-                Términos y condiciones
-              </Text>{' '}
-              y el{' '}
-              <Text style={styles.legalLink} onPress={() => navigation?.navigate?.('Legal', { doc: 'privacy' })}>
-                Aviso de privacidad
-              </Text>.
-            </Text>
 
             <View style={styles.footer}>
               <Text style={styles.footerText}>{t('auth.register.already_account')}</Text>
@@ -586,11 +601,21 @@ const styles = StyleSheet.create({
   footer:     { flexDirection: 'row', justifyContent: 'center', marginTop: 24 },
   footerText: { fontFamily: FONTS.body, fontSize: 14, color: COLORS.muted2 },
   footerLink: { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: COLORS.green },
-  legalNote: {
-    fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted2,
-    textAlign: 'center', lineHeight: 16, marginTop: 12, paddingHorizontal: 10,
+  legalRow: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 10,
+    marginTop: 14, paddingHorizontal: 4,
   },
-  legalLink: { fontFamily: FONTS.bodySemiBold, fontSize: 11, color: COLORS.green, textDecorationLine: 'underline' },
+  legalCheck: {
+    width: 22, height: 22, borderRadius: 6, marginTop: 1,
+    borderWidth: 1.5, borderColor: COLORS.muted2,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  legalCheckOn:   { borderColor: COLORS.green, backgroundColor: 'rgba(0,230,118,0.15)' },
+  legalCheckMark: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.green },
+  legalNote: {
+    flex: 1, fontFamily: FONTS.body, fontSize: 11.5, color: COLORS.muted2, lineHeight: 17,
+  },
+  legalLink: { fontFamily: FONTS.bodySemiBold, fontSize: 11.5, color: COLORS.green, textDecorationLine: 'underline' },
 
   // Success screen
   successContainer: { padding: SPACING.xl, alignItems: 'center', gap: 12 },
