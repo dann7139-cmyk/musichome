@@ -109,6 +109,7 @@ import AdvertisingPackagesScreen      from '../src/screens/client/AdvertisingPac
 // Shared — catálogo de promociones (rol-aware)
 import PromocionarseScreen from '../src/screens/shared/PromocionarseScreen';
 import PromotionPolicyScreen from '../src/screens/shared/PromotionPolicyScreen';
+import LegalScreen from '../src/screens/shared/LegalScreen';
 
 // Shared
 import ProfileScreen from '../src/screens/shared/ProfileScreen';
@@ -884,6 +885,7 @@ export default function AppNavigator() {
           <Stack.Screen name="Intro"    component={IntroScreen} />
           <Stack.Screen name="Login"    component={LoginScreen} />
           <Stack.Screen name="Register" component={RegisterScreen} />
+          <Stack.Screen name="Legal"    component={LegalScreen} />
         </Stack.Navigator>
       </NavigationContainer>
     );
@@ -998,6 +1000,7 @@ export default function AppNavigator() {
             <Stack.Screen name="Chat"                 component={ChatScreen} />
             <Stack.Screen name="GroupChat"            component={GroupChatScreen} />
             <Stack.Screen name="CancellationPolicy"   component={CancellationPolicyScreen} />
+            <Stack.Screen name="Legal"                component={LegalScreen} />
             <Stack.Screen name="Notifications"          component={NotificationsScreen} />
             <Stack.Screen name="Profile"               component={ProfileScreen} />
             <Stack.Screen name="EventPayouts"          component={EventPayoutsScreen} />
@@ -1035,6 +1038,7 @@ export default function AppNavigator() {
             <Stack.Screen name="GroupReservationDetail"  component={GroupConfirmBookingScreen} />
             <Stack.Screen name="EventTimer"              component={EventTimerScreen} />
             <Stack.Screen name="GroupChat"               component={GroupChatScreen} />
+            <Stack.Screen name="Legal"                   component={LegalScreen} />
             <Stack.Screen name="TalentStats"             component={TalentStatsScreen} />
             <Stack.Screen name="GroupQuotes"             component={GroupQuotesScreen} />
             <Stack.Screen name="GroupQuoteDetail"        component={GroupQuoteDetailScreen} />
@@ -1065,6 +1069,7 @@ export default function AppNavigator() {
             <Stack.Screen name="Chat"               component={ChatScreen} />
             <Stack.Screen name="CancellationPolicy" component={CancellationPolicyScreen} />
             <Stack.Screen name="PromotionPolicy"    component={PromotionPolicyScreen} />
+            <Stack.Screen name="Legal"              component={LegalScreen} />
             <Stack.Screen name="QuoteForm"          component={QuoteFormScreen} />
             <Stack.Screen name="ClientQuoteDetail"  component={ClientQuoteDetailScreen} />
             <Stack.Screen name="QuotePayment"        component={QuotePaymentScreen} />

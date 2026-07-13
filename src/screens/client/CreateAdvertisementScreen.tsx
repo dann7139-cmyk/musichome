@@ -472,6 +472,19 @@ export default function CreateAdvertisementScreen({ navigation, route }: any) {
       Alert.alert('Error', 'Ingresa un número de días válido.');
       return;
     }
+    // 📜 Declaración de derechos ANTES de pagar (Términos §6): la
+    // responsabilidad del contenido del anuncio es de quien lo sube.
+    const rightsOk = await new Promise<boolean>(resolve => {
+      Alert.alert(
+        '📜 Sobre el contenido de tu anuncio',
+        'Al pagar declaras BAJO TU RESPONSABILIDAD que las imágenes, videos y música de tu anuncio son tuyos o tienes autorización para usarlos. Si hay un reclamo de derechos de autor, Daricefy puede retirar el anuncio y la responsabilidad es de quien lo subió.\n\nTodo anuncio pasa revisión antes de publicarse.',
+        [
+          { text: 'Cancelar', style: 'cancel', onPress: () => resolve(false) },
+          { text: 'Acepto, continuar', onPress: () => resolve(true) },
+        ],
+      );
+    });
+    if (!rightsOk) return;
     setPaying(true);
     try {
       // Paso 1: Crear el registro del anuncio

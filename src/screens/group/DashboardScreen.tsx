@@ -907,6 +907,24 @@ export default function GroupDashboardScreen({ navigation }: any) {
   const handleVideo = async () => {
     const gid = groupIdRef.current;
     if (!gid) return;
+    // 🎵 Declaración de derechos ANTES de subir (protege a la plataforma:
+    // la responsabilidad del contenido es de quien lo sube — Términos §6)
+    const accepted = await new Promise<boolean>(resolve => {
+      Alert.alert(
+        '🎵 Antes de subir tu video',
+        'Al subir declaras BAJO TU RESPONSABILIDAD que:\n\n' +
+        '• Es TU GRUPO tocando (interpretación propia, en vivo).\n' +
+        '• Si es un cover, reconoces al autor original de la canción.\n' +
+        '• NO es música grabada de otros artistas (pistas o canciones ajenas están prohibidas).\n' +
+        '• Cualquier reclamo de derechos de autor es responsabilidad tuya; Daricefy puede retirar el contenido si hay un reclamo.\n\n' +
+        'Detalles en Perfil → Términos y condiciones.',
+        [
+          { text: 'Cancelar', style: 'cancel', onPress: () => resolve(false) },
+          { text: 'Acepto, subir video', onPress: () => resolve(true) },
+        ],
+      );
+    });
+    if (!accepted) return;
     try {
       setVideoLoading(true);
       const url = await pickAndUploadGroupVideo(gid);

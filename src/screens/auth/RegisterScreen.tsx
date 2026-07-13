@@ -464,6 +464,18 @@ export default function RegisterScreen({ navigation, route }: any) {
               <Button label={t('auth.register.submit')} onPress={handleRegister} loading={loading} size="lg" />
             </View>
 
+            {/* Aceptación legal — al crear la cuenta aceptas términos y privacidad */}
+            <Text style={styles.legalNote}>
+              Al crear tu cuenta aceptas los{' '}
+              <Text style={styles.legalLink} onPress={() => navigation?.navigate?.('Legal', { doc: 'terms' })}>
+                Términos y condiciones
+              </Text>{' '}
+              y el{' '}
+              <Text style={styles.legalLink} onPress={() => navigation?.navigate?.('Legal', { doc: 'privacy' })}>
+                Aviso de privacidad
+              </Text>.
+            </Text>
+
             <View style={styles.footer}>
               <Text style={styles.footerText}>{t('auth.register.already_account')}</Text>
               <Pressable onPress={() => navigation?.navigate?.('Login')}>
@@ -574,6 +586,11 @@ const styles = StyleSheet.create({
   footer:     { flexDirection: 'row', justifyContent: 'center', marginTop: 24 },
   footerText: { fontFamily: FONTS.body, fontSize: 14, color: COLORS.muted2 },
   footerLink: { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: COLORS.green },
+  legalNote: {
+    fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted2,
+    textAlign: 'center', lineHeight: 16, marginTop: 12, paddingHorizontal: 10,
+  },
+  legalLink: { fontFamily: FONTS.bodySemiBold, fontSize: 11, color: COLORS.green, textDecorationLine: 'underline' },
 
   // Success screen
   successContainer: { padding: SPACING.xl, alignItems: 'center', gap: 12 },

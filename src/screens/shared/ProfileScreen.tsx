@@ -828,6 +828,8 @@ export default function ProfileScreen({ navigation }: any) {
             )}
 
             <MenuItem icon="❓" label="Ayuda y soporte"      onPress={() => setSupportVisible(true)} />
+            <MenuItem icon="📜" label="Términos y condiciones" onPress={() => navigation.navigate('Legal', { doc: 'terms' })} />
+            <MenuItem icon="🔐" label="Aviso de privacidad"    onPress={() => navigation.navigate('Legal', { doc: 'privacy' })} />
           </View>
 
           {/* LOGOUT */}
