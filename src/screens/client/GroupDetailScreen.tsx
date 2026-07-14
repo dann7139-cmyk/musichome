@@ -4,6 +4,7 @@ import * as WebBrowser from 'expo-web-browser';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Animated,
   Image,
   Pressable,
@@ -653,6 +654,33 @@ export default function GroupDetailScreen({ route, navigation }: any) {
             );
           })()}
 
+          {/* 🚩 Reportar contenido — cierra el círculo del takedown (Términos §6) */}
+          <Pressable
+            style={styles.reportProfileLink}
+            hitSlop={8}
+            onPress={() => {
+              const send = async (reason: string) => {
+                const { data, error } = await supabase.rpc('report_group_content', {
+                  p_group_id: group.id,
+                  p_reason:   reason,
+                });
+                if (error || (data as any)?.ok === false) {
+                  Alert.alert('No se pudo enviar', (data as any)?.error ?? error?.message ?? 'Intenta de nuevo.');
+                  return;
+                }
+                Alert.alert('Reporte enviado', 'Gracias — nuestro equipo revisará este perfil.');
+              };
+              Alert.alert('🚩 Reportar este perfil', '¿Qué quieres reportar?', [
+                { text: 'Música o video que no es suyo (derechos de autor)', onPress: () => send('Posible infracción de derechos de autor en foto/video/música') },
+                { text: 'Contenido inapropiado', onPress: () => send('Contenido inapropiado en el perfil') },
+                { text: 'Información falsa', onPress: () => send('Información falsa o engañosa en el perfil') },
+                { text: 'Cancelar', style: 'cancel' },
+              ]);
+            }}
+          >
+            <Text style={styles.reportProfileText}>🚩 Reportar este perfil</Text>
+          </Pressable>
+
           <View style={{ height: 48 }} />
         </View>
       </ScrollView>
@@ -944,6 +972,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16, paddingVertical: 7,
   },
   profileAdBtnText: { fontFamily: FONTS.bodySemiBold, fontSize: 12, color: COLORS.green },
+  reportProfileLink: { alignSelf: 'center', marginTop: 18, paddingVertical: 6, paddingHorizontal: 14 },
+  reportProfileText: { fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted, textDecorationLine: 'underline' },
 
   // ── Trust / Garantía ──
   trustCard: {
