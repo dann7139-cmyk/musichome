@@ -572,16 +572,13 @@ export default function ClientReservationsScreen({ navigation, route }: any) {
             );
           })()}
 
-          {/* Soporte + guía + políticas, discretos al pie de la lista de eventos */}
-          <Pressable style={styles.supportFooter} hitSlop={8} onPress={() => openSupport()}>
-            <Text style={styles.supportFooterText}>💬 ¿Necesitas ayuda? Contacta a soporte</Text>
-          </Pressable>
+          {/* Pie: guía arriba, políticas en medio, soporte hasta abajo */}
           <Pressable
-            style={styles.policyFooter}
+            style={[styles.policyFooter, { marginTop: 24 }]}
             hitSlop={8}
             onPress={() => navigation.navigate('EventGuide', { role: 'client' })}
           >
-            <Text style={styles.policyFooterText}>❓ ¿Cómo funciona el evento?</Text>
+            <Text style={styles.guideFooterText}>❓ ¿Cómo funciona el evento?</Text>
           </Pressable>
           <Pressable
             style={styles.policyFooter}
@@ -589,6 +586,9 @@ export default function ClientReservationsScreen({ navigation, route }: any) {
             onPress={() => navigation.navigate('CancellationPolicy', { role: 'client' })}
           >
             <Text style={styles.policyFooterText}>📋 Políticas de cancelación</Text>
+          </Pressable>
+          <Pressable style={[styles.supportFooter, { marginTop: 4 }]} hitSlop={8} onPress={() => openSupport()}>
+            <Text style={styles.supportFooterText}>💬 ¿Necesitas ayuda? Contacta a soporte</Text>
           </Pressable>
         </ScrollView>
       </SafeAreaView>
@@ -1457,6 +1457,49 @@ function ReservationCard({ reservation: r, navigation, onUpdate, isReviewed, isJ
             <Share2 size={13} color={COLORS.muted2} />
             <Text style={styles.shareBtnText}>Compartir</Text>
           </Pressable>
+          {/* ⚠️ Reportar un problema → abre disputa (open_dispute, sql/483):
+              bloquea la liberación del pago y notifica a grupo + admin */}
+          {isPaidReservation && ['in_progress', 'completed'].includes(r.status) && (
+            <Pressable
+              style={styles.shareBtn}
+              onPress={() => {
+                const send = (reason: string) => {
+                  Alert.alert(
+                    '⚠️ Abrir un reporte',
+                    `Motivo: ${reason}\n\nEl pago del evento queda en pausa mientras Daricefy revisa el caso con la evidencia del temporizador (llegada GPS, inicio con tu PIN, descansos y duración). ¿Confirmas?`,
+                    [
+                      { text: 'Cancelar', style: 'cancel' },
+                      {
+                        text: 'Sí, reportar', style: 'destructive',
+                        onPress: async () => {
+                          const { data, error } = await supabase.rpc('open_dispute', {
+                            p_reservation_id: r.id,
+                            p_reason: reason,
+                          });
+                          if (error || (data as any)?.ok === false) {
+                            Alert.alert('No se pudo reportar', error?.message ?? 'Intenta de nuevo.');
+                            return;
+                          }
+                          Alert.alert(
+                            'Reporte enviado',
+                            'El grupo y el equipo de Daricefy fueron notificados. Te contactaremos con la resolución.',
+                          );
+                        },
+                      },
+                    ],
+                  );
+                };
+                Alert.alert('⚠️ Reportar un problema', '¿Qué pasó con tu evento?', [
+                  { text: 'El grupo no cumplió lo acordado', onPress: () => send('El grupo no cumplió lo acordado') },
+                  { text: 'Problema con el tiempo tocado',   onPress: () => send('Problema con el tiempo/duración tocada') },
+                  { text: 'Otro problema',                   onPress: () => send('Otro problema — contactar al cliente') },
+                  { text: 'Cancelar', style: 'cancel' },
+                ]);
+              }}
+            >
+              <Text style={styles.reportBtnText}>⚠️ Reportar</Text>
+            </Pressable>
+          )}
         </View>
       )}
     </View>
@@ -1633,6 +1676,7 @@ const styles = StyleSheet.create({
   supportFooterText: { fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.muted2, textDecorationLine: 'underline' },
   policyFooter:      { alignSelf: 'center', marginBottom: 12, paddingVertical: 4, paddingHorizontal: 14 },
   policyFooterText:  { fontFamily: FONTS.body, fontSize: 11.5, color: COLORS.muted, textDecorationLine: 'underline' },
+  guideFooterText:   { fontFamily: FONTS.bodySemiBold, fontSize: 12.5, color: COLORS.green, textDecorationLine: 'underline' },
 
   // ── Ticket button ──
   ticketBtn: {
@@ -1791,6 +1835,7 @@ const styles = StyleSheet.create({
     flex: 1, justifyContent: 'center',
   },
   shareBtnText: { fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.muted2 },
+  reportBtnText: { fontFamily: FONTS.bodyMedium, fontSize: 13, color: '#EF5350' },
 
   // Reprogramar
   rescheduleBtn: {

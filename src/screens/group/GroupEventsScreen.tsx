@@ -1023,16 +1023,13 @@ export default function GroupEventsScreen({ navigation }: any) {
             )
           )}
 
-          {/* Soporte + políticas, discretos al pie de la lista de eventos */}
-          <Pressable style={st.supportFooter} hitSlop={8} onPress={() => openSupport()}>
-            <Text style={st.supportFooterText}>💬 ¿Necesitas ayuda? Contacta a soporte</Text>
-          </Pressable>
+          {/* Pie: guía arriba, políticas en medio, soporte hasta abajo */}
           <Pressable
-            style={st.policyFooter}
+            style={[st.policyFooter, { marginTop: 24 }]}
             hitSlop={8}
             onPress={() => navigation.navigate('EventGuide', { role: 'group' })}
           >
-            <Text style={st.policyFooterText}>❓ ¿Cómo funciona el evento?</Text>
+            <Text style={st.guideFooterText}>❓ ¿Cómo funciona el evento?</Text>
           </Pressable>
           <Pressable
             style={st.policyFooter}
@@ -1040,6 +1037,9 @@ export default function GroupEventsScreen({ navigation }: any) {
             onPress={() => navigation.navigate('CancellationPolicy', { role: 'group' })}
           >
             <Text style={st.policyFooterText}>📋 Políticas de cancelación</Text>
+          </Pressable>
+          <Pressable style={[st.supportFooter, { marginTop: 4 }]} hitSlop={8} onPress={() => openSupport()}>
+            <Text style={st.supportFooterText}>💬 ¿Necesitas ayuda? Contacta a soporte</Text>
           </Pressable>
 
         </ScrollView>
@@ -1129,6 +1129,7 @@ const st = StyleSheet.create({
   supportFooterText: { fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.muted2, textDecorationLine: 'underline' },
   policyFooter:      { alignSelf: 'center', marginBottom: 12, paddingVertical: 4, paddingHorizontal: 14 },
   policyFooterText:  { fontFamily: FONTS.body, fontSize: 11.5, color: COLORS.muted, textDecorationLine: 'underline' },
+  guideFooterText:   { fontFamily: FONTS.bodySemiBold, fontSize: 12.5, color: COLORS.green, textDecorationLine: 'underline' },
 
   // Contenedor vertical estilo ExpressCard: mapa arriba (opcional) + fila de contenido
   card: {

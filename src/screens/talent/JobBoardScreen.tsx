@@ -991,6 +991,15 @@ export default function TalentJobBoardScreen({ navigation }: any) {
             ))
           )}
 
+          {/* ❓ Guía del evento — el talento ve el flujo del grupo */}
+          <Pressable
+            style={s.guideFooter}
+            hitSlop={8}
+            onPress={() => navigation.navigate('EventGuide', { role: 'group' })}
+          >
+            <Text style={s.guideFooterText}>❓ ¿Cómo funciona el evento?</Text>
+          </Pressable>
+
         </ScrollView>
       </SafeAreaView>
     </View>
@@ -1363,6 +1372,8 @@ const s = StyleSheet.create({
   groupStat:      { flex: 1, alignItems: 'center', gap: 3 },
   groupStatValue: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.text },
   groupStatLabel: { fontFamily: FONTS.body, fontSize: 10, color: COLORS.muted },
+  guideFooter:     { alignSelf: 'center', marginTop: 20, marginBottom: 8, paddingVertical: 6, paddingHorizontal: 14 },
+  guideFooterText: { fontFamily: FONTS.bodySemiBold, fontSize: 12.5, color: COLORS.green, textDecorationLine: 'underline' },
   groupChatRow: { flexDirection: 'row', gap: 8, marginTop: 10 },
   groupChatBtn: {
     flex: 1, alignItems: 'center', paddingVertical: 9, borderRadius: RADIUS.full,

@@ -79,8 +79,9 @@ export default function EventGuideScreen({ route, navigation }: any) {
                 registrada — es tu protección contra reclamos de "no llegó".
               </Step>
               <Step n={4} icon="🔢" title="Pide el PIN y elige descansos">
-                El cliente tiene un <B>PIN de inicio</B> en su app — pídeselo, elige el tipo de
-                descanso con él (por hora, único o sin descanso) y arranca el temporizador.
+                El cliente tiene su <B>PIN de inicio en el 🎟 Ticket de su evento</B> — pídeselo,
+                elige el tipo de descanso con él (por hora, único o sin descanso) y arranca el
+                temporizador.
               </Step>
               <Step n={5} icon="🎵" title="A tocar — los descansos son automáticos">
                 El temporizador marca cuándo tocar y cuándo descansar según lo elegido, y le
@@ -112,9 +113,9 @@ export default function EventGuideScreen({ route, navigation }: any) {
                 llegada queda registrada — es tu protección.
               </Step>
               <Step n={4} icon="🔢" title="Tú das el PIN de inicio">
-                En tu evento aparece un <B>PIN de 4 dígitos</B>: dáselo al grupo cuando estén
-                listos para empezar. Solo con tu PIN arranca el temporizador —{' '}
-                <B>no lo compartas antes</B>.
+                Tu PIN de 4 dígitos está en <B>Mis Eventos → botón 🎟 Ticket</B> de tu evento
+                pagado. Dáselo al grupo cuando estén listos para empezar — solo con tu PIN
+                arranca el temporizador, <B>no lo compartas antes</B>.
               </Step>
               <Step n={5} icon="⏱️" title="El temporizador corre">
                 Ves en vivo el tiempo tocado y los descansos del grupo (la app te avisa cuándo
