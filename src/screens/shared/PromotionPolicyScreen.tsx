@@ -24,7 +24,12 @@ function Card({ icon, title, children }: { icon: string; title: string; children
   );
 }
 
-export default function PromotionPolicyScreen({ navigation }: any) {
+export default function PromotionPolicyScreen({ route, navigation }: any) {
+  // Cada rol ve SOLO sus productos: el cliente no lee sobre Bidding,
+  // Destacado, ranking ni sanciones de grupos — eso es del grupo.
+  const role: 'client' | 'group' = route?.params?.role === 'group' ? 'group' : 'client';
+  const isGroup = role === 'group';
+
   return (
     <View style={s.root}>
       <SafeAreaView edges={['top']} style={{ flex: 1 }}>
@@ -33,8 +38,8 @@ export default function PromotionPolicyScreen({ navigation }: any) {
             <ArrowLeft size={20} color={COLORS.text} />
           </Pressable>
           <View style={{ flex: 1 }}>
-            <Text style={s.headerTitle}>Políticas de promoción</Text>
-            <Text style={s.headerSub}>Aplican a todos los productos de publicidad</Text>
+            <Text style={s.headerTitle}>Políticas de publicidad</Text>
+            <Text style={s.headerSub}>{isGroup ? 'Para grupos' : 'Para anunciantes'}</Text>
           </View>
         </View>
 
@@ -43,18 +48,30 @@ export default function PromotionPolicyScreen({ navigation }: any) {
           <View style={s.introCard}>
             <Text style={s.introTitle}>📢 Una sola política, todos los productos</Text>
             <Text style={s.introText}>
-              Lo aquí descrito aplica por igual a <Text style={s.bold}>Bidding, Recomendado,
-              Destacado, Banner Home y Anuncio en Perfil</Text>, y a cualquier producto de
-              promoción que se agregue en el futuro.
+              {isGroup ? (
+                <>Lo aquí descrito aplica por igual a <Text style={s.bold}>Bidding, Recomendado,
+                Destacado, Banner Home y Anuncio en Perfil</Text>, y a cualquier producto de
+                promoción que se agregue en el futuro.</>
+              ) : (
+                <>Lo aquí descrito aplica por igual a <Text style={s.bold}>Banner Home y Anuncio
+                en Perfil</Text>, y a cualquier producto de publicidad que se agregue en el
+                futuro.</>
+              )}
             </Text>
           </View>
 
-          <Card icon="👁️" title="Qué compras: visibilidad, no contrataciones">
+          <Card icon="👁️" title="Qué compras: visibilidad, no resultados">
             <Text style={s.body}>
-              Los productos de promoción aumentan tu <Text style={s.bold}>exposición</Text> dentro
-              de la app durante el periodo contratado. No garantizan cotizaciones, contrataciones
-              ni resultados de negocio — eso depende de tu perfil, precios, reseñas y trato con
-              los clientes.
+              {isGroup ? (
+                <>Los productos de promoción aumentan tu <Text style={s.bold}>exposición</Text> dentro
+                de la app durante el periodo contratado. No garantizan cotizaciones, contrataciones
+                ni resultados de negocio — eso depende de tu perfil, precios, reseñas y trato con
+                los clientes.</>
+              ) : (
+                <>Tu anuncio se muestra dentro de la app durante el periodo contratado. La
+                publicidad compra <Text style={s.bold}>exposición</Text>, no garantiza clics,
+                ventas ni resultados de negocio.</>
+              )}
             </Text>
           </Card>
 
@@ -80,25 +97,40 @@ export default function PromotionPolicyScreen({ navigation }: any) {
             </Text>
           </Card>
 
-          <Card icon="⚖️" title="Juego limpio en el ranking">
-            <Text style={s.body}>
-              En <Text style={s.bold}>Bidding</Text> gana la puja más alta activa y las posiciones
-              pueden cambiar en cualquier momento si otro grupo puja más — es la naturaleza del
-              producto. Está prohibido manipular reseñas, crear perfiles falsos o cualquier
-              práctica para inflar artificialmente la posición: se sanciona con la cancelación de
-              las promociones activas sin reembolso y posible suspensión.
-            </Text>
-          </Card>
+          {isGroup && (
+            <Card icon="⚖️" title="Juego limpio en el ranking">
+              <Text style={s.body}>
+                En <Text style={s.bold}>Bidding</Text> gana la puja más alta activa y las posiciones
+                pueden cambiar en cualquier momento si otro grupo puja más — es la naturaleza del
+                producto. Está prohibido manipular reseñas, crear perfiles falsos o cualquier
+                práctica para inflar artificialmente la posición: se sanciona con la cancelación de
+                las promociones activas sin reembolso y posible suspensión.
+              </Text>
+            </Card>
+          )}
 
-          <Card icon="🚨" title="Sanciones pesan más que promociones">
-            <Text style={s.body}>
-              Las sanciones por incumplimiento (cancelar eventos pagados, no presentarse,
-              strikes) <Text style={s.bold}>prevalecen sobre cualquier promoción activa</Text>: un
-              grupo con castigo de visibilidad baja al fondo del explorador aunque tenga una puja
-              o promoción vigente, sin derecho a reembolso por el periodo del castigo. Un grupo
-              suspendido pierde sus promociones activas.
-            </Text>
-          </Card>
+          {isGroup && (
+            <Card icon="🚨" title="Sanciones pesan más que promociones">
+              <Text style={s.body}>
+                Las sanciones por incumplimiento (cancelar eventos pagados, no presentarse,
+                strikes) <Text style={s.bold}>prevalecen sobre cualquier promoción activa</Text>: un
+                grupo con castigo de visibilidad baja al fondo del explorador aunque tenga una puja
+                o promoción vigente, sin derecho a reembolso por el periodo del castigo. Un grupo
+                suspendido pierde sus promociones activas.
+              </Text>
+            </Card>
+          )}
+
+          {!isGroup && (
+            <Card icon="©️" title="Derechos del contenido">
+              <Text style={s.body}>
+                Al pagar un anuncio declaras que las imágenes, videos y música que subes son
+                tuyos o cuentas con autorización para usarlos. Si un titular de derechos reclama,
+                el anuncio puede retirarse y la responsabilidad es de quien lo subió (ver
+                Términos y condiciones, sección de contenido).
+              </Text>
+            </Card>
+          )}
 
           <View style={s.legalCard}>
             <Text style={s.legalText}>

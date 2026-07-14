@@ -194,9 +194,9 @@ export default function PromocionarseScreen({ navigation }: any) {
         <Pressable
           style={s.policyLink}
           hitSlop={8}
-          onPress={() => navigation.navigate('PromotionPolicy')}
+          onPress={() => navigation.navigate('PromotionPolicy', { role: isGroup ? 'group' : 'client' })}
         >
-          <Text style={s.policyLinkText}>📋 Políticas de promoción</Text>
+          <Text style={s.policyLinkText}>📋 Políticas de publicidad</Text>
         </Pressable>
       </ScrollView>
     </SafeAreaView>

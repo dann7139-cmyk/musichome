@@ -49,12 +49,12 @@ function Terms() {
       <Section n="3" title="Lo que SÍ puedes hacer">
         Solicitar, cotizar, contratar y prestar servicios musicales dentro de la app; pagar y
         recibir pagos por los medios oficiales; calificar y ser calificado; comunicarte por los
-        chats de la app; promocionar tu grupo con los productos de publicidad.
+        chats de la app; contratar los productos de publicidad disponibles para tu rol.
       </Section>
 
       <Section n="4" title="Lo que NO puedes hacer">
         • Cerrar tratos <B>fuera de la app</B> para evadir la plataforma (compartir teléfonos o
-        redes en los chats con clientes está bloqueado y sancionado).{'\n'}
+        redes en los chats de eventos está bloqueado y sancionado).{'\n'}
         • Publicar información falsa, perfiles falsos o manipular reseñas.{'\n'}
         • Usar la app para actividades ilegales, fraude o suplantación.{'\n'}
         • Subir contenido del que no seas titular (ver sección 6).{'\n'}
