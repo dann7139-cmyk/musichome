@@ -2377,6 +2377,16 @@ export default function EventTimerScreen({ route, navigation }: any) {
             {eventFolio && (
               <Text style={st.folioChip}>{eventFolio}</Text>
             )}
+            {/* ❓ Guía del evento — mismo flujo para ambos, cada quien sus pasos */}
+            <Pressable
+              style={st.guideLink}
+              hitSlop={8}
+              onPress={() => navigation.navigate('EventGuide', {
+                role: (userRole === 'client') ? 'client' : 'group',
+              })}
+            >
+              <Text style={st.guideLinkTx}>❓ ¿Cómo funciona el evento?</Text>
+            </Pressable>
             <View style={st.infoRow}>
               <Clock size={15} color={COLORS.muted2} />
               <Text style={st.infoText}>
@@ -4219,6 +4229,8 @@ const st = StyleSheet.create({
   },
   supportRow:     { alignSelf: 'center', marginTop: 14, paddingVertical: 8, paddingHorizontal: 14 },
   supportRowText: { fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.muted2, textDecorationLine: 'underline' },
+  guideLink:   { alignSelf: 'center', marginBottom: 8, paddingVertical: 2, paddingHorizontal: 10 },
+  guideLinkTx: { fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted2, textDecorationLine: 'underline' },
   exactMap:      { width: '100%', height: 220, borderRadius: RADIUS.lg, overflow: 'hidden' },
 
   // ── Actions (Commit 4) ────────────────────────────────────

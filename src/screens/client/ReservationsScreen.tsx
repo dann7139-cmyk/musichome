@@ -572,9 +572,16 @@ export default function ClientReservationsScreen({ navigation, route }: any) {
             );
           })()}
 
-          {/* Soporte + políticas, discretos al pie de la lista de eventos */}
+          {/* Soporte + guía + políticas, discretos al pie de la lista de eventos */}
           <Pressable style={styles.supportFooter} hitSlop={8} onPress={() => openSupport()}>
             <Text style={styles.supportFooterText}>💬 ¿Necesitas ayuda? Contacta a soporte</Text>
+          </Pressable>
+          <Pressable
+            style={styles.policyFooter}
+            hitSlop={8}
+            onPress={() => navigation.navigate('EventGuide', { role: 'client' })}
+          >
+            <Text style={styles.policyFooterText}>❓ ¿Cómo funciona el evento?</Text>
           </Pressable>
           <Pressable
             style={styles.policyFooter}

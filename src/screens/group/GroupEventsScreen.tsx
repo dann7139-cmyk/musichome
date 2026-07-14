@@ -1030,6 +1030,13 @@ export default function GroupEventsScreen({ navigation }: any) {
           <Pressable
             style={st.policyFooter}
             hitSlop={8}
+            onPress={() => navigation.navigate('EventGuide', { role: 'group' })}
+          >
+            <Text style={st.policyFooterText}>❓ ¿Cómo funciona el evento?</Text>
+          </Pressable>
+          <Pressable
+            style={st.policyFooter}
+            hitSlop={8}
             onPress={() => navigation.navigate('CancellationPolicy', { role: 'group' })}
           >
             <Text style={st.policyFooterText}>📋 Políticas de cancelación</Text>

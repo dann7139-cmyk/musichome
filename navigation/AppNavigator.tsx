@@ -110,6 +110,7 @@ import AdvertisingPackagesScreen      from '../src/screens/client/AdvertisingPac
 import PromocionarseScreen from '../src/screens/shared/PromocionarseScreen';
 import PromotionPolicyScreen from '../src/screens/shared/PromotionPolicyScreen';
 import LegalScreen from '../src/screens/shared/LegalScreen';
+import EventGuideScreen from '../src/screens/shared/EventGuideScreen';
 
 // Shared
 import ProfileScreen from '../src/screens/shared/ProfileScreen';
@@ -1001,6 +1002,7 @@ export default function AppNavigator() {
             <Stack.Screen name="GroupChat"            component={GroupChatScreen} />
             <Stack.Screen name="CancellationPolicy"   component={CancellationPolicyScreen} />
             <Stack.Screen name="Legal"                component={LegalScreen} />
+            <Stack.Screen name="EventGuide"           component={EventGuideScreen} />
             <Stack.Screen name="Notifications"          component={NotificationsScreen} />
             <Stack.Screen name="Profile"               component={ProfileScreen} />
             <Stack.Screen name="EventPayouts"          component={EventPayoutsScreen} />
@@ -1039,6 +1041,7 @@ export default function AppNavigator() {
             <Stack.Screen name="EventTimer"              component={EventTimerScreen} />
             <Stack.Screen name="GroupChat"               component={GroupChatScreen} />
             <Stack.Screen name="Legal"                   component={LegalScreen} />
+            <Stack.Screen name="EventGuide"              component={EventGuideScreen} />
             <Stack.Screen name="TalentStats"             component={TalentStatsScreen} />
             <Stack.Screen name="GroupQuotes"             component={GroupQuotesScreen} />
             <Stack.Screen name="GroupQuoteDetail"        component={GroupQuoteDetailScreen} />
@@ -1070,6 +1073,7 @@ export default function AppNavigator() {
             <Stack.Screen name="CancellationPolicy" component={CancellationPolicyScreen} />
             <Stack.Screen name="PromotionPolicy"    component={PromotionPolicyScreen} />
             <Stack.Screen name="Legal"              component={LegalScreen} />
+            <Stack.Screen name="EventGuide"         component={EventGuideScreen} />
             <Stack.Screen name="QuoteForm"          component={QuoteFormScreen} />
             <Stack.Screen name="ClientQuoteDetail"  component={ClientQuoteDetailScreen} />
             <Stack.Screen name="QuotePayment"        component={QuotePaymentScreen} />
