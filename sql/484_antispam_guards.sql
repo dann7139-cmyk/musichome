@@ -148,9 +148,9 @@ BEGIN
 END;
 $$;
 
-DROP TRIGGER IF EXISTS trg_guard_event_request_spam ON event_requests;
+DROP TRIGGER IF EXISTS trg_guard_event_request_spam ON public.event_requests;
 CREATE TRIGGER trg_guard_event_request_spam
-  BEFORE INSERT ON event_requests
+  BEFORE INSERT ON public.event_requests
   FOR EACH ROW
   EXECUTE FUNCTION public.guard_event_request_spam();
 
@@ -187,9 +187,9 @@ BEGIN
 END;
 $$;
 
-DROP TRIGGER IF EXISTS trg_guard_quote_spam ON quotes;
+DROP TRIGGER IF EXISTS trg_guard_quote_spam ON public.quotes;
 CREATE TRIGGER trg_guard_quote_spam
-  BEFORE INSERT ON quotes
+  BEFORE INSERT ON public.quotes
   FOR EACH ROW
   EXECUTE FUNCTION public.guard_quote_spam();
 
