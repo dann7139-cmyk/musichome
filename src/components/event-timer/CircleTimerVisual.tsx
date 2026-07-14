@@ -795,7 +795,7 @@ export function CircleTimerVisual({
       {state === 'break' && renderSteam(size, palette.rgb, size * 0.68)}
       {state === 'completed' && renderConfetti(size)}
       {state === 'completed' && renderInnerSparks(size)}
-      {state === 'live' && renderLiveNotes(size, palette.accent)}
+      {(state === 'live' || state === 'pre_event') && renderLiveNotes(size, palette.accent)}
       {state === 'extra_hours' && renderCoins(size, palette.accent)}
 
       <View
@@ -851,7 +851,18 @@ function renderStateEffects(
 ) {
   switch (state) {
     case 'pre_event':
-      return <PinPulse size={size} rgb={palette.rgb} />;
+      // Mismo efecto que 'live' (ondas + orbe + notas) pero en GRIS —
+      // el evento aún no empieza, pero el anillo ya se siente vivo.
+      return (
+        <>
+          <PulsatingWave size={size} color={`rgba(${palette.rgb}, 0.85)`} delay={0} duration={4200} startOpacity={0.8} />
+          <PulsatingWave size={size} color={`rgba(${palette.rgb}, 0.85)`} delay={1400} duration={4200} startOpacity={0.8} />
+          <PulsatingWave size={size} color={`rgba(${palette.rgb}, 0.85)`} delay={2800} duration={4200} startOpacity={0.8} />
+          <View style={styles.absoluteCenter} pointerEvents="none">
+            <BreathingOrb size={size * 0.56} rgb={palette.rgb} duration={3500} centerOpacity={0.22} />
+          </View>
+        </>
+      );
 
     case 'live':
       return (
