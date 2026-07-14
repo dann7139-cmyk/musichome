@@ -408,10 +408,16 @@ export default function QuoteFormScreen({ route, navigation }: any) {
 
     if (error) {
       console.error('🔴 INSERT quote ERROR:', error);
-      Alert.alert(
-        'Error detallado',
-        `Code: ${error.code ?? '—'}\nMessage: ${error.message ?? '—'}\nDetails: ${error.details ?? '—'}\nHint: ${error.hint ?? '—'}`,
-      );
+      // Guards anti-spam (sql/484) lanzan mensajes legibles — mostrarlos limpios
+      const emsg = error.message ?? '';
+      if (emsg.includes('cotizaciones') || emsg.includes('límite') || emsg.includes('limite')) {
+        Alert.alert('🛑 Espera un momento', emsg);
+      } else {
+        Alert.alert(
+          'Error detallado',
+          `Code: ${error.code ?? '—'}\nMessage: ${emsg || '—'}\nDetails: ${error.details ?? '—'}\nHint: ${error.hint ?? '—'}`,
+        );
+      }
     } else {
       // Notificar al grupo
       const { data: groupData } = await supabase
