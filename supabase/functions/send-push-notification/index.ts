@@ -59,6 +59,8 @@ interface ExpoMessage {
   data?: Record<string, unknown>;
   sound: 'default';
   badge?: number;
+  priority?:  'default' | 'normal' | 'high';
+  channelId?: string;
 }
 
 // ── Push providers ────────────────────────────────────────────────────────────
@@ -184,6 +186,10 @@ Deno.serve(async (req) => {
             body:  resolvedBody,
             data:  { ...(notif.data ?? {}), type: notif.type },
             sound: 'default',
+            // Entrega inmediata con la app CERRADA: APNs/FCM despiertan el
+            // dispositivo + canal Android 'default' (importance MAX en el hook)
+            priority:  'high',
+            channelId: 'default',
           });
         } else {
           await sendFcmMessage(token, notif);
