@@ -284,7 +284,7 @@ export default function AdminTicketSearchScreen({ navigation, route }: any) {
                 onPress={async () => {
                   const { data } = await supabase
                     .from('reservations')
-                    .select('*, group:groups(name, profile_image), quote:quotes!left(event_type, duration_hours), hours_count')
+                    .select('*, group:groups(name, profile_image), client:profiles!client_id(full_name), quote:quotes!left(event_type, duration_hours), hours_count')
                     .eq('id', r.id).maybeSingle();
                   if (data) navigation.navigate('Ticket', { reservation: data });
                 }}

@@ -168,10 +168,13 @@ export default function TicketScreen({ navigation, route }: any) {
   const { reservation: r, senderName } = route.params as { reservation: any; senderName?: string };
 
   const ticketRef = useRef<View>(null);
-  // Caja de regalo: si la reserva ES regalo, el ticket entra en modo regalo
-  // automáticamente con el destinatario y el mensaje reales.
-  const [giftMode, setGiftMode] = useState(!!r.is_gift);
-  const [giftFrom, setGiftFrom] = useState(senderName ?? '');
+  // Caja de regalo: si la reserva ES regalo (el cliente lo marcó al comprar),
+  // el ticket sale ARMADO — De/Para/mensaje reales, sin nada que editar
+  // (el admin solo lo descarga). El toggle manual queda solo para
+  // reservas normales que el cliente quiera regalar después.
+  const isRealGift = !!r.is_gift;
+  const [giftMode, setGiftMode] = useState(isRealGift);
+  const [giftFrom, setGiftFrom] = useState(senderName ?? r.client?.full_name ?? '');
   const [giftTo,   setGiftTo]   = useState(r.gift_recipient_name ?? '');
   const [saving,   setSaving]   = useState(false);
 
@@ -246,7 +249,10 @@ export default function TicketScreen({ navigation, route }: any) {
 
         <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
 
-          {/* Toggle modo regalo */}
+          {/* Toggle modo regalo — solo para reservas que NO son regalo de
+              origen (las de regalo ya vienen armadas del cliente) */}
+          {!isRealGift && (
+          <>
           <View style={s.giftToggle}>
             <Gift size={16} color={giftMode ? GOLD : TEXT_MUTED} />
             <Text style={[s.giftToggleLabel, giftMode && { color: GOLD }]}>Modo regalo</Text>
@@ -258,7 +264,7 @@ export default function TicketScreen({ navigation, route }: any) {
             />
           </View>
 
-          {/* Campos De / Para (solo en modo regalo) */}
+          {/* Campos De / Para (solo en modo regalo manual) */}
           {giftMode && (
             <View style={s.giftFields}>
               <View style={s.giftFieldRow}>
@@ -282,6 +288,8 @@ export default function TicketScreen({ navigation, route }: any) {
                 />
               </View>
             </View>
+          )}
+          </>
           )}
 
           {/* ════════ TICKET (captureable, con marco holográfico) ════════ */}
