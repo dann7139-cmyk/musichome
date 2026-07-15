@@ -81,10 +81,28 @@ function DashedLine() {
   );
 }
 
+// Línea de rasgado con MUESCAS laterales (los medios círculos oscuros de
+// los boletos de verdad — el overflow:hidden del ticket los recorta a la
+// mitad justo en la orilla)
 function Perforation() {
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', marginHorizontal: 0, marginVertical: 8 }}>
+    <View style={{ flexDirection: 'row', alignItems: 'center', marginVertical: 10, position: 'relative' }}>
+      <View style={s.sideNotch} />
       <DashedLine />
+      <View style={[s.sideNotch, { left: undefined, right: -32 }]} />
+    </View>
+  );
+}
+
+// Orilla superior/inferior "recortada" tipo boleto de imprenta: fila de
+// medios círculos oscuros mordiendo el borde blanco
+function ScallopEdge({ position }: { position: 'top' | 'bottom' }) {
+  return (
+    <View
+      pointerEvents="none"
+      style={[s.scallops, position === 'top' ? { top: -7 } : { bottom: -7 }]}
+    >
+      {Array.from({ length: 16 }, (_, i) => <View key={i} style={s.scallopDot} />)}
     </View>
   );
 }
@@ -279,6 +297,9 @@ export default function TicketScreen({ navigation, route }: any) {
             style={s.ticket}
             collapsable={false}
           >
+            {/* Orillas recortadas tipo boleto */}
+            <ScallopEdge position="top" />
+            <ScallopEdge position="bottom" />
             {/* Esquinas doradas */}
             <View style={[s.corner, { top: 12, left: 12, borderRightWidth: 0, borderBottomWidth: 0, borderTopLeftRadius: 4 }]} />
             <View style={[s.corner, { top: 12, right: 12, borderLeftWidth: 0, borderBottomWidth: 0, borderTopRightRadius: 4 }]} />
@@ -373,8 +394,9 @@ export default function TicketScreen({ navigation, route }: any) {
             {/* Perforación */}
             <Perforation />
 
-            {/* Código de barras decorativo + footer */}
+            {/* Código de barras decorativo (generado del folio) + folio */}
             <Barcode seed={folio} />
+            <Text style={s.barcodeCaption}>#{folio}</Text>
             <View style={s.ticketFoot}>
               <Text style={s.footerMain}>Daricefy — La música está en tus manos</Text>
               <Text style={s.footerSub}>daricefy.com  ·  ✅ Reservación confirmada</Text>
@@ -460,9 +482,11 @@ const s = StyleSheet.create({
     borderBottomWidth: 1, borderColor: GOLD_BORDER, paddingVertical: 6,
   },
 
-  // 🌈 Marco holográfico (verde → cian → azul) — envuelve el ticket blanco
+  // 🌈 Marco holográfico (verde → cian → azul) — envuelve el ticket blanco.
+  // Angosto y centrado, proporción de boleto real (no cuadrado).
   holoFrame: {
     borderRadius: 24, padding: 7, marginBottom: 16,
+    alignSelf: 'center', width: '94%', maxWidth: 360,
     shadowColor: '#22D3EE', shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.35, shadowRadius: 16, elevation: 10,
   },
@@ -470,7 +494,23 @@ const s = StyleSheet.create({
   // Ticket card (fondo blanco)
   ticket: {
     borderRadius: 18, borderWidth: 1, borderColor: T_BORDER,
-    paddingHorizontal: 20, paddingTop: 14, paddingBottom: 14, overflow: 'hidden',
+    paddingHorizontal: 18, paddingTop: 18, paddingBottom: 18, overflow: 'hidden',
+  },
+
+  // Orillas recortadas (medios círculos oscuros mordiendo el blanco)
+  scallops: {
+    position: 'absolute', left: 0, right: 0, zIndex: 3,
+    flexDirection: 'row', justifyContent: 'space-evenly',
+  },
+  scallopDot: { width: 13, height: 13, borderRadius: 7, backgroundColor: OUTER_BG },
+  // Muescas laterales en la línea de rasgado
+  sideNotch: {
+    position: 'absolute', left: -32, width: 26, height: 26,
+    borderRadius: 13, backgroundColor: OUTER_BG, zIndex: 3,
+  },
+  barcodeCaption: {
+    fontFamily: FONTS.bodyMedium, fontSize: 10, color: T_MUTED,
+    textAlign: 'center', letterSpacing: 2, marginTop: 4,
   },
 
   // Corner accents
