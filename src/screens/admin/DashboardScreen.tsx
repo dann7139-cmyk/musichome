@@ -929,7 +929,14 @@ export default function AdminDashboardScreen({ navigation }: any) {
                                 const pts: string[] = [];
                                 if (ns.event_lat != null)   pts.push(`Evento: https://www.google.com/maps/search/?api=1&query=${ns.event_lat},${ns.event_lng}`);
                                 if (ns.transit_lat != null) pts.push(`Último punto del grupo${ns.transit_updated_at ? ` (${new Date(ns.transit_updated_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })})` : ''}: https://www.google.com/maps/search/?api=1&query=${ns.transit_lat},${ns.transit_lng}`);
-                                Alert.alert('🗺️ Evidencia GPS', '¿Qué punto quieres ver en el mapa?', [
+                                Alert.alert('🗺️ Evidencia GPS', '¿Qué quieres ver en el mapa?', [
+                                  // La prueba clave: distancia entre el último punto del grupo y el evento
+                                  ...(ns.event_lat != null && ns.transit_lat != null ? [{
+                                    text: '⚖️ Comparar: rastro del grupo → evento',
+                                    onPress: () => Linking.openURL(
+                                      `https://www.google.com/maps/dir/?api=1&origin=${ns.transit_lat},${ns.transit_lng}&destination=${ns.event_lat},${ns.event_lng}`
+                                    ),
+                                  }] : []),
                                   ...(ns.event_lat != null ? [{ text: '📍 Lugar del evento', onPress: () => Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${ns.event_lat},${ns.event_lng}`) }] : []),
                                   ...(ns.transit_lat != null ? [{ text: '🚐 Último punto del grupo', onPress: () => Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${ns.transit_lat},${ns.transit_lng}`) }] : []),
                                   { text: 'Cerrar', style: 'cancel' },
