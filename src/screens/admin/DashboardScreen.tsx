@@ -451,10 +451,20 @@ export default function AdminDashboardScreen({ navigation }: any) {
           ),
         },
         {
-          text: '❌ Cerrar sin acción',
-          style: 'cancel',
-          onPress: () => resolveNoShow(ns.id, ns.group_id, 'reviewed', false),
+          // Archivar SÍ resuelve (lo saca de la cola al historial) — con
+          // confirmación, porque antes "Cerrar sin acción" archivaba en
+          // silencio y parecía que solo cerraba la ventana.
+          text: '📁 Archivar (revisado, sin acción)',
+          onPress: () => Alert.alert(
+            'Archivar no-show',
+            'Se marcará como revisado y pasará al historial. No habrá reembolso ni strike.',
+            [
+              { text: 'Cancelar', style: 'cancel' },
+              { text: 'Archivar', onPress: () => resolveNoShow(ns.id, ns.group_id, 'reviewed', false) },
+            ]
+          ),
         },
+        { text: 'Cerrar', style: 'cancel' },
       ]
     );
   };
@@ -906,6 +916,29 @@ export default function AdminDashboardScreen({ navigation }: any) {
                           <Text style={s.noShowMeta}>
                             ${(ns.total_price ?? 0).toLocaleString('es-MX', { maximumFractionDigits: 0 })} {ns.currency ?? 'MXN'}  ·  payout: {ns.payout_status}{ns.has_strike ? '  · ⚡ Strike previo' : ''}
                           </Text>
+                          {/* 🗺️ Evidencia GPS (sql/487): rastro, PIN y llegada */}
+                          <Text style={s.noShowMeta}>
+                            🚐 En camino: {ns.group_en_route_at ? '✅ sí' : '✖️ no'}
+                            {'  ·  '}🔢 Inició con PIN: {ns.event_started_at ? '✅ sí' : '✖️ no'}
+                            {'  ·  '}📍 Llegada: {ns.group_arrived_at ? (ns.arrival_gps_verified ? '✅ GPS' : '⚠️ sin GPS') : '✖️ no'}
+                          </Text>
+                          {(ns.transit_lat != null || ns.event_lat != null) && (
+                            <Pressable
+                              hitSlop={6}
+                              onPress={() => {
+                                const pts: string[] = [];
+                                if (ns.event_lat != null)   pts.push(`Evento: https://www.google.com/maps/search/?api=1&query=${ns.event_lat},${ns.event_lng}`);
+                                if (ns.transit_lat != null) pts.push(`Último punto del grupo${ns.transit_updated_at ? ` (${new Date(ns.transit_updated_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })})` : ''}: https://www.google.com/maps/search/?api=1&query=${ns.transit_lat},${ns.transit_lng}`);
+                                Alert.alert('🗺️ Evidencia GPS', '¿Qué punto quieres ver en el mapa?', [
+                                  ...(ns.event_lat != null ? [{ text: '📍 Lugar del evento', onPress: () => Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${ns.event_lat},${ns.event_lng}`) }] : []),
+                                  ...(ns.transit_lat != null ? [{ text: '🚐 Último punto del grupo', onPress: () => Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${ns.transit_lat},${ns.transit_lng}`) }] : []),
+                                  { text: 'Cerrar', style: 'cancel' },
+                                ]);
+                              }}
+                            >
+                              <Text style={s.gpsEvidenceLink}>🗺️ Ver evidencia GPS en el mapa</Text>
+                            </Pressable>
+                          )}
                           {renderPhones(ns)}
                         </View>
                         <View style={s.noShowActions}>
@@ -1150,6 +1183,7 @@ const s = StyleSheet.create({
   noShowFolio:   { fontFamily: FONTS.bodySemiBold, fontSize: 12, color: COLORS.text },
   noShowGroup:   { fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.text, marginTop: 2 },
   noShowMeta:    { fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted2, marginTop: 1 },
+  gpsEvidenceLink: { fontFamily: FONTS.bodyMedium, fontSize: 11, color: COLORS.green, textDecorationLine: 'underline', marginTop: 3 },
   noShowActions: { flexDirection: 'row', gap: 6 },
   resolveBtn: {
     backgroundColor: 'rgba(0,230,118,0.10)', borderRadius: RADIUS.md,
