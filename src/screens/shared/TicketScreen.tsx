@@ -1,16 +1,16 @@
 /**
  * TicketScreen — Ticket premium con código de inicio y modo regalo.
  */
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator, Alert, Image, Pressable,
+  ActivityIndicator, Alert, Animated, Image, Pressable,
   ScrollView, Share, StyleSheet, Switch, Text, TextInput, View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { captureRef } from 'react-native-view-shot';
 import * as MediaLibrary from 'expo-media-library';
-import { ArrowLeft, Download, Gift, Share2 } from 'lucide-react-native';
+import { ArrowLeft, Calendar, Clock, CreditCard, Download, Gift, Music2, Share2 } from 'lucide-react-native';
 import { FONTS } from '../../config/theme';
 
 // ── Tokens de diseño ──────────────────────────────────────────────────────────
@@ -20,10 +20,11 @@ const CARD_BG     = '#080F1C';   // para outer/botones
 // El marco y los acentos van en degradado verde → cian → azul, como los
 // tickets iridiscentes de imprenta.
 const GOLD        = '#00B8D9';   // acento principal (cian) — mismo nombre para no tocar 40 refs
-const GOLD_LIGHT  = '#00E676';
+const GOLD_LIGHT  = '#00D26A';
 const GOLD_DIM    = 'rgba(0,184,217,0.10)';
 const GOLD_BORDER = 'rgba(0,184,217,0.30)';
-const HOLO_FRAME  = ['#00E676', '#4ADE80', '#22D3EE', '#3B82F6', '#22D3EE', '#00E676'] as const;
+// Tornasol premium (brief 2026): verde → turquesa → azul, sin exagerar
+const HOLO_FRAME  = ['#00D26A', '#00D9FF', '#2563FF'] as const;
 const HOLO_STOPS  = ['#00A651', '#00B8A9', '#0891B2', '#2563EB'];   // texto holo (legible en blanco)
 const TEXT_MAIN   = '#E8EDF5';   // texto fuera del ticket
 const TEXT_MUTED  = '#5A6A8A';
@@ -125,10 +126,13 @@ function HoloText({ text, style }: { text: string; style?: any }) {
   );
 }
 
+// Sobre fondo oscuro los tonos van BRILLANTES (verde → cian → azul)
+const HOLO_BRIGHT = ['#00E676', '#00D9FF', '#22A7FF', '#5B8CFF'];
+
 function DigitBox({ digit, index }: { digit: string; index?: number }) {
-  const holo = HOLO_STOPS[Math.min(HOLO_STOPS.length - 1, (index ?? 0))];
+  const holo = HOLO_BRIGHT[Math.min(HOLO_BRIGHT.length - 1, (index ?? 0))];
   return (
-    <View style={[s.digitBox, { borderColor: holo }]}>
+    <View style={[s.digitBox, { borderColor: `${holo}55` }]}>
       <Text style={[s.digitText, { color: holo }]}>{digit}</Text>
     </View>
   );
@@ -161,6 +165,12 @@ export default function TicketScreen({ navigation, route }: any) {
 
   const giftMsg  = r.gift_message ?? '';
   const location = r.event_city ?? r.city ?? r.event_municipio ?? r.address ?? null;
+
+  // ✨ Entrada premium: fade in + slide up 350 ms (brief 2026)
+  const appear = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(appear, { toValue: 1, duration: 350, useNativeDriver: true }).start();
+  }, [appear]);
 
   const groupName  = r.group?.name ?? 'Grupo musical';
   const genre      = r.group?.genre ?? null;
@@ -237,6 +247,12 @@ export default function TicketScreen({ navigation, route }: any) {
         </View>
 
         <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
+          <Animated.View
+            style={{
+              opacity: appear,
+              transform: [{ translateY: appear.interpolate({ inputRange: [0, 1], outputRange: [24, 0] }) }],
+            }}
+          >
 
           {/* Toggle modo regalo — solo para reservas que NO son regalo de
               origen (las de regalo ya vienen armadas del cliente) */}
@@ -327,17 +343,23 @@ export default function TicketScreen({ navigation, route }: any) {
             {/* Línea dorada */}
             <View style={s.goldRule} />
 
-            {/* Foto del grupo */}
+            {/* Foto del grupo — aro con degradado verde-azul */}
             <View style={s.photoWrap}>
-              {photoUri ? (
-                <View style={s.photoRing}>
-                  <Image source={{ uri: photoUri }} style={s.photo} />
+              <LinearGradient
+                colors={HOLO_FRAME as any}
+                start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+                style={s.photoGradRing}
+              >
+                <View style={s.photoInner}>
+                  {photoUri ? (
+                    <Image source={{ uri: photoUri }} style={s.photo} />
+                  ) : (
+                    <View style={s.photoPlaceholder}>
+                      <Text style={{ fontSize: 40 }}>🎵</Text>
+                    </View>
+                  )}
                 </View>
-              ) : (
-                <View style={[s.photoRing, s.photoPlaceholder]}>
-                  <Text style={{ fontSize: 40 }}>🎵</Text>
-                </View>
-              )}
+              </LinearGradient>
             </View>
 
             {/* Nombre y género */}
@@ -355,22 +377,31 @@ export default function TicketScreen({ navigation, route }: any) {
 
             {/* Detalles del evento — grid tipo boleto (sin lugar: el cliente
                 ya sabe dónde es). FECHA | HORA arriba, TOCADA | TOTAL abajo. */}
-            <View style={s.infoGrid}>
+            <Pressable style={({ pressed }) => [s.infoGrid, pressed && s.cardPressed]}>
               <View style={s.infoCell}>
-                <Text style={s.infoLabel}>📅  FECHA</Text>
+                <View style={s.infoLabelRow}>
+                  <Calendar size={11} color="#2563FF" strokeWidth={2.2} />
+                  <Text style={s.infoLabel}>FECHA</Text>
+                </View>
                 <Text style={s.infoBig}>{dateShort}</Text>
               </View>
               <View style={s.infoDivV} />
               <View style={s.infoCell}>
-                <Text style={s.infoLabel}>🕐  HORA DE INICIO</Text>
+                <View style={s.infoLabelRow}>
+                  <Clock size={11} color="#00A651" strokeWidth={2.2} />
+                  <Text style={s.infoLabel}>HORA DE INICIO</Text>
+                </View>
                 <Text style={s.infoBig}>{time}</Text>
               </View>
-            </View>
+            </Pressable>
             {(!!duration || (!giftMode && !!price)) && (
-              <View style={[s.infoGrid, { marginTop: 8 }]}>
+              <Pressable style={({ pressed }) => [s.infoGrid, { marginTop: 10 }, pressed && s.cardPressed]}>
                 {!!duration && (
                   <View style={s.infoCell}>
-                    <Text style={s.infoLabel}>🎵  HORAS DE TOCADA</Text>
+                    <View style={s.infoLabelRow}>
+                      <Music2 size={11} color="#00A651" strokeWidth={2.2} />
+                      <Text style={s.infoLabel}>HORAS DE TOCADA</Text>
+                    </View>
                     <Text style={s.infoBig}>{duration}</Text>
                   </View>
                 )}
@@ -378,12 +409,15 @@ export default function TicketScreen({ navigation, route }: any) {
                   <>
                     <View style={s.infoDivV} />
                     <View style={s.infoCell}>
-                      <Text style={s.infoLabel}>💳  TOTAL</Text>
+                      <View style={s.infoLabelRow}>
+                        <CreditCard size={11} color="#2563FF" strokeWidth={2.2} />
+                        <Text style={s.infoLabel}>TOTAL</Text>
+                      </View>
                       <HoloText text={price} style={s.infoBigHolo} />
                     </View>
                   </>
                 )}
-              </View>
+              </Pressable>
             )}
 
             {/* Perforación */}
@@ -446,6 +480,7 @@ export default function TicketScreen({ navigation, route }: any) {
             <Text style={s.shareText}>Compartir ticket</Text>
           </Pressable>
 
+          </Animated.View>
         </ScrollView>
       </SafeAreaView>
     </LinearGradient>
@@ -525,21 +560,21 @@ const s = StyleSheet.create({
   },
   cutDot: { width: 12, height: 12, borderRadius: 6, backgroundColor: OUTER_BG },
 
-  // Corner accents
+  // Esquinas minimalistas tipo escáner — muy delgadas, verdes
   corner: {
-    position: 'absolute', width: 14, height: 14,
-    borderColor: T_GREEN, borderWidth: 1.5,
+    position: 'absolute', width: 18, height: 18,
+    borderColor: '#00D26A', borderWidth: 1.2,
   },
 
-  // Ticket head
-  ticketHead: { alignItems: 'center', paddingTop: 4, marginBottom: 8 },
+  // Ticket head — jerarquía premium
+  ticketHead: { alignItems: 'center', paddingTop: 6, marginBottom: 14 },
   appLogo: {
-    fontFamily: FONTS.title, fontSize: 16, color: T_TEXT,
-    letterSpacing: 6, includeFontPadding: false,
+    fontFamily: FONTS.title, fontSize: 27, color: T_TEXT,
+    letterSpacing: 7, includeFontPadding: false,
   },
   appSub: {
-    fontFamily: FONTS.body, fontSize: 9, color: T_MUTED,
-    letterSpacing: 2.5, marginTop: 3,
+    fontFamily: FONTS.bodyMedium, fontSize: 10.5, color: T_MUTED,
+    letterSpacing: 3, marginTop: 6,
   },
   countryChip: {
     marginTop: 7, paddingHorizontal: 10, paddingVertical: 3,
@@ -556,24 +591,26 @@ const s = StyleSheet.create({
     height: 1, backgroundColor: T_BORDER, marginBottom: 12,
   },
 
-  // Photo
-  photoWrap: { alignItems: 'center', marginBottom: 8 },
-  photoRing: {
-    width: 86, height: 86, borderRadius: 43,
-    borderWidth: 2, borderColor: GOLD,
-    overflow: 'hidden',
-    shadowColor: GOLD, shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.35, shadowRadius: 8, elevation: 5,
+  // Photo — aro degradado verde-azul con sombra ligera
+  photoWrap: { alignItems: 'center', marginBottom: 12 },
+  photoGradRing: {
+    width: 104, height: 104, borderRadius: 52, padding: 3,
+    shadowColor: '#00D9FF', shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.30, shadowRadius: 10, elevation: 6,
+  },
+  photoInner: {
+    flex: 1, borderRadius: 49, overflow: 'hidden',
+    borderWidth: 2.5, borderColor: T_BG, backgroundColor: T_BG2,
   },
   photo: { width: '100%', height: '100%' },
   photoPlaceholder: {
-    backgroundColor: T_BG2, alignItems: 'center', justifyContent: 'center',
+    flex: 1, backgroundColor: T_BG2, alignItems: 'center', justifyContent: 'center',
   },
 
-  // Group name & genre
+  // Group name & genre — protagonista
   groupName: {
-    fontFamily: FONTS.title, fontSize: 19, color: T_TEXT,
-    textAlign: 'center', letterSpacing: 0.5, marginBottom: 6,
+    fontFamily: FONTS.title, fontSize: 23, color: T_TEXT,
+    textAlign: 'center', letterSpacing: 0.5, marginBottom: 8,
   },
   genrePill: {
     alignSelf: 'center', marginBottom: 10,
@@ -606,15 +643,19 @@ const s = StyleSheet.create({
     fontFamily: FONTS.bodySemiBold, fontSize: 12, color: T_GREEN, flex: 1,
   },
 
-  // 🎫 Grid de detalles tipo boleto: FECHA | HORA · TOCADA | TOTAL
+  // 🎫 Tarjetas premium de detalles: FECHA | HORA · TOCADA | TOTAL
   infoGrid: {
     flexDirection: 'row', alignItems: 'stretch',
-    backgroundColor: T_BG2,
-    borderRadius: 12, borderWidth: 1, borderColor: T_BORDER,
-    paddingVertical: 11, paddingHorizontal: 6,
+    backgroundColor: T_BG,
+    borderRadius: 16, borderWidth: 1, borderColor: '#EEF2F7',
+    paddingVertical: 14, paddingHorizontal: 6,
+    shadowColor: '#1E3A8A', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06, shadowRadius: 8, elevation: 2,
   },
-  infoCell:  { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 4 },
+  cardPressed: { transform: [{ scale: 0.98 }] },
+  infoCell:  { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 5 },
   infoDivV:  { width: 1, borderLeftWidth: 1, borderColor: T_BORDER, borderStyle: 'dashed', marginVertical: 2 },
+  infoLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   infoLabel: {
     fontFamily: FONTS.bodySemiBold, fontSize: 8.5, color: T_MUTED,
     letterSpacing: 1.4,
@@ -639,8 +680,8 @@ const s = StyleSheet.create({
     letterSpacing: 3, textTransform: 'uppercase',
   },
   folioValue: {
-    fontFamily: FONTS.bodySemiBold, fontSize: 14, color: T_TEXT,
-    letterSpacing: 2,
+    fontFamily: FONTS.bodySemiBold, fontSize: 16,
+    letterSpacing: 2.5,
   },
 
   // Código de inicio
@@ -649,15 +690,20 @@ const s = StyleSheet.create({
     fontFamily: FONTS.body, fontSize: 8, color: T_MUTED,
     letterSpacing: 4, textTransform: 'uppercase', marginBottom: 10,
   },
-  digitsRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
+  digitsRow: { flexDirection: 'row', gap: 12, marginBottom: 10 },
+  // Teclas premium del PIN: cuadros oscuros, dígito degradado con brillo
   digitBox: {
-    width: 46, height: 54, borderRadius: 8,
-    backgroundColor: '#111827', borderWidth: 1, borderColor: '#1F2937',
+    width: 58, height: 58, borderRadius: 15,
+    backgroundColor: '#111827', borderWidth: 1,
     alignItems: 'center', justifyContent: 'center',
+    shadowColor: '#00D9FF', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25, shadowRadius: 6, elevation: 4,
   },
   digitText: {
-    fontFamily: FONTS.title, fontSize: 26, color: '#FFFFFF',
-    includeFontPadding: false, lineHeight: 32,
+    fontFamily: FONTS.title, fontSize: 27,
+    includeFontPadding: false, lineHeight: 33,
+    textShadowColor: 'rgba(0,217,255,0.45)',
+    textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 7,
   },
   codeHint: {
     fontFamily: FONTS.body, fontSize: 9, color: T_MUTED, textAlign: 'center',
