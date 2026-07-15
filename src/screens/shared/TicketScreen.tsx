@@ -81,29 +81,27 @@ function DashedLine() {
   );
 }
 
-// Línea de rasgado con MUESCAS laterales (los medios círculos oscuros de
-// los boletos de verdad — el overflow:hidden del ticket los recorta a la
-// mitad justo en la orilla)
 function Perforation() {
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', marginVertical: 10, position: 'relative' }}>
-      <View style={s.sideNotch} />
+    <View style={{ flexDirection: 'row', alignItems: 'center', marginVertical: 10 }}>
       <DashedLine />
-      <View style={[s.sideNotch, { left: undefined, right: -32 }]} />
     </View>
   );
 }
 
-// Orilla superior/inferior "recortada" tipo boleto de imprenta: fila de
-// medios círculos oscuros mordiendo el borde blanco
-function ScallopEdge({ position }: { position: 'top' | 'bottom' }) {
+// ✂️ Silueta de boleto REAL — recorta el marco holográfico completo:
+// muesca grande arriba y abajo al centro + mordidas de estampilla en los
+// lados izquierdo y derecho (el overflow:hidden del marco las convierte
+// en medios círculos que dejan ver el fondo oscuro).
+function TicketCutout() {
+  const dots = Array.from({ length: 22 }, (_, i) => <View key={i} style={s.cutDot} />);
   return (
-    <View
-      pointerEvents="none"
-      style={[s.scallops, position === 'top' ? { top: -7 } : { bottom: -7 }]}
-    >
-      {Array.from({ length: 16 }, (_, i) => <View key={i} style={s.scallopDot} />)}
-    </View>
+    <>
+      <View pointerEvents="none" style={s.cutNotchTop} />
+      <View pointerEvents="none" style={s.cutNotchBottom} />
+      <View pointerEvents="none" style={[s.cutSide, { left: -7 }]}>{dots}</View>
+      <View pointerEvents="none" style={[s.cutSide, { right: -7 }]}>{dots}</View>
+    </>
   );
 }
 
@@ -122,23 +120,6 @@ function HoloText({ text, style }: { text: string; style?: any }) {
         >
           {c}
         </Text>
-      ))}
-    </View>
-  );
-}
-
-// Código de barras decorativo determinístico a partir del folio
-function Barcode({ seed }: { seed: string }) {
-  const chars = (seed && seed !== '—' ? seed : 'DARICEFY').split('');
-  const bars: number[] = [];
-  chars.forEach(c => {
-    const v = c.charCodeAt(0);
-    bars.push((v % 3) + 1, ((v >> 2) % 2) + 1, ((v >> 4) % 3) + 1);
-  });
-  return (
-    <View style={{ flexDirection: 'row', alignItems: 'flex-end', height: 34, gap: 1.5, justifyContent: 'center' }}>
-      {bars.map((w, i) => (
-        <View key={i} style={{ width: w, height: i % 7 === 0 ? 34 : 28, backgroundColor: T_NAVY }} />
       ))}
     </View>
   );
@@ -188,6 +169,14 @@ export default function TicketScreen({ navigation, route }: any) {
   const code       = r.arrival_code ?? null;
   const digits     = code ? code.split('') : ['?', '?', '?', '?'];
   const date       = r.event_date ? fmtDate(r.event_date) : '—';
+  // Fecha compacta para el grid del boleto: "Sáb 27 jul 2026"
+  const dateShort  = r.event_date
+    ? (() => {
+        const sd = new Date(r.event_date + 'T12:00:00')
+          .toLocaleDateString('es-MX', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+        return sd.charAt(0).toUpperCase() + sd.slice(1);
+      })()
+    : '—';
   const time       = r.event_time ? fmtTime(r.event_time) : '—';
   const duration   = fmtDuration(r);
   // 🇲🇽/🇺🇸 El ticket se marca solo según la moneda del evento — así el
@@ -305,9 +294,6 @@ export default function TicketScreen({ navigation, route }: any) {
             style={s.ticket}
             collapsable={false}
           >
-            {/* Orillas recortadas tipo boleto */}
-            <ScallopEdge position="top" />
-            <ScallopEdge position="bottom" />
             {/* Esquinas doradas */}
             <View style={[s.corner, { top: 12, left: 12, borderRightWidth: 0, borderBottomWidth: 0, borderTopLeftRadius: 4 }]} />
             <View style={[s.corner, { top: 12, right: 12, borderLeftWidth: 0, borderBottomWidth: 0, borderTopRightRadius: 4 }]} />
@@ -320,9 +306,8 @@ export default function TicketScreen({ navigation, route }: any) {
               <Text style={s.appSub}>
                 {giftMode ? 'UN REGALO MUSICAL PARA TI' : 'TU CONTRATACIÓN MUSICAL'}
               </Text>
-              <View style={s.countryChip}>
-                <Text style={s.countryChipTx}>{isUS ? '🇺🇸 USA · USD' : '🇲🇽 MÉXICO · MXN'}</Text>
-              </View>
+              {/* País discreto — no roba espacio */}
+              <Text style={s.countryMini}>{isUS ? '🇺🇸 USD' : '🇲🇽 MXN'}</Text>
               {giftMode && (giftFrom || giftTo) && (
                 <View style={s.giftNames}>
                   {!!giftFrom && (
@@ -365,21 +350,41 @@ export default function TicketScreen({ navigation, route }: any) {
               </View>
             )}
 
-            {/* Mensaje personalizado del regalo */}
-            {giftMode && !!giftMsg && (
-              <View style={s.giftMsgBox}>
-                <Text style={s.giftMsgText}>“{giftMsg}”</Text>
+            {/* (El mensaje personalizado del regalo NO va impreso en el ticket
+                — va mejor en la tarjeta física de la caja. Pedido 2026-07-15.) */}
+
+            {/* Detalles del evento — grid tipo boleto (sin lugar: el cliente
+                ya sabe dónde es). FECHA | HORA arriba, TOCADA | TOTAL abajo. */}
+            <View style={s.infoGrid}>
+              <View style={s.infoCell}>
+                <Text style={s.infoLabel}>📅  FECHA</Text>
+                <Text style={s.infoBig}>{dateShort}</Text>
+              </View>
+              <View style={s.infoDivV} />
+              <View style={s.infoCell}>
+                <Text style={s.infoLabel}>🕐  HORA DE INICIO</Text>
+                <Text style={s.infoBig}>{time}</Text>
+              </View>
+            </View>
+            {(!!duration || (!giftMode && !!price)) && (
+              <View style={[s.infoGrid, { marginTop: 8 }]}>
+                {!!duration && (
+                  <View style={s.infoCell}>
+                    <Text style={s.infoLabel}>🎵  HORAS DE TOCADA</Text>
+                    <Text style={s.infoBig}>{duration}</Text>
+                  </View>
+                )}
+                {!giftMode && !!price && (
+                  <>
+                    <View style={s.infoDivV} />
+                    <View style={s.infoCell}>
+                      <Text style={s.infoLabel}>💳  TOTAL</Text>
+                      <HoloText text={price} style={s.infoBigHolo} />
+                    </View>
+                  </>
+                )}
               </View>
             )}
-
-            {/* Detalles del evento */}
-            <View style={s.infoCard}>
-              <InfoRow icon="📅" value={date} />
-              <InfoRow icon="🕐" value={time} />
-              {giftMode && !!location && <InfoRow icon="📍" value={location} />}
-              {!!duration && <InfoRow icon="⏱️" value={duration} />}
-              {!giftMode && !!price && <InfoRow icon="💳" value={price} gold />}
-            </View>
 
             {/* Perforación */}
             <Perforation />
@@ -402,14 +407,13 @@ export default function TicketScreen({ navigation, route }: any) {
             {/* Perforación */}
             <Perforation />
 
-            {/* Código de barras decorativo (generado del folio) + folio */}
-            <Barcode seed={folio} />
-            <Text style={s.barcodeCaption}>#{folio}</Text>
             <View style={s.ticketFoot}>
               <Text style={s.footerMain}>Daricefy — La música está en tus manos</Text>
               <Text style={s.footerSub}>daricefy.com  ·  ✅ Reservación confirmada</Text>
             </View>
           </LinearGradient>
+          {/* ✂️ Recorte de la silueta (muescas + mordidas sobre el marco) */}
+          <TicketCutout />
           </LinearGradient>
           {/* ════════ fin ticket ════════ */}
 
@@ -493,33 +497,33 @@ const s = StyleSheet.create({
   // 🌈 Marco holográfico (verde → cian → azul) — envuelve el ticket blanco.
   // Angosto y centrado, proporción de boleto real (no cuadrado).
   holoFrame: {
-    borderRadius: 24, padding: 7, marginBottom: 16,
+    borderRadius: 24, padding: 9, marginBottom: 16,
     alignSelf: 'center', width: '94%', maxWidth: 360,
+    overflow: 'hidden',   // ✂️ recorta muescas y mordidas sobre el marco
     shadowColor: '#22D3EE', shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.35, shadowRadius: 16, elevation: 10,
   },
 
   // Ticket card (fondo blanco)
   ticket: {
-    borderRadius: 18, borderWidth: 1, borderColor: T_BORDER,
+    borderRadius: 14, borderWidth: 1, borderColor: T_BORDER,
     paddingHorizontal: 18, paddingTop: 18, paddingBottom: 18, overflow: 'hidden',
   },
 
-  // Orillas recortadas (medios círculos oscuros mordiendo el blanco)
-  scallops: {
-    position: 'absolute', left: 0, right: 0, zIndex: 3,
-    flexDirection: 'row', justifyContent: 'space-evenly',
+  // ✂️ Silueta de boleto sobre el MARCO holográfico completo
+  cutNotchTop: {
+    position: 'absolute', top: -18, left: '50%', marginLeft: -19,
+    width: 38, height: 38, borderRadius: 19, backgroundColor: OUTER_BG, zIndex: 6,
   },
-  scallopDot: { width: 13, height: 13, borderRadius: 7, backgroundColor: OUTER_BG },
-  // Muescas laterales en la línea de rasgado
-  sideNotch: {
-    position: 'absolute', left: -32, width: 26, height: 26,
-    borderRadius: 13, backgroundColor: OUTER_BG, zIndex: 3,
+  cutNotchBottom: {
+    position: 'absolute', bottom: -18, left: '50%', marginLeft: -19,
+    width: 38, height: 38, borderRadius: 19, backgroundColor: OUTER_BG, zIndex: 6,
   },
-  barcodeCaption: {
-    fontFamily: FONTS.bodyMedium, fontSize: 10, color: T_MUTED,
-    textAlign: 'center', letterSpacing: 2, marginTop: 4,
+  cutSide: {
+    position: 'absolute', top: 10, bottom: 10, width: 14,
+    justifyContent: 'space-between', alignItems: 'center', zIndex: 6,
   },
+  cutDot: { width: 12, height: 12, borderRadius: 6, backgroundColor: OUTER_BG },
 
   // Corner accents
   corner: {
@@ -592,12 +596,7 @@ const s = StyleSheet.create({
     textAlign: 'center', lineHeight: 18, fontStyle: 'italic',
   },
 
-  // Info card
-  infoCard: {
-    backgroundColor: T_BG2,
-    borderRadius: 10, borderWidth: 1, borderColor: T_BORDER,
-    padding: 10, gap: 7, marginBottom: 0,
-  },
+  // Info card (legacy — InfoRow aún lo usa en otros puntos)
   infoRow:   { flexDirection: 'row', alignItems: 'center', gap: 8 },
   infoIcon:  { fontSize: 13, width: 20 },
   infoValue: {
@@ -605,6 +604,30 @@ const s = StyleSheet.create({
   },
   infoValueGold: {
     fontFamily: FONTS.bodySemiBold, fontSize: 12, color: T_GREEN, flex: 1,
+  },
+
+  // 🎫 Grid de detalles tipo boleto: FECHA | HORA · TOCADA | TOTAL
+  infoGrid: {
+    flexDirection: 'row', alignItems: 'stretch',
+    backgroundColor: T_BG2,
+    borderRadius: 12, borderWidth: 1, borderColor: T_BORDER,
+    paddingVertical: 11, paddingHorizontal: 6,
+  },
+  infoCell:  { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 4 },
+  infoDivV:  { width: 1, borderLeftWidth: 1, borderColor: T_BORDER, borderStyle: 'dashed', marginVertical: 2 },
+  infoLabel: {
+    fontFamily: FONTS.bodySemiBold, fontSize: 8.5, color: T_MUTED,
+    letterSpacing: 1.4,
+  },
+  infoBig: {
+    fontFamily: FONTS.bodySemiBold, fontSize: 13.5, color: T_TEXT, textAlign: 'center',
+  },
+  infoBigHolo: {
+    fontFamily: FONTS.bodySemiBold, fontSize: 13.5, textAlign: 'center',
+  },
+  countryMini: {
+    fontFamily: FONTS.bodySemiBold, fontSize: 8.5, color: T_MUTED,
+    letterSpacing: 1.5, marginTop: 5,
   },
 
   // Folio
