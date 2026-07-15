@@ -62,9 +62,12 @@ BEGIN
               AND gs.strike_type   = 'no_show'
               AND gs.reservation_id = r.id
           ),
-          -- [487] 🗺️ Evidencia GPS del trayecto y arranque
-          'event_lat',            r.event_lat,
-          'event_lng',            r.event_lng,
+          -- [487] 🗺️ Evidencia GPS del trayecto y arranque.
+          -- Coordenadas del evento: reservations.event_lat casi siempre va
+          -- NULL — las reales viven en la cotización (programadas) o en la
+          -- solicitud (express). COALESCE cubre los tres orígenes.
+          'event_lat',            COALESCE(r.event_lat, q.latitude, er.latitude, er.event_lat),
+          'event_lng',            COALESCE(r.event_lng, q.longitude, er.longitude, er.event_lng),
           'group_en_route_at',    r.group_en_route_at,
           'transit_lat',          r.transit_lat,
           'transit_lng',          r.transit_lng,
@@ -80,9 +83,11 @@ BEGIN
   )
   INTO v_result
   FROM reservations r
-  LEFT JOIN groups   g  ON g.id  = r.group_id
-  LEFT JOIN profiles po ON po.id = g.owner_id
-  LEFT JOIN profiles p  ON p.id  = r.client_id
+  LEFT JOIN groups         g  ON g.id  = r.group_id
+  LEFT JOIN profiles       po ON po.id = g.owner_id
+  LEFT JOIN profiles       p  ON p.id  = r.client_id
+  LEFT JOIN quotes         q  ON q.id  = r.quote_id            -- [487] coords programadas
+  LEFT JOIN event_requests er ON er.id = r.event_request_id    -- [487] coords express
   WHERE r.cancellation_type          = 'system_auto'
     AND r.cancel_reason              = 'no_show_grupo'
     AND r.admin_no_show_resolution   IS NULL
