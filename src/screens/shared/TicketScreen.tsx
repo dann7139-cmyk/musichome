@@ -208,9 +208,11 @@ export default function TicketScreen({ navigation, route }: any) {
         setSaving(false);
         return;
       }
-      const uri = await captureRef(ticketRef, { format: 'jpg', quality: 0.97 });
+      // PNG en alta resolución (~1170px de ancho ≈ 300 dpi en tamaño boleto)
+      // — calidad de imprenta para el foil holográfico
+      const uri = await captureRef(ticketRef, { format: 'png', quality: 1, width: 1170 } as any);
       await MediaLibrary.saveToLibraryAsync(uri);
-      Alert.alert('✅ Guardado', 'Tu ticket se guardó en la galería.');
+      Alert.alert('✅ Guardado', 'Tu ticket se guardó en la galería en alta calidad (PNG, listo para imprenta).');
     } catch {
       Alert.alert('Error', 'No se pudo guardar el ticket. Intenta de nuevo.');
     } finally {
