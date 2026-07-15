@@ -26,11 +26,12 @@ const GOLD_BORDER = 'rgba(0,184,217,0.30)';
 // Tornasol premium (brief 2026): verde → turquesa → azul, sin exagerar
 const HOLO_FRAME  = ['#00D26A', '#00D9FF', '#2563FF'] as const;
 const HOLO_STOPS  = ['#00A651', '#00B8A9', '#0891B2', '#2563EB'];   // texto holo (legible en blanco)
-// ✨ FOIL PLATEADO (hot stamping holográfico): plata con destellos
-// pastel de todos los colores — vista previa de cómo lo dejará la imprenta
-const FOIL_FRAME  = ['#C3CBD6', '#E9D9EF', '#D3E9DD', '#F2F5F9', '#D8E5F6', '#AEB9C8'] as const;
-const FOIL_STOPS  = ['#8A94A6', '#9B8FB0', '#7FA391', '#7E93B8'];   // texto foil (legible en blanco)
-const FOIL_BRIGHT = ['#E6EBF2', '#EFD9F5', '#D6F0E0', '#DCE9FB'];   // dígitos sobre oscuro
+// ✨ FOIL PLATEADO (hot stamping holográfico) — EL acabado del ticket
+// para todos (2026-07-15): plata metálica con bandas iridiscentes bien
+// marcadas, como el foil real que brilla de todos los colores.
+const FOIL_FRAME  = ['#7E8BA0', '#F4F7FB', '#D9C7F0', '#AFE8CC', '#FFFFFF', '#A9C4EE', '#8E99AB'] as const;
+const FOIL_STOPS  = ['#6B7688', '#8F7BAF', '#5F9377', '#5C7BAE'];   // texto foil (legible en blanco)
+const FOIL_BRIGHT = ['#F2F6FB', '#E3C9F5', '#BFF2D8', '#C3DBFF'];   // dígitos sobre oscuro
 const TEXT_MAIN   = '#E8EDF5';   // texto fuera del ticket
 const TEXT_MUTED  = '#5A6A8A';
 const TEXT_MUTED2 = '#8096B8';
@@ -171,13 +172,12 @@ export default function TicketScreen({ navigation, route }: any) {
   const giftMsg  = r.gift_message ?? '';
   const location = r.event_city ?? r.city ?? r.event_municipio ?? r.address ?? null;
 
-  // ✨ Vista previa del acabado: 🌈 color (digital) o foil plateado
-  // (cómo lo dejará la imprenta con hot stamping holográfico)
-  const [foilView, setFoilView] = useState(false);
-  const frameColors = foilView ? FOIL_FRAME : HOLO_FRAME;
-  const textStops   = foilView ? FOIL_STOPS : HOLO_STOPS;
-  const digitStops  = foilView ? FOIL_BRIGHT : HOLO_BRIGHT;
-  const cornerColor = foilView ? '#AEB9C8' : '#00D26A';
+  // ✨ Acabado ÚNICO del ticket: foil plateado holográfico (lo ven igual
+  // cliente y admin — es la identidad del boleto Daricefy)
+  const frameColors = FOIL_FRAME;
+  const textStops   = FOIL_STOPS;
+  const digitStops  = FOIL_BRIGHT;
+  const cornerColor = '#8E99AB';
 
   // ✨ Entrada premium: fade in + slide up 350 ms (brief 2026)
   const appear = useRef(new Animated.Value(0)).current;
@@ -312,28 +312,7 @@ export default function TicketScreen({ navigation, route }: any) {
           </>
           )}
 
-          {/* ✨ Vista del acabado: color digital o foil plateado de imprenta */}
-          <View style={s.finishToggle}>
-            <Pressable
-              style={[s.finishBtn, !foilView && s.finishBtnOn]}
-              onPress={() => setFoilView(false)}
-            >
-              <Text style={[s.finishBtnTx, !foilView && s.finishBtnTxOn]}>🌈 Color</Text>
-            </Pressable>
-            <Pressable
-              style={[s.finishBtn, foilView && s.finishBtnOn]}
-              onPress={() => setFoilView(true)}
-            >
-              <Text style={[s.finishBtnTx, foilView && s.finishBtnTxOn]}>✨ Foil plateado</Text>
-            </Pressable>
-          </View>
-          {foilView && (
-            <Text style={s.finishHint}>
-              Así se verá con hot stamping holográfico: plata que brilla de todos los colores según la luz.
-            </Text>
-          )}
-
-          {/* ════════ TICKET (captureable, con marco holográfico) ════════ */}
+          {/* ════════ TICKET (captureable, con marco foil plateado) ════════ */}
           <LinearGradient
             ref={ticketRef as any}
             colors={frameColors as any}
@@ -596,21 +575,6 @@ const s = StyleSheet.create({
   },
   cutDot: { width: 12, height: 12, borderRadius: 6, backgroundColor: OUTER_BG },
 
-  // ✨ Toggle de acabado (color / foil plateado)
-  finishToggle: {
-    flexDirection: 'row', alignSelf: 'center', gap: 6, marginBottom: 10,
-    backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 999, padding: 4,
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
-  },
-  finishBtn:    { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 999 },
-  finishBtnOn:  { backgroundColor: 'rgba(255,255,255,0.12)' },
-  finishBtnTx:  { fontFamily: FONTS.bodyMedium, fontSize: 12, color: TEXT_MUTED2 },
-  finishBtnTxOn:{ color: TEXT_MAIN },
-  finishHint: {
-    fontFamily: FONTS.body, fontSize: 10.5, color: TEXT_MUTED2,
-    textAlign: 'center', marginBottom: 10, paddingHorizontal: 20, lineHeight: 15,
-  },
-
   // Esquinas minimalistas tipo escáner — muy delgadas, verdes
   corner: {
     position: 'absolute', width: 18, height: 18,
@@ -750,10 +714,12 @@ const s = StyleSheet.create({
     shadowColor: '#00D9FF', shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25, shadowRadius: 6, elevation: 4,
   },
+  // Dígito centrado y limpio (sin lineHeight que lo empuje hacia abajo)
   digitText: {
-    fontFamily: FONTS.title, fontSize: 23,
-    includeFontPadding: false, lineHeight: 33,
-    textShadowColor: 'rgba(0,217,255,0.45)',
+    fontFamily: FONTS.bodySemiBold, fontSize: 24,
+    includeFontPadding: false, textAlign: 'center', textAlignVertical: 'center',
+    fontVariant: ['tabular-nums'],
+    textShadowColor: 'rgba(244,247,251,0.5)',
     textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 7,
   },
   codeHint: {
