@@ -61,7 +61,7 @@ export default function AdminTicketSearchScreen({ navigation, route }: any) {
       const today = new Date().toISOString().substring(0, 10);
       const { data } = await supabase
         .from('reservations')
-        .select('id, folio, event_date, event_time, currency_code, is_gift, gift_recipient_name, total_price, status, group:groups(name), client:profiles!client_id(full_name)')
+        .select('id, folio, event_date, event_time, currency_code, is_gift, gift_recipient_name, total_price, status, address, group:groups(name), client:profiles!client_id(full_name)')
         .gte('event_date', today)
         .in('payment_status', ['paid', 'fully_paid', 'deposit_paid'])
         .not('status', 'in', '("cancelled","rejected","expired")')
@@ -194,6 +194,10 @@ export default function AdminTicketSearchScreen({ navigation, route }: any) {
                       <Text style={s.rowMeta}>
                         {fecha(g.event_date)}{hora(g.event_time) ? ` · ${hora(g.event_time)}` : ''} · {money(g.total_price, g.currency_code ?? 'MXN')}
                       </Text>
+                      {/* 📦 Dirección del evento — referencia para el envío del boleto */}
+                      {!!g.address && (
+                        <Text style={s.rowAddress} numberOfLines={1}>📦 {g.address}</Text>
+                      )}
                     </View>
                     <Text style={s.rowStatus}>{stLabel(g.status)}</Text>
                   </Pressable>
@@ -398,7 +402,8 @@ const s = StyleSheet.create({
   rowFolio:  { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.green },
   rowLine:   { fontFamily: FONTS.bodyMedium, fontSize: 12.5, color: COLORS.text, marginTop: 1 },
   rowMeta:   { fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted2, marginTop: 1 },
-  rowStatus: { fontFamily: FONTS.bodyMedium, fontSize: 11, color: COLORS.muted2 },
+  rowStatus:  { fontFamily: FONTS.bodyMedium, fontSize: 11, color: COLORS.muted2 },
+  rowAddress: { fontFamily: FONTS.body, fontSize: 10.5, color: COLORS.muted, marginTop: 1 },
 
   // Expediente
   card: {
