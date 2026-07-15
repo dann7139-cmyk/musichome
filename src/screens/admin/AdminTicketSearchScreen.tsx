@@ -59,14 +59,18 @@ export default function AdminTicketSearchScreen({ navigation, route }: any) {
   useEffect(() => {
     (async () => {
       const today = new Date().toISOString().substring(0, 10);
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('reservations')
         .select('id, folio, event_date, event_time, currency_code, is_gift, gift_recipient_name, total_price, status, address, group:groups(name), client:profiles!client_id(full_name)')
         .gte('event_date', today)
         .in('payment_status', ['paid', 'fully_paid', 'deposit_paid'])
-        .not('status', 'in', '("cancelled","rejected","expired")')
+        .in('status', ['accepted', 'confirmed', 'in_progress'])
         .order('event_date', { ascending: true })
         .limit(100);
+      if (error) {
+        console.error('[tickets-queue]', error.message);
+        Alert.alert('No se pudo cargar la cola de tickets', error.message);
+      }
       setTickets(data ?? []);
     })();
   }, []);
@@ -208,6 +212,11 @@ export default function AdminTicketSearchScreen({ navigation, route }: any) {
         )}
 
         {/* ── Resultados compactos ── */}
+        {!detail && results !== null && (
+          <Pressable hitSlop={8} onPress={() => { setResults(null); setQuery(''); }}>
+            <Text style={s.backToQueue}>← Volver a tickets por descargar</Text>
+          </Pressable>
+        )}
         {!detail && results !== null && (
           results.length === 0
             ? <Text style={s.emptyText}>Sin resultados — prueba con otra parte del folio, nombre o teléfono.</Text>
@@ -403,6 +412,7 @@ const s = StyleSheet.create({
   rowLine:   { fontFamily: FONTS.bodyMedium, fontSize: 12.5, color: COLORS.text, marginTop: 1 },
   rowMeta:   { fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted2, marginTop: 1 },
   rowStatus:  { fontFamily: FONTS.bodyMedium, fontSize: 11, color: COLORS.muted2 },
+  backToQueue: { fontFamily: FONTS.bodyMedium, fontSize: 12, color: COLORS.green, textDecorationLine: 'underline', marginBottom: 4 },
   rowAddress: { fontFamily: FONTS.body, fontSize: 10.5, color: COLORS.muted, marginTop: 1 },
 
   // Expediente
