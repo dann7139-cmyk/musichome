@@ -824,8 +824,13 @@ export default function NotificationsScreen({ navigation }: any) {
         const rawScreen = notif.data?.screen as string | undefined;
         const screen = rawScreen ? (LEGACY_SCREENS[rawScreen] ?? rawScreen) : undefined;
         if (screen) {
-          // Reembolso manual → abrir el panel financiero YA en la pestaña 💸
-          const params = notif.data?.manual_refund_id ? { initialTab: 'refunds' } : undefined;
+          // Reembolso manual → abrir el panel financiero YA en la pestaña 💸;
+          // ticket para descargar → abrir el Expediente directo en esa reserva
+          const params = notif.data?.manual_refund_id
+            ? { initialTab: 'refunds' }
+            : (screen === 'AdminTicketSearch' && notif.data?.reservation_id
+                ? { reservationId: notif.data.reservation_id }
+                : undefined);
           try { navigation.navigate(screen as any, params); } catch { /* pantalla inválida */ }
         }
         break;

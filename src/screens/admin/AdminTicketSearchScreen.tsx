@@ -50,6 +50,30 @@ export default function AdminTicketSearchScreen({ navigation, route }: any) {
   const [loading,  setLoading]  = useState(false);
   const [results,  setResults]  = useState<any[] | null>(null);
   const [detail,   setDetail]   = useState<any | null>(null);
+  // 🎫 Tickets por descargar: eventos PRÓXIMOS pagados (normales y regalo),
+  // para imprimirlos/enviarlos antes del evento. DOS BOTONES separados
+  // 🇲🇽 México y 🇺🇸 Estados Unidos (por moneda del evento).
+  const [tickets,       setTickets]       = useState<any[]>([]);
+  const [ticketCountry, setTicketCountry] = useState<null | 'MXN' | 'USD'>(null);
+
+  useEffect(() => {
+    (async () => {
+      const today = new Date().toISOString().substring(0, 10);
+      const { data } = await supabase
+        .from('reservations')
+        .select('id, folio, event_date, event_time, currency_code, is_gift, gift_recipient_name, total_price, status, group:groups(name), client:profiles!client_id(full_name)')
+        .gte('event_date', today)
+        .in('payment_status', ['paid', 'fully_paid', 'deposit_paid'])
+        .not('status', 'in', '("cancelled","rejected","expired")')
+        .order('event_date', { ascending: true })
+        .limit(100);
+      setTickets(data ?? []);
+    })();
+  }, []);
+
+  const ticketsMX = tickets.filter(t => (t.currency_code ?? 'MXN') !== 'USD');
+  const ticketsUS = tickets.filter(t => (t.currency_code ?? 'MXN') === 'USD');
+  const ticketsShown = ticketCountry === 'USD' ? ticketsUS : ticketsMX;
 
   const openDetail = async (reservationId: string) => {
     setLoading(true);
@@ -124,6 +148,60 @@ export default function AdminTicketSearchScreen({ navigation, route }: any) {
       )}
 
       <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
+
+        {/* ── 🎫 Tickets por descargar (vista inicial, sin búsqueda) ── */}
+        {!detail && results === null && (
+          <>
+            <Text style={s.giftTitle}>🎫 Tickets por descargar</Text>
+            {/* DOS botones separados por país */}
+            <View style={s.countryBtnRow}>
+              <Pressable
+                style={[s.countryBtn, ticketCountry === 'MXN' && s.countryBtnOn]}
+                onPress={() => setTicketCountry(ticketCountry === 'MXN' ? null : 'MXN')}
+              >
+                <Text style={s.countryBtnFlag}>🇲🇽</Text>
+                <Text style={[s.countryBtnTx, ticketCountry === 'MXN' && s.countryBtnTxOn]}>México</Text>
+                <Text style={s.countryBtnCount}>{ticketsMX.length}</Text>
+              </Pressable>
+              <Pressable
+                style={[s.countryBtn, ticketCountry === 'USD' && s.countryBtnOn]}
+                onPress={() => setTicketCountry(ticketCountry === 'USD' ? null : 'USD')}
+              >
+                <Text style={s.countryBtnFlag}>🇺🇸</Text>
+                <Text style={[s.countryBtnTx, ticketCountry === 'USD' && s.countryBtnTxOn]}>Estados Unidos</Text>
+                <Text style={s.countryBtnCount}>{ticketsUS.length}</Text>
+              </Pressable>
+            </View>
+
+            {ticketCountry !== null && (
+              <>
+                <Text style={s.giftHint}>
+                  🎁 = regalo · 🎫 = normal. Toca uno → "Ver ticket completo" → Descargar (el de regalo sale con su destinatario).
+                </Text>
+                {ticketsShown.length === 0 && (
+                  <Text style={s.emptyText}>Sin eventos próximos pagados en este país.</Text>
+                )}
+                {ticketsShown.map((g: any) => (
+                  <Pressable key={g.id} style={s.rowCard} onPress={() => openDetail(g.id)}>
+                    <Text style={{ fontSize: 16 }}>{g.is_gift ? '🎁' : '🎫'}</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.rowFolio}>{g.folio ?? g.id.substring(0, 8)}</Text>
+                      <Text style={s.rowLine} numberOfLines={1}>
+                        {g.is_gift
+                          ? `Para: ${g.gift_recipient_name ?? '—'} · ${g.group?.name ?? '—'}`
+                          : `${g.client?.full_name ?? '—'} · ${g.group?.name ?? '—'}`}
+                      </Text>
+                      <Text style={s.rowMeta}>
+                        {fecha(g.event_date)}{hora(g.event_time) ? ` · ${hora(g.event_time)}` : ''} · {money(g.total_price, g.currency_code ?? 'MXN')}
+                      </Text>
+                    </View>
+                    <Text style={s.rowStatus}>{stLabel(g.status)}</Text>
+                  </Pressable>
+                ))}
+              </>
+            )}
+          </>
+        )}
 
         {/* ── Resultados compactos ── */}
         {!detail && results !== null && (
@@ -347,6 +425,22 @@ const s = StyleSheet.create({
     borderRadius: RADIUS.md, paddingVertical: 9, alignItems: 'center',
   },
   phoneBtnTx: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.green },
+
+  // 🎫 Tickets por descargar — dos botones de país
+  giftTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 14.5, color: COLORS.text, marginBottom: 8 },
+  giftHint:  { fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted2, lineHeight: 16, marginBottom: 8 },
+  countryBtnRow: { flexDirection: 'row', gap: 10, marginBottom: 12 },
+  countryBtn: {
+    flex: 1, alignItems: 'center', gap: 2,
+    backgroundColor: COLORS.card, borderRadius: RADIUS.lg,
+    borderWidth: 1, borderColor: COLORS.border,
+    paddingVertical: 14,
+  },
+  countryBtnOn:    { borderColor: COLORS.green, backgroundColor: 'rgba(0,230,118,0.06)' },
+  countryBtnFlag:  { fontSize: 26 },
+  countryBtnTx:    { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.muted2 },
+  countryBtnTxOn:  { color: COLORS.text },
+  countryBtnCount: { fontFamily: FONTS.title, fontSize: 18, color: COLORS.green },
 
   histRow: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
