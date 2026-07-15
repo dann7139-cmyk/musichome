@@ -16,10 +16,15 @@ import { FONTS } from '../../config/theme';
 // ── Tokens de diseño ──────────────────────────────────────────────────────────
 const OUTER_BG    = '#050A13';
 const CARD_BG     = '#080F1C';   // para outer/botones
-const GOLD        = '#C9A84C';
-const GOLD_LIGHT  = '#E5C76B';
-const GOLD_DIM    = 'rgba(201,168,76,0.10)';
-const GOLD_BORDER = 'rgba(201,168,76,0.30)';
+// 🌈 HOLOGRÁFICO verde/azul (pedido 2026-07-15) — reemplaza al dorado.
+// El marco y los acentos van en degradado verde → cian → azul, como los
+// tickets iridiscentes de imprenta.
+const GOLD        = '#00B8D9';   // acento principal (cian) — mismo nombre para no tocar 40 refs
+const GOLD_LIGHT  = '#00E676';
+const GOLD_DIM    = 'rgba(0,184,217,0.10)';
+const GOLD_BORDER = 'rgba(0,184,217,0.30)';
+const HOLO_FRAME  = ['#00E676', '#4ADE80', '#22D3EE', '#3B82F6', '#22D3EE', '#00E676'] as const;
+const HOLO_STOPS  = ['#00A651', '#00B8A9', '#0891B2', '#2563EB'];   // texto holo (legible en blanco)
 const TEXT_MAIN   = '#E8EDF5';   // texto fuera del ticket
 const TEXT_MUTED  = '#5A6A8A';
 const TEXT_MUTED2 = '#8096B8';
@@ -33,6 +38,7 @@ const T_MUTED2  = '#374151';
 const T_BORDER  = '#E5E7EB';
 const T_GREEN   = '#00A651';     // verde más oscuro para legibilidad en blanco
 const T_GREEN2  = 'rgba(0,166,81,0.10)';
+const T_NAVY    = '#1E3A8A';     // código de barras
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function fmtDate(d: string) {
@@ -83,10 +89,48 @@ function Perforation() {
   );
 }
 
-function DigitBox({ digit }: { digit: string }) {
+// 🌈 Texto "holográfico": cada carácter interpola verde → cian → azul.
+// (Sin masked-view: el degradado por carácter da el efecto iridiscente
+// y sobrevive perfecto a la captura de imagen y a la imprenta.)
+function HoloText({ text, style }: { text: string; style?: any }) {
+  const chars = String(text).split('');
+  const n = Math.max(1, chars.length - 1);
   return (
-    <View style={s.digitBox}>
-      <Text style={s.digitText}>{digit}</Text>
+    <View style={{ flexDirection: 'row', justifyContent: 'center' }}>
+      {chars.map((c, i) => (
+        <Text
+          key={i}
+          style={[style, { color: HOLO_STOPS[Math.min(HOLO_STOPS.length - 1, Math.round((i / n) * (HOLO_STOPS.length - 1)))] }]}
+        >
+          {c}
+        </Text>
+      ))}
+    </View>
+  );
+}
+
+// Código de barras decorativo determinístico a partir del folio
+function Barcode({ seed }: { seed: string }) {
+  const chars = (seed && seed !== '—' ? seed : 'DARICEFY').split('');
+  const bars: number[] = [];
+  chars.forEach(c => {
+    const v = c.charCodeAt(0);
+    bars.push((v % 3) + 1, ((v >> 2) % 2) + 1, ((v >> 4) % 3) + 1);
+  });
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'flex-end', height: 34, gap: 1.5, justifyContent: 'center' }}>
+      {bars.map((w, i) => (
+        <View key={i} style={{ width: w, height: i % 7 === 0 ? 34 : 28, backgroundColor: T_NAVY }} />
+      ))}
+    </View>
+  );
+}
+
+function DigitBox({ digit, index }: { digit: string; index?: number }) {
+  const holo = HOLO_STOPS[Math.min(HOLO_STOPS.length - 1, (index ?? 0))];
+  return (
+    <View style={[s.digitBox, { borderColor: holo }]}>
+      <Text style={[s.digitText, { color: holo }]}>{digit}</Text>
     </View>
   );
 }
@@ -125,8 +169,14 @@ export default function TicketScreen({ navigation, route }: any) {
   const date       = r.event_date ? fmtDate(r.event_date) : '—';
   const time       = r.event_time ? fmtTime(r.event_time) : '—';
   const duration   = fmtDuration(r);
+  // 🇲🇽/🇺🇸 El ticket se marca solo según la moneda del evento — así el
+  // admin distingue las descargas de México y de Estados Unidos.
+  const isUS       = (r.currency_code ?? 'MXN') === 'USD';
   const price      = r.total_price != null
-    ? `$${Number(r.total_price).toLocaleString('es-MX')} MXN` : null;
+    ? (isUS
+        ? `US$${Number(r.total_price).toLocaleString('en-US')} USD`
+        : `$${Number(r.total_price).toLocaleString('es-MX')} MXN`)
+    : null;
 
   // ── Descargar imagen ────────────────────────────────────────────────────────
   const handleDownload = async () => {
@@ -185,7 +235,7 @@ export default function TicketScreen({ navigation, route }: any) {
             <Switch
               value={giftMode}
               onValueChange={setGiftMode}
-              trackColor={{ false: '#1E2A3A', true: 'rgba(201,168,76,0.4)' }}
+              trackColor={{ false: '#1E2A3A', true: 'rgba(0,230,118,0.4)' }}
               thumbColor={giftMode ? GOLD_LIGHT : '#3A4A5A'}
             />
           </View>
@@ -216,9 +266,15 @@ export default function TicketScreen({ navigation, route }: any) {
             </View>
           )}
 
-          {/* ════════ TICKET (captureable) ════════ */}
+          {/* ════════ TICKET (captureable, con marco holográfico) ════════ */}
           <LinearGradient
             ref={ticketRef as any}
+            colors={HOLO_FRAME as any}
+            start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+            style={s.holoFrame}
+            collapsable={false}
+          >
+          <LinearGradient
             colors={[T_BG, T_BG, T_BG2]}
             style={s.ticket}
             collapsable={false}
@@ -235,6 +291,9 @@ export default function TicketScreen({ navigation, route }: any) {
               <Text style={s.appSub}>
                 {giftMode ? 'UN REGALO MUSICAL PARA TI' : 'TU CONTRATACIÓN MUSICAL'}
               </Text>
+              <View style={s.countryChip}>
+                <Text style={s.countryChipTx}>{isUS ? '🇺🇸 USA · USD' : '🇲🇽 MÉXICO · MXN'}</Text>
+              </View>
               {giftMode && (giftFrom || giftTo) && (
                 <View style={s.giftNames}>
                   {!!giftFrom && (
@@ -296,17 +355,17 @@ export default function TicketScreen({ navigation, route }: any) {
             {/* Perforación */}
             <Perforation />
 
-            {/* Folio */}
+            {/* Folio con efecto holo */}
             <View style={s.folioBlock}>
               <Text style={s.folioLabel}>FOLIO DE RESERVACIÓN</Text>
-              <Text style={s.folioValue}>{folio}</Text>
+              <HoloText text={folio} style={s.folioValue} />
             </View>
 
             {/* Código de inicio */}
             <View style={s.codeSection}>
               <Text style={s.codeLabel}>CÓDIGO DE INICIO</Text>
               <View style={s.digitsRow}>
-                {digits.map((d: string, i: number) => <DigitBox key={i} digit={d} />)}
+                {digits.map((d: string, i: number) => <DigitBox key={i} digit={d} index={i} />)}
               </View>
               <Text style={s.codeHint}>Muéstralo al grupo al llegar al evento</Text>
             </View>
@@ -314,11 +373,13 @@ export default function TicketScreen({ navigation, route }: any) {
             {/* Perforación */}
             <Perforation />
 
-            {/* Footer */}
+            {/* Código de barras decorativo + footer */}
+            <Barcode seed={folio} />
             <View style={s.ticketFoot}>
               <Text style={s.footerMain}>Daricefy — La música está en tus manos</Text>
               <Text style={s.footerSub}>daricefy.com  ·  ✅ Reservación confirmada</Text>
             </View>
+          </LinearGradient>
           </LinearGradient>
           {/* ════════ fin ticket ════════ */}
 
@@ -329,7 +390,7 @@ export default function TicketScreen({ navigation, route }: any) {
             disabled={saving}
           >
             <LinearGradient
-              colors={[GOLD_LIGHT, GOLD, '#A8832A']}
+              colors={['#00E676', '#22D3EE', '#3B82F6']}
               start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
               style={s.dlGrad}
             >
@@ -399,12 +460,17 @@ const s = StyleSheet.create({
     borderBottomWidth: 1, borderColor: GOLD_BORDER, paddingVertical: 6,
   },
 
+  // 🌈 Marco holográfico (verde → cian → azul) — envuelve el ticket blanco
+  holoFrame: {
+    borderRadius: 24, padding: 7, marginBottom: 16,
+    shadowColor: '#22D3EE', shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35, shadowRadius: 16, elevation: 10,
+  },
+
   // Ticket card (fondo blanco)
   ticket: {
-    borderRadius: 20, borderWidth: 1, borderColor: T_BORDER,
-    paddingHorizontal: 20, paddingTop: 14, paddingBottom: 14, marginBottom: 16, overflow: 'hidden',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12, shadowRadius: 14, elevation: 8,
+    borderRadius: 18, borderWidth: 1, borderColor: T_BORDER,
+    paddingHorizontal: 20, paddingTop: 14, paddingBottom: 14, overflow: 'hidden',
   },
 
   // Corner accents
@@ -423,6 +489,12 @@ const s = StyleSheet.create({
     fontFamily: FONTS.body, fontSize: 9, color: T_MUTED,
     letterSpacing: 2.5, marginTop: 3,
   },
+  countryChip: {
+    marginTop: 7, paddingHorizontal: 10, paddingVertical: 3,
+    borderRadius: 999, borderWidth: 1, borderColor: 'rgba(8,145,178,0.35)',
+    backgroundColor: 'rgba(8,145,178,0.06)',
+  },
+  countryChipTx: { fontFamily: FONTS.bodySemiBold, fontSize: 9.5, color: '#0891B2', letterSpacing: 1.2 },
   giftNames: { marginTop: 8, alignItems: 'center', gap: 3 },
   giftNamesText: {
     fontFamily: FONTS.bodyMedium, fontSize: 13, color: T_MUTED2,

@@ -492,6 +492,10 @@ export default function AdminDashboardScreen({ navigation }: any) {
               <Text style={s.dateTag}>{dateStr}</Text>
             </View>
             <View style={s.headerRight}>
+              {/* 📂 Expediente: buscar por folio, nombre o teléfono */}
+              <Pressable style={s.iconBtn} onPress={() => navigation.navigate('AdminTicketSearch')}>
+                <Text style={{ fontSize: 15 }}>📂</Text>
+              </Pressable>
               <Pressable style={s.iconBtn} onPress={onRefresh}>
                 <RefreshCw size={16} color={COLORS.muted2} />
               </Pressable>
