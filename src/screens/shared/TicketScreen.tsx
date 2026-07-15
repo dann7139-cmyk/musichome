@@ -26,6 +26,11 @@ const GOLD_BORDER = 'rgba(0,184,217,0.30)';
 // Tornasol premium (brief 2026): verde → turquesa → azul, sin exagerar
 const HOLO_FRAME  = ['#00D26A', '#00D9FF', '#2563FF'] as const;
 const HOLO_STOPS  = ['#00A651', '#00B8A9', '#0891B2', '#2563EB'];   // texto holo (legible en blanco)
+// ✨ FOIL PLATEADO (hot stamping holográfico): plata con destellos
+// pastel de todos los colores — vista previa de cómo lo dejará la imprenta
+const FOIL_FRAME  = ['#C3CBD6', '#E9D9EF', '#D3E9DD', '#F2F5F9', '#D8E5F6', '#AEB9C8'] as const;
+const FOIL_STOPS  = ['#8A94A6', '#9B8FB0', '#7FA391', '#7E93B8'];   // texto foil (legible en blanco)
+const FOIL_BRIGHT = ['#E6EBF2', '#EFD9F5', '#D6F0E0', '#DCE9FB'];   // dígitos sobre oscuro
 const TEXT_MAIN   = '#E8EDF5';   // texto fuera del ticket
 const TEXT_MUTED  = '#5A6A8A';
 const TEXT_MUTED2 = '#8096B8';
@@ -109,7 +114,7 @@ function TicketCutout() {
 // 🌈 Texto "holográfico": cada carácter interpola verde → cian → azul.
 // (Sin masked-view: el degradado por carácter da el efecto iridiscente
 // y sobrevive perfecto a la captura de imagen y a la imprenta.)
-function HoloText({ text, style }: { text: string; style?: any }) {
+function HoloText({ text, style, stops = HOLO_STOPS }: { text: string; style?: any; stops?: string[] }) {
   const chars = String(text).split('');
   const n = Math.max(1, chars.length - 1);
   return (
@@ -117,7 +122,7 @@ function HoloText({ text, style }: { text: string; style?: any }) {
       {chars.map((c, i) => (
         <Text
           key={i}
-          style={[style, { color: HOLO_STOPS[Math.min(HOLO_STOPS.length - 1, Math.round((i / n) * (HOLO_STOPS.length - 1)))] }]}
+          style={[style, { color: stops[Math.min(stops.length - 1, Math.round((i / n) * (stops.length - 1)))] }]}
         >
           {c}
         </Text>
@@ -129,8 +134,8 @@ function HoloText({ text, style }: { text: string; style?: any }) {
 // Sobre fondo oscuro los tonos van BRILLANTES (verde → cian → azul)
 const HOLO_BRIGHT = ['#00E676', '#00D9FF', '#22A7FF', '#5B8CFF'];
 
-function DigitBox({ digit, index }: { digit: string; index?: number }) {
-  const holo = HOLO_BRIGHT[Math.min(HOLO_BRIGHT.length - 1, (index ?? 0))];
+function DigitBox({ digit, index, bright = HOLO_BRIGHT }: { digit: string; index?: number; bright?: string[] }) {
+  const holo = bright[Math.min(bright.length - 1, (index ?? 0))];
   return (
     <View style={[s.digitBox, { borderColor: `${holo}55` }]}>
       <Text style={[s.digitText, { color: holo }]}>{digit}</Text>
@@ -165,6 +170,14 @@ export default function TicketScreen({ navigation, route }: any) {
 
   const giftMsg  = r.gift_message ?? '';
   const location = r.event_city ?? r.city ?? r.event_municipio ?? r.address ?? null;
+
+  // ✨ Vista previa del acabado: 🌈 color (digital) o foil plateado
+  // (cómo lo dejará la imprenta con hot stamping holográfico)
+  const [foilView, setFoilView] = useState(false);
+  const frameColors = foilView ? FOIL_FRAME : HOLO_FRAME;
+  const textStops   = foilView ? FOIL_STOPS : HOLO_STOPS;
+  const digitStops  = foilView ? FOIL_BRIGHT : HOLO_BRIGHT;
+  const cornerColor = foilView ? '#AEB9C8' : '#00D26A';
 
   // ✨ Entrada premium: fade in + slide up 350 ms (brief 2026)
   const appear = useRef(new Animated.Value(0)).current;
@@ -299,10 +312,31 @@ export default function TicketScreen({ navigation, route }: any) {
           </>
           )}
 
+          {/* ✨ Vista del acabado: color digital o foil plateado de imprenta */}
+          <View style={s.finishToggle}>
+            <Pressable
+              style={[s.finishBtn, !foilView && s.finishBtnOn]}
+              onPress={() => setFoilView(false)}
+            >
+              <Text style={[s.finishBtnTx, !foilView && s.finishBtnTxOn]}>🌈 Color</Text>
+            </Pressable>
+            <Pressable
+              style={[s.finishBtn, foilView && s.finishBtnOn]}
+              onPress={() => setFoilView(true)}
+            >
+              <Text style={[s.finishBtnTx, foilView && s.finishBtnTxOn]}>✨ Foil plateado</Text>
+            </Pressable>
+          </View>
+          {foilView && (
+            <Text style={s.finishHint}>
+              Así se verá con hot stamping holográfico: plata que brilla de todos los colores según la luz.
+            </Text>
+          )}
+
           {/* ════════ TICKET (captureable, con marco holográfico) ════════ */}
           <LinearGradient
             ref={ticketRef as any}
-            colors={HOLO_FRAME as any}
+            colors={frameColors as any}
             start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
             style={s.holoFrame}
             collapsable={false}
@@ -313,10 +347,10 @@ export default function TicketScreen({ navigation, route }: any) {
             collapsable={false}
           >
             {/* Esquinas doradas */}
-            <View style={[s.corner, { top: 12, left: 12, borderRightWidth: 0, borderBottomWidth: 0, borderTopLeftRadius: 4 }]} />
-            <View style={[s.corner, { top: 12, right: 12, borderLeftWidth: 0, borderBottomWidth: 0, borderTopRightRadius: 4 }]} />
-            <View style={[s.corner, { bottom: 12, left: 12, borderRightWidth: 0, borderTopWidth: 0, borderBottomLeftRadius: 4 }]} />
-            <View style={[s.corner, { bottom: 12, right: 12, borderLeftWidth: 0, borderTopWidth: 0, borderBottomRightRadius: 4 }]} />
+            <View style={[s.corner, { borderColor: cornerColor, top: 12, left: 12, borderRightWidth: 0, borderBottomWidth: 0, borderTopLeftRadius: 4 }]} />
+            <View style={[s.corner, { borderColor: cornerColor, top: 12, right: 12, borderLeftWidth: 0, borderBottomWidth: 0, borderTopRightRadius: 4 }]} />
+            <View style={[s.corner, { borderColor: cornerColor, bottom: 12, left: 12, borderRightWidth: 0, borderTopWidth: 0, borderBottomLeftRadius: 4 }]} />
+            <View style={[s.corner, { borderColor: cornerColor, bottom: 12, right: 12, borderLeftWidth: 0, borderTopWidth: 0, borderBottomRightRadius: 4 }]} />
 
             {/* Cabecera */}
             <View style={s.ticketHead}>
@@ -348,7 +382,7 @@ export default function TicketScreen({ navigation, route }: any) {
             {/* Foto del grupo — aro con degradado verde-azul */}
             <View style={s.photoWrap}>
               <LinearGradient
-                colors={HOLO_FRAME as any}
+                colors={frameColors as any}
                 start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
                 style={s.photoGradRing}
               >
@@ -415,7 +449,7 @@ export default function TicketScreen({ navigation, route }: any) {
                         <CreditCard size={11} color="#2563FF" strokeWidth={2.2} />
                         <Text style={s.infoLabel}>TOTAL</Text>
                       </View>
-                      <HoloText text={price} style={s.infoBigHolo} />
+                      <HoloText text={price} style={s.infoBigHolo} stops={textStops} />
                     </View>
                   </>
                 )}
@@ -428,14 +462,14 @@ export default function TicketScreen({ navigation, route }: any) {
             {/* Folio con efecto holo */}
             <View style={s.folioBlock}>
               <Text style={s.folioLabel}>FOLIO DE RESERVACIÓN</Text>
-              <HoloText text={folio} style={s.folioValue} />
+              <HoloText text={folio} style={s.folioValue} stops={textStops} />
             </View>
 
             {/* Código de inicio */}
             <View style={s.codeSection}>
               <Text style={s.codeLabel}>CÓDIGO DE INICIO</Text>
               <View style={s.digitsRow}>
-                {digits.map((d: string, i: number) => <DigitBox key={i} digit={d} index={i} />)}
+                {digits.map((d: string, i: number) => <DigitBox key={i} digit={d} index={i} bright={digitStops} />)}
               </View>
               <Text style={s.codeHint}>Muéstralo al grupo al llegar al evento</Text>
             </View>
@@ -561,6 +595,21 @@ const s = StyleSheet.create({
     justifyContent: 'space-between', alignItems: 'center', zIndex: 6,
   },
   cutDot: { width: 12, height: 12, borderRadius: 6, backgroundColor: OUTER_BG },
+
+  // ✨ Toggle de acabado (color / foil plateado)
+  finishToggle: {
+    flexDirection: 'row', alignSelf: 'center', gap: 6, marginBottom: 10,
+    backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 999, padding: 4,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
+  },
+  finishBtn:    { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 999 },
+  finishBtnOn:  { backgroundColor: 'rgba(255,255,255,0.12)' },
+  finishBtnTx:  { fontFamily: FONTS.bodyMedium, fontSize: 12, color: TEXT_MUTED2 },
+  finishBtnTxOn:{ color: TEXT_MAIN },
+  finishHint: {
+    fontFamily: FONTS.body, fontSize: 10.5, color: TEXT_MUTED2,
+    textAlign: 'center', marginBottom: 10, paddingHorizontal: 20, lineHeight: 15,
+  },
 
   // Esquinas minimalistas tipo escáner — muy delgadas, verdes
   corner: {
