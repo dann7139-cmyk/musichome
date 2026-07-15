@@ -542,7 +542,7 @@ const s = StyleSheet.create({
   // Ticket card (fondo blanco)
   ticket: {
     borderRadius: 14, borderWidth: 1, borderColor: T_BORDER,
-    paddingHorizontal: 18, paddingTop: 18, paddingBottom: 18, overflow: 'hidden',
+    paddingHorizontal: 16, paddingTop: 14, paddingBottom: 12, overflow: 'hidden',
   },
 
   // ✂️ Silueta de boleto sobre el MARCO holográfico completo
@@ -567,14 +567,14 @@ const s = StyleSheet.create({
   },
 
   // Ticket head — jerarquía premium
-  ticketHead: { alignItems: 'center', paddingTop: 6, marginBottom: 14 },
+  ticketHead: { alignItems: 'center', paddingTop: 2, marginBottom: 8 },
   appLogo: {
-    fontFamily: FONTS.title, fontSize: 27, color: T_TEXT,
-    letterSpacing: 7, includeFontPadding: false,
+    fontFamily: FONTS.title, fontSize: 19, color: T_TEXT,
+    letterSpacing: 5, includeFontPadding: false,
   },
   appSub: {
     fontFamily: FONTS.bodyMedium, fontSize: 10.5, color: T_MUTED,
-    letterSpacing: 3, marginTop: 6,
+    letterSpacing: 2.5, marginTop: 4,
   },
   countryChip: {
     marginTop: 7, paddingHorizontal: 10, paddingVertical: 3,
@@ -592,14 +592,14 @@ const s = StyleSheet.create({
   },
 
   // Photo — aro degradado verde-azul con sombra ligera
-  photoWrap: { alignItems: 'center', marginBottom: 12 },
+  photoWrap: { alignItems: 'center', marginBottom: 8 },
   photoGradRing: {
-    width: 104, height: 104, borderRadius: 52, padding: 3,
+    width: 84, height: 84, borderRadius: 42, padding: 3,
     shadowColor: '#00D9FF', shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.30, shadowRadius: 10, elevation: 6,
   },
   photoInner: {
-    flex: 1, borderRadius: 49, overflow: 'hidden',
+    flex: 1, borderRadius: 39, overflow: 'hidden',
     borderWidth: 2.5, borderColor: T_BG, backgroundColor: T_BG2,
   },
   photo: { width: '100%', height: '100%' },
@@ -609,8 +609,8 @@ const s = StyleSheet.create({
 
   // Group name & genre — protagonista
   groupName: {
-    fontFamily: FONTS.title, fontSize: 23, color: T_TEXT,
-    textAlign: 'center', letterSpacing: 0.5, marginBottom: 8,
+    fontFamily: FONTS.title, fontSize: 19.5, color: T_TEXT,
+    textAlign: 'center', letterSpacing: 0.5, marginBottom: 5,
   },
   genrePill: {
     alignSelf: 'center', marginBottom: 10,
@@ -648,7 +648,7 @@ const s = StyleSheet.create({
     flexDirection: 'row', alignItems: 'stretch',
     backgroundColor: T_BG,
     borderRadius: 16, borderWidth: 1, borderColor: '#EEF2F7',
-    paddingVertical: 14, paddingHorizontal: 6,
+    paddingVertical: 10, paddingHorizontal: 6,
     shadowColor: '#1E3A8A', shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.06, shadowRadius: 8, elevation: 2,
   },
@@ -673,14 +673,14 @@ const s = StyleSheet.create({
 
   // Folio
   folioBlock: {
-    alignItems: 'center', marginBottom: 10, gap: 3,
+    alignItems: 'center', marginBottom: 6, gap: 2,
   },
   folioLabel: {
     fontFamily: FONTS.body, fontSize: 8, color: T_MUTED,
     letterSpacing: 3, textTransform: 'uppercase',
   },
   folioValue: {
-    fontFamily: FONTS.bodySemiBold, fontSize: 16,
+    fontFamily: FONTS.bodySemiBold, fontSize: 14,
     letterSpacing: 2.5,
   },
 
@@ -688,19 +688,19 @@ const s = StyleSheet.create({
   codeSection: { alignItems: 'center', marginBottom: 6 },
   codeLabel: {
     fontFamily: FONTS.body, fontSize: 8, color: T_MUTED,
-    letterSpacing: 4, textTransform: 'uppercase', marginBottom: 10,
+    letterSpacing: 4, textTransform: 'uppercase', marginBottom: 7,
   },
-  digitsRow: { flexDirection: 'row', gap: 12, marginBottom: 10 },
+  digitsRow: { flexDirection: 'row', gap: 10, marginBottom: 6 },
   // Teclas premium del PIN: cuadros oscuros, dígito degradado con brillo
   digitBox: {
-    width: 58, height: 58, borderRadius: 15,
+    width: 48, height: 48, borderRadius: 12,
     backgroundColor: '#111827', borderWidth: 1,
     alignItems: 'center', justifyContent: 'center',
     shadowColor: '#00D9FF', shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25, shadowRadius: 6, elevation: 4,
   },
   digitText: {
-    fontFamily: FONTS.title, fontSize: 27,
+    fontFamily: FONTS.title, fontSize: 23,
     includeFontPadding: false, lineHeight: 33,
     textShadowColor: 'rgba(0,217,255,0.45)',
     textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 7,
