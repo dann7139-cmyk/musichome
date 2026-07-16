@@ -36,6 +36,7 @@ const serviceHeaders: Record<string, string> = {
 // Futuro: reemplazar el cuerpo por verificación de firma sin tocar el webhook.
 async function verifyConektaPayment(orderId: string): Promise<{
   paid: boolean; amountCentavos: number; reservationId: string | null; methodType: string | null;
+  feeCentavos: number | null;
 }> {
   const auth = btoa(`${PRIVATE_KEY}:`);
   const res = await fetch(`https://api.conekta.io/orders/${orderId}`, {
@@ -46,24 +47,32 @@ async function verifyConektaPayment(orderId: string): Promise<{
   });
   if (!res.ok) {
     console.error('[conekta-webhook] verify: no se pudo consultar la orden', orderId, res.status);
-    return { paid: false, amountCentavos: 0, reservationId: null, methodType: null };
+    return { paid: false, amountCentavos: 0, reservationId: null, methodType: null, feeCentavos: null };
   }
   const order = await res.json() as any;
 
   // Método real con el que se pagó (card / spei / cash). Los reembolsos por
   // API solo existen para tarjeta; SPEI/efectivo van a la cola manual.
-  const rawType = String(order?.charges?.data?.[0]?.payment_method?.type ?? '').toLowerCase();
+  const charge  = order?.charges?.data?.[0] ?? {};
+  const rawType = String(charge?.payment_method?.type ?? '').toLowerCase();
   const methodType =
     rawType.includes('spei') || rawType.includes('bank')            ? 'spei' :
     rawType.includes('cash') || rawType.includes('oxxo')            ? 'cash' :
     rawType.includes('card')                                        ? 'card' :
     rawType || null;
 
+  // 💰 Comisión REAL de Conekta (Fase 0.3 — cero estimaciones): el charge
+  // trae `fee` en centavos. Si Conekta no lo manda, queda null → la BD
+  // conserva NULL y los reportes lo muestran como "No capturado".
+  const rawFee = Number(charge?.fee);
+  const feeCentavos = Number.isFinite(rawFee) && rawFee > 0 ? rawFee : null;
+
   return {
     paid:          order?.payment_status === 'paid',
     amountCentavos: Number(order?.amount ?? 0),
     reservationId: order?.metadata?.reservation_id ?? null,
     methodType,
+    feeCentavos,
   };
 }
 
@@ -99,7 +108,8 @@ Deno.serve(async (req) => {
         p_reservation_id: v.reservationId,
         p_mp_payment_id:  orderId,               // id de Conekta como referencia (refund)
         p_amount_paid:    v.amountCentavos / 100,
-        p_stripe_fee:     null,
+        // 💰 Fee REAL de Conekta (o null → queda "No capturado", jamás estimado en BD)
+        p_stripe_fee:     v.feeCentavos != null ? v.feeCentavos / 100 : null,
       }),
     });
     const rpcData = await rpcRes.json().catch(() => null);

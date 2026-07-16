@@ -283,10 +283,15 @@ Deno.serve(async (req) => {
       return new Response('OK', { status: 200 });
     }
 
-    // Confirmar la reserva (el RPC solo cambia payment_status, no el status de reserva)
+    // Confirmar la reserva (el RPC solo cambia payment_status, no el status de
+    // reserva) + registrar proveedor y método real (Fase 0.3: Stripe no los
+    // escribía y los reportes por procesador quedaban ciegos para Stripe).
+    // MSI real = installments del PI; tarjeta normal = 'card'.
+    const stripeMethod = (pi.payment_method_options as any)?.card?.installments?.plan
+      ? 'card_msi' : 'card';
     await supabase
       .from('reservations')
-      .update({ status: 'confirmed' })
+      .update({ status: 'confirmed', payment_provider: 'stripe', payment_method_type: stripeMethod })
       .eq('id', reservationId)
       .not('status', 'in', '("cancelled","rejected","expired","completed")');
 

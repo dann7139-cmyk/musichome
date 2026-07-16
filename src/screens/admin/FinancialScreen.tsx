@@ -42,6 +42,7 @@ interface FinancialOverview {
   total_facturado:  number;
   ganancia_bruta:   number;
   stripe_fees:      number;
+  fees_no_capturados?: number;
   mercadopago_fees: number;
   ganancia_neta:    number;
   artistas_payout:  number;
@@ -54,7 +55,7 @@ interface EventFinancial {
   group_name:          string | null;
   event_total:         number;
   platform_fee:        number;
-  stripe_fee:          number;
+  stripe_fee:          number | null;
   mercadopago_fee:     number;
   net_platform_profit: number;
   artists_payout:      number;
@@ -337,17 +338,19 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
       s + (r.service_fee_amount ?? r.commission_amount ?? calcServiceFee(r.total_price ?? 0)) + (r.msi_fee_amount ?? 0), 0);
     const totalArtists  = paid.reduce((s: number, r: any) =>
       s + (r.group_earnings ?? r.base_price ?? calcGroupEarnings(r.total_price ?? 0)), 0);
-    const totalStripe   = paid.reduce((s: number, r: any) => {
-      const total = (r.total_price ?? 0) + (r.msi_fee_amount ?? 0);
-      return s + (r.stripe_fee_amount ?? Math.round(total * 0.036 + 3));
-    }, 0);
+    // 🔒 CERO estimaciones (Fase 0.3): solo se suman fees REALES guardados.
+    // Los eventos sin fee capturado se cuentan aparte y se muestran como
+    // "No capturado" — jamás se inventa una cifra.
+    const totalFeesReales = paid.reduce((s: number, r: any) => s + (r.stripe_fee_amount ?? 0), 0);
+    const feesSinCapturar = paid.filter((r: any) => r.stripe_fee_amount == null).length;
 
     setOverview({
       total_facturado:  totalRevenue,
       ganancia_bruta:   totalComm,
-      stripe_fees:      totalStripe,
+      stripe_fees:      totalFeesReales,
+      fees_no_capturados: feesSinCapturar,
       mercadopago_fees: 0,
-      ganancia_neta:    totalComm - totalStripe,
+      ganancia_neta:    totalComm - totalFeesReales,
       artistas_payout:  totalArtists,
       event_count:      paid.length,
     });
@@ -386,7 +389,8 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
       const total      = (r.total_price ?? 0) + (r.msi_fee_amount ?? 0);
       const platFee    = (r.service_fee_amount ?? r.commission_amount ?? calcServiceFee(r.total_price ?? 0))
                          + (r.msi_fee_amount ?? 0);
-      const stripeFee  = r.stripe_fee_amount ?? Math.round(total * 0.036 + 3);
+      // 🔒 CERO estimaciones: fee real o null ("No capturado")
+      const stripeFee  = r.stripe_fee_amount ?? null;
       return {
         reservation_id:      r.id,
         event_date:          r.event_date ?? null,
@@ -395,7 +399,7 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
         platform_fee:        platFee,
         stripe_fee:          stripeFee,
         mercadopago_fee:     0,
-        net_platform_profit: platFee - stripeFee,
+        net_platform_profit: stripeFee != null ? platFee - stripeFee : platFee,
         artists_payout:      r.group_earnings ?? r.base_price ?? calcGroupEarnings(r.total_price ?? 0),
         created_at:          r.created_at,
       };
@@ -596,20 +600,22 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
                 />
               </View>
 
-              {/* Row 3: Stripe fees + Ganancia neta tras costos */}
+              {/* Row 3: comisión de procesadores (solo REAL) + neto */}
               <View style={s.kpiRow}>
                 <KpiCard
                   icon={<Zap size={16} color={COLORS.orange} />}
-                  label="Costo Stripe"
+                  label="Comisión procesadores"
                   value={fmt(overview.stripe_fees)}
-                  sub={overview.stripe_fees > 0 ? '− comisión procesamiento' : 'sin datos'}
+                  sub={(overview.fees_no_capturados ?? 0) > 0
+                    ? `⚠️ ${overview.fees_no_capturados} evento(s) sin fee capturado`
+                    : 'solo fees reales'}
                   accent={COLORS.orange}
                 />
                 <KpiCard
                   icon={<Minus size={16} color={COLORS.muted2} />}
-                  label="Neto tras Stripe"
+                  label="Neto tras procesadores"
                   value={fmt(overview.ganancia_neta)}
-                  sub="comisión − costo Stripe"
+                  sub="comisión − fees reales"
                   accent={COLORS.muted2}
                 />
               </View>
@@ -626,7 +632,7 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
                   </View>
                   <View style={s.barLegend}>
                     <LegendDot color={COLORS.green}  label={`Tu comisión ${fmt(overview.ganancia_bruta)}`} />
-                    <LegendDot color={COLORS.orange} label={`Stripe ${fmt(overview.stripe_fees)}`} />
+                    <LegendDot color={COLORS.orange} label={`Procesadores ${fmt(overview.stripe_fees)}`} />
                     <LegendDot color={COLORS.blue}   label={`Artistas ${fmt(overview.artistas_payout)}`} />
                   </View>
                 </View>
@@ -640,7 +646,7 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
                   <Text style={[s.eqValue, { color: COLORS.green }]}>{fmt(overview.ganancia_bruta)}</Text>
                 </View>
                 <View style={s.equationRow}>
-                  <Text style={s.eqLabel}>− Costo Stripe</Text>
+                  <Text style={s.eqLabel}>− Comisión procesadores (real)</Text>
                   <Text style={[s.eqValue, { color: COLORS.orange }]}>−{fmt(overview.stripe_fees)}</Text>
                 </View>
                 <View style={[s.equationRow, s.equationTotal]}>
@@ -682,7 +688,11 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
                   <View style={s.eventDivider} />
 
                   <EventRow label="Comisión plataforma" value={fmt(ev.platform_fee)} color={COLORS.blue} />
-                  <EventRow label="− Comisión Stripe (est.)" value={`−${fmt(ev.stripe_fee)}`} color={COLORS.orange} />
+                  <EventRow
+                    label="− Comisión procesador"
+                    value={ev.stripe_fee != null ? `−${fmt(ev.stripe_fee)}` : 'No capturado'}
+                    color={COLORS.orange}
+                  />
                   {ev.mercadopago_fee > 0 && (
                     <EventRow label="− Comisión MercadoPago" value={`−${fmt(ev.mercadopago_fee)}`} color={COLORS.muted2} />
                   )}
