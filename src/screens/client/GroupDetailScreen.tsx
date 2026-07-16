@@ -271,20 +271,9 @@ export default function GroupDetailScreen({ route, navigation }: any) {
               <Pressable style={styles.heroBackBtn} onPress={() => navigation.goBack()}>
                 <ArrowLeft size={20} color="#fff" />
               </Pressable>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                {/* 💬 Cotizar SIEMPRE visible arriba — chico y fácil de ver */}
-                {!isExplorer && (
-                  <Pressable
-                    style={styles.heroQuoteBtn}
-                    onPress={() => navigation.navigate('QuoteForm', { group, isGift })}
-                  >
-                    <Text style={styles.heroQuoteBtnTx}>💬 Cotizar</Text>
-                  </Pressable>
-                )}
-                <Pressable style={styles.heroShareBtn} onPress={handleShare}>
-                  <Share2 size={18} color="#fff" />
-                </Pressable>
-              </View>
+              <Pressable style={styles.heroShareBtn} onPress={handleShare}>
+                <Share2 size={18} color="#fff" />
+              </Pressable>
             </View>
           </SafeAreaView>
 
@@ -343,14 +332,13 @@ export default function GroupDetailScreen({ route, navigation }: any) {
               )}
             </View>
 
-            {/* Chips de confianza: tiempo en plataforma + eventos completados */}
+            {/* Chips de confianza + COTIZAR hasta la derecha (pedido 2026-07-16) */}
             {(() => {
               const months = group.created_at
                 ? Math.floor((Date.now() - new Date(group.created_at).getTime()) / (1000 * 60 * 60 * 24 * 30))
                 : 0;
               const hasTime   = months > 0;
               const hasEvents = groupCompletedCount !== null && groupCompletedCount > 0;
-              if (!hasTime && !hasEvents) return null;
               return (
                 <View style={styles.heroTrustRow}>
                   {hasTime && (
@@ -369,6 +357,15 @@ export default function GroupDetailScreen({ route, navigation }: any) {
                       </Text>
                     </View>
                   )}
+                  <View style={{ flex: 1 }} />
+                  <Pressable
+                    style={styles.heroQuoteBtn}
+                    onPress={() => navigation.navigate('QuoteForm', { group, isGift })}
+                  >
+                    <Text style={styles.heroQuoteBtnTx}>
+                      {isExplorer ? 'Información' : 'Cotizar'}
+                    </Text>
+                  </Pressable>
                 </View>
               );
             })()}
@@ -400,30 +397,47 @@ export default function GroupDetailScreen({ route, navigation }: any) {
         {/* ── CONTENIDO ── */}
         <View style={styles.body}>
 
-          {/* 🎬 VIDEOS — carrusel deslizable con efecto destacado (hasta 5) */}
+          {/* 🎬 VIDEOS — carrusel estilo explorador: tarjeta reducida con los
+              de al lado asomándose. Espacios sin video = tarjeta 🔒 "no
+              disponible" (hasta que el grupo suba/pague). Si el Plus expiró,
+              solo se muestran los primeros 3. */}
           {(profileVideos.length > 0 || (group.promo_video && group.video_status === 'approved')) && (() => {
-            const vids = profileVideos.length > 0
+            const plusActive = !!(group as any).is_plus_active &&
+              (!(group as any).plus_expires_at || new Date((group as any).plus_expires_at) > new Date());
+            const maxSlots = plusActive ? 5 : 3;
+            const real = (profileVideos.length > 0
               ? profileVideos
-              : [{ id: 'legacy', url: group.promo_video }];
-            const CARD_W = SCREEN_W - SPACING.xl * 2;
+              : [{ id: 'legacy', url: group.promo_video }]
+            ).slice(0, maxSlots);   // 🔒 sin Plus vigente, máximo 3 aunque haya más
+            const slots: any[] = [
+              ...real.map(v => ({ ...v, locked: false })),
+              ...Array.from({ length: Math.max(0, 3 - real.length) }, (_, i) => ({ id: `lock-${i}`, locked: true })),
+            ];
+            const CARD_W = Math.round(SCREEN_W * 0.72);
+            const STEP = CARD_W + 10;
             return (
               <View style={styles.videoSection}>
                 <Text style={styles.sectionTitle}>
-                  🎬 Videos {vids.length > 1 ? `· ${videoIndex + 1}/${vids.length}` : ''}
+                  🎬 Videos · {Math.min(videoIndex + 1, slots.length)}/{slots.length}
                 </Text>
                 <FlatList
-                  data={vids}
+                  data={slots}
                   keyExtractor={(v: any) => String(v.id)}
                   horizontal
-                  pagingEnabled
                   showsHorizontalScrollIndicator={false}
-                  snapToInterval={CARD_W + 12}
+                  snapToInterval={STEP}
+                  snapToAlignment="start"
                   decelerationRate="fast"
                   onMomentumScrollEnd={e => {
-                    const i = Math.round(e.nativeEvent.contentOffset.x / (CARD_W + 12));
-                    setVideoIndex(Math.max(0, Math.min(vids.length - 1, i)));
+                    const i = Math.round(e.nativeEvent.contentOffset.x / STEP);
+                    setVideoIndex(Math.max(0, Math.min(slots.length - 1, i)));
                   }}
-                  renderItem={({ item }) => (
+                  renderItem={({ item }) => (item as any).locked ? (
+                    <View style={[styles.videoCard, styles.videoCardLocked, { width: CARD_W }]}>
+                      <Text style={{ fontSize: 30 }}>🔒</Text>
+                      <Text style={styles.videoLockedTx}>Video no disponible</Text>
+                    </View>
+                  ) : (
                     <View style={[styles.videoCard, { width: CARD_W }]}>
                       <VideoPlayer
                         uri={(item as any).url}
@@ -433,11 +447,11 @@ export default function GroupDetailScreen({ route, navigation }: any) {
                       />
                     </View>
                   )}
-                  ItemSeparatorComponent={() => <View style={{ width: 12 }} />}
+                  ItemSeparatorComponent={() => <View style={{ width: 10 }} />}
                 />
-                {vids.length > 1 && (
+                {slots.length > 1 && (
                   <View style={styles.videoDots}>
-                    {vids.map((_: any, i: number) => (
+                    {slots.map((_: any, i: number) => (
                       <View key={i} style={[styles.videoDot, i === videoIndex && styles.videoDotOn]} />
                     ))}
                   </View>
@@ -627,29 +641,8 @@ export default function GroupDetailScreen({ route, navigation }: any) {
             </View>
           )}
 
-          {/* ── COTIZACIÓN POR DISTANCIA ── */}
-          <View style={styles.quoteSection}>
-            <View style={styles.quoteHeader}>
-              <FileText size={16} color={COLORS.orange} />
-              <Text style={styles.quoteTitle}>
-                {isExplorer ? 'Información y disponibilidad' : '¿Necesitas precio personalizado?'}
-              </Text>
-            </View>
-            <Text style={styles.quoteDesc}>
-              {isExplorer
-                ? 'Puedes solicitar información o contratar directamente desde aquí.'
-                : 'Solicita una cotización. El grupo calculará el precio incluyendo traslado y detalles especiales.'}
-            </Text>
-            <Pressable
-              style={styles.quoteBtn}
-              onPress={() => navigation.navigate('QuoteForm', { group, isGift })}
-            >
-              <FileText size={15} color={COLORS.bg} />
-              <Text style={styles.quoteBtnText}>
-                {isExplorer ? 'Solicitar información' : 'Solicitar cotización personalizada'}
-              </Text>
-            </Pressable>
-          </View>
+          {/* (El botón de cotizar se movió ARRIBA, a la derecha de los chips
+              de confianza — pedido 2026-07-16. Esta sección quedó fuera.) */}
 
           {/* ── ANUNCIO EN PERFIL — rota si hay varios ── */}
           {profileAds.length > 0 && (() => {
@@ -898,6 +891,12 @@ const styles = StyleSheet.create({
   videoDots:  { flexDirection: 'row', justifyContent: 'center', gap: 6, marginTop: 10 },
   videoDot:   { width: 6, height: 6, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.2)' },
   videoDotOn: { backgroundColor: COLORS.green, width: 16 },
+  videoCardLocked: {
+    height: 200, alignItems: 'center', justifyContent: 'center', gap: 8,
+    borderColor: 'rgba(255,255,255,0.12)', borderStyle: 'dashed',
+    shadowOpacity: 0, elevation: 0, backgroundColor: COLORS.card2,
+  },
+  videoLockedTx: { fontFamily: FONTS.bodyMedium, fontSize: 12, color: COLORS.muted },
 
   videoWrapper: { borderRadius: RADIUS.lg, overflow: 'hidden', backgroundColor: '#000', marginTop: 8 },
   video: { width: '100%', height: 200 },

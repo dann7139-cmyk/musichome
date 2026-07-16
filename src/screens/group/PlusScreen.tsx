@@ -430,6 +430,7 @@ export default function PlusScreen({ navigation, route }: any) {
 
 const BENEFITS = [
   'Badge verde 🛡 en tu perfil y búsquedas',
+  '🎬 2 videos MÁS en tu perfil (5 en total, en vez de 3)',
   'Apareces antes que grupos sin Plus en tu zona',
   'Sello de confianza en cotizaciones express',
   'Con Bidding, llegas al top cuando quieras',

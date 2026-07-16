@@ -598,7 +598,7 @@ export default function GroupDashboardScreen({ navigation }: any) {
       fetchStripeInfo(grp.id);
 
       // 🎬 Mis videos del perfil (carrusel, sql/492)
-      supabase.from('group_videos').select('id, status, created_at')
+      supabase.from('group_videos').select('id, url, status, created_at')
         .eq('group_id', grp.id).order('created_at', { ascending: true })
         .then(({ data: vids }) => setMyVideos(vids ?? []));
 
@@ -1508,6 +1508,16 @@ export default function GroupDashboardScreen({ navigation }: any) {
               <Text style={s.equipSectionTitle}>
                 🎬 Mis videos del perfil · {myVideos.filter(v => v.status !== 'rejected').length}/{(group as any)?.is_plus_active ? 5 : 3}
               </Text>
+              {/* Vista previa reducida — como el carrusel que ve el cliente */}
+              {myVideos.filter(v => v.url && v.status !== 'rejected').length > 0 && (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 10 }}>
+                  {myVideos.filter(v => v.url && v.status !== 'rejected').map(v => (
+                    <View key={`prev-${v.id}`} style={s.myVideoPreview}>
+                      <VideoPlayer uri={v.url} style={{ width: '100%', height: '100%' }} contentFit="cover" nativeControls />
+                    </View>
+                  ))}
+                </ScrollView>
+              )}
               {myVideos.map((v, i) => (
                 <View key={v.id} style={s.myVideoRow}>
                   <Text style={s.myVideoName}>Video {i + 1}</Text>
@@ -1559,7 +1569,7 @@ export default function GroupDashboardScreen({ navigation }: any) {
                     const ok = await pickAndUploadGroupVideoMulti(gid);
                     if (ok) {
                       const { data: vids } = await supabase
-                        .from('group_videos').select('id, status, created_at')
+                        .from('group_videos').select('id, url, status, created_at')
                         .eq('group_id', gid).order('created_at', { ascending: true });
                       setMyVideos(vids ?? []);
                       Alert.alert('✅ Video subido', 'Quedó en revisión — se publica en tu perfil al aprobarse.');
@@ -2332,6 +2342,10 @@ const s = StyleSheet.create({
     paddingHorizontal: 12, paddingVertical: 9, marginBottom: 6,
   },
   myVideoName:   { fontFamily: FONTS.bodyMedium, fontSize: 12.5, color: COLORS.text, flex: 1 },
+  myVideoPreview: {
+    width: 150, height: 96, borderRadius: 14, overflow: 'hidden', marginRight: 10,
+    backgroundColor: '#060c06', borderWidth: 1.5, borderColor: 'rgba(0,230,118,0.35)',
+  },
   myVideoStatus: { fontFamily: FONTS.bodySemiBold, fontSize: 11 },
   plusUpsell: {
     marginTop: 8, marginBottom: 4, padding: 12,

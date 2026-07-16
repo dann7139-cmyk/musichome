@@ -1587,6 +1587,12 @@ export default function EventTimerScreen({ route, navigation }: any) {
 
   const handleArrivePress = async () => {
     if (arriving) return;   // evita doble-tap mientras se resuelve el GPS
+    // 🔒 Igual que "Voy en camino": la llegada solo se marca el DÍA del
+    // evento (antes se podía apretar días antes — bug 2026-07-16)
+    if (!isEventDay) {
+      Alert.alert('🗓️ Aún no es el día', 'Podrás marcar tu llegada el día del evento.');
+      return;
+    }
     // Sin coords del evento (reserva directa): el server libera con
     // arrival_gps_verified=false y avisa al admin — flujo sin GPS.
     if (!eventLatLng) {
@@ -2636,12 +2642,14 @@ export default function EventTimerScreen({ route, navigation }: any) {
                   {!hasArrived && (
                     <>
                       <Pressable
-                        style={({ pressed }) => [st.iconBtn, st.iconBtnOutline, arriving && st.iconBtnDisabled, pressed && !arriving && { opacity: 0.8 }]}
+                        style={({ pressed }) => [st.iconBtn, st.iconBtnOutline, (arriving || !isEventDay) && st.iconBtnDisabled, pressed && !arriving && isEventDay && { opacity: 0.8 }]}
                         onPress={handleArrivePress}
                         disabled={arriving}
                       >
                         {arriving ? <ActivityIndicator color={COLORS.green} size="small" /> : <MapPin size={18} color={COLORS.green} />}
-                        <Text style={[st.iconBtnLabel, { color: COLORS.green }]}>{arriving ? 'Verificando ubicación…' : 'Llegué al evento'}</Text>
+                        <Text style={[st.iconBtnLabel, { color: COLORS.green }]}>
+                          {arriving ? 'Verificando ubicación…' : isEventDay ? 'Llegué al evento' : 'Llegué al evento (el día del evento)'}
+                        </Text>
                       </Pressable>
                       <View style={{ height: 10 }} />
                     </>
