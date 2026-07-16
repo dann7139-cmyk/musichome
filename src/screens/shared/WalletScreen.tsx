@@ -66,6 +66,7 @@ export default function WalletScreen({ navigation }: any) {
   const [transactions, setTransactions] = useState<any[]>([]);
   const [loading, setLoading]           = useState(true);
   const [refreshing, setRefreshing]     = useState(false);
+  const [downloadingReport, setDownloadingReport] = useState(false);
   const [stripeLoading, setStripeLoading] = useState(false);
   const [stripeStatus, setStripeStatus] = useState<StripeStatus>({
     stripe_account_id: null,
@@ -357,6 +358,49 @@ export default function WalletScreen({ navigation }: any) {
               (El onboarding de Stripe Connect quedó fuera del modelo v2 —
               la CLABE se captura en el formulario de retiro.) */}
 
+          {/* 📊 Reporte propio del grupo (Excel) — siempre visible, no depende
+              de notificaciones. Seguridad en el SERVIDOR: la EF deriva el
+              group_id del token; solo datos propios, solo "Tu ganancia". */}
+          {stripeStatus.role === 'group' && (
+            <Pressable
+              style={[st.reportBtn, downloadingReport && { opacity: 0.6 }]}
+              disabled={downloadingReport}
+              onPress={() => {
+                const download = async (days: number | null) => {
+                  setDownloadingReport(true);
+                  try {
+                    const from = days != null
+                      ? new Date(Date.now() - days * 86400000).toISOString().substring(0, 10)
+                      : null;
+                    const { data, error } = await supabase.functions.invoke('generate-report', {
+                      body: { mode: 'group', from },
+                    });
+                    if (error || !(data as any)?.ok) {
+                      Alert.alert('No se pudo generar', (data as any)?.error ?? error?.message ?? 'Intenta de nuevo.');
+                      return;
+                    }
+                    await Linking.openURL((data as any).url);
+                  } catch {
+                    Alert.alert('Error', 'No se pudo descargar el reporte. Intenta de nuevo.');
+                  } finally {
+                    setDownloadingReport(false);
+                  }
+                };
+                Alert.alert('📊 Descargar mi reporte', '¿Qué periodo quieres?', [
+                  { text: 'Últimos 30 días',  onPress: () => download(30) },
+                  { text: 'Últimos 90 días',  onPress: () => download(90) },
+                  { text: 'Este año',         onPress: () => download(365) },
+                  { text: 'Todo',             onPress: () => download(null) },
+                  { text: 'Cancelar', style: 'cancel' },
+                ]);
+              }}
+            >
+              <Text style={st.reportBtnTx}>
+                {downloadingReport ? 'Generando tu reporte…' : '📊 Descargar mi reporte (Excel)'}
+              </Text>
+            </Pressable>
+          )}
+
           {/* Info */}
           <View style={st.feeCard}>
             <Text style={st.feeTitle}>{t('wallet.how_title')}</Text>
@@ -542,6 +586,14 @@ const st = StyleSheet.create({
   stripeTitle:     { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: COLORS.text },
   stripeTitleWarn: { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: COLORS.text },
   stripeSub:       { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2, marginTop: 2 },
+
+  // 📊 Botón de reporte del grupo
+  reportBtn: {
+    marginBottom: 16, paddingVertical: 13, alignItems: 'center',
+    backgroundColor: 'rgba(0,230,118,0.08)', borderRadius: RADIUS.full,
+    borderWidth: 1, borderColor: 'rgba(0,230,118,0.4)',
+  },
+  reportBtnTx: { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: COLORS.green },
 
   // Info
   feeCard: {

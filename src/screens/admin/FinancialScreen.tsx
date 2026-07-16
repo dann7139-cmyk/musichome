@@ -16,6 +16,7 @@ import {
   Image,
   Keyboard,
   KeyboardAvoidingView,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -130,6 +131,7 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
   const [overview, setOverview]         = useState<FinancialOverview | null>(null);
   // Fila USD de la fuente única (monedas separadas, nunca sumadas)
   const [overviewUsd, setOverviewUsd]   = useState<any | null>(null);
+  const [downloadingReport, setDownloadingReport] = useState(false);
   const [eventFinancials, setEventFins] = useState<EventFinancial[]>([]);
   const [payouts, setPayouts]           = useState<Payout[]>([]);
   const [adIncome, setAdIncome]         = useState<any[]>([]);
@@ -583,6 +585,54 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
           {/* ══ TAB: RESUMEN ══ */}
           {activeTab === 'overview' && overview && (
             <>
+              {/* 📊 Descargar reporte (Excel) — país + rango; validado en servidor */}
+              <Pressable
+                style={[s.reportBtn, downloadingReport && { opacity: 0.6 }]}
+                disabled={downloadingReport}
+                onPress={() => {
+                  const download = async (country: string, days: number | null) => {
+                    setDownloadingReport(true);
+                    try {
+                      const from = days != null
+                        ? new Date(Date.now() - days * 86400000).toISOString().substring(0, 10)
+                        : null;
+                      const { data, error } = await supabase.functions.invoke('generate-report', {
+                        body: { mode: 'admin', country, from },
+                      });
+                      if (error || !(data as any)?.ok) {
+                        Alert.alert('No se pudo generar', (data as any)?.error ?? error?.message ?? 'Intenta de nuevo.');
+                        return;
+                      }
+                      await Linking.openURL((data as any).url);
+                    } catch {
+                      Alert.alert('Error', 'No se pudo descargar el reporte.');
+                    } finally {
+                      setDownloadingReport(false);
+                    }
+                  };
+                  const pickRange = (country: string) => {
+                    Alert.alert('📅 Periodo', 'Elige el rango de fechas', [
+                      { text: 'Últimos 30 días', onPress: () => download(country, 30) },
+                      { text: 'Últimos 90 días', onPress: () => download(country, 90) },
+                      { text: 'Este año',        onPress: () => download(country, 365) },
+                      { text: 'Todo',            onPress: () => download(country, null) },
+                      { text: 'Cancelar', style: 'cancel' },
+                    ]);
+                  };
+                  Alert.alert('📊 Descargar reporte', '¿De qué país?', [
+                    { text: '🌎 Todos (reporte global)', onPress: () => pickRange('all') },
+                    { text: '🇲🇽 México',                onPress: () => pickRange('MX') },
+                    { text: '🇺🇸 Estados Unidos',        onPress: () => pickRange('US') },
+                    { text: '🇨🇦 Canadá',                onPress: () => pickRange('CA') },
+                    { text: 'Cancelar', style: 'cancel' },
+                  ]);
+                }}
+              >
+                <Text style={s.reportBtnTx}>
+                  {downloadingReport ? 'Generando reporte…' : '📊 Descargar reporte (Excel)'}
+                </Text>
+              </Pressable>
+
               {/* Row 1: Total facturado + Ganancia bruta */}
               <View style={s.kpiRow}>
                 <KpiCard
@@ -1184,6 +1234,12 @@ const s = StyleSheet.create({
 
   // KPI grid
   kpiRow: { flexDirection: 'row', gap: 12 },
+  reportBtn: {
+    paddingVertical: 13, alignItems: 'center',
+    backgroundColor: 'rgba(0,230,118,0.08)', borderRadius: RADIUS.full,
+    borderWidth: 1, borderColor: 'rgba(0,230,118,0.4)',
+  },
+  reportBtnTx: { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: COLORS.green },
 
   // Distribution bar
   barCard:  { backgroundColor: COLORS.card, borderRadius: RADIUS.lg, borderWidth: 1, borderColor: COLORS.border, padding: SPACING.lg },
