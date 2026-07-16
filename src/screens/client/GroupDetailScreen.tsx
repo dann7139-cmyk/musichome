@@ -91,6 +91,7 @@ export default function GroupDetailScreen({ route, navigation }: any) {
   // 🎬 Carrusel de videos del perfil (sql/492) + expandir cosas compactas
   const [profileVideos,    setProfileVideos]    = useState<any[]>([]);
   const [videoIndex,       setVideoIndex]       = useState(0);
+  const videoScrollX = useRef(new Animated.Value(0)).current;
   const [descExpanded,     setDescExpanded]     = useState(false);
   const [trustExpanded,    setTrustExpanded]    = useState(false);
   const [profileAdIdx,     setProfileAdIdx]     = useState(0);
@@ -286,7 +287,12 @@ export default function GroupDetailScreen({ route, navigation }: any) {
             <View style={styles.heroNameRow}>
               <Text style={styles.heroName} numberOfLines={2}>{group.name}</Text>
               {group.is_verified && (
-                <VerifiedBadge size={22} tier={(group as any).is_plus_active ? 'plus' : 'free'} />
+                <VerifiedBadge
+                  size={22}
+                  tier={(!!(group as any).is_plus_active &&
+                    (!(group as any).plus_expires_at || new Date((group as any).plus_expires_at) > new Date()))
+                    ? 'plus' : 'free'}
+                />
               )}
             </View>
 
@@ -362,9 +368,7 @@ export default function GroupDetailScreen({ route, navigation }: any) {
                     style={styles.heroQuoteBtn}
                     onPress={() => navigation.navigate('QuoteForm', { group, isGift })}
                   >
-                    <Text style={styles.heroQuoteBtnTx}>
-                      {isExplorer ? 'Información' : 'Cotizar'}
-                    </Text>
+                    <Text style={styles.heroQuoteBtnTx}>Cotizar</Text>
                   </Pressable>
                 </View>
               );
@@ -404,23 +408,31 @@ export default function GroupDetailScreen({ route, navigation }: any) {
           {(profileVideos.length > 0 || (group.promo_video && group.video_status === 'approved')) && (() => {
             const plusActive = !!(group as any).is_plus_active &&
               (!(group as any).plus_expires_at || new Date((group as any).plus_expires_at) > new Date());
-            const maxSlots = plusActive ? 5 : 3;
+            // 🎬 GRATIS: 1 video · con PLUS vigente: 3 (corrección 2026-07-16)
+            const maxSlots = plusActive ? 3 : 1;
             const real = (profileVideos.length > 0
               ? profileVideos
               : [{ id: 'legacy', url: group.promo_video }]
-            ).slice(0, maxSlots);   // 🔒 sin Plus vigente, máximo 3 aunque haya más
+            ).slice(0, maxSlots);   // 🔒 sin Plus vigente, solo el primero
+            // Siempre 3 espacios: el real al frente, los 🔒 atrasito a los
+            // lados (al pagar Plus se vuelven sus videos reales)
             const slots: any[] = [
               ...real.map(v => ({ ...v, locked: false })),
               ...Array.from({ length: Math.max(0, 3 - real.length) }, (_, i) => ({ id: `lock-${i}`, locked: true })),
             ];
-            const CARD_W = Math.round(SCREEN_W * 0.72);
-            const STEP = CARD_W + 10;
+            const CARD_W = Math.round(SCREEN_W * 0.64);
+            const STEP   = CARD_W + 10;
+            const SIDE   = Math.round((SCREEN_W - CARD_W) / 2);
             return (
               <View style={styles.videoSection}>
                 <Text style={styles.sectionTitle}>
                   🎬 Videos · {Math.min(videoIndex + 1, slots.length)}/{slots.length}
                 </Text>
-                <FlatList
+                {/* Carrusel centrado: el activo al FRENTE, los lados atrasito
+                    (escala y opacidad bajan con la distancia — como el
+                    explorador). El FlatList se desborda del padding del body
+                    para que los laterales asomen por ambos lados. */}
+                <Animated.FlatList
                   data={slots}
                   keyExtractor={(v: any) => String(v.id)}
                   horizontal
@@ -428,26 +440,45 @@ export default function GroupDetailScreen({ route, navigation }: any) {
                   snapToInterval={STEP}
                   snapToAlignment="start"
                   decelerationRate="fast"
+                  style={{ marginHorizontal: -SPACING.xl }}
+                  contentContainerStyle={{ paddingHorizontal: SIDE }}
+                  onScroll={Animated.event(
+                    [{ nativeEvent: { contentOffset: { x: videoScrollX } } }],
+                    { useNativeDriver: true },
+                  )}
+                  scrollEventThrottle={16}
                   onMomentumScrollEnd={e => {
                     const i = Math.round(e.nativeEvent.contentOffset.x / STEP);
                     setVideoIndex(Math.max(0, Math.min(slots.length - 1, i)));
                   }}
-                  renderItem={({ item }) => (item as any).locked ? (
-                    <View style={[styles.videoCard, styles.videoCardLocked, { width: CARD_W }]}>
-                      <Text style={{ fontSize: 30 }}>🔒</Text>
-                      <Text style={styles.videoLockedTx}>Video no disponible</Text>
-                    </View>
-                  ) : (
-                    <View style={[styles.videoCard, { width: CARD_W }]}>
-                      <VideoPlayer
-                        uri={(item as any).url}
-                        style={styles.video}
-                        contentFit="contain"
-                        nativeControls
-                      />
-                    </View>
-                  )}
-                  ItemSeparatorComponent={() => <View style={{ width: 10 }} />}
+                  renderItem={({ item, index }) => {
+                    const inputRange = [(index - 1) * STEP, index * STEP, (index + 1) * STEP];
+                    const scale = videoScrollX.interpolate({
+                      inputRange, outputRange: [0.86, 1, 0.86], extrapolate: 'clamp',
+                    });
+                    const opacity = videoScrollX.interpolate({
+                      inputRange, outputRange: [0.45, 1, 0.45], extrapolate: 'clamp',
+                    });
+                    return (
+                      <Animated.View style={{ transform: [{ scale }], opacity, marginRight: index === slots.length - 1 ? 0 : 10 }}>
+                        {(item as any).locked ? (
+                          <View style={[styles.videoCard, styles.videoCardLocked, { width: CARD_W }]}>
+                            <Text style={{ fontSize: 30 }}>🔒</Text>
+                            <Text style={styles.videoLockedTx}>Video no disponible</Text>
+                          </View>
+                        ) : (
+                          <View style={[styles.videoCard, { width: CARD_W }]}>
+                            <VideoPlayer
+                              uri={(item as any).url}
+                              style={styles.video}
+                              contentFit="contain"
+                              nativeControls
+                            />
+                          </View>
+                        )}
+                      </Animated.View>
+                    );
+                  }}
                 />
                 {slots.length > 1 && (
                   <View style={styles.videoDots}>

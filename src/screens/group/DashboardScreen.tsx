@@ -946,6 +946,11 @@ export default function GroupDashboardScreen({ navigation }: any) {
 
   const firstName = authProfile?.full_name?.split(' ')[0] ?? 'Músico';
 
+  // 🏆 Plus EFECTIVO: activo Y no vencido (las banderas viejas de pruebas
+  // quedaban en true — bug de la palomita fantasma, 2026-07-16)
+  const plusOn = !!(group as any)?.is_plus_active &&
+    (!(group as any)?.plus_expires_at || new Date((group as any).plus_expires_at) > new Date());
+
   // ── Remove member ────────────────────────────────────────────────────────────
   const handleRemoveMember = () => {
     const invId = selectedMember?.invitationId;
@@ -1086,7 +1091,7 @@ export default function GroupDashboardScreen({ navigation }: any) {
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                   <Text style={s.heroName} numberOfLines={1}>{group?.name ?? 'Tu grupo'}</Text>
                   {group?.is_verified && (
-                    <VerifiedBadge size={20} tier={(group as any).is_plus_active ? 'plus' : 'free'} />
+                    <VerifiedBadge size={20} tier={plusOn ? "plus" : "free"} />
                   )}
                 </View>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
@@ -1506,7 +1511,7 @@ export default function GroupDashboardScreen({ navigation }: any) {
                     Hasta 3 videos; con Plus la insignia desbloquea 2 más (5).
                     Cada uno pasa por revisión del admin (sql/492). */}
               <Text style={s.equipSectionTitle}>
-                🎬 Mis videos del perfil · {myVideos.filter(v => v.status !== 'rejected').length}/{(group as any)?.is_plus_active ? 5 : 3}
+                🎬 Mis videos del perfil · {myVideos.filter(v => v.status !== 'rejected').length}/{plusOn ? 3 : 1}
               </Text>
               {/* Vista previa reducida — como el carrusel que ve el cliente */}
               {myVideos.filter(v => v.url && v.status !== 'rejected').length > 0 && (
@@ -1577,7 +1582,7 @@ export default function GroupDashboardScreen({ navigation }: any) {
                   } catch (e: any) {
                     const msg = e?.message ?? 'No se pudo subir el video.';
                     // El límite lo dicta el servidor — incluye el upsell de Plus
-                    if (msg.includes("Plus") && !(group as any)?.is_plus_active) {
+                    if (msg.includes("Plus") && !plusOn) {
                       Alert.alert('🏆 Desbloquea más videos', msg, [
                         { text: 'Ahora no', style: 'cancel' },
                         { text: 'Ver Plus', onPress: () => navigation.navigate('Plus') },
@@ -1597,10 +1602,10 @@ export default function GroupDashboardScreen({ navigation }: any) {
                   {multiVideoLoading ? 'Subiendo…' : '➕ Agregar video al carrusel'}
                 </Text>
               </Pressable>
-              {!(group as any)?.is_plus_active && myVideos.filter(v => v.status !== 'rejected').length >= 3 && (
+              {!plusOn && (
                 <Pressable style={s.plusUpsell} onPress={() => navigation.navigate('Plus')}>
                   <Text style={s.plusUpsellTx}>
-                    🏆 Con la insignia Plus desbloqueas <Text style={{ color: COLORS.gold }}>2 videos más</Text> en tu perfil (hasta 5) →
+                    🏆 Con la insignia Plus desbloqueas <Text style={{ color: COLORS.gold }}>2 videos más</Text> en tu perfil (hasta 3) →
                   </Text>
                 </Pressable>
               )}
