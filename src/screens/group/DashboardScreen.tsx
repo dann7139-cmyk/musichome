@@ -1508,11 +1508,17 @@ export default function GroupDashboardScreen({ navigation }: any) {
               <Text style={s.videoHint}>MP4, MOV o WebM · máx. 50 MB{'\n'}⚠️ Sin redes sociales, teléfonos ni logos externos</Text>
 
               {/* ── 🎬 MIS VIDEOS DEL PERFIL (carrusel del cliente) ──────────
-                    Hasta 3 videos; con Plus la insignia desbloquea 2 más (5).
-                    Cada uno pasa por revisión del admin (sql/492). */}
+                    1 video gratis; con Plus vigente 2 más (3 en total).
+                    Cada uno pasa por revisión del admin (sql/492-494). */}
               <Text style={s.equipSectionTitle}>
                 🎬 Mis videos del perfil · {myVideos.filter(v => v.status !== 'rejected').length}/{plusOn ? 3 : 1}
               </Text>
+              {plusOn && (group as any)?.plus_expires_at && (
+                <Text style={s.plusActiveTx}>
+                  🏆 Plus activo · <Text style={{ color: COLORS.gold }}>2 videos más</Text> desbloqueados (3 en total) hasta el{' '}
+                  {new Date((group as any).plus_expires_at).toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' })}
+                </Text>
+              )}
               {/* Vista previa reducida — como el carrusel que ve el cliente */}
               {myVideos.filter(v => v.url && v.status !== 'rejected').length > 0 && (
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 10 }}>
@@ -1557,6 +1563,24 @@ export default function GroupDashboardScreen({ navigation }: any) {
                 onPress={async () => {
                   const gid = groupIdRef.current;
                   if (!gid) return;
+                  // 🔒 Límite en la app (el trigger SQL es el candado final):
+                  // 1 video gratis · 3 con Plus VIGENTE (no basta la bandera)
+                  const activos = myVideos.filter(v => v.status !== 'rejected').length;
+                  if (activos >= (plusOn ? 3 : 1)) {
+                    if (plusOn) {
+                      Alert.alert('🎬 Límite alcanzado', 'Ya tienes 3 videos (el máximo con Plus). Elimina uno para subir otro.');
+                    } else {
+                      Alert.alert(
+                        '🏆 Desbloquea 2 videos más',
+                        'Tu plan incluye 1 video en el perfil. Con la insignia Plus desbloqueas 2 más (3 en total) y tu badge verde en el explorador.',
+                        [
+                          { text: 'Ahora no', style: 'cancel' },
+                          { text: 'Ver Plus', onPress: () => navigation.navigate('Plus') },
+                        ],
+                      );
+                    }
+                    return;
+                  }
                   // Declaración de derechos (Términos §6) — igual que el video legacy
                   const accepted = await new Promise<boolean>(resolve => {
                     Alert.alert(
@@ -2358,6 +2382,10 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: 'rgba(201,168,76,0.35)',
   },
   plusUpsellTx: { fontFamily: FONTS.bodyMedium, fontSize: 12, color: COLORS.text, lineHeight: 17 },
+  plusActiveTx: {
+    fontFamily: FONTS.bodyMedium, fontSize: 12, color: COLORS.green,
+    lineHeight: 17, marginBottom: 10,
+  },
 
   // Lineup horizontal
   lineupRow: { paddingHorizontal: SPACING.xl, gap: 16, paddingBottom: 20 },
