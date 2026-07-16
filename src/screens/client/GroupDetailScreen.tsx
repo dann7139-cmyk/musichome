@@ -6,6 +6,8 @@ import {
   ActivityIndicator,
   Alert,
   Animated,
+  Dimensions,
+  FlatList,
   Image,
   Pressable,
   RefreshControl,
@@ -15,6 +17,8 @@ import {
   Text,
   View,
 } from 'react-native';
+
+const SCREEN_W = Dimensions.get('window').width;
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ArrowLeft, CheckCircle, MapPin, Music2, Share2, Shield, Star, FileText, Navigation, Award, TrendingUp, ShieldCheck, ThumbsUp, Zap, Headphones } from 'lucide-react-native';
 import * as Location from 'expo-location';
@@ -84,6 +88,11 @@ export default function GroupDetailScreen({ route, navigation }: any) {
   const [groupCompletedCount, setGroupCompletedCount] = useState<number | null>(null);
   const [similarGroups,    setSimilarGroups]    = useState<any[]>([]);
   const [profileAds,       setProfileAds]       = useState<any[]>([]);
+  // 🎬 Carrusel de videos del perfil (sql/492) + expandir cosas compactas
+  const [profileVideos,    setProfileVideos]    = useState<any[]>([]);
+  const [videoIndex,       setVideoIndex]       = useState(0);
+  const [descExpanded,     setDescExpanded]     = useState(false);
+  const [trustExpanded,    setTrustExpanded]    = useState(false);
   const [profileAdIdx,     setProfileAdIdx]     = useState(0);
   const [profileAdImgErr,  setProfileAdImgErr]  = useState(false);
   const profileAdFade = useRef(new Animated.Value(1)).current;
@@ -148,6 +157,17 @@ export default function GroupDetailScreen({ route, navigation }: any) {
     checkProximity();
     loadReviews();
 
+    // 🎬 Videos del perfil (carrusel): hasta 3, o 5 con Plus (sql/492).
+    // RLS ya filtra: el público solo ve aprobados.
+    supabase
+      .from('group_videos')
+      .select('id, url, position')
+      .eq('group_id', initialGroup.id)
+      .eq('status', 'approved')
+      .order('position', { ascending: true })
+      .order('created_at', { ascending: true })
+      .then(({ data }) => { if (data) setProfileVideos(data as any[]); });
+
     // Registrar vista (fire-and-forget)
     supabase.rpc('track_group_view', { p_group_id: initialGroup.id });
 
@@ -188,7 +208,7 @@ export default function GroupDetailScreen({ route, navigation }: any) {
   const loadReviews = async () => {
     const { data } = await supabase.rpc('get_group_reviews', {
       p_group_id: initialGroup.id,
-      p_limit: 5,
+      p_limit: 10,
     });
     if (data) setReviews(data);
   };
@@ -251,9 +271,20 @@ export default function GroupDetailScreen({ route, navigation }: any) {
               <Pressable style={styles.heroBackBtn} onPress={() => navigation.goBack()}>
                 <ArrowLeft size={20} color="#fff" />
               </Pressable>
-              <Pressable style={styles.heroShareBtn} onPress={handleShare}>
-                <Share2 size={18} color="#fff" />
-              </Pressable>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                {/* 💬 Cotizar SIEMPRE visible arriba — chico y fácil de ver */}
+                {!isExplorer && (
+                  <Pressable
+                    style={styles.heroQuoteBtn}
+                    onPress={() => navigation.navigate('QuoteForm', { group, isGift })}
+                  >
+                    <Text style={styles.heroQuoteBtnTx}>💬 Cotizar</Text>
+                  </Pressable>
+                )}
+                <Pressable style={styles.heroShareBtn} onPress={handleShare}>
+                  <Share2 size={18} color="#fff" />
+                </Pressable>
+              </View>
             </View>
           </SafeAreaView>
 
@@ -369,26 +400,64 @@ export default function GroupDetailScreen({ route, navigation }: any) {
         {/* ── CONTENIDO ── */}
         <View style={styles.body}>
 
-          {/* Descripción */}
+          {/* 🎬 VIDEOS — carrusel deslizable con efecto destacado (hasta 5) */}
+          {(profileVideos.length > 0 || (group.promo_video && group.video_status === 'approved')) && (() => {
+            const vids = profileVideos.length > 0
+              ? profileVideos
+              : [{ id: 'legacy', url: group.promo_video }];
+            const CARD_W = SCREEN_W - SPACING.xl * 2;
+            return (
+              <View style={styles.videoSection}>
+                <Text style={styles.sectionTitle}>
+                  🎬 Videos {vids.length > 1 ? `· ${videoIndex + 1}/${vids.length}` : ''}
+                </Text>
+                <FlatList
+                  data={vids}
+                  keyExtractor={(v: any) => String(v.id)}
+                  horizontal
+                  pagingEnabled
+                  showsHorizontalScrollIndicator={false}
+                  snapToInterval={CARD_W + 12}
+                  decelerationRate="fast"
+                  onMomentumScrollEnd={e => {
+                    const i = Math.round(e.nativeEvent.contentOffset.x / (CARD_W + 12));
+                    setVideoIndex(Math.max(0, Math.min(vids.length - 1, i)));
+                  }}
+                  renderItem={({ item }) => (
+                    <View style={[styles.videoCard, { width: CARD_W }]}>
+                      <VideoPlayer
+                        uri={(item as any).url}
+                        style={styles.video}
+                        contentFit="contain"
+                        nativeControls
+                      />
+                    </View>
+                  )}
+                  ItemSeparatorComponent={() => <View style={{ width: 12 }} />}
+                />
+                {vids.length > 1 && (
+                  <View style={styles.videoDots}>
+                    {vids.map((_: any, i: number) => (
+                      <View key={i} style={[styles.videoDot, i === videoIndex && styles.videoDotOn]} />
+                    ))}
+                  </View>
+                )}
+              </View>
+            );
+          })()}
+
+          {/* Descripción — compacta, "Ver más" si es larga */}
           {group.description && (
             <View style={styles.descCard}>
               <Text style={styles.descLabel}>Sobre el grupo</Text>
-              <Text style={styles.descText}>{group.description}</Text>
-            </View>
-          )}
-
-          {/* Video */}
-          {group.promo_video && group.video_status === 'approved' && (
-            <View style={styles.videoSection}>
-              <Text style={styles.sectionTitle}>Video promocional</Text>
-              <View style={styles.videoWrapper}>
-                <VideoPlayer
-                  uri={group.promo_video}
-                  style={styles.video}
-                  contentFit="contain"
-                  nativeControls
-                />
-              </View>
+              <Text style={styles.descText} numberOfLines={descExpanded ? undefined : 3}>
+                {group.description}
+              </Text>
+              {group.description.length > 120 && (
+                <Pressable hitSlop={6} onPress={() => setDescExpanded(v => !v)}>
+                  <Text style={styles.descMore}>{descExpanded ? 'Ver menos ▲' : 'Ver más ▼'}</Text>
+                </Pressable>
+              )}
             </View>
           )}
 
@@ -399,48 +468,41 @@ export default function GroupDetailScreen({ route, navigation }: any) {
             </View>
           )}
 
-          {/* ── GARANTÍA DARICEFY ── */}
-          <View style={styles.trustCard}>
+          {/* ── GARANTÍA DARICEFY — compacta, se expande al tocar ── */}
+          <Pressable style={styles.trustCompact} onPress={() => setTrustExpanded(v => !v)}>
             <View style={styles.trustHeader}>
-              <ShieldCheck size={17} color={COLORS.green} />
-              <Text style={styles.trustTitle}>Reserva protegida por Daricefy</Text>
+              <ShieldCheck size={14} color={COLORS.green} />
+              <Text style={styles.trustCompactTitle}>Reserva protegida por Daricefy</Text>
+              <Text style={styles.trustChevron}>{trustExpanded ? '▲' : '▼'}</Text>
             </View>
-            <Text style={styles.trustSubtitle}>
-              Si el grupo no llega, te ayudamos o te devolvemos el dinero
-            </Text>
-            <View style={styles.trustDivider} />
-            <View style={styles.trustBenefits}>
-              <View style={styles.trustBenefitRow}>
-                <CheckCircle size={13} color={COLORS.green} />
-                <Text style={styles.trustBenefitText}>Grupos verificados por el equipo</Text>
-              </View>
-              <View style={styles.trustBenefitRow}>
-                <Headphones size={13} color={COLORS.green} />
-                <Text style={styles.trustBenefitText}>Soporte durante el evento</Text>
-              </View>
-              <View style={styles.trustBenefitRow}>
-                <Star size={13} color={COLORS.green} fill={COLORS.green} />
-                <Text style={styles.trustBenefitText}>Historial y calificaciones reales</Text>
-              </View>
-            </View>
-            <View style={styles.safetyNotice}>
-              <Shield size={12} color={COLORS.muted2} />
-              <Text style={styles.safetyNoticeText}>
-                Para tu seguridad, mantén toda la contratación dentro de la app
-              </Text>
-            </View>
-            <View style={styles.trustBadgeRow}>
-              <View style={styles.trustBadge}>
-                <Text style={styles.trustBadgeText}>Seguro</Text>
-              </View>
-              <View style={styles.trustBadge}>
-                <Text style={styles.trustBadgeText}>Verificado</Text>
-              </View>
-              <View style={styles.trustBadge}>
-                <Text style={styles.trustBadgeText}>Protegido</Text>
-              </View>
-            </View>
-          </View>
+            {trustExpanded && (
+              <>
+                <Text style={styles.trustSubtitle}>
+                  Si el grupo no llega, te ayudamos o te devolvemos el dinero
+                </Text>
+                <View style={styles.trustBenefits}>
+                  <View style={styles.trustBenefitRow}>
+                    <CheckCircle size={12} color={COLORS.green} />
+                    <Text style={styles.trustBenefitText}>Grupos verificados por el equipo</Text>
+                  </View>
+                  <View style={styles.trustBenefitRow}>
+                    <Headphones size={12} color={COLORS.green} />
+                    <Text style={styles.trustBenefitText}>Soporte durante el evento</Text>
+                  </View>
+                  <View style={styles.trustBenefitRow}>
+                    <Star size={12} color={COLORS.green} fill={COLORS.green} />
+                    <Text style={styles.trustBenefitText}>Historial y calificaciones reales</Text>
+                  </View>
+                </View>
+                <View style={styles.safetyNotice}>
+                  <Shield size={11} color={COLORS.muted2} />
+                  <Text style={styles.safetyNoticeText}>
+                    Para tu seguridad, mantén toda la contratación dentro de la app
+                  </Text>
+                </View>
+              </>
+            )}
+          </Pressable>
 
           {/* ── INSIGNIAS ── */}
           {group.badges && group.badges.length > 0 && (
@@ -717,6 +779,14 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(4,4,4,0.55)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)',
     alignItems: 'center', justifyContent: 'center',
   },
+  // 💬 Cotizar arriba — chico, visible, con brillo de marca
+  heroQuoteBtn: {
+    paddingHorizontal: 14, height: 40, borderRadius: 12,
+    backgroundColor: COLORS.green, alignItems: 'center', justifyContent: 'center',
+    shadowColor: '#00E676', shadowOpacity: 0.5, shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 }, elevation: 6,
+  },
+  heroQuoteBtnTx: { fontFamily: FONTS.bodySemiBold, fontSize: 13.5, color: '#04110A' },
   shareToast: {
     position: 'absolute', bottom: 16, alignSelf: 'center',
     backgroundColor: 'rgba(0,0,0,0.8)', borderRadius: RADIUS.full,
@@ -813,10 +883,22 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.bodySemiBold, fontSize: 11, color: COLORS.muted2,
     textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10,
   },
-  descText: { fontFamily: FONTS.body, fontSize: 14, color: COLORS.text, lineHeight: 22 },
+  // Descripción compacta (pedido 2026-07-16: "está muy grande")
+  descText: { fontFamily: FONTS.body, fontSize: 12.5, color: COLORS.muted2, lineHeight: 18 },
+  descMore: { fontFamily: FONTS.bodySemiBold, fontSize: 11.5, color: COLORS.green, marginTop: 6 },
 
-  // Video
+  // 🎬 Carrusel de videos — efecto "destacado" del explorador
   videoSection: { marginBottom: 20 },
+  videoCard: {
+    borderRadius: 20, overflow: 'hidden', backgroundColor: '#060c06', marginTop: 8,
+    borderWidth: 1.5, borderColor: 'rgba(0,230,118,0.35)',
+    shadowColor: '#00E676', shadowOpacity: 0.25, shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 }, elevation: 6,
+  },
+  videoDots:  { flexDirection: 'row', justifyContent: 'center', gap: 6, marginTop: 10 },
+  videoDot:   { width: 6, height: 6, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.2)' },
+  videoDotOn: { backgroundColor: COLORS.green, width: 16 },
+
   videoWrapper: { borderRadius: RADIUS.lg, overflow: 'hidden', backgroundColor: '#000', marginTop: 8 },
   video: { width: '100%', height: 200 },
 
@@ -975,7 +1057,14 @@ const styles = StyleSheet.create({
   reportProfileLink: { alignSelf: 'center', marginTop: 18, paddingVertical: 6, paddingHorizontal: 14 },
   reportProfileText: { fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted, textDecorationLine: 'underline' },
 
-  // ── Trust / Garantía ──
+  // ── Trust / Garantía — compacta y plegable ──
+  trustCompact: {
+    backgroundColor: COLORS.card, borderRadius: RADIUS.lg,
+    borderWidth: 1, borderColor: 'rgba(0,230,118,0.25)',
+    paddingHorizontal: 14, paddingVertical: 11, marginBottom: 16,
+  },
+  trustCompactTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 12.5, color: COLORS.green, flex: 1 },
+  trustChevron: { fontFamily: FONTS.body, fontSize: 10, color: COLORS.muted2 },
   trustCard: {
     backgroundColor: COLORS.card, borderRadius: RADIUS.xl,
     borderWidth: 1, borderColor: 'rgba(0,230,118,0.3)',

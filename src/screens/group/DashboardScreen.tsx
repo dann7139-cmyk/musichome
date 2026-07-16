@@ -45,7 +45,7 @@ import Particles from '../../components/ui/Particles';
 import VerifiedBadge from '../../components/ui/VerifiedBadge';
 import PlusDashboardCard from '../../components/ui/PlusDashboardCard';
 import { pickAndUploadGroupImage } from '../../utils/uploadGroupImage';
-import { pickAndUploadGroupVideo } from '../../utils/uploadGroupVideo';
+import { pickAndUploadGroupVideo, pickAndUploadGroupVideoMulti } from '../../utils/uploadGroupVideo';
 import { normalizeCity } from '../../utils/cityUtils';
 import { stateToCountry } from '../../utils/locationUtils';
 import { validatePublicText } from '../../utils/textValidation';
@@ -166,6 +166,8 @@ export default function GroupDashboardScreen({ navigation }: any) {
   const [editSaving, setEditSaving] = useState(false);
   const [photoLoading, setPhotoLoading] = useState(false);
   const [videoLoading, setVideoLoading] = useState(false);
+  const [multiVideoLoading, setMultiVideoLoading] = useState(false);
+  const [myVideos, setMyVideos] = useState<any[]>([]);
   const [videoSuccessMsg, setVideoSuccessMsg] = useState(false);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [ownerArtist, setOwnerArtist] = useState<any | null>(null);
@@ -594,6 +596,11 @@ export default function GroupDashboardScreen({ navigation }: any) {
       setGroup(grp);
       groupIdRef.current = grp.id;
       fetchStripeInfo(grp.id);
+
+      // 🎬 Mis videos del perfil (carrusel, sql/492)
+      supabase.from('group_videos').select('id, status, created_at')
+        .eq('group_id', grp.id).order('created_at', { ascending: true })
+        .then(({ data: vids }) => setMyVideos(vids ?? []));
 
       // Leer availability directo desde el grupo ya cargado (get_my_group retorna SETOF groups)
       if ((grp as any).availability) {
@@ -1495,6 +1502,99 @@ export default function GroupDashboardScreen({ navigation }: any) {
               )}
               <Text style={s.videoHint}>MP4, MOV o WebM · máx. 50 MB{'\n'}⚠️ Sin redes sociales, teléfonos ni logos externos</Text>
 
+              {/* ── 🎬 MIS VIDEOS DEL PERFIL (carrusel del cliente) ──────────
+                    Hasta 3 videos; con Plus la insignia desbloquea 2 más (5).
+                    Cada uno pasa por revisión del admin (sql/492). */}
+              <Text style={s.equipSectionTitle}>
+                🎬 Mis videos del perfil · {myVideos.filter(v => v.status !== 'rejected').length}/{(group as any)?.is_plus_active ? 5 : 3}
+              </Text>
+              {myVideos.map((v, i) => (
+                <View key={v.id} style={s.myVideoRow}>
+                  <Text style={s.myVideoName}>Video {i + 1}</Text>
+                  <Text style={[
+                    s.myVideoStatus,
+                    v.status === 'approved' && { color: COLORS.green },
+                    v.status === 'pending'  && { color: '#FFC107' },
+                    v.status === 'rejected' && { color: '#EF5350' },
+                  ]}>
+                    {v.status === 'approved' ? '✅ Publicado' : v.status === 'pending' ? '⏳ En revisión' : '❌ Rechazado'}
+                  </Text>
+                  <Pressable
+                    hitSlop={8}
+                    onPress={() => Alert.alert('Eliminar video', `¿Quitar el Video ${i + 1} de tu perfil?`, [
+                      { text: 'Cancelar', style: 'cancel' },
+                      {
+                        text: 'Eliminar', style: 'destructive',
+                        onPress: async () => {
+                          await supabase.from('group_videos').delete().eq('id', v.id);
+                          setMyVideos(prev => prev.filter(x => x.id !== v.id));
+                        },
+                      },
+                    ])}
+                  >
+                    <Text style={{ fontSize: 14 }}>🗑️</Text>
+                  </Pressable>
+                </View>
+              ))}
+              <Pressable
+                style={[s.videoBtnOutline, multiVideoLoading && { opacity: 0.5 }]}
+                disabled={multiVideoLoading}
+                onPress={async () => {
+                  const gid = groupIdRef.current;
+                  if (!gid) return;
+                  // Declaración de derechos (Términos §6) — igual que el video legacy
+                  const accepted = await new Promise<boolean>(resolve => {
+                    Alert.alert(
+                      '🎵 Antes de subir tu video',
+                      'Al subir declaras BAJO TU RESPONSABILIDAD que es TU GRUPO tocando (interpretación propia); si es cover reconoces al autor; y NO es música grabada de otros artistas.',
+                      [
+                        { text: 'Cancelar', style: 'cancel', onPress: () => resolve(false) },
+                        { text: 'Acepto, subir', onPress: () => resolve(true) },
+                      ],
+                    );
+                  });
+                  if (!accepted) return;
+                  try {
+                    setMultiVideoLoading(true);
+                    const ok = await pickAndUploadGroupVideoMulti(gid);
+                    if (ok) {
+                      const { data: vids } = await supabase
+                        .from('group_videos').select('id, status, created_at')
+                        .eq('group_id', gid).order('created_at', { ascending: true });
+                      setMyVideos(vids ?? []);
+                      Alert.alert('✅ Video subido', 'Quedó en revisión — se publica en tu perfil al aprobarse.');
+                    }
+                  } catch (e: any) {
+                    const msg = e?.message ?? 'No se pudo subir el video.';
+                    // El límite lo dicta el servidor — incluye el upsell de Plus
+                    if (msg.includes("Plus") && !(group as any)?.is_plus_active) {
+                      Alert.alert('🏆 Desbloquea más videos', msg, [
+                        { text: 'Ahora no', style: 'cancel' },
+                        { text: 'Ver Plus', onPress: () => navigation.navigate('Plus') },
+                      ]);
+                    } else {
+                      Alert.alert('Error', msg);
+                    }
+                  } finally {
+                    setMultiVideoLoading(false);
+                  }
+                }}
+              >
+                {multiVideoLoading
+                  ? <ActivityIndicator size="small" color={COLORS.green} />
+                  : <Film size={15} color={COLORS.green} />}
+                <Text style={s.videoBtnOutlineText}>
+                  {multiVideoLoading ? 'Subiendo…' : '➕ Agregar video al carrusel'}
+                </Text>
+              </Pressable>
+              {!(group as any)?.is_plus_active && myVideos.filter(v => v.status !== 'rejected').length >= 3 && (
+                <Pressable style={s.plusUpsell} onPress={() => navigation.navigate('Plus')}>
+                  <Text style={s.plusUpsellTx}>
+                    🏆 Con la insignia Plus desbloqueas <Text style={{ color: COLORS.gold }}>2 videos más</Text> en tu perfil (hasta 5) →
+                  </Text>
+                </Pressable>
+              )}
+
               {/* ── Mi Equipo ──────────────────────────────────────────────── */}
               <Text style={s.equipSectionTitle}>Mi Equipo</Text>
 
@@ -2224,6 +2324,21 @@ const s = StyleSheet.create({
   },
   videoBtnSolidText: { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: COLORS.bg },
   videoHint: { fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted, textAlign: 'center', marginBottom: 20 },
+  // 🎬 Gestor de videos del carrusel
+  myVideoRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: COLORS.card2, borderRadius: RADIUS.md,
+    borderWidth: 1, borderColor: COLORS.border,
+    paddingHorizontal: 12, paddingVertical: 9, marginBottom: 6,
+  },
+  myVideoName:   { fontFamily: FONTS.bodyMedium, fontSize: 12.5, color: COLORS.text, flex: 1 },
+  myVideoStatus: { fontFamily: FONTS.bodySemiBold, fontSize: 11 },
+  plusUpsell: {
+    marginTop: 8, marginBottom: 4, padding: 12,
+    backgroundColor: 'rgba(201,168,76,0.08)', borderRadius: RADIUS.md,
+    borderWidth: 1, borderColor: 'rgba(201,168,76,0.35)',
+  },
+  plusUpsellTx: { fontFamily: FONTS.bodyMedium, fontSize: 12, color: COLORS.text, lineHeight: 17 },
 
   // Lineup horizontal
   lineupRow: { paddingHorizontal: SPACING.xl, gap: 16, paddingBottom: 20 },
