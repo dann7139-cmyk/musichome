@@ -9,6 +9,7 @@ import {
   Dimensions,
   FlatList,
   Image,
+  PanResponder,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -29,6 +30,103 @@ import LevelBadge from '../../components/ui/LevelBadge';
 import VerifiedBadge from '../../components/ui/VerifiedBadge';
 import PhotoViewerModal from '../../components/ui/PhotoViewerModal';
 import { useAuth } from '../../context/AuthContext';
+
+// 🎬 Baraja de videos — MISMO efecto que MiniDeck del explorador:
+// el del frente opaco y grande; los de los lados ATRASITO (fijos,
+// más chicos y semitransparentes). Tap en un lado o deslizar cambia
+// cuál pasa al frente. Los espacios sin video son tarjetas 🔒.
+function VideoDeck({ slots }: { slots: any[] }) {
+  const [idx, setIdx] = useState(0);
+  const n = slots.length;
+
+  const go = (d: number) => setIdx(i => (i + d + n) % n);
+  const goRef = useRef(go);
+  goRef.current = go;
+
+  // Deslizar izq/der — solo captura gestos horizontales (no roba taps ni el scroll vertical)
+  const pan = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > 10 && Math.abs(g.dx) > Math.abs(g.dy) * 1.4,
+      onPanResponderRelease: (_, g) => {
+        if (g.dx > 20) goRef.current(-1);
+        else if (g.dx < -20) goRef.current(1);
+      },
+    })
+  ).current;
+
+  if (n === 0) return null;
+
+  const bodyW  = SCREEN_W - SPACING.xl * 2;
+  const cardW  = Math.round(bodyW * 0.72);
+  const cardH  = 200;
+  const peek   = Math.round(cardW * 0.26);   // cuánto asoman los de atrás
+  const leftC  = Math.round((bodyW - cardW) / 2);
+
+  const front    = slots[idx % n];
+  const prevItem = slots[(idx - 1 + n) % n];
+  const nextItem = slots[(idx + 1) % n];
+
+  const renderCard = (item: any, isFront: boolean) =>
+    item.locked ? (
+      <View style={[styles.videoCard, styles.videoCardLocked, { width: cardW, height: cardH, marginTop: 0 }]}>
+        <Text style={{ fontSize: isFront ? 30 : 24 }}>🔒</Text>
+        <Text style={styles.videoLockedTx}>Video no disponible</Text>
+      </View>
+    ) : (
+      <View style={[styles.videoCard, { width: cardW, marginTop: 0 }]} pointerEvents={isFront ? 'auto' : 'none'}>
+        <VideoPlayer
+          uri={item.url}
+          style={{ width: '100%', height: cardH }}
+          contentFit={isFront ? 'contain' : 'cover'}
+          nativeControls={isFront}
+          muted={!isFront}
+        />
+      </View>
+    );
+
+  return (
+    <>
+      <View
+        {...pan.panHandlers}
+        style={{ width: bodyW, height: cardH + 14, justifyContent: 'center', alignItems: 'center', marginTop: 8 }}
+      >
+        {/* Atrasito izquierda */}
+        {n > 1 && (
+          <Pressable
+            onPress={() => go(-1)}
+            style={{
+              position: 'absolute', top: 7, left: leftC, zIndex: 1, opacity: 0.45,
+              transform: [{ translateX: -peek }, { scale: 0.82 }],
+            }}
+          >
+            {renderCard(prevItem, false)}
+          </Pressable>
+        )}
+        {/* Atrasito derecha */}
+        {n > 2 && (
+          <Pressable
+            onPress={() => go(1)}
+            style={{
+              position: 'absolute', top: 7, left: leftC, zIndex: 1, opacity: 0.45,
+              transform: [{ translateX: peek }, { scale: 0.82 }],
+            }}
+          >
+            {renderCard(nextItem, false)}
+          </Pressable>
+        )}
+        {/* Al frente (opaco, arriba de todo) */}
+        <View style={{ zIndex: 3 }}>{renderCard(front, true)}</View>
+      </View>
+      {n > 1 && (
+        <View style={styles.videoDots}>
+          {slots.map((_: any, i: number) => (
+            <View key={i} style={[styles.videoDot, i === idx % n && styles.videoDotOn]} />
+          ))}
+        </View>
+      )}
+    </>
+  );
+}
 
 // Distancia Haversine en km entre dos puntos GPS
 function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
@@ -90,8 +188,6 @@ export default function GroupDetailScreen({ route, navigation }: any) {
   const [profileAds,       setProfileAds]       = useState<any[]>([]);
   // 🎬 Carrusel de videos del perfil (sql/492) + expandir cosas compactas
   const [profileVideos,    setProfileVideos]    = useState<any[]>([]);
-  const [videoIndex,       setVideoIndex]       = useState(0);
-  const videoScrollX = useRef(new Animated.Value(0)).current;
   const [descExpanded,     setDescExpanded]     = useState(false);
   const [trustExpanded,    setTrustExpanded]    = useState(false);
   const [profileAdIdx,     setProfileAdIdx]     = useState(0);
@@ -420,73 +516,12 @@ export default function GroupDetailScreen({ route, navigation }: any) {
               ...real.map(v => ({ ...v, locked: false })),
               ...Array.from({ length: Math.max(0, 3 - real.length) }, (_, i) => ({ id: `lock-${i}`, locked: true })),
             ];
-            const CARD_W = Math.round(SCREEN_W * 0.64);
-            const STEP   = CARD_W + 10;
-            const SIDE   = Math.round((SCREEN_W - CARD_W) / 2);
             return (
               <View style={styles.videoSection}>
-                <Text style={styles.sectionTitle}>
-                  🎬 Videos · {Math.min(videoIndex + 1, slots.length)}/{slots.length}
-                </Text>
-                {/* Carrusel centrado: el activo al FRENTE, los lados atrasito
-                    (escala y opacidad bajan con la distancia — como el
-                    explorador). El FlatList se desborda del padding del body
-                    para que los laterales asomen por ambos lados. */}
-                <Animated.FlatList
-                  data={slots}
-                  keyExtractor={(v: any) => String(v.id)}
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  snapToInterval={STEP}
-                  snapToAlignment="start"
-                  decelerationRate="fast"
-                  style={{ marginHorizontal: -SPACING.xl }}
-                  contentContainerStyle={{ paddingHorizontal: SIDE }}
-                  onScroll={Animated.event(
-                    [{ nativeEvent: { contentOffset: { x: videoScrollX } } }],
-                    { useNativeDriver: true },
-                  )}
-                  scrollEventThrottle={16}
-                  onMomentumScrollEnd={e => {
-                    const i = Math.round(e.nativeEvent.contentOffset.x / STEP);
-                    setVideoIndex(Math.max(0, Math.min(slots.length - 1, i)));
-                  }}
-                  renderItem={({ item, index }) => {
-                    const inputRange = [(index - 1) * STEP, index * STEP, (index + 1) * STEP];
-                    const scale = videoScrollX.interpolate({
-                      inputRange, outputRange: [0.86, 1, 0.86], extrapolate: 'clamp',
-                    });
-                    const opacity = videoScrollX.interpolate({
-                      inputRange, outputRange: [0.45, 1, 0.45], extrapolate: 'clamp',
-                    });
-                    return (
-                      <Animated.View style={{ transform: [{ scale }], opacity, marginRight: index === slots.length - 1 ? 0 : 10 }}>
-                        {(item as any).locked ? (
-                          <View style={[styles.videoCard, styles.videoCardLocked, { width: CARD_W }]}>
-                            <Text style={{ fontSize: 30 }}>🔒</Text>
-                            <Text style={styles.videoLockedTx}>Video no disponible</Text>
-                          </View>
-                        ) : (
-                          <View style={[styles.videoCard, { width: CARD_W }]}>
-                            <VideoPlayer
-                              uri={(item as any).url}
-                              style={styles.video}
-                              contentFit="contain"
-                              nativeControls
-                            />
-                          </View>
-                        )}
-                      </Animated.View>
-                    );
-                  }}
-                />
-                {slots.length > 1 && (
-                  <View style={styles.videoDots}>
-                    {slots.map((_: any, i: number) => (
-                      <View key={i} style={[styles.videoDot, i === videoIndex && styles.videoDotOn]} />
-                    ))}
-                  </View>
-                )}
+                <Text style={styles.sectionTitle}>🎬 Videos</Text>
+                {/* Baraja estilo explorador: el del frente grande y opaco,
+                    los de los lados ATRASITO (chicos, semitransparentes) */}
+                <VideoDeck slots={slots} />
               </View>
             );
           })()}
