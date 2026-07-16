@@ -128,6 +128,8 @@ function daysFrom(filter: DateFilter): number | null {
 
 export default function AdminFinancialScreen({ navigation, route }: any) {
   const [overview, setOverview]         = useState<FinancialOverview | null>(null);
+  // Fila USD de la fuente única (monedas separadas, nunca sumadas)
+  const [overviewUsd, setOverviewUsd]   = useState<any | null>(null);
   const [eventFinancials, setEventFins] = useState<EventFinancial[]>([]);
   const [payouts, setPayouts]           = useState<Payout[]>([]);
   const [adIncome, setAdIncome]         = useState<any[]>([]);
@@ -313,15 +315,34 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
 
   // ── Resumen financiero (RPC con fallback directo) ────────────────────────
   const fetchOverview = async () => {
+    // 📊 FUENTE ÚNICA (sql/490): mismas fórmulas que el Dashboard admin.
+    // Monedas separadas — MXN es la vista principal, USD se muestra aparte.
     const days = daysFrom(filter);
-    const { data, error: rpcErr } = await supabase.rpc('get_admin_financial_overview', {
-      p_days: days,
+    const fromDate = days != null
+      ? new Date(Date.now() - days * 86400000).toISOString().substring(0, 10)
+      : null;
+    const { data: summary, error: sumErr } = await supabase.rpc('admin_finance_summary', {
+      p_from: fromDate,
+      p_to:   null,
     });
-    if (data) {
-      setOverview(data as FinancialOverview);
+    if ((summary as any)?.ok) {
+      const rows: any[] = (summary as any).currencies ?? [];
+      const mxn = rows.find(m => m.moneda === 'MXN');
+      const usd = rows.find(m => m.moneda === 'USD');
+      setOverview({
+        total_facturado:    Number(mxn?.total_cobrado ?? 0),
+        ganancia_bruta:     Number(mxn?.comision_daricefy ?? 0),
+        stripe_fees:        Number(mxn?.fees_reales ?? 0),
+        fees_no_capturados: Number(mxn?.fees_no_capturados ?? 0),
+        mercadopago_fees:   0,
+        ganancia_neta:      Number(mxn?.neto_estimado ?? 0),
+        artistas_payout:    Number(mxn?.dinero_grupos ?? 0),
+        event_count:        Number(mxn?.eventos_cobrados ?? 0),
+      });
+      setOverviewUsd(usd ?? null);
       return;
     }
-    if (rpcErr) console.warn('[FinancialScreen] RPC error:', rpcErr.message);
+    if (sumErr) console.warn('[FinancialScreen] admin_finance_summary:', sumErr.message);
 
     // Fallback directo desde reservations (incluye stripe_fee_amount real)
     const from = dateFrom(filter);
@@ -619,6 +640,16 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
                   accent={COLORS.muted2}
                 />
               </View>
+
+              {/* 🇺🇸 Fila USD separada (jamás sumada con MXN) */}
+              {overviewUsd && Number(overviewUsd.total_cobrado) > 0 && (
+                <View style={s.barCard}>
+                  <Text style={s.barTitle}>🇺🇸 Operación en USD (separada)</Text>
+                  <Text style={{ fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2, lineHeight: 18 }}>
+                    Cobrado: US${Number(overviewUsd.total_cobrado).toLocaleString('en-US')}  ·  Grupos: US${Number(overviewUsd.dinero_grupos).toLocaleString('en-US')}  ·  Comisión: US${Number(overviewUsd.comision_daricefy).toLocaleString('en-US')}  ·  Neto: US${Number(overviewUsd.neto_estimado).toLocaleString('en-US')}
+                  </Text>
+                </View>
+              )}
 
               {/* Barra de distribución */}
               {overview.total_facturado > 0 && (

@@ -122,7 +122,7 @@ export default function AdminDashboardScreen({ navigation }: any) {
     setPendingAds(adsData.count ?? 0);
 
     const [resAll, verData, todayData, disputeData, liveData, groupsData, clientsData, reqData] = await Promise.all([
-      supabase.from('reservations').select('status, total_price, platform_commission, created_at, group_id, group:groups(name)'),
+      supabase.from('reservations').select('status, total_price, created_at, group_id, group:groups(name)'),
       supabase.from('verification_requests').select('id, group:groups(name)').eq('status', 'pending').limit(5),
       supabase.from('reservations').select('id, event_time, group:groups(name), client:profiles(full_name), status').eq('event_date', todayStr).in('status', ['confirmed', 'in_progress']).order('event_time'),
       supabase.from('disputes').select('id, group:groups(name)').eq('status', 'open').limit(5),
@@ -132,19 +132,26 @@ export default function AdminDashboardScreen({ navigation }: any) {
       supabase.from('event_requests').select('id', { count: 'exact', head: true }).eq('status', 'open'),
     ]);
 
-    // Process reservations
+    // 📊 Números de DINERO desde la FUENTE ÚNICA (sql/490) — mismas cifras
+    // que la pantalla de Finanzas, mismas fórmulas, cero divergencias.
+    // (Antes: SUM(platform_commission) por status — daba números distintos.)
+    supabase.rpc('admin_finance_summary', { p_from: null, p_to: null })
+      .then(({ data: fin }) => {
+        const mxn = ((fin as any)?.currencies ?? []).find((m: any) => m.moneda === 'MXN');
+        if (mxn) {
+          setRevenueTotal(Number(mxn.total_cobrado ?? 0));
+          setCommTotal(Number(mxn.comision_daricefy ?? 0));
+        }
+      });
+
+    // Process reservations (conteos de estados y gráficas — sin dinero)
     const allRes = resAll.data ?? [];
     const counts = { pending: 0, confirmed: 0, in_progress: 0, completed: 0, cancelled: 0 } as any;
-    let rev = 0, comm = 0;
     const groupMap: Record<string, { name: string; count: number; revenue: number }> = {};
     const monthly: Record<string, number> = {};
 
     allRes.forEach((r: any) => {
       if (counts[r.status] !== undefined) counts[r.status]++;
-      if (r.status === 'completed' || r.status === 'in_progress') {
-        rev  += r.total_price ?? 0;
-        comm += r.platform_commission ?? 0;
-      }
       if (r.group_id) {
         if (!groupMap[r.group_id]) groupMap[r.group_id] = { name: r.group?.name ?? '—', count: 0, revenue: 0 };
         groupMap[r.group_id].count++;
@@ -164,8 +171,6 @@ export default function AdminDashboardScreen({ navigation }: any) {
     const top = Object.values(groupMap).sort((a, b) => b.count - a.count).slice(0, 5);
 
     setStatusCounts(counts);
-    setRevenueTotal(rev);
-    setCommTotal(comm);
     setTotalGroups(groupsData.count ?? 0);
     setTotalClients(clientsData.count ?? 0);
     setOpenRequests(reqData.count ?? 0);
