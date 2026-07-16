@@ -94,8 +94,6 @@ interface Group {
 }
 
 interface FinancialStats {
-  grossIncome: number;
-  commission: number;
   netEarnings: number;
   monthNetEarnings: number;
   pendingCount: number;
@@ -144,7 +142,7 @@ export default function GroupDashboardScreen({ navigation }: any) {
   useBackgroundLocation(); // GPS en vivo — actualiza group_locations en background
   const [group, setGroup]               = useState<Group | null>(null);
   const [stats, setStats] = useState<FinancialStats>({
-    grossIncome: 0, commission: 0, netEarnings: 0,
+    netEarnings: 0,
     monthNetEarnings: 0, pendingCount: 0, completedCount: 0,
     cancellationCount: 0, totalCount: 0,
   });
@@ -616,10 +614,11 @@ export default function GroupDashboardScreen({ navigation }: any) {
       const now   = new Date();
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
 
-      // Todas las reservas para stats
+      // Todas las reservas para stats — 🔒 solo group_earnings: el grupo no
+      // recibe total_price ni comisiones de plataforma
       const allRes = await supabase
         .from('reservations')
-        .select('total_price, platform_commission, group_earnings, status, created_at')
+        .select('group_earnings, status, created_at')
         .eq('group_id', grp.id);
 
       if (allRes.data) {
@@ -628,8 +627,6 @@ export default function GroupDashboardScreen({ navigation }: any) {
         // ── Solo contar reservas completed o paid ──────────────────────────────
         const paid = all.filter(r => r.status === 'completed' || r.status === 'paid');
 
-        const grossIncome    = paid.reduce((s, r) => s + (r.total_price ?? 0), 0);
-        const commission     = paid.reduce((s, r) => s + (r.platform_commission ?? 0), 0);
         const netEarnings    = paid.reduce((s, r) => s + (r.group_earnings ?? 0), 0);
 
         const monthNetEarnings = paid
@@ -642,7 +639,7 @@ export default function GroupDashboardScreen({ navigation }: any) {
         const totalCount         = all.filter(r => r.status !== 'pending').length;
 
         setStats({
-          grossIncome, commission, netEarnings,
+          netEarnings,
           monthNetEarnings, pendingCount, completedCount,
           cancellationCount, totalCount,
         });

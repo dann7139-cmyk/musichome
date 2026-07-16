@@ -17,7 +17,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import Particles from '../../components/ui/Particles';
-import { calcGroupEarnings, calcServiceFee } from '../../utils/calculations';
+import { calcGroupEarnings } from '../../utils/calculations';
 
 const MONTH_SHORT = ['ENE','FEB','MAR','ABR','MAY','JUN','JUL','AGO','SEP','OCT','NOV','DIC'];
 
@@ -58,9 +58,10 @@ export default function EventPayoutsScreen({ navigation, route }: any) {
     setLoading(false);
   };
 
-  const totalPrice        = Number(reservation?.total_price ?? 0);
-  const commission        = calcServiceFee(totalPrice);
-  const groupNet          = calcGroupEarnings(totalPrice);
+  // 🔒 Regla de producto: el grupo SOLO ve "Tu ganancia" — nunca el total
+  // pagado por el cliente ni comisiones de la plataforma. Se usa
+  // group_earnings (dato real de la reserva) con fallback al cálculo.
+  const groupNet          = Number(reservation?.group_earnings ?? calcGroupEarnings(Number(reservation?.total_price ?? 0)));
   const participantCount  = payouts.length > 0 ? payouts.length : 1;
   const suggestedPerPerson = Math.round((groupNet / participantCount) * 100) / 100;
 
@@ -91,23 +92,11 @@ export default function EventPayoutsScreen({ navigation, route }: any) {
 
         <ScrollView contentContainerStyle={st.scroll} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.green} />}>
 
-          {/* ── Resumen financiero ── */}
+          {/* ── Tu ganancia (única cifra que ve el grupo) ── */}
           <View style={st.summaryRow}>
-            <View style={st.summaryCard}>
-              <Text style={st.summaryLabel}>Total cobrado</Text>
-              <Text style={st.summaryValue}>
-                ${totalPrice.toLocaleString('es-MX', { minimumFractionDigits: 0 })}
-              </Text>
-            </View>
-            <View style={[st.summaryCard, { borderColor: `${COLORS.orange}50` }]}>
-              <Text style={st.summaryLabel}>Comisión Daricefy</Text>
-              <Text style={[st.summaryValue, { color: COLORS.orange }]}>
-                -${commission.toLocaleString('es-MX', { minimumFractionDigits: 0 })}
-              </Text>
-            </View>
             <View style={[st.summaryCard, { borderColor: `${COLORS.green}50` }]}>
-              <Text style={st.summaryLabel}>Neto grupo</Text>
-              <Text style={[st.summaryValue, { color: COLORS.green }]}>
+              <Text style={st.summaryLabel}>Tu ganancia</Text>
+              <Text style={[st.summaryValue, { color: COLORS.green, fontSize: 22 }]}>
                 ${groupNet.toLocaleString('es-MX', { minimumFractionDigits: 0 })}
               </Text>
             </View>

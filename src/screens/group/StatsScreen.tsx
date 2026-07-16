@@ -136,8 +136,10 @@ export default function GroupStatsScreen({ navigation }: any) {
     const grp = grpRaw as any;
 
     const [resRes, quotesRes, grpRes, monthRes] = await Promise.all([
+      // 🔒 Solo datos del grupo: sin total_price ni comisiones — el grupo
+      // no debe RECIBIR información financiera de la plataforma
       supabase.from('reservations')
-        .select('status, payment_status, payout_status, group_earnings, commission_amount, service_fee_amount, msi_fee_amount, total_price, event_date, event_time, created_at')
+        .select('status, payment_status, payout_status, group_earnings, event_date, event_time, created_at')
         .eq('group_id', grp.id),
       supabase.from('quotes')
         .select('status, created_at')
@@ -169,9 +171,6 @@ export default function GroupStatsScreen({ navigation }: any) {
   const paidThisMonth        = paid.filter(r => new Date(r.created_at) >= monthStart);
   const totalEarnings        = paid.reduce((s, r) => s + (r.group_earnings ?? 0), 0);
   const earningsThisMonth    = paidThisMonth.reduce((s, r) => s + (r.group_earnings ?? 0), 0);
-  // service_fee_amount is set by trigger; commission_amount is legacy fallback
-  const totalCommission      = paid.reduce((s, r) => s + (r.service_fee_amount ?? r.commission_amount ?? 0), 0);
-  const grossIncome          = paid.reduce((s, r) => s + (r.total_price ?? 0) + (r.msi_fee_amount ?? 0), 0);
   const avgPerEvent          = paid.length > 0 ? totalEarnings / paid.length : 0;
 
   const totalRes         = reservations.length;
@@ -309,9 +308,7 @@ export default function GroupStatsScreen({ navigation }: any) {
             <View>
               <View style={c.card}>
                 <SectionTitle title="Resumen financiero" />
-                <Row2 label="Total bruto generado"    value={fmtM(grossIncome)} />
-                <Row2 label="Comisiones pagadas"       value={fmtM(totalCommission)} color={COLORS.red} />
-                <Row2 label="Total neto ganado"        value={fmtM(totalEarnings)} color={COLORS.green} />
+                <Row2 label="Tu ganancia total"        value={fmtM(totalEarnings)} color={COLORS.green} />
                 <Row2 label="Promedio por evento"      value={fmtM(Math.round(avgPerEvent))} color={COLORS.green} />
                 <Row2 label="Promedio por hora"        value={fmtM(Math.round(avgPerHour))} />
                 {bestMonth && (

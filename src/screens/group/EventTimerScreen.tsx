@@ -2833,32 +2833,10 @@ export default function EventTimerScreen({ route, navigation }: any) {
                     ) : null}
                   </View>
 
-                  {/* ── Desglose financiero ── */}
+                  {/* ── Distribución de ganancias — SOLO "Tu ganancia" (regla:
+                        el grupo nunca ve el total del cliente ni comisiones) ── */}
                   <View style={st.commissionBox}>
                     <Text style={st.clientReqTitle}>Distribución de ganancias</Text>
-
-                    {/* Total pagado por el cliente */}
-                    {reservation.total_price != null && (
-                    <View style={st.commRow}>
-                      <Text style={st.commLabel}>Total del evento</Text>
-                      <Text style={[st.commValue, { color: COLORS.text }]}>
-                        ${reservation.total_price.toLocaleString()}
-                      </Text>
-                    </View>
-                    )}
-
-                    {/* Comisión de la plataforma */}
-                    {reservation.commission_amount != null && (
-                      <View style={st.commRow}>
-                        <View>
-                          <Text style={st.commLabel}>Comisión plataforma</Text>
-                          <Text style={st.commSub}>Servicio de la app</Text>
-                        </View>
-                        <Text style={[st.commValue, { color: COLORS.orange }]}>
-                          - ${reservation.commission_amount.toLocaleString()}
-                        </Text>
-                      </View>
-                    )}
 
                     {/* Ganancia neta del grupo */}
                     <View style={[st.commRow, st.commNetRow]}>

@@ -430,7 +430,12 @@ export default function WalletScreen({ navigation }: any) {
                     );
                   }
                   const { tx } = item;
-                  const meta = TYPE_LABELS[tx.type] ?? { label: tx.type, color: COLORS.muted2, sign: '+', icon: undefined };
+                  let meta = TYPE_LABELS[tx.type] ?? { label: tx.type, color: COLORS.muted2, sign: '+', icon: undefined };
+                  // 🔒 Fuera del rol admin, los tipos de plataforma se muestran
+                  // con etiqueta neutra (no deben revelar comisiones al grupo)
+                  if (stripeStatus.role !== 'admin' && (tx.type === 'platform_income' || tx.type === 'commission' || tx.type === 'commission_correction')) {
+                    meta = { ...meta, label: tx.type === 'platform_income' ? 'Ingreso' : 'Ajuste' };
+                  }
                   const timeStr = new Date(tx.created_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
                   const isDebit  = meta.sign === '-';
                   const isPending = tx.status === 'pending';
