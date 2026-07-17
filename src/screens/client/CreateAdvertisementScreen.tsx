@@ -30,6 +30,7 @@ import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import Particles from '../../components/ui/Particles';
 import { normalizeCity } from '../../utils/cityUtils';
+import { startPromoConektaCheckout } from '../../utils/conektaCheckout';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -556,6 +557,31 @@ export default function CreateAdvertisementScreen({ navigation, route }: any) {
       if (!orderData?.ok) throw new Error(orderData?.error ?? 'No se pudo crear el anuncio');
 
       const adId = orderData.ad_id as string;
+
+      // Paso 1.5: elegir procesador — Stripe (tarjeta) o Conekta (OXXO/SPEI/tarjeta)
+      const useConekta = await new Promise<boolean | null>(resolve => {
+        Alert.alert(
+          `Pagar $${finalPrice.toLocaleString('es-MX')} MXN`,
+          '¿Cómo quieres pagar tu anuncio?',
+          [
+            { text: 'Cancelar', style: 'cancel', onPress: () => resolve(null) },
+            { text: '💳 Tarjeta', onPress: () => resolve(false) },
+            { text: '💵 OXXO, SPEI o tarjeta', onPress: () => resolve(true) },
+          ],
+        );
+      });
+      if (useConekta === null) return;
+      if (useConekta) {
+        // El webhook confirma y deja el anuncio en revisión — igual que Stripe
+        const res = await startPromoConektaCheckout('ad', adId);
+        if (!res.ok) throw new Error(res.error ?? 'No se pudo iniciar el pago');
+        Alert.alert(
+          '⏳ Esperando confirmación',
+          'Con tarjeta se acredita en segundos; con OXXO o SPEI, cuando hagas el depósito. Al acreditarse, tu anuncio pasa a revisión y te avisamos cuando se apruebe.',
+        );
+        setSuccess(true);
+        return;
+      }
 
       // Paso 2: Crear PaymentIntent en Stripe
       const { data: { session: paySession } } = await supabase.auth.getSession();

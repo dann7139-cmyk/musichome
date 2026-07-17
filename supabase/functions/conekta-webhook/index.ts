@@ -37,6 +37,7 @@ const serviceHeaders: Record<string, string> = {
 async function verifyConektaPayment(orderId: string): Promise<{
   paid: boolean; amountCentavos: number; reservationId: string | null; methodType: string | null;
   feeCentavos: number | null; plusGroupId: string | null;
+  promoKind: string | null; promoId: string | null;
 }> {
   const auth = btoa(`${PRIVATE_KEY}:`);
   const res = await fetch(`https://api.conekta.io/orders/${orderId}`, {
@@ -47,7 +48,7 @@ async function verifyConektaPayment(orderId: string): Promise<{
   });
   if (!res.ok) {
     console.error('[conekta-webhook] verify: no se pudo consultar la orden', orderId, res.status);
-    return { paid: false, amountCentavos: 0, reservationId: null, methodType: null, feeCentavos: null, plusGroupId: null };
+    return { paid: false, amountCentavos: 0, reservationId: null, methodType: null, feeCentavos: null, plusGroupId: null, promoKind: null, promoId: null };
   }
   const order = await res.json() as any;
 
@@ -75,7 +76,49 @@ async function verifyConektaPayment(orderId: string): Promise<{
     feeCentavos,
     // 🏆 Orden de Verificación Plus anual (create-plus-conekta-order)
     plusGroupId:   order?.metadata?.plus_group_id ?? null,
+    // 📣 Orden de publicidad (create-promo-conekta-order): ad | bid | rec
+    promoKind:     order?.metadata?.promo_kind ?? null,
+    promoId:       order?.metadata?.promo_id ?? null,
   };
+}
+
+// ── 📣 Confirmar publicidad pagada con Conekta ───────────────────────
+// MISMOS RPCs (idempotentes) que usa el webhook de Stripe. Verifica que
+// lo COBRADO cubra el monto de la orden antes de activar.
+async function confirmPromoPayment(
+  orderId: string, kind: string, id: string, paidCentavos: number,
+): Promise<boolean> {
+  const paidMxn = paidCentavos / 100;
+
+  const TABLE_AMOUNT: Record<string, { table: string; col: string; rpc: string; param: string }> = {
+    rec: { table: 'recommendation_orders', col: 'amount',          rpc: 'confirm_recommendation_payment', param: 'p_order_id' },
+    bid: { table: 'bid_orders',            col: 'amount',          rpc: 'confirm_bid_payment',            param: 'p_order_id' },
+    ad:  { table: 'advertisements',        col: 'effective_price', rpc: 'mark_ad_payment',                param: 'p_ad_id' },
+  };
+  const cfg = TABLE_AMOUNT[kind];
+  if (!cfg) return false;
+
+  const rowRes = await fetch(
+    `${SUPABASE_URL}/rest/v1/${cfg.table}?id=eq.${id}&select=${cfg.col}`,
+    { headers: serviceHeaders },
+  );
+  const rows = await rowRes.json().catch(() => []) as any[];
+  const expected = Number(rows?.[0]?.[cfg.col]);
+  if (!Number.isFinite(expected) || paidMxn < expected - 1) {  // tolerancia $1
+    console.error(`[conekta-webhook] ⚠️ MISMATCH promo ${kind}/${id}: cobrado=${paidMxn} orden=${expected} — NO se activa`);
+    return true;  // ack sin activar (queda en logs); no reintentar algo que no cuadra
+  }
+
+  const rpcRes = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${cfg.rpc}`, {
+    method: 'POST', headers: serviceHeaders,
+    body: JSON.stringify({ [cfg.param]: id, p_mp_payment_id: orderId }),
+  });
+  if (!rpcRes.ok) {
+    console.error(`[conekta-webhook] promo: ${cfg.rpc} falló`, await rpcRes.text().catch(() => ''));
+    return false;  // 500 → Conekta reintenta (RPCs idempotentes)
+  }
+  console.log(`[conekta-webhook] 📣 Publicidad activada kind=${kind} id=${id} order=${orderId}`);
+  return true;
 }
 
 // ── 🏆 Activar Plus anual (pago único Conekta) ───────────────────────
@@ -146,6 +189,15 @@ Deno.serve(async (req) => {
       const ok = await activatePlusAnnual(orderId, v.plusGroupId);
       return new Response(JSON.stringify({ ok, plus_group_id: v.plusGroupId }), {
         status: ok ? 200 : 500,  // 500 → Conekta reintenta (activación idempotente)
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // 📣 Orden de publicidad (banner/destacado/perfil, bid, recomendado)
+    if (v.paid && v.promoKind && v.promoId) {
+      const ok = await confirmPromoPayment(orderId, v.promoKind, v.promoId, v.amountCentavos);
+      return new Response(JSON.stringify({ ok, promo_kind: v.promoKind, promo_id: v.promoId }), {
+        status: ok ? 200 : 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }

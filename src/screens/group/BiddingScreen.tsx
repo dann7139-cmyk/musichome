@@ -20,6 +20,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
+import { startPromoConektaCheckout } from '../../utils/conektaCheckout';
 
 interface BidPackage {
   id: string;
@@ -458,6 +459,30 @@ export default function BiddingScreen({ navigation, route }: any) {
           : msg === 'bid_below_minimum'
           ? `El monto es menor al mínimo del paquete ($${orderData?.min_bid}).`
           : msg);
+        return;
+      }
+
+      // Paso 1.5: elegir procesador — Stripe (tarjeta) o Conekta (OXXO/SPEI/tarjeta)
+      const useConekta = await new Promise<boolean | null>(resolve => {
+        Alert.alert(
+          `Pagar $${totalPrice.toLocaleString('es-MX')} MXN`,
+          '¿Cómo quieres pagar tu posicionamiento?',
+          [
+            { text: 'Cancelar', style: 'cancel', onPress: () => resolve(null) },
+            { text: '💳 Tarjeta', onPress: () => resolve(false) },
+            { text: '💵 OXXO, SPEI o tarjeta', onPress: () => resolve(true) },
+          ],
+        );
+      });
+      if (useConekta === null) return;
+      if (useConekta) {
+        const res = await startPromoConektaCheckout('bid', orderData.order_id);
+        if (!res.ok) throw new Error(res.error ?? 'No se pudo iniciar el pago');
+        Alert.alert(
+          '⏳ Esperando confirmación',
+          'Con tarjeta se acredita en segundos; con OXXO o SPEI, cuando hagas el depósito. Tu posicionamiento se activa solo al acreditarse.',
+          [{ text: 'Entendido', onPress: () => { fetchData(); navigation.goBack(); } }],
+        );
         return;
       }
 

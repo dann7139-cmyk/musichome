@@ -75,6 +75,29 @@ export async function startConektaCheckout(
   return { status: 'pending', orderId };
 }
 
+// ── 📣 Publicidad con Conekta (banner/destacado/perfil · bid · recomendado) ──
+// Crea la orden hosted por el MONTO de la orden en BD (server-side) y abre el
+// checkout. La activación la hace conekta-webhook — al volver del navegador
+// NO se asume pagado (OXXO/SPEI se acreditan después).
+export async function startPromoConektaCheckout(
+  kind: 'ad' | 'bid' | 'rec',
+  id: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const { data: sd } = await supabase.auth.getSession();
+  const { data, error } = await supabase.functions.invoke('create-promo-conekta-order', {
+    body:    { kind, id },
+    headers: { Authorization: `Bearer ${sd.session?.access_token}` },
+  });
+  const url = (data as any)?.checkout_url as string | undefined;
+  if (error || (data as any)?.error || !url) {
+    const msg = (data as any)?.error ?? error?.message ?? 'No se pudo iniciar el pago';
+    console.warn('[conekta] promo create-order falló:', msg);
+    return { ok: false, error: msg };
+  }
+  await WebBrowser.openBrowserAsync(url);
+  return { ok: true };
+}
+
 // Recupera la CLABE (SPEI) o referencia (efectivo) de una orden pendiente,
 // para re-mostrarla en la app (la página de Conekta la enseña solo unos
 // segundos antes de redirigir).

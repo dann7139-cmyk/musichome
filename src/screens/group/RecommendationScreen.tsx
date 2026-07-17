@@ -26,6 +26,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
+import { startPromoConektaCheckout } from '../../utils/conektaCheckout';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -154,6 +155,30 @@ export default function RecommendationScreen({ navigation, route }: any) {
                 throw new Error(orderData?.error ?? orderErr?.message ?? 'Error al crear orden');
               }
               const orderId: string = orderData.order_id;
+
+              // 1.5 Elegir procesador — Stripe (tarjeta) o Conekta (OXXO/SPEI/tarjeta)
+              const useConekta = await new Promise<boolean | null>(resolve => {
+                Alert.alert(
+                  `Pagar $${selected.price} MXN`,
+                  '¿Cómo quieres pagar tu recomendación?',
+                  [
+                    { text: 'Cancelar', style: 'cancel', onPress: () => resolve(null) },
+                    { text: '💳 Tarjeta', onPress: () => resolve(false) },
+                    { text: '💵 OXXO, SPEI o tarjeta', onPress: () => resolve(true) },
+                  ],
+                );
+              });
+              if (useConekta === null) return;
+              if (useConekta) {
+                const res = await startPromoConektaCheckout('rec', orderId);
+                if (!res.ok) throw new Error(res.error ?? 'No se pudo iniciar el pago');
+                Alert.alert(
+                  '⏳ Esperando confirmación',
+                  'Con tarjeta se acredita en segundos; con OXXO o SPEI, cuando hagas el depósito. Tu recomendación se activa sola al acreditarse.',
+                  [{ text: 'Entendido', onPress: () => loadStatus() }],
+                );
+                return;
+              }
 
               // 2. Crear PaymentIntent en Stripe (Edge Function)
               const { data: { session: paySession } } = await supabase.auth.getSession();
