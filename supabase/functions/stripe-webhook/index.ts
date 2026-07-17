@@ -127,10 +127,24 @@ Deno.serve(async (req) => {
   if (event.type === 'payment_intent.succeeded') {
     const pi = event.data.object as Stripe.PaymentIntent;
 
+    // 🔒 Guardia anti-manipulación: lo COBRADO (pi.amount) debe cubrir el
+    // monto de la orden. Si no cuadra, NO se activa (y queda en logs).
+    const paidMxn = (pi.amount_received ?? pi.amount ?? 0) / 100;
+    const amountCovers = (expected: number | null | undefined): boolean => {
+      if (expected == null) return false;
+      // tolerancia de $1 por redondeos de centavos
+      return paidMxn >= Number(expected) - 1;
+    };
+
     // ── ¿Es pago de recomendación? ────────────────────────────────
     const recOrderId = pi.metadata?.rec_order_id;
     if (recOrderId) {
-      console.log(`[Stripe Webhook] Recomendación confirmada: order_id=${recOrderId}`);
+      const { data: recOrder } = await supabase
+        .from('recommendation_orders').select('amount').eq('id', recOrderId).single();
+      if (!amountCovers(recOrder?.amount)) {
+        console.error(`[Stripe Webhook] ⚠️ MISMATCH recomendación ${recOrderId}: cobrado=${paidMxn} orden=${recOrder?.amount} — NO se activa`);
+        return new Response('Amount mismatch', { status: 200 });
+      }
 
       const { error: recErr } = await supabase.rpc('confirm_recommendation_payment', {
         p_order_id:      recOrderId,
@@ -149,7 +163,12 @@ Deno.serve(async (req) => {
     // ── ¿Es pago de bidding? ─────────────────────────────────────
     const bidOrderId = pi.metadata?.bid_order_id;
     if (bidOrderId) {
-      console.log(`[Stripe Webhook] Bid confirmado: order_id=${bidOrderId}`);
+      const { data: bidOrder } = await supabase
+        .from('bid_orders').select('amount').eq('id', bidOrderId).single();
+      if (!amountCovers(bidOrder?.amount)) {
+        console.error(`[Stripe Webhook] ⚠️ MISMATCH bid ${bidOrderId}: cobrado=${paidMxn} orden=${bidOrder?.amount} — NO se activa`);
+        return new Response('Amount mismatch', { status: 200 });
+      }
 
       const { error: bidErr } = await supabase.rpc('confirm_bid_payment', {
         p_order_id:      bidOrderId,
@@ -168,13 +187,26 @@ Deno.serve(async (req) => {
     // ── ¿Es pago de anuncio? ──────────────────────────────────────
     const adId = pi.metadata?.ad_id;
     if (adId) {
-      console.log(`[Stripe Webhook] Anuncio confirmado: ad_id=${adId}`);
+      const { data: adRow } = await supabase
+        .from('advertisements').select('effective_price').eq('id', adId).single();
+      if (!amountCovers(adRow?.effective_price)) {
+        console.error(`[Stripe Webhook] ⚠️ MISMATCH anuncio ${adId}: cobrado=${paidMxn} orden=${adRow?.effective_price} — NO se activa`);
+        return new Response('Amount mismatch', { status: 200 });
+      }
 
-      await supabase.rpc('mark_ad_payment', {
+      // Antes se ignoraba el error → Stripe no reintentaba y el pago
+      // quedaba cobrado sin registrar. Ahora: error → 500 → reintento.
+      const { error: adErr } = await supabase.rpc('mark_ad_payment', {
         p_ad_id:         adId,
         p_mp_payment_id: pi.id,
       });
 
+      if (adErr) {
+        console.error('[Stripe Webhook] Error mark_ad_payment:', adErr.message);
+        return new Response('DB Error', { status: 500 });
+      }
+
+      console.log(`[Stripe Webhook] Anuncio confirmado: ad_id=${adId}`);
       return new Response('OK', { status: 200 });
     }
 

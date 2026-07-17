@@ -39,16 +39,13 @@ Deno.serve(async (req) => {
     }
     const token = authHeader.slice(7);
 
-    let user: { id: string; email: string };
-    try {
-      const parts   = token.split('.');
-      const pad     = (s: string) => s + '='.repeat((4 - s.length % 4) % 4);
-      const payload = JSON.parse(atob(pad(parts[1].replace(/-/g, '+').replace(/_/g, '/'))));
-      if (!payload.sub) throw new Error('no sub');
-      user = { id: payload.sub, email: payload.email ?? '' };
-    } catch (_) {
-      return jsonRes({ error: 'No autorizado: token inválido' });
+    // 🔒 Verificación criptográfica REAL del JWT (antes solo se decodificaba
+    // el payload sin validar la firma — un token forjado pasaba los checks)
+    const { data: authData, error: authError } = await admin.auth.getUser(token);
+    if (authError || !authData.user) {
+      return jsonRes({ error: 'No autorizado: token inválido o expirado' });
     }
+    const user = { id: authData.user.id, email: authData.user.email ?? '' };
 
     // ── Body ──────────────────────────────────────────────────────────
     const body = await req.json().catch(() => ({}));

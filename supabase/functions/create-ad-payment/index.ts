@@ -159,11 +159,9 @@ Deno.serve(async (req) => {
       return jsonRes({ error: stripeData?.error?.message ?? 'Error al crear pago en Stripe' });
     }
 
-    // ── Guardar payment_intent_id en el anuncio ───────────────────────
-    await admin
-      .from('advertisements')
-      .update({ mp_payment_id: stripeData.id })
-      .eq('id', ad_id);
+    // ⚠️ NO escribir mp_payment_id aquí: lo escribe mark_ad_payment al
+    // CONFIRMARSE el pago. Escribirlo antes rompía la idempotencia del
+    // webhook (el guard lo veía "ya pagado" y saltaba la confirmación).
 
     console.log(`[Stripe-Ad] PaymentIntent ${stripeData.id} | ad_id: ${ad_id} | $${amount} MXN`);
 
