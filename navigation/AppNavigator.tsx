@@ -108,6 +108,7 @@ import AdvertisingPackagesScreen      from '../src/screens/client/AdvertisingPac
 
 // Shared — catálogo de promociones (rol-aware)
 import PromocionarseScreen from '../src/screens/shared/PromocionarseScreen';
+import MyAdsScreen from '../src/screens/shared/MyAdsScreen';
 import PromotionPolicyScreen from '../src/screens/shared/PromotionPolicyScreen';
 import LegalScreen from '../src/screens/shared/LegalScreen';
 import EventGuideScreen from '../src/screens/shared/EventGuideScreen';
@@ -1010,6 +1011,7 @@ export default function AppNavigator() {
             <Stack.Screen name="PromotionPolicy"       component={PromotionPolicyScreen} />
             <Stack.Screen name="CreateAdvertisement"   component={CreateAdvertisementScreen} />
             <Stack.Screen name="AdvertisingPackages"   component={AdvertisingPackagesScreen} />
+            <Stack.Screen name="MyAds"                 component={MyAdsScreen} />
             <Stack.Screen name="Bidding"               component={BiddingScreen} />
             <Stack.Screen name="Recommendation"        component={RecommendationScreen} />
             <Stack.Screen name="Plus"                  component={PlusScreen} />
@@ -1049,6 +1051,7 @@ export default function AppNavigator() {
             <Stack.Screen name="Notifications"           component={NotificationsScreen} />
             <Stack.Screen name="CreateAdvertisement"    component={CreateAdvertisementScreen} />
             <Stack.Screen name="AdvertisingPackages"    component={AdvertisingPackagesScreen} />
+            <Stack.Screen name="MyAds"                  component={MyAdsScreen} />
             <Stack.Screen name="OpenRequest"            component={OpenRequestScreen} />
             <Stack.Screen name="GuidedRequest"          component={GuidedRequestScreen} />
             <Stack.Screen name="GroupsMap"              component={GroupsMapScreen} />
@@ -1084,6 +1087,7 @@ export default function AppNavigator() {
             <Stack.Screen name="ClientExtraHours"      component={ClientExtraHoursScreen} />
             <Stack.Screen name="CreateAdvertisement"   component={CreateAdvertisementScreen} />
             <Stack.Screen name="AdvertisingPackages"   component={AdvertisingPackagesScreen} />
+            <Stack.Screen name="MyAds"                 component={MyAdsScreen} />
             <Stack.Screen name="Profile"               component={ProfileScreen} />
             <Stack.Screen name="Notifications"         component={NotificationsScreen} />
             <Stack.Screen name="Ticket"                component={TicketScreen} />

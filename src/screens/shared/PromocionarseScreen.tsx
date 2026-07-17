@@ -137,6 +137,15 @@ export default function PromocionarseScreen({ navigation }: any) {
         contentContainerStyle={s.scroll}
         showsVerticalScrollIndicator={false}
       >
+        {/* 📊 Mi publicidad — estado, vigencia y gasto de lo comprado */}
+        <Pressable
+          style={({ pressed }) => [s.myAdsBtn, pressed && { opacity: 0.85 }]}
+          onPress={() => navigation.navigate('MyAds')}
+        >
+          <Text style={s.myAdsBtnTx}>📊 Mi publicidad</Text>
+          <Text style={s.myAdsBtnSub}>Qué tienes activo, cuándo vence y cuánto has invertido →</Text>
+        </Pressable>
+
         {visibleCards.map(card => (
           <Pressable
             key={card.key}
@@ -223,6 +232,16 @@ const s = StyleSheet.create({
     paddingBottom: 40,
     gap: 14,
   },
+
+  // 📊 Mi publicidad
+  myAdsBtn: {
+    backgroundColor: COLORS.card,
+    borderRadius: RADIUS.lg,
+    borderWidth: 1, borderColor: 'rgba(0,230,118,0.35)',
+    padding: SPACING.md, gap: 3,
+  },
+  myAdsBtnTx:  { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: COLORS.green },
+  myAdsBtnSub: { fontFamily: FONTS.body, fontSize: 11.5, color: COLORS.muted2 },
 
   // ── Cards ──────────────────────────────────────────────────────────────────
   card: {
