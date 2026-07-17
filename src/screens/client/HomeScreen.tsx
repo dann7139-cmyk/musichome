@@ -70,7 +70,7 @@ const CATEGORY_ICONS: Record<string, string> = {
 
 // 🎁 Selector de regalo: País → todos sus estados. El filtro de grupos es por
 // estado (los nombres no chocan entre MX y US), así que basta con el estado.
-const GIFT_COUNTRIES = ['México', 'Estados Unidos'] as const;
+const GIFT_COUNTRIES = ['México', 'Estados Unidos', 'Canadá'] as const;
 const GIFT_STATES: Record<string, string[]> = {
   'México': [
     'Aguascalientes', 'Baja California', 'Baja California Sur', 'Campeche',
@@ -90,6 +90,12 @@ const GIFT_STATES: Record<string, string[]> = {
     'Oklahoma', 'Oregon', 'Pennsylvania', 'Rhode Island', 'South Carolina',
     'South Dakota', 'Tennessee', 'Texas', 'Utah', 'Vermont', 'Virginia',
     'Washington', 'West Virginia', 'Wisconsin', 'Wyoming',
+  ],
+  'Canadá': [
+    'Alberta', 'British Columbia', 'Manitoba', 'New Brunswick',
+    'Newfoundland and Labrador', 'Northwest Territories', 'Nova Scotia',
+    'Nunavut', 'Ontario', 'Prince Edward Island', 'Quebec',
+    'Saskatchewan', 'Yukon',
   ],
 };
 

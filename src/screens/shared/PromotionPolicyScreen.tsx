@@ -90,10 +90,31 @@ export default function PromotionPolicyScreen({ route, navigation }: any) {
           <Card icon="⏳" title="Vigencia y pagos">
             <Text style={s.body}>
               Cada producto tiene una <Text style={s.bold}>duración definida</Text> que eliges al
-              contratarlo y termina automáticamente — no hay renovaciones ocultas. Una vez que la
-              campaña <Text style={s.bold}>inicia</Text>, el pago no es reembolsable: el espacio
-              publicitario ya fue reservado y servido. Los pagos se procesan de forma segura y
+              contratarlo y termina automáticamente. Una vez que la campaña{' '}
+              <Text style={s.bold}>inicia</Text>, el pago no es reembolsable: el espacio
+              publicitario ya fue reservado y servido. Pagas con tarjeta, OXXO o SPEI y
               queda registro de cada campaña.
+            </Text>
+          </Card>
+
+          <Card icon="🔁" title="Renovación automática (solo si tú la eliges)">
+            <Text style={s.body}>
+              Los pagos normales son de <Text style={s.bold}>una sola vez</Text> — nadie te
+              vuelve a cobrar. Solo las opciones marcadas como{' '}
+              <Text style={s.bold}>"se renueva solo"</Text> (suscripción semanal de Recomendado,
+              mensual de Destacado, o la insignia Plus) cobran tu tarjeta automáticamente cada
+              periodo hasta que canceles. Puedes cancelar cuando quieras y lo ya pagado sigue
+              activo hasta su fecha de vencimiento.
+            </Text>
+          </Card>
+
+          <Card icon="📍" title="Espacios limitados por estado">
+            <Text style={s.body}>
+              Para que la publicidad se vea y rote bien, cada estado tiene un número{' '}
+              <Text style={s.bold}>limitado de espacios</Text> por tipo de anuncio (los
+              nacionales e internacionales tienen su propia bolsa). Si un estado está lleno,
+              la app te avisa antes de cobrar; los lugares se liberan cuando vencen las
+              campañas activas.
             </Text>
           </Card>
 

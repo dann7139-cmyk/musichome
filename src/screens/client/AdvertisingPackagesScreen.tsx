@@ -778,7 +778,7 @@ export default function AdvertisingPackagesScreen({ navigation, route }: any) {
             {[
               { n: '1', t: 'Elige tu paquete',  d: 'Selecciona el tipo y duración que más te conviene.' },
               { n: '2', t: 'Sube tu contenido', d: 'Imagen o video + título + texto del botón.' },
-              { n: '3', t: 'Realiza el pago',   d: 'Pago seguro a través de Mercado Pago.' },
+              { n: '3', t: 'Realiza el pago',   d: 'Pago seguro con tarjeta, OXXO o SPEI.' },
               { n: '4', t: 'Revisión en 24h',   d: 'El equipo revisa tu anuncio y lo activa automáticamente.' },
             ].map(item => (
               <View key={item.n} style={s.howItem}>

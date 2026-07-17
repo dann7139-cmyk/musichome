@@ -210,11 +210,11 @@ export default function PlusScreen({ navigation, route }: any) {
     if (selectedPlan === 'annual') {
       Alert.alert(
         '🛡 Plus Anual — $1,499 MXN',
-        '¿Cómo quieres pagar tu año?',
+        '¿Cómo quieres pagar tu año?\n\n🔁 Con renovación: tu tarjeta se cobra sola cada año hasta que canceles.\n💵 Pago único: pagas una vez y tu Plus dura 1 año — NADIE te vuelve a cobrar; al vencer decides si renuevas.',
         [
           { text: 'Cancelar', style: 'cancel' },
           {
-            text: '💳 Tarjeta con renovación automática',
+            text: '🔁 Tarjeta — se renueva sola cada año',
             onPress: () => startStripeSubscription(),
           },
           {
@@ -229,7 +229,7 @@ export default function PlusScreen({ navigation, route }: any) {
     // Aquí solo llega el plan mensual (el anual salió arriba con su selector)
     Alert.alert(
       '🛡 Verificación Plus',
-      'Plan: Mensual\nPrecio: $199 MXN / mes\n\nPrimera vez: 7 días gratis, el cobro inicia al día 8.\nSi ya usaste tu prueba gratis, el cobro es hoy mismo.',
+      'Plan: Mensual — $199 MXN / mes\n\n🔁 COBRO AUTOMÁTICO: tu tarjeta se cobra sola cada mes hasta que canceles (puedes cancelar cuando quieras desde "Gestionar suscripción").\n\nPrimera vez: 7 días gratis y el cobro inicia al día 8. Si ya usaste tu prueba gratis, el primer cobro es hoy.',
       [
         { text: 'Cancelar', style: 'cancel' },
         {

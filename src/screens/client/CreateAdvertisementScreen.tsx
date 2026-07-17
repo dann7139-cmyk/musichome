@@ -4,7 +4,7 @@
  *   1. Tipo de anuncio (banner_home / sponsored_group / profile_ad)
  *   2. Contenido (media, título, subtítulo, CTA)
  *   3. Selección de paquete (precio, duración)
- *   4. Resumen + Pago (Mercado Pago)
+ *   4. Resumen + Pago (Stripe / Conekta)
  */
 import VideoPlayer from '../../components/ui/VideoPlayer';
 import * as ImagePicker from 'expo-image-picker';
@@ -488,6 +488,26 @@ export default function CreateAdvertisementScreen({ navigation, route }: any) {
     if (!rightsOk) return;
     setPaying(true);
     try {
+      // 🚦 CUPO: preguntar ANTES de cobrar si hay lugar donde saldría el
+      // anuncio (por estado; nacional/internacional usa la bolsa global).
+      // El candado real también vive en create_advertisement_order.
+      const checkStates = locationType === 'international'
+        ? null
+        : (targetStates.length > 0 ? targetStates : null);
+      const { data: avail } = await supabase.rpc('check_ad_availability', {
+        p_type:   adType,
+        p_states: checkStates,
+      });
+      if (avail && avail.ok === false && avail.error === 'no_capacity') {
+        const fullList = (avail.full_states ?? []) as string[];
+        Alert.alert(
+          '📢 Espacios llenos',
+          avail.scope === 'global'
+            ? 'Por ahora ya no hay lugares para publicidad nacional/internacional de este tipo. Intenta por estado, o vuelve cuando se libere un espacio.'
+            : `Ya no hay lugares de este tipo de publicidad en: ${fullList.join(', ')}.\n\nQuita esos estados o vuelve cuando se libere un espacio (se liberan al vencer las campañas activas).`,
+        );
+        return;
+      }
       // Paso 1: Crear el registro del anuncio
       const resolvedLinkType = adType === 'sponsored_group' ? 'group' : linkType;
       // Para sponsored_group: link_id = el grupo del usuario (sin él, approve_ad no crea
@@ -554,7 +574,18 @@ export default function CreateAdvertisementScreen({ navigation, route }: any) {
       console.log('[handlePay] order creada:', orderData, 'error:', orderErr);
 
       if (orderErr) throw new Error(orderErr.message);
-      if (!orderData?.ok) throw new Error(orderData?.error ?? 'No se pudo crear el anuncio');
+      if (!orderData?.ok) {
+        if (orderData?.error === 'no_capacity') {
+          const fl = (orderData?.full_states ?? []) as string[];
+          throw new Error(fl.length > 0
+            ? `Ya no hay espacio de publicidad en: ${fl.join(', ')}. Vuelve cuando se libere un lugar.`
+            : 'Ya no hay espacios de publicidad nacional/internacional por ahora. Intenta por estado.');
+        }
+        if (orderData?.error === 'price_below_minimum') {
+          throw new Error(`El precio mínimo para esta publicidad es $${orderData?.minimum}.`);
+        }
+        throw new Error(orderData?.error ?? 'No se pudo crear el anuncio');
+      }
 
       const adId = orderData.ad_id as string;
 
@@ -1626,7 +1657,7 @@ export default function CreateAdvertisementScreen({ navigation, route }: any) {
                 {/* Info de flujo */}
                 <View style={s.flowInfo}>
                   {[
-                    { n: '1', t: 'Pago seguro', d: 'Procesas el pago con Mercado Pago' },
+                    { n: '1', t: 'Pago seguro', d: 'Tarjeta, OXXO o SPEI — tú eliges' },
                     { n: '2', t: 'Revisión', d: 'Nuestro equipo revisa el contenido en 24h' },
                     { n: '3', t: 'Tu anuncio en vivo', d: 'Aparece automáticamente al ser aprobado' },
                   ].map(item => (
@@ -1665,7 +1696,7 @@ export default function CreateAdvertisementScreen({ navigation, route }: any) {
                 </Pressable>
 
                 <Text style={s.payNote}>
-                  Al continuar serás redirigido a Mercado Pago para completar el pago de forma segura.
+                  Pago único: eliges tarjeta, OXXO o SPEI al continuar. Solo la opción "Mensual" del Destacado se renueva sola cada mes (cancelas cuando quieras).
                 </Text>
               </View>
             )}

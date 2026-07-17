@@ -20,15 +20,24 @@ export const US_STATES = new Set([
   'Washington', 'West Virginia', 'Wisconsin', 'Wyoming', 'District of Columbia',
 ]);
 
+export const CA_PROVINCES = new Set([
+  'Alberta', 'British Columbia', 'Manitoba', 'New Brunswick',
+  'Newfoundland and Labrador', 'Nova Scotia', 'Ontario',
+  'Prince Edward Island', 'Quebec', 'Saskatchewan',
+  'Northwest Territories', 'Nunavut', 'Yukon',
+]);
+
 // Lowercase sets for O(1) case-insensitive lookup
 const MX_LOWER = new Set([...MX_STATES].map(s => s.toLowerCase()));
 const US_LOWER = new Set([...US_STATES].map(s => s.toLowerCase()));
+const CA_LOWER = new Set([...CA_PROVINCES].map(s => s.toLowerCase()));
 
 export function stateToCountry(state: string | null | undefined): string {
   if (!state) return 'México';
   const lower = state.trim().toLowerCase();
   if (MX_LOWER.has(lower)) return 'México';
   if (US_LOWER.has(lower)) return 'Estados Unidos';
+  if (CA_LOWER.has(lower)) return 'Canadá';
   return 'México';
 }
 
@@ -66,4 +75,5 @@ export const COUNTRY_LIST: string[] = [
 export const STATES_BY_COUNTRY: Record<string, string[]> = {
   'México':         [...MX_STATES].sort(),
   'Estados Unidos': [...US_STATES].sort(),
+  'Canadá':         [...CA_PROVINCES].sort(),
 };
