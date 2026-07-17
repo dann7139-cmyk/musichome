@@ -36,7 +36,7 @@ const serviceHeaders: Record<string, string> = {
 // Futuro: reemplazar el cuerpo por verificación de firma sin tocar el webhook.
 async function verifyConektaPayment(orderId: string): Promise<{
   paid: boolean; amountCentavos: number; reservationId: string | null; methodType: string | null;
-  feeCentavos: number | null;
+  feeCentavos: number | null; plusGroupId: string | null;
 }> {
   const auth = btoa(`${PRIVATE_KEY}:`);
   const res = await fetch(`https://api.conekta.io/orders/${orderId}`, {
@@ -47,7 +47,7 @@ async function verifyConektaPayment(orderId: string): Promise<{
   });
   if (!res.ok) {
     console.error('[conekta-webhook] verify: no se pudo consultar la orden', orderId, res.status);
-    return { paid: false, amountCentavos: 0, reservationId: null, methodType: null, feeCentavos: null };
+    return { paid: false, amountCentavos: 0, reservationId: null, methodType: null, feeCentavos: null, plusGroupId: null };
   }
   const order = await res.json() as any;
 
@@ -73,7 +73,54 @@ async function verifyConektaPayment(orderId: string): Promise<{
     reservationId: order?.metadata?.reservation_id ?? null,
     methodType,
     feeCentavos,
+    // 🏆 Orden de Verificación Plus anual (create-plus-conekta-order)
+    plusGroupId:   order?.metadata?.plus_group_id ?? null,
   };
+}
+
+// ── 🏆 Activar Plus anual (pago único Conekta) ───────────────────────
+// Idempotente: si el grupo ya tiene esta orden como plus_subscription_id,
+// el reenvío del webhook no suma otro año. Si renueva ANTES de vencer,
+// el año nuevo se suma al vencimiento actual (no pierde días pagados).
+async function activatePlusAnnual(orderId: string, groupId: string): Promise<boolean> {
+  const subId = `conekta_${orderId}`;
+
+  const grpRes = await fetch(
+    `${SUPABASE_URL}/rest/v1/groups?id=eq.${groupId}&select=id,is_plus_active,plus_expires_at,plus_subscription_id`,
+    { headers: serviceHeaders },
+  );
+  const rows = await grpRes.json().catch(() => []) as any[];
+  const grp = rows?.[0];
+  if (!grp) {
+    console.error('[conekta-webhook] plus: grupo no encontrado', groupId);
+    return false;
+  }
+  if (grp.plus_subscription_id === subId) {
+    console.log('[conekta-webhook] plus: orden ya aplicada (idempotente)', orderId);
+    return true;
+  }
+
+  const now  = Date.now();
+  const cur  = grp.plus_expires_at ? new Date(grp.plus_expires_at).getTime() : 0;
+  const base = (grp.is_plus_active && cur > now) ? cur : now;
+  const expiresAt = new Date(base + 365 * 86_400_000).toISOString();
+
+  // MISMA RPC que Stripe — activa flags y notifica "ya puedes subir 2 videos más"
+  const rpcRes = await fetch(`${SUPABASE_URL}/rest/v1/rpc/activate_plus`, {
+    method: 'POST', headers: serviceHeaders,
+    body: JSON.stringify({
+      p_group_id:   groupId,
+      p_sub_id:     subId,
+      p_expires_at: expiresAt,
+      p_status:     'active',
+    }),
+  });
+  if (!rpcRes.ok) {
+    console.error('[conekta-webhook] plus: activate_plus falló', await rpcRes.text().catch(() => ''));
+    return false;
+  }
+  console.log(`[conekta-webhook] 🏆 Plus anual activado group=${groupId} hasta ${expiresAt}`);
+  return true;
 }
 
 Deno.serve(async (req) => {
@@ -93,6 +140,16 @@ Deno.serve(async (req) => {
 
     // 1. Verificar contra Conekta (fuente de verdad, encapsulado)
     const v = await verifyConektaPayment(orderId);
+
+    // 🏆 Orden de Verificación Plus anual — NO es una reserva: activa Plus y sale.
+    if (v.paid && v.plusGroupId) {
+      const ok = await activatePlusAnnual(orderId, v.plusGroupId);
+      return new Response(JSON.stringify({ ok, plus_group_id: v.plusGroupId }), {
+        status: ok ? 200 : 500,  // 500 → Conekta reintenta (activación idempotente)
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
     if (!v.paid || !v.reservationId) {
       console.warn('[conekta-webhook] order.paid no verificado o sin reservation_id', orderId, v);
       // 200: no reintentar algo que no cuadra (evita loops); ya se registró.

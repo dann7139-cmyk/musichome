@@ -10,6 +10,7 @@
  */
 
 import { useStripe } from '@stripe/stripe-react-native';
+import * as WebBrowser from 'expo-web-browser';
 import { LinearGradient } from 'expo-linear-gradient';
 import { ArrowLeft, CheckCircle, ShieldCheck, TrendingUp, Zap, Star, AlertCircle } from 'lucide-react-native';
 import React, { useCallback, useEffect, useState } from 'react';
@@ -103,71 +104,128 @@ export default function PlusScreen({ navigation, route }: any) {
     setRefreshing(false);
   };
 
+  // ── Suscripción Stripe (mensual o anual) — SetupIntent + trial 7 días ───────
+  const startStripeSubscription = async () => {
+    setSubmitting(true);
+    try {
+      // 1. Obtener sesión
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Sesión expirada. Vuelve a iniciar sesión.');
+
+      // 2. Crear Stripe Subscription (SetupIntent, sin cobro inmediato)
+      const { data: stripeData, error: stripeErr } = await supabase.functions.invoke(
+        'create-plus-subscription',
+        {
+          body: { group_id: resolvedGroupId, plan: selectedPlan },
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        },
+      );
+
+      if (stripeErr) throw new Error(stripeErr.message ?? 'Error de función');
+      if (!stripeData) throw new Error('Sin respuesta del servidor de pagos');
+      if (stripeData.error) throw new Error(stripeData.error);
+
+      const setupSecret: string = stripeData.setup_intent_client_secret;
+      if (!setupSecret) throw new Error('No se recibió el token de configuración');
+
+      // 3. Inicializar PaymentSheet con SetupIntent (captura tarjeta, sin cobro)
+      const { error: initErr } = await initPaymentSheet({
+        setupIntentClientSecret: setupSecret,
+        merchantDisplayName:     'Daricefy',
+        style:                   'alwaysDark',
+      });
+      if (initErr) throw new Error(`Error al inicializar: ${initErr.message}`);
+
+      // 4. Presentar hoja de pago nativa de Stripe
+      const { error: payErr } = await presentPaymentSheet();
+      if (payErr) {
+        if (payErr.code === 'Canceled') return;
+        throw new Error(payErr.message);
+      }
+
+      // 5. Tarjeta registrada — Plus se activa en segundos vía webhook
+      Alert.alert(
+        '✅ ¡Plus activado!',
+        'Tu badge verde ya está visible. El webhook confirmará en segundos.\n\nTu tarjeta se cobrará en 7 días.',
+        [{ text: 'Entendido', onPress: () => loadStatus() }],
+      );
+    } catch (err: any) {
+      Alert.alert('Error', err.message ?? 'No se pudo procesar. Intenta de nuevo.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // ── 🏆 Pago ÚNICO anual con Conekta (tarjeta, OXXO o SPEI) ──────────────────
+  // Sin renovación automática: el webhook activa 1 año con activate_plus.
+  // Si paga antes de vencer, el año se SUMA al vencimiento actual.
+  const handlePayAnnualConekta = async () => {
+    if (!resolvedGroupId || submitting) return;
+    setSubmitting(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Sesión expirada. Vuelve a iniciar sesión.');
+
+      const { data, error } = await supabase.functions.invoke('create-plus-conekta-order', {
+        body:    { group_id: resolvedGroupId },
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      if (error) throw new Error(error.message ?? 'Error de red');
+      if ((data as any)?.error) throw new Error((data as any).error);
+      const url = (data as any)?.checkout_url as string | undefined;
+      if (!url) throw new Error('No se recibió la página de pago');
+
+      // El pago ocurre en el navegador; el WEBHOOK es la fuente de verdad.
+      await WebBrowser.openBrowserAsync(url);
+
+      // Al volver: refrescar estado. Tarjeta confirma en segundos;
+      // OXXO/SPEI se activa solo cuando el cliente deposita.
+      await loadStatus();
+      Alert.alert(
+        '⏳ Esperando confirmación',
+        'Si pagaste con tarjeta, tu Plus se activa en unos segundos (desliza hacia abajo para actualizar).\n\nSi elegiste OXXO o SPEI, se activa automáticamente cuando se acredite tu depósito y te llegará una notificación.',
+      );
+    } catch (err: any) {
+      Alert.alert('Error', err.message ?? 'No se pudo iniciar el pago. Intenta de nuevo.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   // ── Comprar Plus ───────────────────────────────────────────────────────────
   const handleSubscribe = async () => {
     if (!resolvedGroupId) return;
 
-    const priceLabel = selectedPlan === 'annual'
-      ? '$1,499 MXN / año  (~$125/mes)'
-      : '$199 MXN / mes';
+    // Anual: elegir entre suscripción (Stripe, renueva sola) o pago único
+    // (Conekta: tarjeta, OXXO o SPEI — para quien no quiere cargos recurrentes)
+    if (selectedPlan === 'annual') {
+      Alert.alert(
+        '🛡 Plus Anual — $1,499 MXN',
+        '¿Cómo quieres pagar tu año?',
+        [
+          { text: 'Cancelar', style: 'cancel' },
+          {
+            text: '💳 Tarjeta con renovación (7 días gratis)',
+            onPress: () => startStripeSubscription(),
+          },
+          {
+            text: '💵 Pago único · tarjeta, OXXO o SPEI',
+            onPress: () => handlePayAnnualConekta(),
+          },
+        ],
+      );
+      return;
+    }
 
+    // Aquí solo llega el plan mensual (el anual salió arriba con su selector)
     Alert.alert(
       '🛡 Verificación Plus',
-      `Plan: ${selectedPlan === 'annual' ? 'Anual' : 'Mensual'}\nPrecio: ${priceLabel}\n\nSe registra tu tarjeta hoy. No se cobra nada durante 7 días.\nEl cobro inicia al día 8 automáticamente.`,
+      'Plan: Mensual\nPrecio: $199 MXN / mes\n\nSe registra tu tarjeta hoy. No se cobra nada durante 7 días.\nEl cobro inicia al día 8 automáticamente.',
       [
         { text: 'Cancelar', style: 'cancel' },
         {
           text: 'Comenzar prueba gratis',
-          onPress: async () => {
-            setSubmitting(true);
-            try {
-              // 1. Obtener sesión
-              const { data: { session } } = await supabase.auth.getSession();
-              if (!session) throw new Error('Sesión expirada. Vuelve a iniciar sesión.');
-
-              // 2. Crear Stripe Subscription (SetupIntent, sin cobro inmediato)
-              const { data: stripeData, error: stripeErr } = await supabase.functions.invoke(
-                'create-plus-subscription',
-                {
-                  body: { group_id: resolvedGroupId, plan: selectedPlan },
-                  headers: { Authorization: `Bearer ${session.access_token}` },
-                },
-              );
-
-              if (stripeErr) throw new Error(stripeErr.message ?? 'Error de función');
-              if (!stripeData) throw new Error('Sin respuesta del servidor de pagos');
-              if (stripeData.error) throw new Error(stripeData.error);
-
-              const setupSecret: string = stripeData.setup_intent_client_secret;
-              if (!setupSecret) throw new Error('No se recibió el token de configuración');
-
-              // 3. Inicializar PaymentSheet con SetupIntent (captura tarjeta, sin cobro)
-              const { error: initErr } = await initPaymentSheet({
-                setupIntentClientSecret: setupSecret,
-                merchantDisplayName:     'Daricefy',
-                style:                   'alwaysDark',
-              });
-              if (initErr) throw new Error(`Error al inicializar: ${initErr.message}`);
-
-              // 4. Presentar hoja de pago nativa de Stripe
-              const { error: payErr } = await presentPaymentSheet();
-              if (payErr) {
-                if (payErr.code === 'Canceled') return;
-                throw new Error(payErr.message);
-              }
-
-              // 5. Tarjeta registrada — Plus se activa en segundos vía webhook
-              Alert.alert(
-                '✅ ¡Plus activado!',
-                'Tu badge verde ya está visible. El webhook confirmará en segundos.\n\nTu tarjeta se cobrará en 7 días.',
-                [{ text: 'Entendido', onPress: () => loadStatus() }],
-              );
-            } catch (err: any) {
-              Alert.alert('Error', err.message ?? 'No se pudo procesar. Intenta de nuevo.');
-            } finally {
-              setSubmitting(false);
-            }
-          },
+          onPress: () => startStripeSubscription(),
         },
       ],
     );
@@ -236,6 +294,9 @@ export default function PlusScreen({ navigation, route }: any) {
   const isActive  = status?.is_active ?? false;
   const isTrial   = status?.status === 'trialing';
   const isPastDue = status?.status === 'past_due';
+  // Activo pero SIN suscripción Stripe = pago único anual (Conekta):
+  // no se renueva solo → "Vence el..." y botón de renovar (no portal Stripe)
+  const isOneTime = isActive && status?.status === 'inactive';
 
   // ── Render: Plus activo ────────────────────────────────────────────────────
   if (isActive || isTrial) {
@@ -272,7 +333,7 @@ export default function PlusScreen({ navigation, route }: any) {
               </View>
             ) : (
               <Text style={s.heroSub}>
-                Se renueva el {fmtDate(status?.expires_at ?? null)}
+                {isOneTime ? 'Vence el' : 'Se renueva el'} {fmtDate(status?.expires_at ?? null)}
               </Text>
             )}
           </LinearGradient>
@@ -288,12 +349,20 @@ export default function PlusScreen({ navigation, route }: any) {
             ))}
           </View>
 
-          {/* Gestión */}
-          <Pressable style={[s.manageBtn, portalLoading && { opacity: 0.6 }]} onPress={handleManage} disabled={portalLoading}>
-            {portalLoading
-              ? <ActivityIndicator size="small" color={COLORS.text} />
-              : <Text style={s.manageBtnText}>Gestionar suscripción</Text>}
-          </Pressable>
+          {/* Gestión — suscripción Stripe: portal · pago único: renovar otro año */}
+          {isOneTime ? (
+            <Pressable style={[s.manageBtn, submitting && { opacity: 0.6 }]} onPress={handlePayAnnualConekta} disabled={submitting}>
+              {submitting
+                ? <ActivityIndicator size="small" color={COLORS.text} />
+                : <Text style={s.manageBtnText}>Renovar 1 año más · $1,499</Text>}
+            </Pressable>
+          ) : (
+            <Pressable style={[s.manageBtn, portalLoading && { opacity: 0.6 }]} onPress={handleManage} disabled={portalLoading}>
+              {portalLoading
+                ? <ActivityIndicator size="small" color={COLORS.text} />
+                : <Text style={s.manageBtnText}>Gestionar suscripción</Text>}
+            </Pressable>
+          )}
 
           <View style={{ height: 40 }} />
         </ScrollView>
@@ -374,6 +443,7 @@ export default function PlusScreen({ navigation, route }: any) {
               $1,499
             </Text>
             <Text style={s.planUnit}>MXN / año  ·  ~$125/mes</Text>
+            <Text style={s.planPayNote}>💵 Tarjeta, OXXO o SPEI</Text>
           </Pressable>
 
           <Pressable
@@ -412,12 +482,14 @@ export default function PlusScreen({ navigation, route }: any) {
             : <ShieldCheck size={18} color="#000" strokeWidth={2.5} />
           }
           <Text style={s.ctaBtnText}>
-            {submitting ? 'Procesando...' : 'Comenzar prueba gratuita'}
+            {submitting ? 'Procesando...' : selectedPlan === 'annual' ? 'Obtener Plus Anual' : 'Comenzar prueba gratuita'}
           </Text>
         </Pressable>
 
         <Text style={s.ctaNote}>
-          Sin cargo hoy · Tu tarjeta se cobra al día 8 · Cancela cuando quieras
+          {selectedPlan === 'annual'
+            ? 'Suscripción con 7 días gratis, o pago único sin renovación (OXXO/SPEI)'
+            : 'Sin cargo hoy · Tu tarjeta se cobra al día 8 · Cancela cuando quieras'}
         </Text>
 
         <View style={{ height: 40 }} />
@@ -571,6 +643,12 @@ const s = StyleSheet.create({
     fontFamily: FONTS.body,
     fontSize:   11,
     color:      COLORS.muted,
+  },
+  planPayNote: {
+    fontFamily: FONTS.bodyMedium,
+    fontSize:   10,
+    color:      COLORS.green,
+    marginTop:  4,
   },
 
   // Beneficios
