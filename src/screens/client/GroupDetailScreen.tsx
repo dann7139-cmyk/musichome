@@ -21,7 +21,7 @@ import {
 
 const SCREEN_W = Dimensions.get('window').width;
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ArrowLeft, CheckCircle, MapPin, Music2, Share2, Shield, Star, FileText, Navigation, Award, TrendingUp, ShieldCheck, ThumbsUp, Zap, Headphones } from 'lucide-react-native';
+import { ArrowLeft, CheckCircle, ChevronLeft, ChevronRight, MapPin, Music2, Share2, Shield, Star, FileText, Navigation, Award, TrendingUp, ShieldCheck, ThumbsUp, Zap, Headphones } from 'lucide-react-native';
 import * as Location from 'expo-location';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
@@ -57,9 +57,9 @@ function VideoDeck({ slots }: { slots: any[] }) {
   if (n === 0) return null;
 
   const bodyW  = SCREEN_W - SPACING.xl * 2;
-  const cardW  = Math.round(bodyW * 0.72);
-  const cardH  = 200;
-  const peek   = Math.round(cardW * 0.26);   // cuánto asoman los de atrás
+  const cardW  = Math.round(bodyW * 0.60);   // más chico (pedido 2026-07-16)
+  const cardH  = 160;
+  const peek   = Math.round(cardW * 0.28);   // cuánto asoman los de atrás
   const leftC  = Math.round((bodyW - cardW) / 2);
 
   const front    = slots[idx % n];
@@ -122,11 +122,20 @@ function VideoDeck({ slots }: { slots: any[] }) {
         {/* Al frente (opaco, arriba de todo) */}
         <View style={{ zIndex: 3 }}>{renderCard(front, true)}</View>
       </View>
+      {/* Flechitas + puntos — para que se note que se puede cambiar el video */}
       {n > 1 && (
-        <View style={styles.videoDots}>
-          {slots.map((_: any, i: number) => (
-            <View key={i} style={[styles.videoDot, i === idx % n && styles.videoDotOn]} />
-          ))}
+        <View style={styles.videoDeckNav}>
+          <Pressable onPress={() => go(-1)} hitSlop={10} style={styles.videoDeckArrow}>
+            <ChevronLeft size={15} color="#fff" />
+          </Pressable>
+          <View style={[styles.videoDots, { marginTop: 0 }]}>
+            {slots.map((_: any, i: number) => (
+              <View key={i} style={[styles.videoDot, i === idx % n && styles.videoDotOn]} />
+            ))}
+          </View>
+          <Pressable onPress={() => go(1)} hitSlop={10} style={styles.videoDeckArrow}>
+            <ChevronRight size={15} color="#fff" />
+          </Pressable>
         </View>
       )}
     </>
@@ -972,6 +981,16 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center', justifyContent: 'center',
     backgroundColor: 'rgba(0,0,0,0.28)',
+  },
+  videoDeckNav: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 14, marginTop: 10,
+  },
+  videoDeckArrow: {
+    width: 26, height: 26, borderRadius: 13,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.16)',
   },
 
   videoWrapper: { borderRadius: RADIUS.lg, overflow: 'hidden', backgroundColor: '#000', marginTop: 8 },
