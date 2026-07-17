@@ -450,13 +450,17 @@ export default function PlusScreen({ navigation, route }: any) {
             style={[s.planCard, selectedPlan === 'monthly' && s.planCardSelected]}
             onPress={() => setSelectedPlan('monthly')}
           >
-            <Text style={[s.planCardLabel, selectedPlan === 'monthly' && s.planCardLabelSelected]}>
-              Mensual
-            </Text>
+            {/* Misma estructura que la anual para que los precios queden alineados */}
+            <View style={s.planCardTop}>
+              <Text style={[s.planCardLabel, selectedPlan === 'monthly' && s.planCardLabelSelected]}>
+                Mensual
+              </Text>
+            </View>
             <Text style={[s.planPrice, selectedPlan === 'monthly' && s.planPriceSelected]}>
               $199
             </Text>
             <Text style={s.planUnit}>MXN / mes</Text>
+            <Text style={s.planPayNote}>💳 Se renueva sola</Text>
           </Pressable>
         </View>
 
@@ -611,6 +615,7 @@ const s = StyleSheet.create({
     alignItems:     'center',
     gap:            6,
     marginBottom:   2,
+    minHeight:      17,   // misma altura con o sin badge → precios alineados
   },
   planCardLabel: {
     fontFamily: FONTS.bodySemiBold,
@@ -633,8 +638,11 @@ const s = StyleSheet.create({
   },
   planPrice: {
     fontFamily: FONTS.title,
-    fontSize:   28,
+    fontSize:   26,
+    lineHeight: 34,              // Syne se recorta sin lineHeight explícito
     color:      COLORS.muted2,
+    fontVariant: ['tabular-nums'],
+    includeFontPadding: false,
   },
   planPriceSelected: {
     color: COLORS.text,
