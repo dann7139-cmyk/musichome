@@ -125,14 +125,21 @@ export default function PlusScreen({ navigation, route }: any) {
       if (!stripeData) throw new Error('Sin respuesta del servidor de pagos');
       if (stripeData.error) throw new Error(stripeData.error);
 
-      const setupSecret: string = stripeData.setup_intent_client_secret;
-      if (!setupSecret) throw new Error('No se recibió el token de configuración');
+      // 🎁 El trial de 7 días es UNA sola vez (lo decide el servidor):
+      //   · trial=true  → SetupIntent (captura tarjeta, cobra al día 8)
+      //   · trial=false → PaymentIntent (ya usó su prueba: cobra HOY)
+      const setupSecret: string | null = stripeData.setup_intent_client_secret ?? null;
+      const paySecret: string | null   = stripeData.payment_intent_client_secret ?? null;
+      const hasTrial: boolean          = stripeData.trial !== false;
+      if (!setupSecret && !paySecret) throw new Error('No se recibió el token de configuración');
 
-      // 3. Inicializar PaymentSheet con SetupIntent (captura tarjeta, sin cobro)
+      // 3. Inicializar PaymentSheet (Setup con trial / Payment sin trial)
       const { error: initErr } = await initPaymentSheet({
-        setupIntentClientSecret: setupSecret,
-        merchantDisplayName:     'Daricefy',
-        style:                   'alwaysDark',
+        ...(setupSecret
+          ? { setupIntentClientSecret: setupSecret }
+          : { paymentIntentClientSecret: paySecret! }),
+        merchantDisplayName: 'Daricefy',
+        style:               'alwaysDark',
       });
       if (initErr) throw new Error(`Error al inicializar: ${initErr.message}`);
 
@@ -143,10 +150,12 @@ export default function PlusScreen({ navigation, route }: any) {
         throw new Error(payErr.message);
       }
 
-      // 5. Tarjeta registrada — Plus se activa en segundos vía webhook
+      // 5. Listo — Plus se activa en segundos vía webhook
       Alert.alert(
         '✅ ¡Plus activado!',
-        'Tu badge verde ya está visible. El webhook confirmará en segundos.\n\nTu tarjeta se cobrará en 7 días.',
+        hasTrial
+          ? 'Tu badge verde ya está visible. El webhook confirmará en segundos.\n\nTu tarjeta se cobrará en 7 días.'
+          : 'Tu pago se procesó y tu badge verde se activa en segundos.\n\n(La prueba gratis solo aplica la primera vez.)',
         [{ text: 'Entendido', onPress: () => loadStatus() }],
       );
     } catch (err: any) {
@@ -205,7 +214,7 @@ export default function PlusScreen({ navigation, route }: any) {
         [
           { text: 'Cancelar', style: 'cancel' },
           {
-            text: '💳 Tarjeta con renovación (7 días gratis)',
+            text: '💳 Tarjeta con renovación automática',
             onPress: () => startStripeSubscription(),
           },
           {
@@ -220,7 +229,7 @@ export default function PlusScreen({ navigation, route }: any) {
     // Aquí solo llega el plan mensual (el anual salió arriba con su selector)
     Alert.alert(
       '🛡 Verificación Plus',
-      'Plan: Mensual\nPrecio: $199 MXN / mes\n\nSe registra tu tarjeta hoy. No se cobra nada durante 7 días.\nEl cobro inicia al día 8 automáticamente.',
+      'Plan: Mensual\nPrecio: $199 MXN / mes\n\nPrimera vez: 7 días gratis, el cobro inicia al día 8.\nSi ya usaste tu prueba gratis, el cobro es hoy mismo.',
       [
         { text: 'Cancelar', style: 'cancel' },
         {

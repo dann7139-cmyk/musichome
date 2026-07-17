@@ -81,6 +81,19 @@ Deno.serve(async (req) => {
     if (group.owner_id !== user.id) return jsonRes({ error: 'Sin permiso sobre este grupo' });
     if (group.is_plus_active) return jsonRes({ error: 'Plus ya está activo en este grupo' });
 
+    // ── 🎁 Prueba gratis UNA sola vez por dueño ───────────────────────
+    // Si ya tuvo una suscripción que llegó a trial/activa (aunque haya
+    // cancelado o fallado el cobro), la nueva suscripción cobra desde el
+    // día 1 — evita farmear 7 días gratis cancelando y resuscribiendo.
+    // ('incomplete' no cuenta: nunca capturó tarjeta ni gozó el trial.)
+    const { data: prevSubs } = await admin
+      .from('plus_subscriptions')
+      .select('id')
+      .eq('owner_id', user.id)
+      .in('status', ['trialing', 'active', 'past_due', 'cancelled'])
+      .limit(1);
+    const hadTrial = (prevSubs?.length ?? 0) > 0;
+
     // ── Determinar moneda ─────────────────────────────────────────────
     const currency = group.country === 'Estados Unidos' ? 'usd' : 'mxn';
 
@@ -121,23 +134,27 @@ Deno.serve(async (req) => {
       await admin.from('profiles').update({ stripe_customer_id: stripeCustomerId }).eq('id', user.id);
     }
 
-    // ── Crear Stripe Subscription con trial de 7 días ─────────────────
-    // payment_behavior=default_incomplete: la suscripción no se activa hasta
-    // que el SetupIntent capture la tarjeta.
-    // expand[]=pending_setup_intent: devuelve el client_secret para el frontend.
+    // ── Crear Stripe Subscription ─────────────────────────────────────
+    // Primera vez: trial de 7 días → SetupIntent (captura tarjeta, cobra al
+    // día 8). Ya usó su trial: SIN trial → PaymentIntent (cobra HOY).
+    // payment_behavior=default_incomplete: no se activa hasta pagar/capturar.
     const subParams = new URLSearchParams({
       customer:                           stripeCustomerId,
       'items[0][price]':                  priceId,
-      trial_period_days:                  '7',
       payment_behavior:                   'default_incomplete',
       'payment_settings[save_default_payment_method]': 'on_subscription',
-      'expand[]':                         'pending_setup_intent',
       'metadata[group_id]':               group_id,
       'metadata[owner_id]':               user.id,
       'metadata[entity_type]':            'group',
       'metadata[plan]':                   plan,
       'metadata[currency]':               currency,
     });
+    if (hadTrial) {
+      subParams.append('expand[]', 'latest_invoice.payment_intent');
+    } else {
+      subParams.set('trial_period_days', '7');
+      subParams.append('expand[]', 'pending_setup_intent');
+    }
 
     const subRes = await fetch('https://api.stripe.com/v1/subscriptions', {
       method: 'POST',
@@ -156,9 +173,11 @@ Deno.serve(async (req) => {
 
     const setupIntentClientSecret: string | null =
       sub.pending_setup_intent?.client_secret ?? null;
+    const paymentIntentClientSecret: string | null =
+      sub.latest_invoice?.payment_intent?.client_secret ?? null;
 
-    if (!setupIntentClientSecret) {
-      console.error('[Plus] Sin pending_setup_intent en subscription:', sub.id);
+    if (!setupIntentClientSecret && !paymentIntentClientSecret) {
+      console.error('[Plus] Sin client_secret en subscription:', sub.id, 'hadTrial:', hadTrial);
       return jsonRes({ error: 'No se recibió el token de configuración de pago' });
     }
 
@@ -181,12 +200,14 @@ Deno.serve(async (req) => {
       // No bloquear — Stripe tiene el registro. El webhook lo sincronizará.
     }
 
-    console.log(`[Plus] Subscription ${sub.id} | group=${group_id} | plan=${plan} | currency=${currency}`);
+    console.log(`[Plus] Subscription ${sub.id} | group=${group_id} | plan=${plan} | currency=${currency} | trial=${!hadTrial}`);
 
     return jsonRes({
-      ok:                          true,
-      setup_intent_client_secret:  setupIntentClientSecret,
-      subscription_id:             sub.id,
+      ok:                            true,
+      setup_intent_client_secret:    setupIntentClientSecret,
+      payment_intent_client_secret:  paymentIntentClientSecret,
+      trial:                         !hadTrial,
+      subscription_id:               sub.id,
     });
 
   } catch (e: unknown) {
