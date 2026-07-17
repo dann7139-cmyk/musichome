@@ -114,6 +114,15 @@ Deno.serve(async (req) => {
       if (!grp) return jsonRes({ error: 'Grupo no encontrado' }, 404);
       if (grp.owner_id !== user.id) return jsonRes({ error: 'Sin permiso' }, 403);
 
+      // 🚦 Cupo: máx. 10 grupos recomendados por estado (sql/500). Las
+      // renovaciones de quien ya tiene lugar nunca se bloquean.
+      const { data: avail } = await admin.rpc('check_recommendation_availability', {
+        p_group_id: group_id,
+      });
+      if (avail && avail.ok === false) {
+        return jsonRes({ error: 'Por ahora no hay lugares de Recomendado en tu estado. Se liberan cuando vencen las campañas activas — intenta más tarde.' });
+      }
+
       metadata.rec_group_id = group_id;
       priceId = await getOrCreatePrice(
         STRIPE_KEY,

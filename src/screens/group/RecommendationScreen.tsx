@@ -203,6 +203,9 @@ export default function RecommendationScreen({ navigation, route }: any) {
                 { p_group_id: groupId, p_duration: selected.days },
               );
               if (orderErr || !orderData?.ok) {
+                if (orderData?.error === 'no_capacity') {
+                  throw new Error('Por ahora no hay lugares de Recomendado en tu estado (máx. 10 grupos a la vez). Se liberan cuando vencen las campañas activas — intenta más tarde.');
+                }
                 throw new Error(orderData?.error ?? orderErr?.message ?? 'Error al crear orden');
               }
               const orderId: string = orderData.order_id;
