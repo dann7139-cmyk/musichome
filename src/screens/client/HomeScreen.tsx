@@ -951,9 +951,10 @@ export default function HomeScreen({ navigation }: any) {
               populares    = byRating.filter((_: any, i: number) => i % 3 === 2).slice(0, 20);
             }
 
+            // 💎 El Destacado (más caro) va AL CENTRO — el lugar de honor
             const sections = [
-              { key: 'dest', label: t('home.section_featured'),        color: '#E6C25A', border: 'rgba(201,168,76,0.55)', grad: ['rgba(201,168,76,0.28)', 'rgba(201,168,76,0.04)'], items: destacados },
               { key: 'reco', label: t('home.section_recommendations'), color: COLORS.green, border: 'rgba(0,230,118,0.5)', grad: ['rgba(0,230,118,0.24)', 'rgba(0,230,118,0.03)'], items: recomendados },
+              { key: 'dest', label: t('home.section_featured'),        color: '#E6C25A', border: 'rgba(201,168,76,0.55)', grad: ['rgba(201,168,76,0.28)', 'rgba(201,168,76,0.04)'], items: destacados },
               { key: 'pop',  label: 'Populares',                       color: '#FFFFFF', border: 'rgba(255,255,255,0.28)', grad: ['rgba(255,255,255,0.16)', 'rgba(255,255,255,0.02)'], items: populares },
             ].filter(s => s.items.length > 0);
 
@@ -1213,7 +1214,9 @@ function MiniDeck({ items, navigation, isGift, variant, colWidth }: any) {
 
   if (n === 0) return null;
 
-  const cardW = Math.round(colWidth * 0.80);
+  // 💎 El Destacado (columna central, la más cara) es MÁS GRANDE y brilla
+  const scale = variant === 'dest' ? 0.92 : 0.80;
+  const cardW = Math.round(colWidth * scale);
   const cardH = Math.round(cardW * 1.32);
   const peek  = Math.round(cardW * 0.22);   // asoman poco → no invaden la columna vecina
   const leftC = Math.round((colWidth - cardW) / 2);
@@ -1268,14 +1271,11 @@ function MiniDeck({ items, navigation, isGift, variant, colWidth }: any) {
 }
 
 function DeckCard({ group, w, h, variant }: any) {
-  // Destacados y Recomendados son pagados. Populares es automático (por eventos) → 📈.
-  const badge =
-    variant === 'reco' ? { t: 'RECO', c: COLORS.green,  emoji: false } :
-    variant === 'dest' ? { t: 'DEST', c: '#C9A84C',     emoji: false } :
-    variant === 'pop'  ? { t: '📈',   c: COLORS.green,  emoji: true } : null;
-
+  // 📸 Fotos limpias (pedido 2026-07-17): nada encima de la imagen —
+  // la columna ya dice Destacados/Recomendados/Populares arriba.
+  // El Destacado se distingue por su marco dorado con brillo.
   return (
-    <View style={[styles.deckCard, { width: w, height: h }]}>
+    <View style={[styles.deckCard, variant === 'dest' && styles.deckCardDest, { width: w, height: h }]}>
       {group.profile_image ? (
         <Image source={{ uri: group.profile_image }} style={styles.featImage} resizeMode="cover" />
       ) : (
@@ -1288,15 +1288,6 @@ function DeckCard({ group, w, h, variant }: any) {
         locations={[0.42, 1]}
         style={styles.featGradient}
       />
-      {badge && !group._is_mock && (
-        badge.emoji ? (
-          <Text style={styles.deckPopEmoji}>{badge.t}</Text>
-        ) : (
-          <View style={[styles.deckBadge, { backgroundColor: badge.c }]}>
-            <Text style={styles.deckBadgeTx}>{badge.t}</Text>
-          </View>
-        )
-      )}
       <View style={styles.deckOverlay}>
         <Text style={styles.deckName} numberOfLines={1}>{group.name}</Text>
         <View style={styles.deckMeta}>
@@ -1848,6 +1839,12 @@ const styles = StyleSheet.create({
   deckCard: {
     borderRadius: RADIUS.lg, overflow: 'hidden', position: 'relative',
     backgroundColor: COLORS.card2, borderWidth: 1, borderColor: 'rgba(255,255,255,0.10)',
+  },
+  // 💎 Destacado: marco dorado con brillo — se nota que es el premium
+  deckCardDest: {
+    borderWidth: 1.5, borderColor: 'rgba(230,194,90,0.85)',
+    shadowColor: '#E6C25A', shadowOpacity: 0.45, shadowRadius: 10,
+    shadowOffset: { width: 0, height: 3 }, elevation: 8,
   },
   deckBadge: { position: 'absolute', top: 5, left: 5, borderRadius: RADIUS.full, paddingHorizontal: 5, paddingVertical: 2 },
   deckBadgeTx: { fontFamily: FONTS.bodySemiBold, fontSize: 6.5, color: '#000', letterSpacing: 0.4 },

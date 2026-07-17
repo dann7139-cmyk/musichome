@@ -22,7 +22,8 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
-const REC_WEEKLY_MXN = 399;   // ⚠️ igual al paquete de 7 días de RecommendationScreen
+const REC_WEEKLY_MXN  = 399;   // ⚠️ igual al paquete de 7 días de RecommendationScreen
+const REC_MONTHLY_MXN = 1299;  // mensual con descuento (4 semanas sueltas = $1,596)
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -96,12 +97,14 @@ Deno.serve(async (req) => {
     const user = authData.user;
 
     // ── Body ──────────────────────────────────────────────────────────
-    const { kind, group_id, ad_id } = await req.json().catch(() => ({})) as {
-      kind?: string; group_id?: string; ad_id?: string;
+    const { kind, group_id, ad_id, plan } = await req.json().catch(() => ({})) as {
+      kind?: string; group_id?: string; ad_id?: string; plan?: string;
     };
     if (!kind || !['rec', 'sponsored'].includes(kind)) {
       return jsonRes({ error: 'kind debe ser "rec" o "sponsored"' }, 400);
     }
+    // Recomendado: 'weekly' (default) o 'monthly'
+    const recPlan = plan === 'monthly' ? 'monthly' : 'weekly';
 
     // ── Resolver monto + validar dueño (todo server-side) ─────────────
     let priceId: string | null = null;
@@ -124,13 +127,25 @@ Deno.serve(async (req) => {
       }
 
       metadata.rec_group_id = group_id;
-      priceId = await getOrCreatePrice(
-        STRIPE_KEY,
-        `daricefy_rec_weekly_${REC_WEEKLY_MXN * 100}`,
-        REC_WEEKLY_MXN * 100,
-        'week',
-        'Daricefy — Recomendado (semanal)',
-      );
+      // El webhook usa rec_days para saber cuánto extiende cada cobro
+      metadata.rec_days = recPlan === 'monthly' ? '30' : '7';
+      if (recPlan === 'monthly') {
+        priceId = await getOrCreatePrice(
+          STRIPE_KEY,
+          `daricefy_rec_monthly_${REC_MONTHLY_MXN * 100}`,
+          REC_MONTHLY_MXN * 100,
+          'month',
+          'Daricefy — Recomendado (mensual)',
+        );
+      } else {
+        priceId = await getOrCreatePrice(
+          STRIPE_KEY,
+          `daricefy_rec_weekly_${REC_WEEKLY_MXN * 100}`,
+          REC_WEEKLY_MXN * 100,
+          'week',
+          'Daricefy — Recomendado (semanal)',
+        );
+      }
     } else {
       if (!ad_id) return jsonRes({ error: 'ad_id requerido' }, 400);
       const { data: ad } = await admin

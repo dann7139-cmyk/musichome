@@ -132,23 +132,28 @@ export default function RecommendationScreen({ navigation, route }: any) {
     setRefreshing(false);
   };
 
-  // ── 🔁 Suscripción semanal (Stripe, se renueva sola) ────────────────────────
+  // ── 🔁 Suscripción (Stripe, se renueva sola) — semanal o mensual ────────────
   const handleSubscribeWeekly = () => {
     if (!groupId || submitting) return;
     Alert.alert(
-      '🔁 Recomendado semanal',
-      'Tu grupo aparece en "Recomendado para ti" y se renueva solo cada semana por $399 MXN con tarjeta. Cancelas cuando quieras.',
+      '🔁 Recomendado con renovación automática',
+      'Tu grupo se mantiene en "Recomendado para ti" y tu tarjeta se cobra sola cada periodo hasta que canceles.\n\n· Semanal: $399/semana\n· Mensual: $1,299/mes (ahorras $297 vs 4 semanas)',
       [
         { text: 'Ahora no', style: 'cancel' },
-        {
-          text: 'Suscribirme · $399/semana',
-          onPress: async () => {
+        { text: 'Semanal · $399', onPress: () => startRecSubscription('weekly') },
+        { text: 'Mensual · $1,299', onPress: () => startRecSubscription('monthly') },
+      ],
+    );
+  };
+
+  const startRecSubscription = (plan: 'weekly' | 'monthly') => {
+    void (async () => {
             setSubmitting(true);
             try {
               const { data: { session } } = await supabase.auth.getSession();
               if (!session) throw new Error('Sesión expirada. Vuelve a iniciar sesión.');
               const { data, error } = await supabase.functions.invoke('create-promo-subscription', {
-                body:    { kind: 'rec', group_id: groupId },
+                body:    { kind: 'rec', group_id: groupId, plan },
                 headers: { Authorization: `Bearer ${session.access_token}` },
               });
               if (error) throw new Error(error.message ?? 'Error de red');
@@ -169,7 +174,9 @@ export default function RecommendationScreen({ navigation, route }: any) {
               }
               Alert.alert(
                 '✅ Suscripción activa',
-                'Tu recomendación se activa en segundos y se renueva sola cada semana ($399). Para cancelarla escríbenos a soporte o hazlo desde tu banco.',
+                plan === 'monthly'
+                  ? 'Tu recomendación se activa en segundos y se renueva sola cada mes ($1,299). Para cancelarla escríbenos a soporte.'
+                  : 'Tu recomendación se activa en segundos y se renueva sola cada semana ($399). Para cancelarla escríbenos a soporte.',
                 [{ text: 'Perfecto', onPress: () => loadStatus() }],
               );
             } catch (err: any) {
@@ -177,10 +184,7 @@ export default function RecommendationScreen({ navigation, route }: any) {
             } finally {
               setSubmitting(false);
             }
-          },
-        },
-      ],
-    );
+    })();
   };
 
   // ── Pagar con Stripe ────────────────────────────────────────────────────────
@@ -457,10 +461,11 @@ export default function RecommendationScreen({ navigation, route }: any) {
             onPress={handleSubscribeWeekly}
             disabled={submitting}
           >
-            <Text style={s.subCardTitle}>🔁 Mejor aún: suscripción semanal</Text>
+            <Text style={s.subCardTitle}>🔁 Mejor aún: con renovación automática</Text>
             <Text style={s.subCardBody}>
-              $399/semana con tarjeta — tu grupo se mantiene recomendado
-              SIEMPRE, se renueva solo y cancelas cuando quieras.
+              Tu grupo se mantiene recomendado SIEMPRE — se renueva solo con
+              tarjeta y cancelas cuando quieras.{'\n'}
+              · Semanal $399  ·  Mensual $1,299 (ahorras $297)
             </Text>
             <Text style={s.subCardCta}>Suscribirme →</Text>
           </Pressable>

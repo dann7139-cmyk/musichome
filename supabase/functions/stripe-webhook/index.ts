@@ -499,10 +499,13 @@ Deno.serve(async (req) => {
         if (amountMxn <= 0) return new Response('OK', { status: 200 });
 
         if (promoKind === 'rec' && subData?.metadata?.rec_group_id) {
+          // rec_days: 7 (semanal) o 30 (mensual) — cuánto extiende cada cobro
+          const recDays = parseInt(subData?.metadata?.rec_days ?? '7', 10) || 7;
           const { error: recSubErr } = await supabase.rpc('renew_recommendation_subscription', {
             p_group_id:   subData.metadata.rec_group_id,
             p_payment_id: inv.id,
             p_amount:     amountMxn,
+            p_days:       recDays,
           });
           if (recSubErr) {
             console.error('[PromoSub] renew_recommendation error:', recSubErr.message);
