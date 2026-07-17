@@ -81,6 +81,11 @@ function VideoDeck({ slots }: { slots: any[] }) {
           nativeControls={isFront}
           muted={!isFront}
         />
+        {!isFront && (
+          <View style={styles.videoDeckPlay} pointerEvents="none">
+            <Text style={{ color: '#fff', fontSize: 18 }}>▶</Text>
+          </View>
+        )}
       </View>
     );
 
@@ -963,6 +968,11 @@ const styles = StyleSheet.create({
     shadowOpacity: 0, elevation: 0, backgroundColor: COLORS.card2,
   },
   videoLockedTx: { fontFamily: FONTS.bodyMedium, fontSize: 12, color: COLORS.muted },
+  videoDeckPlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.28)',
+  },
 
   videoWrapper: { borderRadius: RADIUS.lg, overflow: 'hidden', backgroundColor: '#000', marginTop: 8 },
   video: { width: '100%', height: 200 },
