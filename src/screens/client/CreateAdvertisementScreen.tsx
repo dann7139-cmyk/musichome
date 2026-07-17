@@ -558,26 +558,71 @@ export default function CreateAdvertisementScreen({ navigation, route }: any) {
 
       const adId = orderData.ad_id as string;
 
-      // Paso 1.5: elegir procesador — Stripe (tarjeta) o Conekta (OXXO/SPEI/tarjeta)
-      const useConekta = await new Promise<boolean | null>(resolve => {
+      // Paso 1.5: elegir método — Stripe (tarjeta), Conekta (OXXO/SPEI) o,
+      // para Destacados de 30 días, suscripción mensual que se renueva sola
+      const offerSub = adType === 'sponsored_group'
+        && !isCustomMode
+        && selectedPackage?.duration_days === 30;
+      const payMode = await new Promise<'stripe' | 'conekta' | 'sub' | null>(resolve => {
+        const buttons: any[] = [
+          { text: 'Cancelar', style: 'cancel', onPress: () => resolve(null) },
+          { text: '💳 Tarjeta', onPress: () => resolve('stripe') },
+          { text: '💵 OXXO, SPEI o tarjeta', onPress: () => resolve('conekta') },
+        ];
+        if (offerSub) {
+          buttons.push({ text: '🔁 Mensual — se renueva solo', onPress: () => resolve('sub') });
+        }
         Alert.alert(
           `Pagar $${finalPrice.toLocaleString('es-MX')} MXN`,
           '¿Cómo quieres pagar tu anuncio?',
-          [
-            { text: 'Cancelar', style: 'cancel', onPress: () => resolve(null) },
-            { text: '💳 Tarjeta', onPress: () => resolve(false) },
-            { text: '💵 OXXO, SPEI o tarjeta', onPress: () => resolve(true) },
-          ],
+          buttons,
         );
       });
-      if (useConekta === null) return;
-      if (useConekta) {
+      if (payMode === null) return;
+
+      if (payMode === 'conekta') {
         // El webhook confirma y deja el anuncio en revisión — igual que Stripe
         const res = await startPromoConektaCheckout('ad', adId);
         if (!res.ok) throw new Error(res.error ?? 'No se pudo iniciar el pago');
         Alert.alert(
           '⏳ Esperando confirmación',
           'Con tarjeta se acredita en segundos; con OXXO o SPEI, cuando hagas el depósito. Al acreditarse, tu anuncio pasa a revisión y te avisamos cuando se apruebe.',
+        );
+        setSuccess(true);
+        return;
+      }
+
+      if (payMode === 'sub') {
+        // 🔁 Suscripción mensual del Destacado: primer cobro HOY; cada mes
+        // se renueva solo (el webhook extiende 30 días con dinero real)
+        const { data: { session: subSession } } = await supabase.auth.getSession();
+        if (!subSession) throw new Error('Sesión expirada. Vuelve a iniciar sesión.');
+        const { data: subData, error: subErr } = await supabase.functions.invoke('create-promo-subscription', {
+          body:    { kind: 'sponsored', ad_id: adId },
+          headers: { Authorization: `Bearer ${subSession.access_token}` },
+        });
+        if (subErr) throw new Error(subErr.message ?? 'Error de función');
+        if ((subData as any)?.error) throw new Error((subData as any).error);
+        const subSecret = (subData as any)?.payment_intent_client_secret as string | undefined;
+        if (!subSecret) throw new Error('No se recibió el token de pago.');
+
+        const { error: subInitErr } = await initPaymentSheet({
+          paymentIntentClientSecret: subSecret,
+          merchantDisplayName:       'Daricefy Ads',
+          style:                     'alwaysDark',
+        });
+        if (subInitErr) throw new Error(subInitErr.message);
+        const { error: subPayErr } = await presentPaymentSheet();
+        if (subPayErr) {
+          if (subPayErr.code === 'Canceled') {
+            Alert.alert('Pago cancelado', 'Puedes intentarlo de nuevo cuando quieras.');
+            return;
+          }
+          throw new Error(subPayErr.message);
+        }
+        Alert.alert(
+          '✅ Suscripción activa',
+          'Tu Destacado pasa a revisión y se activa al aprobarse. Cada mes se renueva solo — cancelas cuando quieras.',
         );
         setSuccess(true);
         return;

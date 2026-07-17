@@ -132,6 +132,57 @@ export default function RecommendationScreen({ navigation, route }: any) {
     setRefreshing(false);
   };
 
+  // ── 🔁 Suscripción semanal (Stripe, se renueva sola) ────────────────────────
+  const handleSubscribeWeekly = () => {
+    if (!groupId || submitting) return;
+    Alert.alert(
+      '🔁 Recomendado semanal',
+      'Tu grupo aparece en "Recomendado para ti" y se renueva solo cada semana por $399 MXN con tarjeta. Cancelas cuando quieras.',
+      [
+        { text: 'Ahora no', style: 'cancel' },
+        {
+          text: 'Suscribirme · $399/semana',
+          onPress: async () => {
+            setSubmitting(true);
+            try {
+              const { data: { session } } = await supabase.auth.getSession();
+              if (!session) throw new Error('Sesión expirada. Vuelve a iniciar sesión.');
+              const { data, error } = await supabase.functions.invoke('create-promo-subscription', {
+                body:    { kind: 'rec', group_id: groupId },
+                headers: { Authorization: `Bearer ${session.access_token}` },
+              });
+              if (error) throw new Error(error.message ?? 'Error de red');
+              if ((data as any)?.error) throw new Error((data as any).error);
+              const secret = (data as any)?.payment_intent_client_secret as string | undefined;
+              if (!secret) throw new Error('No se recibió el token de pago');
+
+              const { error: initErr } = await initPaymentSheet({
+                paymentIntentClientSecret: secret,
+                merchantDisplayName:       'Daricefy',
+                style:                     'alwaysDark',
+              });
+              if (initErr) throw new Error(initErr.message);
+              const { error: payErr } = await presentPaymentSheet();
+              if (payErr) {
+                if (payErr.code === 'Canceled') return;
+                throw new Error(payErr.message);
+              }
+              Alert.alert(
+                '✅ Suscripción activa',
+                'Tu recomendación se activa en segundos y se renueva sola cada semana ($399). Para cancelarla escríbenos a soporte o hazlo desde tu banco.',
+                [{ text: 'Perfecto', onPress: () => loadStatus() }],
+              );
+            } catch (err: any) {
+              Alert.alert('Error', err.message ?? 'No se pudo procesar. Intenta de nuevo.');
+            } finally {
+              setSubmitting(false);
+            }
+          },
+        },
+      ],
+    );
+  };
+
   // ── Pagar con Stripe ────────────────────────────────────────────────────────
   const handlePurchase = async () => {
     if (!groupId) return;
@@ -393,9 +444,23 @@ export default function RecommendationScreen({ navigation, route }: any) {
           </Pressable>
 
           <Text style={s.disclaimer}>
-            Pago seguro con tarjeta vía Stripe. La recomendación se activa automáticamente
-            al confirmar. Sin renovación automática.
+            Pago seguro con tarjeta, OXXO o SPEI. La recomendación se activa
+            automáticamente al confirmar. Sin renovación automática.
           </Text>
+
+          {/* ── 🔁 Suscripción semanal (se renueva sola) ── */}
+          <Pressable
+            style={[s.subCard, submitting && { opacity: 0.7 }]}
+            onPress={handleSubscribeWeekly}
+            disabled={submitting}
+          >
+            <Text style={s.subCardTitle}>🔁 Mejor aún: suscripción semanal</Text>
+            <Text style={s.subCardBody}>
+              $399/semana con tarjeta — tu grupo se mantiene recomendado
+              SIEMPRE, se renueva solo y cancelas cuando quieras.
+            </Text>
+            <Text style={s.subCardCta}>Suscribirme →</Text>
+          </Pressable>
 
           <View style={{ height: 40 }} />
         </ScrollView>
@@ -496,4 +561,16 @@ const s = StyleSheet.create({
     fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted,
     textAlign: 'center', lineHeight: 17,
   },
+
+  // 🔁 Suscripción semanal
+  subCard: {
+    marginTop: SPACING.lg,
+    backgroundColor: 'rgba(0,230,118,0.06)',
+    borderRadius: RADIUS.xl,
+    borderWidth: 1.5, borderColor: 'rgba(0,230,118,0.4)',
+    padding: SPACING.lg, gap: 6,
+  },
+  subCardTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: COLORS.green },
+  subCardBody:  { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2, lineHeight: 17 },
+  subCardCta:   { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.green, marginTop: 2 },
 });

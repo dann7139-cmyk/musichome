@@ -424,6 +424,12 @@ Deno.serve(async (req) => {
     const sub    = event.data.object as any;
     const groupId = sub.metadata?.group_id as string | undefined;
 
+    // 📣 Las suscripciones de PUBLICIDAD (Recomendado/Destacado) NO son
+    // Plus: se activan solo con dinero real en invoice.paid (abajo).
+    if (sub.metadata?.promo_sub_kind) {
+      return new Response('OK', { status: 200 });
+    }
+
     if (groupId) {
       const isActive = sub.status === 'trialing' || sub.status === 'active';
 
@@ -485,6 +491,39 @@ Deno.serve(async (req) => {
       const subData = await subRes.json();
       const groupId  = subData?.metadata?.group_id as string | undefined;
 
+      // 📣 Suscripciones de PUBLICIDAD: renovar Recomendado/Destacado
+      // (RPCs idempotentes de sql/497) y salir — NO tocan Plus.
+      const promoKind = subData?.metadata?.promo_sub_kind as string | undefined;
+      if (promoKind) {
+        const amountMxn = (inv.amount_paid ?? 0) / 100;
+        if (amountMxn <= 0) return new Response('OK', { status: 200 });
+
+        if (promoKind === 'rec' && subData?.metadata?.rec_group_id) {
+          const { error: recSubErr } = await supabase.rpc('renew_recommendation_subscription', {
+            p_group_id:   subData.metadata.rec_group_id,
+            p_payment_id: inv.id,
+            p_amount:     amountMxn,
+          });
+          if (recSubErr) {
+            console.error('[PromoSub] renew_recommendation error:', recSubErr.message);
+            return new Response('DB Error', { status: 500 });
+          }
+          console.log(`[PromoSub] Recomendado renovado: group=${subData.metadata.rec_group_id}`);
+        } else if (promoKind === 'sponsored' && subData?.metadata?.sponsored_ad_id) {
+          const { error: sponErr } = await supabase.rpc('renew_sponsored_subscription', {
+            p_ad_id:      subData.metadata.sponsored_ad_id,
+            p_payment_id: inv.id,
+            p_amount:     amountMxn,
+          });
+          if (sponErr) {
+            console.error('[PromoSub] renew_sponsored error:', sponErr.message);
+            return new Response('DB Error', { status: 500 });
+          }
+          console.log(`[PromoSub] Destacado renovado: ad=${subData.metadata.sponsored_ad_id}`);
+        }
+        return new Response('OK', { status: 200 });
+      }
+
       if (groupId && (subData?.current_period_end ?? subData?.trial_end)) {
         const rawEnd = subData.current_period_end ?? subData.trial_end;
         const expiresAt = typeof rawEnd === 'string'
@@ -525,6 +564,12 @@ Deno.serve(async (req) => {
   // customer.subscription.deleted — suscripción cancelada definitivamente
   if (event.type === 'customer.subscription.deleted') {
     const sub = event.data.object as any;
+    // 📣 Publicidad: nada que apagar — el Recomendado/Destacado ya pagado
+    // sigue hasta su ends_at y el cron lo expira solo.
+    if (sub.metadata?.promo_sub_kind) {
+      console.log(`[PromoSub] Suscripción cancelada: ${sub.id} (${sub.metadata.promo_sub_kind}) — vence sola en ends_at`);
+      return new Response('OK', { status: 200 });
+    }
     const { error: deactErr } = await supabase.rpc('deactivate_plus', { p_sub_id: sub.id });
     if (deactErr) {
       console.error('[Plus] deactivate_plus error (subscription.deleted):', deactErr.message);
