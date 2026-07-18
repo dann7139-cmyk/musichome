@@ -380,14 +380,14 @@ export default function WalletScreen({ navigation }: any) {
               style={[st.reportBtn, downloadingReport && { opacity: 0.6 }]}
               disabled={downloadingReport}
               onPress={() => {
-                const download = async (days: number | null) => {
+                const download = async (format: 'xlsx' | 'pdf', days: number | null) => {
                   setDownloadingReport(true);
                   try {
                     const from = days != null
                       ? new Date(Date.now() - days * 86400000).toISOString().substring(0, 10)
                       : null;
                     const { data, error } = await supabase.functions.invoke('generate-report', {
-                      body: { mode: 'group', from },
+                      body: { mode: 'group', format, from },
                     });
                     if (error || !(data as any)?.ok) {
                       Alert.alert('No se pudo generar', (data as any)?.error ?? error?.message ?? 'Intenta de nuevo.');
@@ -400,17 +400,24 @@ export default function WalletScreen({ navigation }: any) {
                     setDownloadingReport(false);
                   }
                 };
-                Alert.alert('📊 Descargar mi reporte', '¿Qué periodo quieres?', [
-                  { text: 'Últimos 30 días',  onPress: () => download(30) },
-                  { text: 'Últimos 90 días',  onPress: () => download(90) },
-                  { text: 'Este año',         onPress: () => download(365) },
-                  { text: 'Todo',             onPress: () => download(null) },
+                const pickRange = (format: 'xlsx' | 'pdf') => {
+                  Alert.alert('📅 Periodo', '¿Qué periodo quieres?', [
+                    { text: 'Últimos 30 días',  onPress: () => download(format, 30) },
+                    { text: 'Últimos 90 días',  onPress: () => download(format, 90) },
+                    { text: 'Este año',         onPress: () => download(format, 365) },
+                    { text: 'Todo',             onPress: () => download(format, null) },
+                    { text: 'Cancelar', style: 'cancel' },
+                  ]);
+                };
+                Alert.alert('⬇ Descargar mi reporte', '¿En qué formato?', [
+                  { text: '📄 PDF (resumen bonito)', onPress: () => pickRange('pdf') },
+                  { text: '📊 Excel (detallado)',    onPress: () => pickRange('xlsx') },
                   { text: 'Cancelar', style: 'cancel' },
                 ]);
               }}
             >
               <Text style={st.reportBtnTx}>
-                {downloadingReport ? 'Generando tu reporte…' : '📊 Descargar mi reporte (Excel)'}
+                {downloadingReport ? 'Generando tu reporte…' : '⬇ Descargar mi reporte (PDF o Excel)'}
               </Text>
             </Pressable>
           )}
