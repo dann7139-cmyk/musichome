@@ -25,7 +25,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import {
-  CountryTabs, COUNTRY_FLAGS, fmtMoney, KpiCard, MetricRow, SectionHeader, TrendBars,
+  CountryTabs, COUNTRY_FLAGS, fmtMoney, KpiCard, MetricRow, SectionHeader, StatePicker, TrendBars,
 } from '../../components/reports';
 
 // ─── Rangos rápidos de fecha ──────────────────────────────────────────────────
@@ -38,6 +38,12 @@ const RANGES = [
 
 const MONTH_LABELS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
 
+// Cada moneda es el ingreso de SU país — así se ve el desglose por país
+// aun con el filtro en 🌎 Todos (jamás se suman entre sí)
+const CURRENCY_COUNTRY: Record<string, string> = {
+  MXN: '🇲🇽 México', USD: '🇺🇸 Estados Unidos', CAD: '🇨🇦 Canadá',
+};
+
 function monthLabel(yyyymm: string): string {
   const m = parseInt(yyyymm?.split('-')[1] ?? '1', 10);
   return MONTH_LABELS[(m - 1) % 12] ?? yyyymm;
@@ -46,7 +52,7 @@ function monthLabel(yyyymm: string): string {
 export default function AdminReportsScreen({ navigation }: any) {
   const [country,    setCountry]    = useState<string | null>(null);
   const [range,      setRange]      = useState('90d');
-  const [stateFil,   setStateFil]   = useState('');
+  const [stateFil,   setStateFil]   = useState<string | null>(null);
   const [cityFil,    setCityFil]    = useState('');
   const [data,       setData]       = useState<any | null>(null);
   const [loading,    setLoading]    = useState(true);
@@ -63,7 +69,7 @@ export default function AdminReportsScreen({ navigation }: any) {
         p_from:    from,
         p_to:      null,
         p_country: country,
-        p_state:   stateFil.trim() || null,
+        p_state:   stateFil,
         p_city:    cityFil.trim() || null,
       });
       if (error) throw error;
@@ -168,7 +174,9 @@ export default function AdminReportsScreen({ navigation }: any) {
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.green} />}
         >
           {/* ── Filtros ── */}
-          <CountryTabs value={country} onChange={setCountry} />
+          <CountryTabs value={country} onChange={co => { setCountry(co); setStateFil(null); }} />
+          {/* Estados del país elegido — se eligen, no se escriben */}
+          <StatePicker country={country} value={stateFil} onChange={setStateFil} />
           <View style={s.rangeRow}>
             {RANGES.map(r => (
               <Pressable
@@ -183,19 +191,10 @@ export default function AdminReportsScreen({ navigation }: any) {
           <View style={s.filterRow}>
             <TextInput
               style={s.filterInput}
-              value={stateFil}
-              onChangeText={setStateFil}
-              onSubmitEditing={load}
-              placeholder="Estado (ej. Jalisco)"
-              placeholderTextColor={COLORS.muted}
-              returnKeyType="search"
-            />
-            <TextInput
-              style={s.filterInput}
               value={cityFil}
               onChangeText={setCityFil}
               onSubmitEditing={load}
-              placeholder="Ciudad"
+              placeholder="Ciudad (opcional)"
               placeholderTextColor={COLORS.muted}
               returnKeyType="search"
             />
@@ -210,7 +209,7 @@ export default function AdminReportsScreen({ navigation }: any) {
           {currencies.map((cur: any) => (
             <View key={cur.moneda}>
               <SectionHeader
-                title={`💰 Dinero · ${cur.moneda}`}
+                title={`💰 ${CURRENCY_COUNTRY[cur.moneda] ?? cur.moneda} · ${cur.moneda}`}
                 note={currencies.length > 1 ? 'las monedas nunca se suman' : undefined}
               />
               <View style={s.grid}>

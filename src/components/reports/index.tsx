@@ -6,9 +6,10 @@
  */
 
 import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
+import { STATES_BY_COUNTRY } from '../../utils/locationUtils';
 
 // ─── Formato de dinero (es-MX, sin centavos) ─────────────────────────────────
 export function fmtMoney(n: number | null | undefined, currency = ''): string {
@@ -171,6 +172,42 @@ const t = StyleSheet.create({
   labels: { flexDirection: 'row', gap: 6, marginTop: 6 },
   label: { flex: 1, textAlign: 'center', fontFamily: FONTS.body, fontSize: 9, color: COLORS.muted },
 });
+
+// ─── StatePicker — estados del país elegido, sin escribir ────────────────────
+// Aparece solo cuando hay un país seleccionado. "Todos los estados" = null.
+export function StatePicker({ country, value, onChange }: {
+  country: string | null;
+  value: string | null;
+  onChange: (s: string | null) => void;
+}) {
+  if (!country) return null;
+  const states = STATES_BY_COUNTRY[country] ?? [];
+  if (states.length === 0) return null;
+  return (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      style={{ flexGrow: 0, marginTop: 8 }}
+      contentContainerStyle={{ gap: 7, paddingRight: 8, alignItems: 'center' }}
+    >
+      <Pressable
+        style={[c.chip, value === null && c.chipOn]}
+        onPress={() => onChange(null)}
+      >
+        <Text style={[c.chipTx, value === null && c.chipTxOn]}>Todos los estados</Text>
+      </Pressable>
+      {states.map(st => (
+        <Pressable
+          key={st}
+          style={[c.chip, value === st && c.chipOn]}
+          onPress={() => onChange(st)}
+        >
+          <Text style={[c.chipTx, value === st && c.chipTxOn]}>{st}</Text>
+        </Pressable>
+      ))}
+    </ScrollView>
+  );
+}
 
 // ─── StatusPill — ok / vigilar / riesgo ──────────────────────────────────────
 export function StatusPill({ kind, label }: { kind: 'ok' | 'warn' | 'bad'; label: string }) {

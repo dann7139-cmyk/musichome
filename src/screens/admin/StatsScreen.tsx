@@ -19,7 +19,7 @@ import {
 } from 'lucide-react-native';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
-import { CountryTabs } from '../../components/reports';
+import { CountryTabs, StatePicker } from '../../components/reports';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -821,16 +821,15 @@ export default function AdminStatsScreen({ navigation }: any) {
           {/* ══ TAB 5: INTELIGENCIA ══ */}
           {activeTab === 5 && (
             <View>
-              {/* 🌎 Filtro de los tops: mejores de todo un país o de un estado */}
+              {/* 🌎 Filtro de los tops: mejores de todo un país o de un estado
+                  (los estados se ELIGEN de la lista, no se escriben) */}
               <View style={c.card}>
                 <SectionTitle title="Ver los mejores de…" />
                 <CountryTabs value={topCountry} onChange={co => { setTopCountry(co); setTopState(''); }} />
-                <TextInput
-                  style={c.topStateInput}
-                  value={topState}
-                  onChangeText={setTopState}
-                  placeholder="Estado específico (ej. Jalisco, Texas, Ontario) — opcional"
-                  placeholderTextColor={COLORS.muted}
+                <StatePicker
+                  country={topCountry}
+                  value={topState || null}
+                  onChange={st => setTopState(st ?? '')}
                 />
               </View>
 
@@ -943,7 +942,9 @@ const c = StyleSheet.create({
   center:      { flex: 1, alignItems: 'center', justifyContent: 'center' },
   scroll:      { padding: SPACING.xl, gap: 16 },
 
-  tabBar:        { borderBottomWidth: 1, borderBottomColor: COLORS.border },
+  // flexGrow:0 + altura fija: un ScrollView horizontal dentro de una columna
+  // flex se colapsa a altura ~0 y los botones "desaparecen" (fix 2026-07-18)
+  tabBar:        { borderBottomWidth: 1, borderBottomColor: COLORS.border, flexGrow: 0, height: 48 },
   tabBarContent: { paddingHorizontal: SPACING.xl, gap: 2, alignItems: 'center' },
   tab:           { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 14, paddingVertical: 14 },
   tabActive:     { borderBottomWidth: 2, borderBottomColor: COLORS.green },
