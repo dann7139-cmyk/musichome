@@ -448,7 +448,10 @@ export default function PlusScreen({ navigation, route }: any) {
                 <Text style={s.savingsText}>AHORRA 33%</Text>
               </View>
             </View>
-            <Text style={[s.planPrice, selectedPlan === 'annual' && s.planPriceSelected]}>
+            <Text
+              style={[s.planPrice, selectedPlan === 'annual' && s.planPriceSelected]}
+              numberOfLines={1} adjustsFontSizeToFit
+            >
               $1,499
             </Text>
             <Text style={s.planUnit}>MXN / año  ·  ~$125/mes</Text>

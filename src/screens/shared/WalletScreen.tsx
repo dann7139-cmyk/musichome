@@ -298,7 +298,7 @@ export default function WalletScreen({ navigation }: any) {
           <View style={st.heroCard}>
             <Wallet size={22} color={COLORS.green} style={{ marginBottom: 8 }} />
             <Text style={st.heroLabel}>{t('wallet.available')}</Text>
-            <Text style={st.heroAmount}>{formatCurrency(available)}</Text>
+            <Text style={st.heroAmount} numberOfLines={1} adjustsFontSizeToFit>{formatCurrency(available)}</Text>
             <View style={st.heroRow}>
               <View style={st.heroStat}>
                 <Clock size={14} color={COLORS.muted2} />
@@ -318,7 +318,7 @@ export default function WalletScreen({ navigation }: any) {
           {hasUsd && (
             <View style={[st.heroCard, { marginTop: 12 }]}>
               <Text style={[st.heroLabel, { marginBottom: 4 }]}>{t('wallet.usd_balance')}</Text>
-              <Text style={st.heroAmount}>
+              <Text style={st.heroAmount} numberOfLines={1} adjustsFontSizeToFit>
                 US${availUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </Text>
               <View style={st.heroRow}>

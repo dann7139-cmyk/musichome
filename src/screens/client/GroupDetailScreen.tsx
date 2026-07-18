@@ -317,11 +317,32 @@ export default function GroupDetailScreen({ route, navigation }: any) {
   }, []);
 
   const loadReviews = async () => {
-    const { data } = await supabase.rpc('get_group_reviews', {
+    const { data, error } = await supabase.rpc('get_group_reviews', {
       p_group_id: initialGroup.id,
       p_limit: 10,
     });
-    if (data) setReviews(data);
+    if (error) console.warn('[GroupDetail] get_group_reviews:', error.message);
+    if (data && (data as any[]).length > 0) { setReviews(data); return; }
+
+    // Plan B: leer la tabla directo (RLS pública de sql/93) — por si el RPC
+    // de la BD es una versión vieja o falla. Así los comentarios SIEMPRE salen.
+    const { data: raw, error: rawErr } = await supabase
+      .from('reviews')
+      .select('id, rating, comment, created_at, client:profiles!client_id(full_name, avatar_url)')
+      .eq('group_id', initialGroup.id)
+      .order('created_at', { ascending: false })
+      .limit(10);
+    if (rawErr) { console.warn('[GroupDetail] reviews fallback:', rawErr.message); return; }
+    if (raw && raw.length > 0) {
+      setReviews((raw as any[]).map(r => ({
+        review_id:     r.id,
+        rating:        r.rating,
+        comment:       r.comment,
+        created_at:    r.created_at,
+        client_name:   r.client?.full_name ?? 'Cliente',
+        client_avatar: r.client?.avatar_url ?? null,
+      })) as any);
+    }
   };
 
   const checkProximity = async () => {
