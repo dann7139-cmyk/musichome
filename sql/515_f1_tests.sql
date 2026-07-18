@@ -27,8 +27,8 @@ BEGIN
   ---------------------------------------------------------------
   -- T1: primer evento del día → permitido
   ---------------------------------------------------------------
-  INSERT INTO reservations (group_id, client_id, event_date, event_time, hours_count, status, total_price, base_price)
-  VALUES (v_group, v_owner, DATE '2030-05-10', TIME '18:00', 3, 'confirmed', 1200, 1000)
+  INSERT INTO reservations (group_id, client_id, event_date, event_time, hours_count, status, total_price, base_price, address)
+  VALUES (v_group, v_owner, DATE '2030-05-10', TIME '18:00', 3, 'confirmed', 1200, 1000, 'Av. Prueba 123')
   RETURNING id INTO v_r1;
   v_report := v_report || 'T1 primer evento permitido ................ PASS' || E'\n';
 
@@ -49,8 +49,8 @@ BEGIN
   --     con date_taken (el candado por día sigue vivo hasta F2)
   ---------------------------------------------------------------
   BEGIN
-    INSERT INTO reservations (group_id, client_id, event_date, event_time, hours_count, status, total_price, base_price)
-    VALUES (v_group, v_owner, DATE '2030-05-10', TIME '10:00', 2, 'confirmed', 800, 666);
+    INSERT INTO reservations (group_id, client_id, event_date, event_time, hours_count, status, total_price, base_price, address)
+    VALUES (v_group, v_owner, DATE '2030-05-10', TIME '10:00', 2, 'confirmed', 800, 666, 'Av. Prueba 123');
     v_report := v_report || 'T3 legado date_taken sigue vivo ............ FAIL (dejó pasar)' || E'\n';
   EXCEPTION WHEN OTHERS THEN
     IF SQLERRM LIKE '%date_taken%' THEN
@@ -65,14 +65,14 @@ BEGIN
   --     el 2º entra, y el 3º truena con daily_event_limit
   ---------------------------------------------------------------
   UPDATE reservations SET status = 'accepted' WHERE id = v_r1;
-  INSERT INTO reservations (group_id, client_id, event_date, event_time, hours_count, status, total_price, base_price)
-  VALUES (v_group, v_owner, DATE '2030-05-10', TIME '10:00', 2, 'accepted', 800, 666)
+  INSERT INTO reservations (group_id, client_id, event_date, event_time, hours_count, status, total_price, base_price, address)
+  VALUES (v_group, v_owner, DATE '2030-05-10', TIME '10:00', 2, 'accepted', 800, 666, 'Av. Prueba 123')
   RETURNING id INTO v_r2;
   v_report := v_report || 'T4a segundo evento (sin traslape) entra ..... PASS' || E'\n';
 
   BEGIN
-    INSERT INTO reservations (group_id, client_id, event_date, event_time, hours_count, status, total_price, base_price)
-    VALUES (v_group, v_owner, DATE '2030-05-10', TIME '13:30', 1, 'accepted', 500, 416);
+    INSERT INTO reservations (group_id, client_id, event_date, event_time, hours_count, status, total_price, base_price, address)
+    VALUES (v_group, v_owner, DATE '2030-05-10', TIME '13:30', 1, 'accepted', 500, 416, 'Av. Prueba 123');
     v_report := v_report || 'T4b tercer evento con hueco ................ FAIL (dejó pasar)' || E'\n';
   EXCEPTION WHEN OTHERS THEN
     IF SQLERRM LIKE '%daily_event_limit%' THEN
@@ -90,8 +90,8 @@ BEGIN
   ---------------------------------------------------------------
   UPDATE reservations SET status = 'cancelled' WHERE id = v_r1;
   BEGIN
-    INSERT INTO reservations (group_id, client_id, event_date, event_time, hours_count, status, total_price, base_price)
-    VALUES (v_group, v_owner, DATE '2030-05-10', TIME '11:00', 2, 'accepted', 700, 583);
+    INSERT INTO reservations (group_id, client_id, event_date, event_time, hours_count, status, total_price, base_price, address)
+    VALUES (v_group, v_owner, DATE '2030-05-10', TIME '11:00', 2, 'accepted', 700, 583, 'Av. Prueba 123');
     v_report := v_report || 'T5 traslape de rangos ...................... FAIL (dejó pasar)' || E'\n';
   EXCEPTION WHEN OTHERS THEN
     IF SQLERRM LIKE '%time_overlap%' THEN
@@ -106,12 +106,12 @@ BEGIN
   --     r2 completed + r3 accepted = 2 → un nuevo accepted truena
   ---------------------------------------------------------------
   UPDATE reservations SET status = 'completed' WHERE id = v_r2;
-  INSERT INTO reservations (group_id, client_id, event_date, event_time, hours_count, status, total_price, base_price)
-  VALUES (v_group, v_owner, DATE '2030-05-10', TIME '20:00', 2, 'accepted', 900, 750)
+  INSERT INTO reservations (group_id, client_id, event_date, event_time, hours_count, status, total_price, base_price, address)
+  VALUES (v_group, v_owner, DATE '2030-05-10', TIME '20:00', 2, 'accepted', 900, 750, 'Av. Prueba 123')
   RETURNING id INTO v_r3;
   BEGIN
-    INSERT INTO reservations (group_id, client_id, event_date, event_time, hours_count, status, total_price, base_price)
-    VALUES (v_group, v_owner, DATE '2030-05-10', TIME '14:00', 1, 'accepted', 500, 416);
+    INSERT INTO reservations (group_id, client_id, event_date, event_time, hours_count, status, total_price, base_price, address)
+    VALUES (v_group, v_owner, DATE '2030-05-10', TIME '14:00', 1, 'accepted', 500, 416, 'Av. Prueba 123');
     v_report := v_report || 'T6 completed cuenta para el límite ......... FAIL (dejó pasar un 3º)' || E'\n';
   EXCEPTION WHEN OTHERS THEN
     IF SQLERRM LIKE '%daily_event_limit%' THEN
@@ -125,16 +125,16 @@ BEGIN
   -- T7: EXPIRADA libera el cupo (r3 → expired, entra una nueva)
   ---------------------------------------------------------------
   UPDATE reservations SET status = 'expired' WHERE id = v_r3;
-  INSERT INTO reservations (group_id, client_id, event_date, event_time, hours_count, status, total_price, base_price)
-  VALUES (v_group, v_owner, DATE '2030-05-10', TIME '20:00', 2, 'accepted', 900, 750);
+  INSERT INTO reservations (group_id, client_id, event_date, event_time, hours_count, status, total_price, base_price, address)
+  VALUES (v_group, v_owner, DATE '2030-05-10', TIME '20:00', 2, 'accepted', 900, 750, 'Av. Prueba 123');
   v_report := v_report || 'T7 expirada libera el cupo ................. PASS' || E'\n';
 
   ---------------------------------------------------------------
   -- T8: MEDIANOCHE — evento 23:00 (3h) del día 20: cuenta en el
   --     día 20; su rango invade el día 21 y bloquea las 01:00
   ---------------------------------------------------------------
-  INSERT INTO reservations (group_id, client_id, event_date, event_time, hours_count, status, total_price, base_price)
-  VALUES (v_group, v_owner, DATE '2030-05-20', TIME '23:00', 3, 'accepted', 1200, 1000);
+  INSERT INTO reservations (group_id, client_id, event_date, event_time, hours_count, status, total_price, base_price, address)
+  VALUES (v_group, v_owner, DATE '2030-05-20', TIME '23:00', 3, 'accepted', 1200, 1000, 'Av. Prueba 123');
   IF count_events_local_day(v_group, DATE '2030-05-20', NULL) = 1
      AND count_events_local_day(v_group, DATE '2030-05-21', NULL) = 0 THEN
     v_report := v_report || 'T8a cruza medianoche: cuenta en día inicio . PASS' || E'\n';
@@ -142,8 +142,8 @@ BEGIN
     v_report := v_report || 'T8a cruza medianoche: conteo ............... FAIL' || E'\n';
   END IF;
   BEGIN
-    INSERT INTO reservations (group_id, client_id, event_date, event_time, hours_count, status, total_price, base_price)
-    VALUES (v_group, v_owner, DATE '2030-05-21', TIME '01:00', 2, 'accepted', 700, 583);
+    INSERT INTO reservations (group_id, client_id, event_date, event_time, hours_count, status, total_price, base_price, address)
+    VALUES (v_group, v_owner, DATE '2030-05-21', TIME '01:00', 2, 'accepted', 700, 583, 'Av. Prueba 123');
     v_report := v_report || 'T8b madrugada siguiente bloqueada .......... FAIL (dejó pasar)' || E'\n';
   EXCEPTION WHEN OTHERS THEN
     IF SQLERRM LIKE '%time_overlap%' THEN
