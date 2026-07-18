@@ -85,11 +85,13 @@ $$;
 -- ── 3. Rango duro (UTC) — montaje 30' + dur + extras×75' + 45' ──
 -- (45' = desmontaje 30' + margen fijo 15'). Interpreta la hora de
 -- PARED local en la tz del evento → DST correcto por fecha.
+-- p_hours es NUMERIC porque reservations.hours_count es NUMERIC
+-- (fix 42883: la firma INT no coincidía y el 514 se revertía completo)
 CREATE OR REPLACE FUNCTION public.make_busy_range(
   p_event_date DATE,
   p_event_time TIME,
   p_tz         TEXT,
-  p_hours      INT,
+  p_hours      NUMERIC,
   p_extras     INT
 )
 RETURNS TSTZRANGE LANGUAGE sql IMMUTABLE AS $$

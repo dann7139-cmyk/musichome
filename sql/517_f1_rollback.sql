@@ -24,7 +24,7 @@ DROP FUNCTION IF EXISTS public.set_reservation_busy_range();
 DROP FUNCTION IF EXISTS public.recompute_range_on_extra();
 DROP FUNCTION IF EXISTS public.block_vs_reservations();
 DROP FUNCTION IF EXISTS public.count_events_local_day(UUID, DATE, UUID);
-DROP FUNCTION IF EXISTS public.make_busy_range(DATE, TIME, TEXT, INT, INT);
+DROP FUNCTION IF EXISTS public.make_busy_range(DATE, TIME, TEXT, NUMERIC, INT);
 DROP FUNCTION IF EXISTS public.tz_for_event(TEXT, TEXT);
 DROP FUNCTION IF EXISTS public.estados_que_cuentan_limite();
 DROP INDEX    IF EXISTS idx_res_busy_range;
