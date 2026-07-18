@@ -585,19 +585,20 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
           {/* ══ TAB: RESUMEN ══ */}
           {activeTab === 'overview' && overview && (
             <>
-              {/* 📊 Descargar reporte (Excel) — país + rango; validado en servidor */}
+              {/* 📊 Descargar reporte — igual que en Reportes: formato (Excel/
+                  PDF) → país → rango; validado en servidor */}
               <Pressable
                 style={[s.reportBtn, downloadingReport && { opacity: 0.6 }]}
                 disabled={downloadingReport}
                 onPress={() => {
-                  const download = async (country: string, days: number | null) => {
+                  const download = async (format: 'xlsx' | 'pdf', country: string, days: number | null) => {
                     setDownloadingReport(true);
                     try {
                       const from = days != null
                         ? new Date(Date.now() - days * 86400000).toISOString().substring(0, 10)
                         : null;
                       const { data, error } = await supabase.functions.invoke('generate-report', {
-                        body: { mode: 'admin', country, from },
+                        body: { mode: 'admin', format, country, from },
                       });
                       if (error || !(data as any)?.ok) {
                         Alert.alert('No se pudo generar', (data as any)?.error ?? error?.message ?? 'Intenta de nuevo.');
@@ -610,26 +611,33 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
                       setDownloadingReport(false);
                     }
                   };
-                  const pickRange = (country: string) => {
+                  const pickRange = (format: 'xlsx' | 'pdf', country: string) => {
                     Alert.alert('📅 Periodo', 'Elige el rango de fechas', [
-                      { text: 'Últimos 30 días', onPress: () => download(country, 30) },
-                      { text: 'Últimos 90 días', onPress: () => download(country, 90) },
-                      { text: 'Este año',        onPress: () => download(country, 365) },
-                      { text: 'Todo',            onPress: () => download(country, null) },
+                      { text: 'Últimos 30 días', onPress: () => download(format, country, 30) },
+                      { text: 'Últimos 90 días', onPress: () => download(format, country, 90) },
+                      { text: 'Este año',        onPress: () => download(format, country, 365) },
+                      { text: 'Todo',            onPress: () => download(format, country, null) },
                       { text: 'Cancelar', style: 'cancel' },
                     ]);
                   };
-                  Alert.alert('📊 Descargar reporte', '¿De qué país?', [
-                    { text: '🌎 Todos (reporte global)', onPress: () => pickRange('all') },
-                    { text: '🇲🇽 México',                onPress: () => pickRange('MX') },
-                    { text: '🇺🇸 Estados Unidos',        onPress: () => pickRange('US') },
-                    { text: '🇨🇦 Canadá',                onPress: () => pickRange('CA') },
+                  const pickCountry = (format: 'xlsx' | 'pdf') => {
+                    Alert.alert('🌎 Alcance', '¿De qué país?', [
+                      { text: '🌎 Todos (reporte global)', onPress: () => pickRange(format, 'all') },
+                      { text: '🇲🇽 México',                onPress: () => pickRange(format, 'MX') },
+                      { text: '🇺🇸 Estados Unidos',        onPress: () => pickRange(format, 'US') },
+                      { text: '🇨🇦 Canadá',                onPress: () => pickRange(format, 'CA') },
+                      { text: 'Cancelar', style: 'cancel' },
+                    ]);
+                  };
+                  Alert.alert('⬇ Descargar reporte', '¿En qué formato?', [
+                    { text: '📊 Excel (.xlsx)',  onPress: () => pickCountry('xlsx') },
+                    { text: '📄 PDF ejecutivo',  onPress: () => pickCountry('pdf') },
                     { text: 'Cancelar', style: 'cancel' },
                   ]);
                 }}
               >
                 <Text style={s.reportBtnTx}>
-                  {downloadingReport ? 'Generando reporte…' : '📊 Descargar reporte (Excel)'}
+                  {downloadingReport ? 'Generando reporte…' : '⬇ Descargar reporte (Excel o PDF)'}
                 </Text>
               </Pressable>
 
