@@ -140,6 +140,9 @@ export default function AdApprovalScreen({ navigation }: any) {
   const [freeVideoTotalSecs, setFreeVideoTotalSecs]       = useState(0);
   const [freeTargetScope, setFreeTargetScope]     = useState<'all' | 'country' | 'state'>('all');
   const [freeTargetCountry, setFreeTargetCountry] = useState('');
+  // 📍 Espacios disponibles del área elegida (sql/503) — informativo:
+  // el admin SIEMPRE puede publicar (create_free_ad no bloquea)
+  const [freeAvail, setFreeAvail] = useState<any | null>(null);
   const [freeState, setFreeState]                 = useState('');
   // Campos grupo
   const [freeGroupPromoType, setFreeGroupPromoType] = useState<'sponsored' | 'recommendation' | 'bidding'>('sponsored');
@@ -164,6 +167,17 @@ export default function AdApprovalScreen({ navigation }: any) {
   const [freeCreating, setFreeCreating] = useState(false);
 
   useEffect(() => { fetchAds(); }, []);
+
+  // 📍 Consultar espacios del área elegida para el anuncio gratis
+  useEffect(() => {
+    if (freeSegment !== 0) { setFreeAvail(null); return; }
+    // Con alcance "Estado", esperar a que elija el estado
+    if (freeTargetScope === 'state' && !freeState) { setFreeAvail(null); return; }
+    const states = freeTargetScope === 'state' && freeState ? [freeState] : null;
+    supabase.rpc('check_ad_availability', { p_type: freeType, p_states: states })
+      .then(({ data }) => setFreeAvail(data ?? null))
+      .catch(() => setFreeAvail(null));
+  }, [freeSegment, freeType, freeTargetScope, freeState]);
   useEffect(() => {
     const unsub = navigation.addListener('focus', fetchAds);
     return unsub;
@@ -719,13 +733,20 @@ export default function AdApprovalScreen({ navigation }: any) {
                     <Image source={{ uri: ad.media_url }} style={s.cardMedia} resizeMode="cover" />
                   ) : ad.media_url && ad.media_type === 'video' ? (
                     <Pressable style={s.cardMediaVideo} onPress={() => setPreview(ad)}>
+                      {/* Primer cuadro del video de fondo (sin reproducir) */}
+                      <VideoPlayer
+                        uri={ad.media_url}
+                        style={StyleSheet.absoluteFill as any}
+                        contentFit="cover"
+                        muted
+                      />
                       <LinearGradient
-                        colors={['rgba(0,0,0,0.55)', 'rgba(0,0,0,0.25)']}
+                        colors={['rgba(0,0,0,0.45)', 'rgba(0,0,0,0.15)']}
                         style={StyleSheet.absoluteFill}
                         start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
                       />
                       <Play size={26} color="#fff" fill="rgba(255,255,255,0.9)" />
-                      <Text style={s.cardMediaVideoText}>Reproducir video</Text>
+                      <Text style={s.cardMediaVideoText}>Ver video</Text>
                     </Pressable>
                   ) : (
                     <LinearGradient
@@ -1179,6 +1200,27 @@ export default function AdApprovalScreen({ navigation }: any) {
                     )}
                   </>
                 )}
+
+                {/* 📍 Espacios del área elegida (informativo — el admin puede
+                    publicar igual, pero sabe si el carrusel va lleno) */}
+                {freeAvail && (() => {
+                  const d = freeAvail.scope === 'state'
+                    ? (freeAvail.states_detail?.[0] ?? null)
+                    : freeAvail;
+                  if (!d) return null;
+                  const free = d.free ?? 0;
+                  return (
+                    <Text style={{
+                      fontFamily: FONTS.bodyMedium, fontSize: 12, lineHeight: 17,
+                      marginBottom: 12,
+                      color: free > 0 ? COLORS.green : '#FF6D00',
+                    }}>
+                      {free > 0
+                        ? `✅ ${free} de ${d.limit} espacios libres en esta área`
+                        : `⚠️ Área llena (${d.used ?? d.limit}/${d.limit}) — puedes publicar como admin, pero el carrusel rotará más lento`}
+                    </Text>
+                  );
+                })()}
               </>)}
 
               {/* ── SEGMENTO 1: Promociones de grupo ─────────────────────── */}
