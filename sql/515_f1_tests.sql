@@ -181,8 +181,10 @@ BEGIN
   ---------------------------------------------------------------
   -- T10: EXTRA confirmada EXTIENDE el rango (+75 min)
   ---------------------------------------------------------------
-  INSERT INTO extra_hours (reservation_id, hours, status, amount)
-  VALUES ((SELECT id FROM reservations WHERE group_id = v_group AND event_date = DATE '2030-05-20' LIMIT 1), 1, 'accepted', 500);
+  INSERT INTO extra_hours (reservation_id, hours_added, price_per_hour,
+                           total_extra_cost, platform_commission, group_extra_earnings, status)
+  VALUES ((SELECT id FROM reservations WHERE group_id = v_group AND event_date = DATE '2030-05-20' LIMIT 1),
+          1, 500, 500, 100, 400, 'accepted');
   IF (SELECT upper(busy_range) FROM reservations WHERE group_id = v_group AND event_date = DATE '2030-05-20' LIMIT 1)
      = ((TIMESTAMP '2030-05-20 23:00' AT TIME ZONE 'America/Mexico_City') + INTERVAL '3 hours' + INTERVAL '75 min' + INTERVAL '45 min') THEN
     v_report := v_report || 'T10 extra confirmada extiende el rango ..... PASS' || E'\n';

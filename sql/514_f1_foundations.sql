@@ -141,7 +141,8 @@ BEGIN
     NEW.event_tz := public.tz_for_event(v_state, v_ctry);
   END IF;
 
-  SELECT COUNT(*) INTO v_extras FROM extra_hours eh
+  -- SUMA de horas (hours_added), no conteo de filas: una extra de 2h son 2
+  SELECT COALESCE(SUM(eh.hours_added), 0)::INT INTO v_extras FROM extra_hours eh
   WHERE eh.reservation_id = NEW.id AND eh.status IN ('accepted','paid');
 
   NEW.busy_range := public.make_busy_range(
@@ -289,7 +290,7 @@ WHERE g.id = r.group_id AND r.event_tz IS NULL;
 UPDATE public.reservations r
 SET busy_range = public.make_busy_range(
       r.event_date, r.event_time, r.event_tz, r.hours_count,
-      (SELECT COUNT(*)::INT FROM extra_hours eh
+      (SELECT COALESCE(SUM(eh.hours_added), 0)::INT FROM extra_hours eh
        WHERE eh.reservation_id = r.id AND eh.status IN ('accepted','paid')))
 WHERE r.event_date IS NOT NULL AND r.busy_range IS NULL;
 
