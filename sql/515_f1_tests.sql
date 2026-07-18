@@ -181,7 +181,6 @@ BEGIN
   ---------------------------------------------------------------
   -- T10: EXTRA confirmada EXTIENDE el rango (+75 min)
   ---------------------------------------------------------------
-  SELECT upper(busy_range) INTO v_range FROM reservations WHERE id = v_r2;  -- reuse var como null check
   INSERT INTO extra_hours (reservation_id, hours, status, amount)
   VALUES ((SELECT id FROM reservations WHERE group_id = v_group AND event_date = DATE '2030-05-20' LIMIT 1), 1, 'accepted', 500);
   IF (SELECT upper(busy_range) FROM reservations WHERE group_id = v_group AND event_date = DATE '2030-05-20' LIMIT 1)
