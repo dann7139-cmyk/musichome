@@ -14,6 +14,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import { initialWindowMetrics } from 'react-native-safe-area-context';
 import { Briefcase, Calendar, CalendarDays, Compass, LayoutDashboard, Megaphone, User, Users } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 import Reanimated, {
@@ -435,14 +436,22 @@ function LiveTabIcon({
 
 // ─── Tab bar options (shared) ─────────────────────────────────────────────────
 
+// 📱 Inset inferior REAL del dispositivo (barra de gestos Android /
+// home indicator). Con la altura fija de antes, en teléfonos con
+// edge-to-edge quedaba una franja negra sobre el menú y el contenido
+// se recortaba (fix 2026-07-19).
+const BOTTOM_INSET = Platform.OS === 'android'
+  ? Math.max(initialWindowMetrics?.insets?.bottom ?? 0, 0)
+  : 0;
+
 const TAB_SCREEN_OPTIONS = {
   headerShown: false,
   tabBarStyle: {
     backgroundColor: COLORS.card,
     borderTopColor: COLORS.border,
     borderTopWidth: 1,
-    height: Platform.OS === 'ios' ? 80 : 58,
-    paddingBottom: Platform.OS === 'ios' ? 22 : 8,
+    height: (Platform.OS === 'ios' ? 80 : 58) + BOTTOM_INSET,
+    paddingBottom: (Platform.OS === 'ios' ? 22 : 8) + BOTTOM_INSET,
     paddingTop: 6,
     elevation: 0,
   },
