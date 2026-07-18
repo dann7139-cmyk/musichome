@@ -524,7 +524,7 @@ export default function AdminDashboardScreen({ navigation }: any) {
               <Wallet size={20} color={COLORS.green} />
               <View>
                 <Text style={s.walletLabel}>Mi billetera</Text>
-                <Text style={s.walletAmount}>
+                <Text style={s.walletAmount} numberOfLines={1} adjustsFontSizeToFit>
                   ${walletBalance.toLocaleString('es-MX', { minimumFractionDigits: 0 })}
                   <Text style={s.walletAmountSub}> disponible</Text>
                 </Text>
@@ -563,7 +563,9 @@ export default function AdminDashboardScreen({ navigation }: any) {
                 <DollarSign size={18} color={COLORS.green} />
               </View>
               <Text style={s.kpiLabel}>Ingresos plataforma</Text>
-              <Text style={s.kpiValue}>${commTotal.toLocaleString('es-MX', { maximumFractionDigits: 0 })}</Text>
+              <Text style={s.kpiValue} numberOfLines={1} adjustsFontSizeToFit>
+                ${commTotal.toLocaleString('es-MX', { maximumFractionDigits: 0 })}
+              </Text>
               <Text style={s.kpiSub}>de ${revenueTotal.toLocaleString('es-MX', { maximumFractionDigits: 0 })} facturados</Text>
             </LinearGradient>
             <LinearGradient colors={['#001a2e','#000d17']} style={s.kpiCard} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
@@ -1191,7 +1193,10 @@ const s = StyleSheet.create({
   },
   walletLeft:       { flexDirection: 'row', alignItems: 'center', gap: 14, flex: 1 },
   walletLabel:      { fontFamily: FONTS.bodyMedium, fontSize: 11, color: COLORS.muted2, marginBottom: 2, textTransform: 'uppercase' as const, letterSpacing: 0.5 },
-  walletAmount:     { fontFamily: FONTS.title, fontSize: 26, color: COLORS.green },
+  walletAmount:     {
+    fontFamily: FONTS.title, fontSize: 26, lineHeight: 32, color: COLORS.green,
+    fontVariant: ['tabular-nums'], includeFontPadding: false,
+  },
   walletAmountSub:  { fontFamily: FONTS.body, fontSize: 13, color: COLORS.muted2 },
   walletTotal:      { fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted, marginTop: 2 },
   walletRight:      { alignItems: 'flex-end', gap: 8 },
