@@ -243,9 +243,11 @@ Deno.serve(async (req) => {
         pdfData = await callRpcAsUser(jwt, 'admin_reports_dashboard', {
           p_from: from, p_to: to,
           p_country: ccSel ? (COUNTRY_NAME[ccSel] ?? null) : null,
-          p_state: null, p_city: null,
+          // ⬇ El export baja EXACTAMENTE lo que se ve: estado incluido
+          p_state: body.state ?? null, p_city: null,
         });
-        subtitle = ccSel ? `Alcance: ${COUNTRY_NAME[ccSel]}` : 'Alcance: todos los países';
+        subtitle = (ccSel ? `Alcance: ${COUNTRY_NAME[ccSel]}` : 'Alcance: todos los países')
+          + (body.state ? ` · ${body.state}` : '');
       } else {
         pdfData = await callRpcAsUser(jwt, 'group_performance_dashboard', {
           p_from: from, p_to: to,
