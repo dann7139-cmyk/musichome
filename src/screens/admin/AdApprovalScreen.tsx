@@ -175,8 +175,7 @@ export default function AdApprovalScreen({ navigation }: any) {
     if (freeTargetScope === 'state' && !freeState) { setFreeAvail(null); return; }
     const states = freeTargetScope === 'state' && freeState ? [freeState] : null;
     supabase.rpc('check_ad_availability', { p_type: freeType, p_states: states })
-      .then(({ data }) => setFreeAvail(data ?? null))
-      .catch(() => setFreeAvail(null));
+      .then(({ data, error }) => setFreeAvail(error ? null : (data ?? null)));
   }, [freeSegment, freeType, freeTargetScope, freeState]);
   useEffect(() => {
     const unsub = navigation.addListener('focus', fetchAds);
