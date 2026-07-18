@@ -1152,6 +1152,12 @@ export default function GroupDashboardScreen({ navigation }: any) {
               </View>
             </View>
 
+            {/* 📈 Mi desempeño — vive AQUÍ (movido desde Billetera, 2026-07-18) */}
+            <Pressable style={s.perfBtn} onPress={() => navigation.navigate('GroupPerformance')}>
+              <Text style={s.perfBtnTx}>📈 Mi desempeño</Text>
+              <Text style={s.perfBtnSub}>Calificación, eventos, ganancias, tendencia y comentarios →</Text>
+            </Pressable>
+
             {/* Fila de disponibilidad + calendario */}
             <View style={s.controlRow}>
               <Pressable
@@ -3008,6 +3014,14 @@ const s = StyleSheet.create({
   moneyLabel: { fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted, textTransform: 'uppercase', letterSpacing: 0.5 },
   moneyValue: { fontFamily: FONTS.bodySemiBold, fontSize: 16, color: COLORS.text },
   moneyDivider: { width: 1, height: 32, backgroundColor: COLORS.border, marginHorizontal: 8 },
+  // 📈 Mi desempeño
+  perfBtn: {
+    backgroundColor: COLORS.card, borderRadius: RADIUS.lg,
+    borderWidth: 1.5, borderColor: 'rgba(0,230,118,0.45)',
+    padding: 13, gap: 3,
+  },
+  perfBtnTx:  { fontFamily: FONTS.bodySemiBold, fontSize: 14.5, color: COLORS.green },
+  perfBtnSub: { fontFamily: FONTS.body, fontSize: 11.5, color: COLORS.muted2 },
   controlRow: { flexDirection: 'row', gap: 10 },
   controlToggle: {
     flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10,

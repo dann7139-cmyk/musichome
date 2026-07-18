@@ -358,19 +358,8 @@ export default function WalletScreen({ navigation }: any) {
               (El onboarding de Stripe Connect quedó fuera del modelo v2 —
               la CLABE se captura en el formulario de retiro.) */}
 
-          {/* 📈 Panel de desempeño del grupo — dashboard principal (el Excel
-              de abajo queda como exportación secundaria) */}
-          {stripeStatus.role === 'group' && (
-            <Pressable
-              style={st.performanceBtn}
-              onPress={() => (navigation as any).navigate('GroupPerformance')}
-            >
-              <Text style={st.performanceBtnTx}>📈 Mi desempeño</Text>
-              <Text style={st.performanceBtnSub}>
-                Calificación, eventos, ganancias, tendencia y comentarios →
-              </Text>
-            </Pressable>
-          )}
+          {/* 📈 "Mi desempeño" vive en el DASHBOARD del grupo (movido
+              2026-07-18 a petición) — aquí solo queda la descarga */}
 
           {/* 📊 Reporte propio del grupo (Excel) — siempre visible, no depende
               de notificaciones. Seguridad en el SERVIDOR: la EF deriva el
