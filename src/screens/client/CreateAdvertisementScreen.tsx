@@ -277,6 +277,8 @@ export default function CreateAdvertisementScreen({ navigation, route }: any) {
 
   // ── Estado de ciudad (seeding → precio ×0.7) ──────────────────────────────
   const [cityStatus, setCityStatus] = useState<{ status: string; price_multiplier: number; is_seeding: boolean } | null>(null);
+  // 📍 Espacios disponibles donde aparecerá el anuncio (sql/503)
+  const [adAvail, setAdAvail] = useState<any | null>(null);
 
   // ─── Cargar paquetes al llegar al paso 3 ──────────────────────────────────
   useEffect(() => {
@@ -284,6 +286,17 @@ export default function CreateAdvertisementScreen({ navigation, route }: any) {
       loadPackages();
     }
   }, [step, adType]);
+
+  // 📍 Al llegar al resumen: consultar espacios donde aparecerá el anuncio
+  // (solo banner y anuncio de perfil — Destacados van al estado del grupo)
+  useEffect(() => {
+    if (step !== 4 || !adType || adType === 'sponsored_group') { setAdAvail(null); return; }
+    const states = locationType === 'international'
+      ? null
+      : (targetStates.length > 0 ? targetStates : null);
+    supabase.rpc('check_ad_availability', { p_type: adType, p_states: states })
+      .then(({ data }) => setAdAvail(data ?? null));
+  }, [step, adType, locationType, targetStates.join('|')]);
 
   // ─── Cargar grupos del usuario al montar ──────────────────────────────────
   useEffect(() => {
@@ -1654,6 +1667,39 @@ export default function CreateAdvertisementScreen({ navigation, route }: any) {
                   );
                 })()}
 
+                {/* 📍 Dónde aparecerá — banner y anuncio de perfil */}
+                {adType !== 'sponsored_group' && (
+                  <View style={s.whereCard}>
+                    <Text style={s.summarySection}>📍 Dónde aparecerá tu anuncio</Text>
+                    {locationType === 'international' ? (
+                      <Text style={s.whereMain}>
+                        🌎 Internacional — todos los estados de México, Estados Unidos y Canadá
+                      </Text>
+                    ) : targetStates.length > 0 ? (
+                      <Text style={s.whereMain}>{targetStates.join('  ·  ')}</Text>
+                    ) : (
+                      <Text style={s.whereMain}>Todo el país — todos los estados</Text>
+                    )}
+                    {adAvail?.scope === 'global' && (
+                      <Text style={[s.whereFree, (adAvail.free ?? 0) === 0 && { color: '#EF5350' }]}>
+                        {(adAvail.free ?? 0) > 0
+                          ? `✅ ${adAvail.free} de ${adAvail.limit} espacios ${locationType === 'international' ? 'internacionales' : 'nacionales'} libres`
+                          : '❌ Sin espacios por ahora — se liberan al vencer campañas activas'}
+                      </Text>
+                    )}
+                    {adAvail?.scope === 'state' && (adAvail.states_detail ?? []).map((d: any) => (
+                      <Text key={d.state} style={[s.whereFree, (d.free ?? 0) === 0 && { color: '#EF5350' }]}>
+                        {(d.free ?? 0) > 0
+                          ? `✅ ${d.state} — ${d.free} de ${d.limit} espacios libres`
+                          : `❌ ${d.state} — lleno por ahora`}
+                      </Text>
+                    ))}
+                    <Text style={s.whereNote}>
+                      Tu anuncio rota en el carrusel junto a los demás de cada lugar.
+                    </Text>
+                  </View>
+                )}
+
                 {/* Info de flujo */}
                 <View style={s.flowInfo}>
                   {[
@@ -2045,6 +2091,15 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: COLORS.border,
     padding: 16, marginBottom: 16, overflow: 'hidden',
   },
+  // 📍 Dónde aparecerá el anuncio
+  whereCard: {
+    backgroundColor: COLORS.card, borderRadius: RADIUS.xl,
+    borderWidth: 1, borderColor: 'rgba(0,230,118,0.3)',
+    padding: 16, marginBottom: 16, gap: 5,
+  },
+  whereMain: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.text, lineHeight: 19 },
+  whereFree: { fontFamily: FONTS.bodyMedium, fontSize: 12, color: COLORS.green, lineHeight: 18 },
+  whereNote: { fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted, marginTop: 4 },
   summarySection:  { fontFamily: FONTS.bodyMedium, fontSize: 11, color: COLORS.muted, letterSpacing: 1, marginBottom: 12 },
   summaryImg:      { width: '100%', height: 90, borderRadius: RADIUS.md, marginBottom: 12 },
   summaryRow:      { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 7, borderTopWidth: 1, borderTopColor: COLORS.border },
