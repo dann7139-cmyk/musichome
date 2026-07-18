@@ -54,7 +54,7 @@ export default function AdminTicketSearchScreen({ navigation, route }: any) {
   // para imprimirlos/enviarlos antes del evento. DOS BOTONES separados
   // 🇲🇽 México y 🇺🇸 Estados Unidos (por moneda del evento).
   const [tickets,       setTickets]       = useState<any[]>([]);
-  const [ticketCountry, setTicketCountry] = useState<null | 'MXN' | 'USD'>(null);
+  const [ticketCountry, setTicketCountry] = useState<null | 'MXN' | 'USD' | 'CAD'>(null);
 
   useEffect(() => {
     (async () => {
@@ -75,9 +75,12 @@ export default function AdminTicketSearchScreen({ navigation, route }: any) {
     })();
   }, []);
 
-  const ticketsMX = tickets.filter(t => (t.currency_code ?? 'MXN') !== 'USD');
+  const ticketsMX = tickets.filter(t => !['USD', 'CAD'].includes(t.currency_code ?? 'MXN'));
   const ticketsUS = tickets.filter(t => (t.currency_code ?? 'MXN') === 'USD');
-  const ticketsShown = ticketCountry === 'USD' ? ticketsUS : ticketsMX;
+  const ticketsCA = tickets.filter(t => (t.currency_code ?? 'MXN') === 'CAD');
+  const ticketsShown =
+    ticketCountry === 'USD' ? ticketsUS :
+    ticketCountry === 'CAD' ? ticketsCA : ticketsMX;
 
   const openDetail = async (reservationId: string) => {
     setLoading(true);
@@ -172,8 +175,16 @@ export default function AdminTicketSearchScreen({ navigation, route }: any) {
                 onPress={() => setTicketCountry(ticketCountry === 'USD' ? null : 'USD')}
               >
                 <Text style={s.countryBtnFlag}>🇺🇸</Text>
-                <Text style={[s.countryBtnTx, ticketCountry === 'USD' && s.countryBtnTxOn]}>Estados Unidos</Text>
+                <Text style={[s.countryBtnTx, ticketCountry === 'USD' && s.countryBtnTxOn]}>EE.UU.</Text>
                 <Text style={s.countryBtnCount}>{ticketsUS.length}</Text>
+              </Pressable>
+              <Pressable
+                style={[s.countryBtn, ticketCountry === 'CAD' && s.countryBtnOn]}
+                onPress={() => setTicketCountry(ticketCountry === 'CAD' ? null : 'CAD')}
+              >
+                <Text style={s.countryBtnFlag}>🇨🇦</Text>
+                <Text style={[s.countryBtnTx, ticketCountry === 'CAD' && s.countryBtnTxOn]}>Canadá</Text>
+                <Text style={s.countryBtnCount}>{ticketsCA.length}</Text>
               </Pressable>
             </View>
 
