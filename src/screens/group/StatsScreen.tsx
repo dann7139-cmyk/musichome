@@ -139,13 +139,13 @@ export default function GroupStatsScreen({ navigation }: any) {
       // 🔒 Solo datos del grupo: sin total_price ni comisiones — el grupo
       // no debe RECIBIR información financiera de la plataforma
       supabase.from('reservations')
-        .select('status, payment_status, payout_status, group_earnings, event_date, event_time, created_at')
+        .select('status, payment_status, payout_status, group_earnings, event_date, event_time, created_at, event_city')
         .eq('group_id', grp.id),
       supabase.from('quotes')
         .select('status, created_at')
         .eq('group_id', grp.id),
       supabase.from('groups')
-        .select('name, rating, nivel, reputation_points, city, country')
+        .select('name, rating, average_rating, nivel, reputation_points, city, country')
         .eq('id', grp.id)
         .single(),
       supabase.rpc('get_group_monthly_earnings', { p_group_id: grp.id, p_months: 6 }),
@@ -216,15 +216,12 @@ export default function GroupStatsScreen({ navigation }: any) {
   });
   const topDay = Object.entries(dayCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'Sin datos';
 
-  // Zone: top locations
+  // Zone: top locations — desde event_city (la columna real del booking;
+  // antes se parseaba r.address, que NUNCA venía en el select → siempre vacío)
   const cityCounts: Record<string, number> = {};
   reservations.filter(r => r.status === 'completed').forEach(r => {
-    if (r.address) {
-      // Take the last part of the address as approximate city
-      const parts = r.address.split(',');
-      const city = parts[parts.length - 1]?.trim() ?? 'Desconocido';
-      cityCounts[city] = (cityCounts[city] ?? 0) + 1;
-    }
+    const city = (r.event_city ?? '').trim();
+    if (city) cityCounts[city] = (cityCounts[city] ?? 0) + 1;
   });
   const topCities = Object.entries(cityCounts)
     .sort((a, b) => b[1] - a[1])
@@ -234,13 +231,20 @@ export default function GroupStatsScreen({ navigation }: any) {
   const maxCityCount = topCities[0]?.count ?? 1;
 
   // Chart data
-  const chartData = monthlyData.map(m => ({ label: m.period, value: Number(m.earnings) }));
-  // Fill missing months with 0 if less than 6 months
-  if (chartData.length === 0) {
-    for (let i = 5; i >= 0; i--) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      chartData.push({ label: d.toLocaleDateString('es-MX', { month: 'short' }), value: 0 });
-    }
+  // 📊 SIEMPRE 6 meses: esqueleto con ceros que se rellena con lo que exista
+  // (antes solo se rellenaba si estaba vacío → con 1 mes de datos salía UNA
+  // sola barra flotando). El RPC regresa TO_CHAR 'Mon' en inglés → se cruza
+  // con en-US y se muestra en español.
+  const monthMap: Record<string, number> = {};
+  monthlyData.forEach((m: any) => { monthMap[String(m.period).trim()] = Number(m.earnings); });
+  const chartData: { label: string; value: number }[] = [];
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const keyEn = d.toLocaleDateString('en-US', { month: 'short' });
+    chartData.push({
+      label: d.toLocaleDateString('es-MX', { month: 'short' }).replace('.', ''),
+      value: monthMap[keyEn] ?? 0,
+    });
   }
 
   // ── Render ───────────────────────────────────────────────────────────────
@@ -293,7 +297,13 @@ export default function GroupStatsScreen({ navigation }: any) {
               <View style={c.card}>
                 <SectionTitle title="Rendimiento general" />
                 <Row2 label="Nivel actual" value={group?.nivel ?? 'Bronce'} color={COLORS.gold} />
-                <Row2 label="Rating promedio" value={group?.rating != null ? `★ ${Number(group.rating).toFixed(1)}` : 'Sin reseñas'} color={COLORS.gold} />
+                <Row2
+                  label="Rating promedio"
+                  value={(group?.average_rating ?? group?.rating) != null && Number(group?.average_rating ?? group?.rating) > 0
+                    ? `★ ${Number(group?.average_rating ?? group?.rating).toFixed(1)}`
+                    : 'Sin reseñas'}
+                  color={COLORS.gold}
+                />
                 <Row2 label="Puntos de reputación" value={fmt(group?.reputation_points ?? 0)} color={COLORS.green} />
                 <Row2 label="Tasa de aceptación" value={pct(acceptanceRate)} color={acceptanceRate >= 70 ? COLORS.green : COLORS.orange} />
                 <Row2 label="Tasa de cancelación" value={pct(cancellationRate)} color={cancellationRate > 20 ? COLORS.red : COLORS.muted2} />
@@ -357,14 +367,20 @@ export default function GroupStatsScreen({ navigation }: any) {
           {/* ══ TAB 3: REPUTACIÓN ══ */}
           {activeTab === 3 && (
             <View>
+              {/* ⭐ average_rating es la columna que el trigger de reseñas SÍ
+                  mantiene (groups.rating estaba congelada — fix sql/512) */}
               <View style={[c.card, c.ratingHero]}>
                 <Text style={c.ratingBig}>
-                  {group?.rating != null ? Number(group.rating).toFixed(1) : '—'}
+                  {(group?.average_rating ?? group?.rating) != null && Number(group?.average_rating ?? group?.rating) > 0
+                    ? Number(group?.average_rating ?? group?.rating).toFixed(1) : '—'}
                 </Text>
                 <Text style={c.ratingStars}>
-                  {group?.rating != null
-                    ? '★'.repeat(Math.round(group.rating)) + '☆'.repeat(5 - Math.round(group.rating))
-                    : '☆☆☆☆☆'}
+                  {(() => {
+                    const rv = Number(group?.average_rating ?? group?.rating ?? 0);
+                    return rv > 0
+                      ? '★'.repeat(Math.round(rv)) + '☆'.repeat(5 - Math.round(rv))
+                      : '☆☆☆☆☆';
+                  })()}
                 </Text>
                 <Text style={c.ratingLabel}>Calificación promedio</Text>
               </View>
