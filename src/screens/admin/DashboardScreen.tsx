@@ -595,6 +595,14 @@ export default function AdminDashboardScreen({ navigation }: any) {
             </LinearGradient>
           </View>
 
+          {/* ── 📊 PANEL EJECUTIVO ─────────────────────────────────────────── */}
+          <Pressable style={s.reportsBand} onPress={() => navigation.navigate('AdminReports')}>
+            <Text style={s.reportsBandTx}>📊 Reportes — panel ejecutivo</Text>
+            <Text style={s.reportsBandSub}>
+              Dinero, eventos y comunidad por país · filtros y exportar Excel/PDF →
+            </Text>
+          </Pressable>
+
           {/* ── ALERTAS ───────────────────────────────────────────────────── */}
           {hasAlerts && (
             <View style={s.alertStrip}>
@@ -1032,6 +1040,7 @@ export default function AdminDashboardScreen({ navigation }: any) {
                 { icon: Briefcase, label: 'Talentos',       colors: ['#1a0d3d','#0d0617'], ic: '#CE93D8',     screen: 'Talentos'    },
                 { icon: BarChart2, label: 'Estadísticas',   colors: ['#1a0d2e','#0d0617'], ic: '#CE93D8',  screen: 'AdminStats' },
                 { icon: DollarSign, label: 'Finanzas',      colors: ['#002213','#000f09'], ic: COLORS.green, screen: 'AdminFinancial' },
+                { icon: BarChart2, label: 'Reportes',       colors: ['#002213','#000f09'], ic: COLORS.green, screen: 'AdminReports' },
                 { icon: Map,       label: 'Mapa en vivo',   colors: ['#001a2e','#000d17'], ic: '#40C4FF',  screen: 'AdminMap' },
                 { icon: Wallet,    label: 'Retiros',        colors: ['#002213','#000f09'], ic: COLORS.green, screen: 'AdminWithdrawals' },
                 { icon: Megaphone, label: 'Anuncios',       colors: ['#001a1a','#000d0d'], ic: '#00C4B4',    screen: 'AdApproval' },
@@ -1101,7 +1110,19 @@ const s = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center', marginBottom: 10,
   },
   kpiLabel: { fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted2, marginBottom: 4 },
-  kpiValue: { fontFamily: FONTS.title, fontSize: 26, color: COLORS.green, lineHeight: 30 },
+  kpiValue: {
+    fontFamily: FONTS.title, fontSize: 26, color: COLORS.green, lineHeight: 32,
+    fontVariant: ['tabular-nums'], includeFontPadding: false,
+  },
+
+  // 📊 Banda de acceso al panel ejecutivo
+  reportsBand: {
+    marginBottom: 14, padding: 14, borderRadius: RADIUS.xl,
+    borderWidth: 1.5, borderColor: 'rgba(0,230,118,0.45)',
+    backgroundColor: COLORS.card, gap: 3,
+  },
+  reportsBandTx:  { fontFamily: FONTS.bodySemiBold, fontSize: 15, color: COLORS.green },
+  reportsBandSub: { fontFamily: FONTS.body, fontSize: 11.5, color: COLORS.muted2 },
   kpiSub:   { fontFamily: FONTS.body, fontSize: 10, color: COLORS.muted, marginTop: 4 },
 
   // Alert strip

@@ -10,6 +10,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -18,6 +19,7 @@ import {
 } from 'lucide-react-native';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
+import { CountryTabs } from '../../components/reports';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -130,8 +132,25 @@ export default function AdminStatsScreen({ navigation }: any) {
   const [topPayingGroups, setTopPayingGroups] = useState<any[]>([]);
   // Recommendation orders pagadas (para cityRanking)
   const [recOrders,      setRecOrders]      = useState<any[]>([]);
+  // 🌎 Filtros de los tops de Inteligencia (sql/504): país + estado
+  const [topCountry, setTopCountry] = useState<string | null>(null);
+  const [topState,   setTopState]   = useState('');
+  const [topRating,  setTopRating]  = useState<any[]>([]);
 
   useEffect(() => { loadAll(); }, []);
+
+  // 🌎 Tops por país/estado — se recargan al cambiar el filtro
+  useEffect(() => {
+    const params = {
+      p_limit:   5,
+      p_country: topCountry,
+      p_state:   topState.trim() || null,
+    };
+    supabase.rpc('get_top_groups_earnings', params)
+      .then(({ data }) => { if (data) setTopGroups(data); });
+    supabase.rpc('get_top_groups_rating', params)
+      .then(({ data }) => { if (data) setTopRating(data ?? []); });
+  }, [topCountry, topState]);
 
   const onRefresh = async () => { setRefreshing(true); await loadAll(); setRefreshing(false); };
 
@@ -802,6 +821,19 @@ export default function AdminStatsScreen({ navigation }: any) {
           {/* ══ TAB 5: INTELIGENCIA ══ */}
           {activeTab === 5 && (
             <View>
+              {/* 🌎 Filtro de los tops: mejores de todo un país o de un estado */}
+              <View style={c.card}>
+                <SectionTitle title="Ver los mejores de…" />
+                <CountryTabs value={topCountry} onChange={co => { setTopCountry(co); setTopState(''); }} />
+                <TextInput
+                  style={c.topStateInput}
+                  value={topState}
+                  onChangeText={setTopState}
+                  placeholder="Estado específico (ej. Jalisco, Texas, Ontario) — opcional"
+                  placeholderTextColor={COLORS.muted}
+                />
+              </View>
+
               {topGroups.length > 0 && (
                 <View style={c.card}>
                   <SectionTitle title="Top grupos por ingresos" />
@@ -810,7 +842,7 @@ export default function AdminStatsScreen({ navigation }: any) {
                       key={i}
                       rank={i + 1}
                       label={g.group_name}
-                      sub={`${g.event_count} eventos`}
+                      sub={`${g.event_count} eventos · ${g.group_state ?? '—'} · ${g.group_country ?? ''}`}
                       value={fmtM(Number(g.total_earnings))}
                     />
                   ))}
@@ -819,22 +851,17 @@ export default function AdminStatsScreen({ navigation }: any) {
 
               <View style={c.card}>
                 <SectionTitle title="Top grupos por rating" />
-                {groups
-                  .filter(g => g.rating != null)
-                  .sort((a, b) => b.rating - a.rating)
-                  .slice(0, 5)
-                  .map((g, i) => (
-                    <RankRow
-                      key={i}
-                      rank={i + 1}
-                      label={g.name}
-                      sub={g.city ?? ''}
-                      value={`★ ${Number(g.rating).toFixed(1)}`}
-                    />
-                  ))
-                }
-                {groups.filter(g => g.rating != null).length === 0 && (
-                  <Text style={c.emptyTxt}>Sin ratings registrados aún</Text>
+                {topRating.map((g: any, i: number) => (
+                  <RankRow
+                    key={i}
+                    rank={i + 1}
+                    label={g.group_name}
+                    sub={`${g.total_reviews} reseñas · ${g.group_state ?? '—'} · ${g.group_country ?? ''}`}
+                    value={`★ ${Number(g.rating).toFixed(1)}`}
+                  />
+                ))}
+                {topRating.length === 0 && (
+                  <Text style={c.emptyTxt}>Sin ratings en este filtro aún</Text>
                 )}
               </View>
 
@@ -963,6 +990,12 @@ const c = StyleSheet.create({
 
   riskBadge: { width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
   emptyTxt:  { fontFamily: FONTS.body, fontSize: 13, color: COLORS.muted, textAlign: 'center', paddingVertical: 20 },
+  topStateInput: {
+    marginTop: 10, backgroundColor: COLORS.card2, borderRadius: RADIUS.lg,
+    borderWidth: 1, borderColor: COLORS.border,
+    paddingHorizontal: 12, paddingVertical: 8,
+    fontFamily: FONTS.body, fontSize: 12.5, color: COLORS.text,
+  },
   sourceHeader: { fontFamily: FONTS.bodySemiBold, fontSize: 11, color: COLORS.muted2, textTransform: 'uppercase' as const, letterSpacing: 0.8, marginTop: 4, marginBottom: 6 },
   cityMeta: { fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted2 },
   alertsCard: {

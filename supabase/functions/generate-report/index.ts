@@ -21,6 +21,7 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import * as XLSX from 'https://esm.sh/xlsx@0.18.5';
+import { PDFDocument, StandardFonts, rgb } from 'https://esm.sh/pdf-lib@1.17.1';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY  = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -82,6 +83,123 @@ function makeSheet(headers: string[], rows: any[][], widths?: number[]) {
   return ws;
 }
 
+// ── 📄 PDF ejecutivo (1 página, pdf-lib) ─────────────────────────────
+// Los datos salen de los MISMOS RPCs del dashboard (sql/504) llamados
+// con el token del usuario — mismas cifras que ve en pantalla.
+// Solo texto WinAnsi (sin emojis) — las fuentes estándar no los soportan.
+async function callRpcAsUser(jwt: string, fn: string, params: Record<string, unknown>) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${jwt}`,
+      apikey: SERVICE_KEY,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(params),
+  });
+  if (!res.ok) throw new Error(`RPC ${fn} falló (${res.status})`);
+  return await res.json();
+}
+
+const pdfMoney = (n: any) =>
+  n == null ? '-' : `$${Number(n).toLocaleString('es-MX', { maximumFractionDigits: 0 })}`;
+
+async function buildExecutivePdf(opts: {
+  mode: 'group' | 'admin';
+  from: string; to: string;
+  countryName: string;          // 'Todos los países' | 'México' | ...
+  data: any;                    // respuesta del RPC del dashboard
+  subtitle: string;             // nombre del grupo o alcance
+}): Promise<Uint8Array> {
+  const doc  = await PDFDocument.create();
+  const page = doc.addPage([595.28, 841.89]);   // A4
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+
+  const GREEN = rgb(0, 0.7, 0.4);
+  const INK   = rgb(0.08, 0.09, 0.08);
+  const MUT   = rgb(0.45, 0.48, 0.46);
+  const LINE  = rgb(0.88, 0.9, 0.88);
+
+  const M = 48;                  // margen
+  let y = 800;
+
+  const text = (t: string, size: number, f = font, color = INK, x = M) => {
+    page.drawText(t, { x, y, size, font: f, color });
+  };
+  const row = (label: string, value: string) => {
+    text(label, 10.5, font, MUT);
+    const w = bold.widthOfTextAtSize(value, 11);
+    page.drawText(value, { x: 595.28 - M - w, y, size: 11, font: bold, color: INK });
+    y -= 18;
+  };
+  const section = (title: string) => {
+    y -= 10;
+    text(title.toUpperCase(), 9.5, bold, GREEN);
+    y -= 6;
+    page.drawLine({ start: { x: M, y }, end: { x: 595.28 - M, y }, thickness: 0.7, color: LINE });
+    y -= 16;
+  };
+
+  // Encabezado
+  text('Daricefy', 22, bold, GREEN); y -= 22;
+  text(opts.mode === 'admin' ? 'Reporte ejecutivo' : 'Reporte de desempeño', 15, bold); y -= 16;
+  text(`${opts.subtitle}  ·  Periodo: ${opts.from} a ${opts.to}`, 9.5, font, MUT); y -= 12;
+  text(`Generado: ${new Date().toLocaleString('es-MX', { timeZone: 'America/Mexico_City' })} (hora de México)`, 8.5, font, MUT);
+  y -= 8;
+
+  const d = opts.data ?? {};
+
+  if (opts.mode === 'admin') {
+    for (const cur of (d.currencies ?? []).slice(0, 3)) {
+      section(`Dinero · ${cur.moneda}`);
+      row('Ingreso bruto', `${pdfMoney(cur.total_cobrado)} ${cur.moneda}`);
+      row('Ganancia neta Daricefy (comisión - procesadores)', pdfMoney(cur.neto_estimado));
+      row('Comisión real de procesadores', `${pdfMoney(cur.fees_reales)}  (${cur.fees_no_capturados} no capturados)`);
+      row('Dinero para grupos', pdfMoney(cur.dinero_grupos));
+      row('Pendiente por pagar a grupos', pdfMoney(cur.pendiente_grupos));
+      row('Pagado a grupos', pdfMoney(cur.pagado_grupos));
+      row('Reembolsos', `${pdfMoney(cur.reembolsado)}  (${cur.reembolsos})`);
+    }
+    const ev = d.events ?? {};
+    section('Eventos');
+    row('Total de eventos', String(ev.total ?? 0));
+    row('Completados', String(ev.completados ?? 0));
+    row('Próximos', String(ev.proximos ?? 0));
+    row('Cancelaciones (cliente / grupo)', `${ev.cancelados ?? 0}  (${ev.cancel_cliente ?? 0} / ${ev.cancel_grupo ?? 0})`);
+    row('No-shows', String(ev.no_shows ?? 0));
+    const com = d.community ?? {};
+    section('Comunidad');
+    for (const g of (com.grupos ?? [])) row(`Grupos activos · ${g.pais}`, `${g.activos}  (+${g.nuevos} nuevos)`);
+    for (const t of (com.talentos ?? [])) row(`Talentos · ${t.pais}`, `${t.activos}`);
+    row('Nuevos registros en el periodo', String(com.nuevos_registros ?? 0));
+  } else {
+    const rt = d.rating ?? {};
+    section('Desempeño');
+    row('Calificación promedio', `${Number(rt.promedio ?? 0).toFixed(1)} / 5  (${rt.resenas ?? 0} reseñas)`);
+    const ev = d.events ?? {};
+    row('Eventos realizados', String(ev.realizados ?? 0));
+    row('Próximos', String(ev.proximos ?? 0));
+    row('Cancelados (tuyos / del cliente)', `${ev.cancelados ?? 0}  (${ev.cancel_tuyos ?? 0} / ${ev.cancel_cliente ?? 0})`);
+    row('No-shows', String(ev.no_shows ?? 0));
+    for (const m of (d.money ?? [])) {
+      section(`Tus ganancias · ${m.moneda}`);
+      row('Ganancia total', `${pdfMoney(m.total)} ${m.moneda}`);
+      row('Pendiente (se libera al finalizar)', pdfMoney(m.pendiente));
+      row('Pagado', pdfMoney(m.pagado));
+    }
+    const cities = (d.cities ?? []).map((c: any) => `${c.ciudad} (${c.eventos})`).join(', ');
+    if (cities) { section('Ciudades donde trabajaste'); text(cities, 10, font, INK); y -= 18; }
+  }
+
+  // Pie
+  y = 46;
+  page.drawLine({ start: { x: M, y: y + 12 }, end: { x: 595.28 - M, y: y + 12 }, thickness: 0.7, color: LINE });
+  text('Las monedas (MXN/USD/CAD) se reportan por separado y nunca se suman. Comisiones de procesador: solo montos reales.', 7.5, font, MUT);
+
+  return await doc.save();
+}
+
 // Bloque de metadatos al inicio de la hoja Resumen
 function metaRows(titulo: string, from: string, to: string): any[][] {
   const now = new Date().toLocaleString('es-MX', { timeZone: 'America/Mexico_City' });
@@ -114,6 +232,44 @@ Deno.serve(async (req) => {
     // 🔒 Seguridad en el SERVIDOR (no en botones):
     if (mode === 'admin' && role !== 'admin') {
       return jsonRes({ error: 'Solo administradores' }, 403);
+    }
+
+    // ── 📄 PDF ejecutivo (1 página) ─────────────────────────────────
+    if (body.format === 'pdf') {
+      const ccSel = body.country && body.country !== 'all' ? codeOf(body.country) : null;
+      let pdfData: any;
+      let subtitle: string;
+      if (mode === 'admin') {
+        pdfData = await callRpcAsUser(jwt, 'admin_reports_dashboard', {
+          p_from: from, p_to: to,
+          p_country: ccSel ? (COUNTRY_NAME[ccSel] ?? null) : null,
+          p_state: null, p_city: null,
+        });
+        subtitle = ccSel ? `Alcance: ${COUNTRY_NAME[ccSel]}` : 'Alcance: todos los países';
+      } else {
+        pdfData = await callRpcAsUser(jwt, 'group_performance_dashboard', {
+          p_from: from, p_to: to,
+        });
+        subtitle = profile?.full_name ?? 'Mi grupo';
+      }
+      if (!pdfData?.ok) return jsonRes({ error: pdfData?.error ?? 'No se pudieron cargar los datos' }, 500);
+
+      const pdfBytes = await buildExecutivePdf({
+        mode, from, to,
+        countryName: ccSel ? (COUNTRY_NAME[ccSel] ?? '') : 'Todos',
+        data: pdfData, subtitle,
+      });
+      const pdfName = mode === 'admin'
+        ? `daricefy_ejecutivo_${ccSel ?? 'global'}_${from}_a_${to}.pdf`
+        : `mi_reporte_${from}_a_${to}.pdf`;
+      const pdfPath = `${user.id}/${Date.now()}_${pdfName}`;
+      const { error: pdfUpErr } = await admin.storage.from('reports').upload(pdfPath, pdfBytes, {
+        contentType: 'application/pdf', upsert: true,
+      });
+      if (pdfUpErr) return jsonRes({ error: `No se pudo guardar el PDF: ${pdfUpErr.message}` }, 500);
+      const { data: pdfSigned } = await admin.storage.from('reports').createSignedUrl(pdfPath, 3600);
+      if (!pdfSigned?.signedUrl) return jsonRes({ error: 'No se pudo firmar la descarga' }, 500);
+      return jsonRes({ ok: true, url: pdfSigned.signedUrl, filename: pdfName });
     }
 
     const wb = XLSX.utils.book_new();

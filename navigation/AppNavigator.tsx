@@ -99,6 +99,8 @@ import AdminTalentsScreen from '../src/screens/admin/TalentsScreen';
 import AdminPromotionsScreen from '../src/screens/admin/PromotionsScreen';
 import AdminStatsScreen from '../src/screens/admin/StatsScreen';
 import AdminFinancialScreen from '../src/screens/admin/FinancialScreen';
+import AdminReportsScreen from '../src/screens/admin/AdminReportsScreen';
+import GroupPerformanceScreen from '../src/screens/group/GroupPerformanceScreen';
 
 // Client (extra)
 import ClientVerificationScreen from '../src/screens/client/VerificationScreen';
@@ -961,6 +963,7 @@ export default function AppNavigator() {
             <Stack.Screen name="AdminGroups"        component={AdminGroupsScreen} />
             <Stack.Screen name="AdminStats"         component={AdminStatsScreen} />
             <Stack.Screen name="AdminFinancial"     component={AdminFinancialScreen} />
+            <Stack.Screen name="AdminReports"       component={AdminReportsScreen} />
             <Stack.Screen name="AdminMap"           component={AdminMapScreen} />
             <Stack.Screen name="GroupDetail"        component={GroupDetailScreen} />
             <Stack.Screen name="QuoteForm"          component={QuoteFormScreen} />
@@ -1007,6 +1010,7 @@ export default function AppNavigator() {
             <Stack.Screen name="Notifications"          component={NotificationsScreen} />
             <Stack.Screen name="Profile"               component={ProfileScreen} />
             <Stack.Screen name="EventPayouts"          component={EventPayoutsScreen} />
+            <Stack.Screen name="GroupPerformance"      component={GroupPerformanceScreen} />
             <Stack.Screen name="Promocionarse"         component={PromocionarseScreen} />
             <Stack.Screen name="PromotionPolicy"       component={PromotionPolicyScreen} />
             <Stack.Screen name="CreateAdvertisement"   component={CreateAdvertisementScreen} />

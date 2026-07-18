@@ -358,6 +358,20 @@ export default function WalletScreen({ navigation }: any) {
               (El onboarding de Stripe Connect quedó fuera del modelo v2 —
               la CLABE se captura en el formulario de retiro.) */}
 
+          {/* 📈 Panel de desempeño del grupo — dashboard principal (el Excel
+              de abajo queda como exportación secundaria) */}
+          {stripeStatus.role === 'group' && (
+            <Pressable
+              style={st.performanceBtn}
+              onPress={() => (navigation as any).navigate('GroupPerformance')}
+            >
+              <Text style={st.performanceBtnTx}>📈 Mi desempeño</Text>
+              <Text style={st.performanceBtnSub}>
+                Calificación, eventos, ganancias, tendencia y comentarios →
+              </Text>
+            </Pressable>
+          )}
+
           {/* 📊 Reporte propio del grupo (Excel) — siempre visible, no depende
               de notificaciones. Seguridad en el SERVIDOR: la EF deriva el
               group_id del token; solo datos propios, solo "Tu ganancia". */}
@@ -594,6 +608,15 @@ const st = StyleSheet.create({
     borderWidth: 1, borderColor: 'rgba(0,230,118,0.4)',
   },
   reportBtnTx: { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: COLORS.green },
+
+  // 📈 Panel de desempeño
+  performanceBtn: {
+    marginBottom: 12, padding: 14,
+    backgroundColor: COLORS.card, borderRadius: RADIUS.xl,
+    borderWidth: 1.5, borderColor: 'rgba(0,230,118,0.45)', gap: 3,
+  },
+  performanceBtnTx: { fontFamily: FONTS.bodySemiBold, fontSize: 15, color: COLORS.green },
+  performanceBtnSub: { fontFamily: FONTS.body, fontSize: 11.5, color: COLORS.muted2 },
 
   // Info
   feeCard: {
