@@ -151,7 +151,8 @@ END;
 $$;
 
 DROP TRIGGER IF EXISTS trg_set_busy_range ON public.reservations;
-CREATE TRIGGER trg_set_busy_range
+DROP TRIGGER IF EXISTS trg_01_set_busy_range ON public.reservations;
+CREATE TRIGGER trg_01_set_busy_range
   BEFORE INSERT OR UPDATE OF event_date, event_time, hours_count, event_tz, status
   ON public.reservations
   FOR EACH ROW EXECUTE FUNCTION public.set_reservation_busy_range();
@@ -174,7 +175,8 @@ CREATE TRIGGER trg_recompute_range_on_extra
 -- Nota: trg_set_busy_range dispara en UPDATE OF status/updated? — updated_at
 -- no está en su lista; se agrega columna disparadora:
 DROP TRIGGER IF EXISTS trg_set_busy_range ON public.reservations;
-CREATE TRIGGER trg_set_busy_range
+DROP TRIGGER IF EXISTS trg_01_set_busy_range ON public.reservations;
+CREATE TRIGGER trg_01_set_busy_range
   BEFORE INSERT OR UPDATE OF event_date, event_time, hours_count, event_tz, status, updated_at
   ON public.reservations
   FOR EACH ROW EXECUTE FUNCTION public.set_reservation_busy_range();
@@ -250,7 +252,8 @@ END;
 $$;
 
 DROP TRIGGER IF EXISTS trg_enforce_group_availability ON public.reservations;
-CREATE TRIGGER trg_enforce_group_availability
+DROP TRIGGER IF EXISTS trg_02_enforce_group_availability ON public.reservations;
+CREATE TRIGGER trg_02_enforce_group_availability
   BEFORE INSERT OR UPDATE OF group_id, event_date, event_time, status
   ON public.reservations
   FOR EACH ROW EXECUTE FUNCTION public.enforce_group_availability();

@@ -17,7 +17,7 @@ BEGIN;
 ALTER TABLE public.reservations DROP CONSTRAINT IF EXISTS excl_group_busy_range;
 
 -- 2. Triggers y funciones nuevos de F1
-DROP TRIGGER  IF EXISTS trg_set_busy_range           ON public.reservations;
+DROP TRIGGER  IF EXISTS trg_01_set_busy_range        ON public.reservations;
 DROP TRIGGER  IF EXISTS trg_recompute_range_on_extra ON public.extra_hours;
 DROP TRIGGER  IF EXISTS trg_block_vs_reservations    ON public.group_unavailability;
 DROP FUNCTION IF EXISTS public.set_reservation_busy_range();
@@ -68,7 +68,7 @@ BEGIN
 END;
 $$;
 
-DROP TRIGGER IF EXISTS trg_enforce_group_availability ON public.reservations;
+DROP TRIGGER IF EXISTS trg_02_enforce_group_availability ON public.reservations;
 CREATE TRIGGER trg_enforce_group_availability
   BEFORE INSERT OR UPDATE OF group_id, event_date
   ON public.reservations

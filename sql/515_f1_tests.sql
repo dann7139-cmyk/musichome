@@ -106,9 +106,14 @@ BEGIN
   --     r2 completed + r3 accepted = 2 → un nuevo accepted truena
   ---------------------------------------------------------------
   UPDATE reservations SET status = 'completed' WHERE id = v_r2;
-  INSERT INTO reservations (group_id, client_id, event_date, event_time, hours_count, status, total_price, base_price, address)
-  VALUES (v_group, v_owner, DATE '2030-05-10', TIME '20:00', 2, 'accepted', 900, 750, 'Av. Prueba 123')
-  RETURNING id INTO v_r3;
+  BEGIN
+    INSERT INTO reservations (group_id, client_id, event_date, event_time, hours_count, status, total_price, base_price, address)
+    VALUES (v_group, v_owner, DATE '2030-05-10', TIME '20:00', 2, 'accepted', 900, 750, 'Av. Prueba 123')
+    RETURNING id INTO v_r3;
+  EXCEPTION WHEN OTHERS THEN
+    v_report := v_report || 'T6-pre r3 no pudo insertarse ............... FAIL ' || SQLERRM || E'\n══ ABORTADO ══';
+    RAISE EXCEPTION '%', v_report;
+  END;
   BEGIN
     INSERT INTO reservations (group_id, client_id, event_date, event_time, hours_count, status, total_price, base_price, address)
     VALUES (v_group, v_owner, DATE '2030-05-10', TIME '14:00', 1, 'accepted', 500, 416, 'Av. Prueba 123');
@@ -125,16 +130,21 @@ BEGIN
   -- T7: EXPIRADA libera el cupo (r3 → expired, entra una nueva)
   ---------------------------------------------------------------
   UPDATE reservations SET status = 'expired' WHERE id = v_r3;
-  INSERT INTO reservations (group_id, client_id, event_date, event_time, hours_count, status, total_price, base_price, address)
-  VALUES (v_group, v_owner, DATE '2030-05-10', TIME '20:00', 2, 'accepted', 900, 750, 'Av. Prueba 123');
-  v_report := v_report || 'T7 expirada libera el cupo ................. PASS' || E'\n';
+  BEGIN
+    INSERT INTO reservations (group_id, client_id, event_date, event_time, hours_count, status, total_price, base_price, address)
+    VALUES (v_group, v_owner, DATE '2030-05-10', TIME '20:00', 2, 'accepted', 900, 750, 'Av. Prueba 123');
+    v_report := v_report || 'T7 expirada libera el cupo ................. PASS' || E'\n';
+  EXCEPTION WHEN OTHERS THEN
+    v_report := v_report || 'T7 expirada libera el cupo ................. FAIL ' || SQLERRM || E'\n';
+  END;
 
   ---------------------------------------------------------------
   -- T8: MEDIANOCHE — evento 23:00 (3h) del día 20: cuenta en el
   --     día 20; su rango invade el día 21 y bloquea las 01:00
   ---------------------------------------------------------------
   INSERT INTO reservations (group_id, client_id, event_date, event_time, hours_count, status, total_price, base_price, address)
-  VALUES (v_group, v_owner, DATE '2030-05-20', TIME '23:00', 3, 'accepted', 1200, 1000, 'Av. Prueba 123');
+  VALUES (v_group, v_owner, DATE '2030-05-20', TIME '23:00', 3, 'accepted', 1200, 1000, 'Av. Prueba 123')
+  RETURNING id INTO v_r3;   -- (reusa la var; si fallara, el guard de abajo reporta)
   IF count_events_local_day(v_group, DATE '2030-05-20', NULL) = 1
      AND count_events_local_day(v_group, DATE '2030-05-21', NULL) = 0 THEN
     v_report := v_report || 'T8a cruza medianoche: cuenta en día inicio . PASS' || E'\n';
