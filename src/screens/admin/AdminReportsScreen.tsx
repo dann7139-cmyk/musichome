@@ -302,7 +302,7 @@ export default function AdminReportsScreen({ navigation }: any) {
   const alertsBlock = () => {
     if (!alerts) return empty('Cargando alertas…');
     const rows = [
-      alertRow(alerts.retiros_pendientes, '💸', 'Retiros pendientes', 'grupos esperando su pago', 'AdminWithdrawals'),
+      alertRow(alerts.retiros_pendientes, '💸', 'Retiros pendientes', 'grupos esperando su pago', 'AdminFinancial'),
       alertRow(alerts.pagos_retenidos_viejos, '⏳', 'Pagos retenidos +3 días', 'eventos completados sin liberar', 'AdminFinancial'),
       alertRow(alerts.disputas_abiertas, '⚖️', 'Disputas abiertas', 'requieren resolución', 'AdminDisputes'),
       alertRow(alerts.reembolsos_pendientes, '↩️', 'Reembolsos pendientes', 'transferencias manuales por enviar', 'AdminFinancial'),

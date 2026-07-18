@@ -238,6 +238,20 @@ Deno.serve(async (req) => {
       body: JSON.stringify({ payment_provider: 'conekta', payment_method_type: v.methodType }),
     });
 
+    // 3b. status='confirmed' — ESPEJO de stripe-webhook (fix auditoría
+    // 2026-07-18: sin esto, las reservas pagadas con Conekta quedaban en
+    // pending_payment/accepted, fuera del auto-arranque del evento y de
+    // la detección de no-shows). Mismo guard de estados terminales.
+    await fetch(
+      `${SUPABASE_URL}/rest/v1/reservations?id=eq.${v.reservationId}` +
+      `&status=not.in.(cancelled,rejected,expired,completed,in_progress)`,
+      {
+        method: 'PATCH',
+        headers: { ...serviceHeaders, Prefer: 'return=minimal' },
+        body: JSON.stringify({ status: 'confirmed' }),
+      },
+    );
+
     console.log(`[conekta-webhook] ✅ order=${orderId} reservation=${v.reservationId} acreditado (${JSON.stringify(rpcData)})`);
 
     return new Response(JSON.stringify({ ok: true, reservation_id: v.reservationId }), {

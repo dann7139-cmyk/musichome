@@ -126,7 +126,10 @@ import WithdrawScreen from '../src/screens/shared/WithdrawScreen';
 import EventPayoutsScreen from '../src/screens/shared/EventPayoutsScreen';
 
 // Admin (wallet)
-import AdminWithdrawalsScreen from '../src/screens/admin/WithdrawalsScreen';
+// AdminWithdrawalsScreen eliminada (2026-07-18): era el camino legacy de
+// retiros — marcaba pagos sin auditoría/comprobante/processed_by y su
+// "Rechazar" devolvía el saldo a la tabla equivocada. Todo vive en
+// AdminFinancial (admin_complete_payout, sql/469).
 import AdminMediaReviewScreen from '../src/screens/admin/MediaReviewScreen';
 import AdApprovalScreen from '../src/screens/admin/AdApprovalScreen';
 import TicketScreen from '../src/screens/shared/TicketScreen';
@@ -967,7 +970,6 @@ export default function AppNavigator() {
             <Stack.Screen name="AdminMap"           component={AdminMapScreen} />
             <Stack.Screen name="GroupDetail"        component={GroupDetailScreen} />
             <Stack.Screen name="QuoteForm"          component={QuoteFormScreen} />
-            <Stack.Screen name="AdminWithdrawals"   component={AdminWithdrawalsScreen} />
             <Stack.Screen name="AdminMediaReview"   component={AdminMediaReviewScreen} />
             <Stack.Screen name="AdApproval"          component={AdApprovalScreen} />
             <Stack.Screen name="Ticket"              component={TicketScreen} />
