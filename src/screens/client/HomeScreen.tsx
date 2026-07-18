@@ -602,7 +602,7 @@ export default function HomeScreen({ navigation }: any) {
   return (
     <View style={styles.container}>
       <Particles />
-      <SafeAreaView style={{ flex: 1 }}>
+      <SafeAreaView edges={['top']} style={{ flex: 1 }}>
         {/* HEADER */}
         <Animated.View style={[styles.header, { opacity: headerOpacity }]}>
           <View>

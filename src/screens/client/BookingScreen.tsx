@@ -431,7 +431,7 @@ export default function BookingScreen({ route, navigation }: any) {
   return (
     <View style={styles.container}>
       <Particles />
-      <SafeAreaView style={{ flex: 1 }}>
+      <SafeAreaView edges={['top']} style={{ flex: 1 }}>
         {/* HEADER */}
         <View style={styles.header}>
           <Pressable style={styles.backBtn} onPress={() => navigation.goBack()}>

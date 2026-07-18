@@ -371,7 +371,7 @@ export default function QuotePaymentScreen({ route, navigation }: any) {
       setTimeout(() => setCopied(false), 2500);
     };
     return (
-      <SafeAreaView style={s.successRoot}>
+      <SafeAreaView edges={['top']} style={s.successRoot}>
         <Text style={{ fontSize: 44 }}>{isSpei ? '🏦' : '🏪'}</Text>
         <View style={{ alignItems: 'center', gap: 8 }}>
           <Text style={s.refBigTitle}>{isSpei ? 'Transfiere para confirmar' : 'Paga en tienda para confirmar'}</Text>
@@ -416,7 +416,7 @@ export default function QuotePaymentScreen({ route, navigation }: any) {
   // ── Pantalla de éxito ────────────────────────────────────────────────────────
   if (paid) {
     return (
-      <SafeAreaView style={s.successRoot}>
+      <SafeAreaView edges={['top']} style={s.successRoot}>
         <Animated.View style={[s.successIconWrap, { transform: [{ scale: checkScale }], opacity: checkOp }]}>
           <CheckCircle size={72} color={COLORS.green} strokeWidth={1.5} />
         </Animated.View>

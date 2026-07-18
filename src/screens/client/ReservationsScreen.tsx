@@ -348,7 +348,7 @@ export default function ClientReservationsScreen({ navigation, route }: any) {
 
   return (
     <View style={styles.container}>
-      <SafeAreaView style={{ flex: 1 }}>
+      <SafeAreaView edges={['top']} style={{ flex: 1 }}>
         <View style={styles.header}>
           <Text style={styles.title}>{t('reservations.title')}</Text>
         </View>

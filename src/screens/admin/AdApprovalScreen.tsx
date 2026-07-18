@@ -609,7 +609,7 @@ export default function AdApprovalScreen({ navigation }: any) {
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <SafeAreaView style={s.container}>
+    <SafeAreaView edges={['top']} style={s.container}>
       {/* Header */}
       <View style={s.header}>
         <Pressable style={s.backBtn} onPress={() => navigation.goBack()}>

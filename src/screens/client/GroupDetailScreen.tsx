@@ -398,7 +398,7 @@ export default function GroupDetailScreen({ route, navigation }: any) {
           )}
 
           {/* Botones flotantes: back (izq) + compartir (der) */}
-          <SafeAreaView style={styles.heroSafeTop} edges={['top']}>
+          <SafeAreaView edges={['top']} style={styles.heroSafeTop}>
             <View style={styles.heroTopRow}>
               <Pressable style={styles.heroBackBtn} onPress={() => navigation.goBack()}>
                 <ArrowLeft size={20} color="#fff" />

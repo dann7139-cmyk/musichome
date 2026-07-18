@@ -581,7 +581,7 @@ export default function ProfileScreen({ navigation }: any) {
   return (
     <View style={st.container}>
       <Particles />
-      <SafeAreaView style={{ flex: 1 }}>
+      <SafeAreaView edges={['top']} style={{ flex: 1 }}>
 
         {/* Header */}
         <View style={st.header}>

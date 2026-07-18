@@ -238,7 +238,7 @@ export default function MemberEventsScreen({ navigation }: any) {
     return (
       <View style={styles.container}>
         <Particles />
-        <SafeAreaView style={{ flex: 1 }}>
+        <SafeAreaView edges={['top']} style={{ flex: 1 }}>
           <View style={styles.header}>
             <Text style={styles.title}>Eventos del grupo</Text>
           </View>
@@ -257,7 +257,7 @@ export default function MemberEventsScreen({ navigation }: any) {
   return (
     <View style={styles.container}>
       <Particles />
-      <SafeAreaView style={{ flex: 1 }}>
+      <SafeAreaView edges={['top']} style={{ flex: 1 }}>
         <View style={styles.header}>
           <View style={{ flex: 1 }}>
             <Text style={styles.title}>Eventos</Text>

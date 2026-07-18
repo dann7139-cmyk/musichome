@@ -485,7 +485,7 @@ export default function AdminDashboardScreen({ navigation }: any) {
   return (
     <View style={s.root}>
       <Particles />
-      <SafeAreaView style={{ flex: 1 }}>
+      <SafeAreaView edges={['top']} style={{ flex: 1 }}>
         <ScrollView
           showsVerticalScrollIndicator={false}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.green} />}

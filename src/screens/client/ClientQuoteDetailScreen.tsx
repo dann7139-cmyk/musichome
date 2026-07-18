@@ -264,7 +264,7 @@ export default function ClientQuoteDetailScreen({ route, navigation }: any) {
   if (loading) {
     return (
       <View style={s.root}>
-        <SafeAreaView style={s.center}>
+        <SafeAreaView edges={['top']} style={s.center}>
           <ActivityIndicator size="large" color={COLORS.green} />
         </SafeAreaView>
       </View>
@@ -274,7 +274,7 @@ export default function ClientQuoteDetailScreen({ route, navigation }: any) {
   if (!quote) {
     return (
       <View style={s.root}>
-        <SafeAreaView style={s.center}>
+        <SafeAreaView edges={['top']} style={s.center}>
           <Text style={s.errorText}>No se encontró la cotización.</Text>
         </SafeAreaView>
       </View>

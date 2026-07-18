@@ -996,7 +996,7 @@ export default function GroupDashboardScreen({ navigation }: any) {
     return (
       <View style={s.container}>
         <Particles />
-        <SafeAreaView style={{ flex: 1 }}>
+        <SafeAreaView edges={['top']} style={{ flex: 1 }}>
           <ScrollView contentContainerStyle={[s.center, { paddingHorizontal: 28, paddingVertical: 60 }]}
             keyboardShouldPersistTaps="handled">
             <Text style={{ fontSize: 52, marginBottom: 16 }}>🎸</Text>
@@ -1066,7 +1066,7 @@ export default function GroupDashboardScreen({ navigation }: any) {
   return (
     <View style={s.container}>
       <Particles />
-      <SafeAreaView style={{ flex: 1 }}>
+      <SafeAreaView edges={['top']} style={{ flex: 1 }}>
         <ScrollView
           showsVerticalScrollIndicator={false}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.green} />}

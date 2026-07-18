@@ -310,7 +310,7 @@ export default function AdminTalentsScreen({ navigation }: any) {
     return (
       <View style={s.container}>
         <Particles />
-        <SafeAreaView style={{ flex: 1 }}>
+        <SafeAreaView edges={['top']} style={{ flex: 1 }}>
           <View style={s.header}>
             <Pressable style={s.backBtn} onPress={() => navigation.goBack()}>
               <ArrowLeft size={20} color={COLORS.text} />
@@ -461,7 +461,7 @@ export default function AdminTalentsScreen({ navigation }: any) {
     return (
       <View style={s.container}>
         <Particles />
-        <SafeAreaView style={{ flex: 1 }}>
+        <SafeAreaView edges={['top']} style={{ flex: 1 }}>
           <View style={s.header}>
             <Pressable style={s.backBtn} onPress={() => setView('list')}>
               <ArrowLeft size={20} color={COLORS.text} />
@@ -572,7 +572,7 @@ export default function AdminTalentsScreen({ navigation }: any) {
     return (
       <View style={s.container}>
         <Particles />
-        <SafeAreaView style={{ flex: 1 }}>
+        <SafeAreaView edges={['top']} style={{ flex: 1 }}>
           <View style={s.header}>
             <Pressable style={s.backBtn} onPress={() => setView('list')}>
               <ArrowLeft size={20} color={COLORS.text} />

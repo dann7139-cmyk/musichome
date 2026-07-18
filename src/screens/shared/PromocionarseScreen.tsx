@@ -124,7 +124,7 @@ export default function PromocionarseScreen({ navigation }: any) {
     : 'Llega a más personas con tu anuncio';
 
   return (
-    <SafeAreaView style={s.container}>
+    <SafeAreaView edges={['top']} style={s.container}>
       {/* Header */}
       <View style={s.header}>
         <View>
