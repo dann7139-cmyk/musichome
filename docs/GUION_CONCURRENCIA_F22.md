@@ -68,8 +68,13 @@ SELECT 'helpers de staging instaladas ✅' AS status;
 1. Crear la Branch. 2. Confirmar 514/516/518/519. 3. Usuario `test-2tabs@daricefy.test`
 en Auth. 4. Sentinela. 5. Verificar visualmente el ref de la rama (dashboard y `$U`).
 6. **CLEANUP del run anterior** (m1 quedó confirmed en el intento v3). 7. Preflight.
-8. Setup. **8.5. Helpers (PASO 2.5).** 9. PS-0. **9.5. A-0 calibración.** 10. A.
-11. B. 12. C. 13. Cleanup (incluye DROP de helpers). 14. Ceros. 15. Eliminar rama.
+8. Setup. **8.5. Helpers (PASO 2.5).** 9. PS-0. **9.5. A-0 calibración — guardar
+locked_at, released_at, duración real y cualquier timeout de PostgREST.**
+10. A + verificación. **GATE: SOLO si A da exactamente lo esperado se ejecuta B.**
+11. B + verificación. 12. C + verificación. 13. Cleanup (incluye DROP de helpers).
+14. Ceros. 15. Eliminar rama.
+Si una prueba falla: NO correr el cleanup (preserva evidencia), pero SÍ retirar
+las helpers con el bloque independiente del final — no toca datos.
 
 Preflight, setup y sentinela: idénticos a v3 (secciones más abajo, sin cambios).
 
@@ -404,6 +409,15 @@ SELECT
   (SELECT COUNT(*) FROM payment_receipts WHERE provider_payment_id LIKE 'T2B_%')   AS receipts_0,
   (SELECT COUNT(*) FROM refund_intents  WHERE provider_payment_id LIKE 'T2B_%')    AS refunds_0,
   (SELECT COUNT(*) FROM pg_proc WHERE proname IN ('test_hold_group_lock','test_lock_probe')) AS helpers_0;
+```
+
+### Retiro de helpers INDEPENDIENTE (correr si una prueba falla y el cleanup se pospone)
+
+No toca datos ni evidencia — solo elimina las dos funciones de prueba:
+
+```sql
+DROP FUNCTION IF EXISTS public.test_hold_group_lock(INT);
+DROP FUNCTION IF EXISTS public.test_lock_probe();
 ```
 
 ## Criterios de paro generales
