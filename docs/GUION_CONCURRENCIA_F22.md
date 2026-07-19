@@ -101,19 +101,14 @@ $bodyM2 = New-PayBody "ord_m2" "ch_m2" $r2
 
 $rpcJob = {
   param($Url, $Key, $Body, $Tag)
-  $H2 = @{ apikey = $Key; Authorization = "Bearer $Key"; "Content-Type" = "application/json" }
+  # v4.2: curl.exe (NO el alias 'curl' de PowerShell) — jamás retransmite un
+  # POST y con Connection: close no reutiliza conexiones keep-alive muertas.
   $t0 = Get-Date
-  try   { $r = Invoke-RestMethod -Method Post -Uri "$Url/rest/v1/rpc/confirm_reservation_payment_v2" -Headers $H2 -Body $Body }
-  catch {
-    $bodyTxt = $null
-    if ($_.Exception.Response) {
-      $sr = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
-      $bodyTxt = $sr.ReadToEnd()
-    }
-    $r = @{ http_error = $_.Exception.Message; body = $bodyTxt }
-  }
+  $out = & curl.exe -sS -X POST "$Url/rest/v1/rpc/confirm_reservation_payment_v2" `
+    -H "apikey: $Key" -H "Authorization: Bearer $Key" -H "Content-Type: application/json" `
+    -H "Connection: close" --max-time 30 -w " [HTTP %{http_code}]" -d $Body 2>&1
   $ms = [int]((Get-Date) - $t0).TotalMilliseconds
-  "[$Tag] $ms ms → " + ($r | ConvertTo-Json -Compress)
+  "[$Tag] $ms ms → $out"
 }
 
 function Wait-Lock {
@@ -154,10 +149,18 @@ sentinela) — el cleanup la borra igual.
 
 ## GUION A — Lock timeout real (holder en editor, probe-gated)
 
-**A-1) PowerShell PRIMERO** (queda sondeando hasta 15 s):
+**A-0b) BASELINE de pg_stat_statements** (SQL Editor — anotar `calls` por fila):
+
+```sql
+SELECT queryid, calls FROM pg_stat_statements
+WHERE query ILIKE '%confirm_reservation_payment_v2%'
+ORDER BY calls DESC;
+```
+
+**A-1) PowerShell PRIMERO** (sondea hasta 15 s; línea estampada, UNA sola vez):
 
 ```powershell
-if (Wait-Lock) { & $rpcJob $U $K $bodyM1 "A-m1" }
+"[FIRE] $(Get-Date -Format 'HH:mm:ss.fff')"; if (Wait-Lock) { & $rpcJob $U $K $bodyM1 "A-m1" }; "[DONE] $(Get-Date -Format 'HH:mm:ss.fff')"
 ```
 
 **A-2) SQL Editor INMEDIATAMENTE DESPUÉS** (Run — retiene el carril 20 s):
@@ -176,6 +179,10 @@ COMMIT;
 un error, el catch ahora imprime `body` con el JSON real de PostgREST —
 pégalo). Si el probe expira a los 15 s, no se disparó nada: repite dando Run
 más rápido.
+
+**A-2b) DELTA de pg_stat_statements** (repetir la consulta de A-0b INMEDIATAMENTE
+tras la respuesta): la fila estilo-PostgREST debe subir EXACTAMENTE +1 y no debe
+aparecer ninguna fila nueva. Delta ≠ +1 → ejecuciones extra → parar y pegar.
 
 **Verificación A (SQL Editor — esperado: 0 · created · pending_payment/unpaid · 0):**
 
