@@ -1,29 +1,41 @@
-# Guion de concurrencia F2.2 — dos pestañas (gate de pagos v2) — v2 CORREGIDO
+# Guion de concurrencia F2.2 — v3 (SQL Editor + PostgREST/PowerShell)
 
 **Estado: EN REVISIÓN — no ejecutar hasta aprobación.**
 **Entorno: EXCLUSIVAMENTE Supabase Branch / staging / clon. PROHIBIDO en producción.**
 
-## Decisión de entorno (Opción 1)
+## Por qué v3 (hallazgo del intento v2)
 
-Este guion corre solo en una rama o proyecto de staging que contenga el esquema
-con sql/514, 516, 518 y 519 aplicados (una Branch de Supabase clona el esquema de
-producción; un proyecto staging nuevo requiere correr los sql en orden).
+El SQL Editor de Supabase NO ejecuta pestañas en sesiones concurrentes: las
+consultas de todas las pestañas pasan por el mismo backend y se encolan en
+serie. En el intento v2, la "pestaña 2" corrió DESPUÉS del sueño de la
+pestaña 1 (lock ya liberado) → nunca hubo contención → no pudo aparecer
+`temporary_lock_timeout`. El mecanismo de locking de la RPC es correcto
+(hash verificado: 2006748557; pruebas de sesión única 21/21). La RPC NO se toca.
 
-Por qué la rama resuelve los riesgos 1 y 2 de raíz:
-- **Perfiles:** se usa EXCLUSIVAMENTE un perfil dedicado de pruebas:
-  `test-2tabs@daricefy.test`, creado en la rama desde el dashboard de Auth
-  (su fila en profiles la genera el trigger de auth). El setup ABORTA si no
-  existe — jamás elige otro perfil automáticamente. Ningún usuario real
-  participa ni recibe nada.
-- **Wallets:** la wallet del "admin" de la rama es un clon desechable. Ningún
-  balance real cambia, ningún ledger real se mezcla, y el cleanup NO depende de
-  compensar saldos de producción. (El cleanup igualmente revierte el crédito
-  del admin-clon, por si reutilizas la rama para más pruebas.)
+**v3 divide los papeles:**
+- **SQL Editor** = retener locks (su única conexión sí los sostiene durante
+  `pg_sleep`) + setup + verificaciones + cleanup.
+- **PowerShell → PostgREST** = las llamadas concurrentes a la RPC, cada una en
+  una conexión del pool de PostgREST con la service key de la RAMA. Es el
+  MISMO camino que usarán los webhooks en producción (supabase-js → PostgREST
+  → service_role), incluido el statement_timeout del rol.
 
-## Candado duro anti-producción (sentinela de entorno)
+Nota: si alguna llamada REST devolviera un error de timeout del servidor
+(57014) en vez del JSON `temporary_lock_timeout`, eso significa que el
+`statement_timeout` del rol es menor que la espera del lock — sigue probando
+que el bloqueo ocurre y es exactamente lo que vería el webhook (500 →
+reintento). Repórtalo tal cual.
 
-TODOS los bloques de escritura de este guion ABORTAN si no existe la marca de
-staging. La marca se crea UNA vez, SOLO en la rama (jamás en producción):
+## Decisión de entorno
+
+Rama/staging con sql/514, 516, 518 y 519 aplicados.
+- **Perfiles:** EXCLUSIVAMENTE el perfil dedicado `test-2tabs@daricefy.test`,
+  creado en Auth de la rama (su fila en profiles la genera el trigger
+  `on_auth_user_created` de sql/02; plan B: INSERT manual desde auth.users).
+  El setup ABORTA si no existe — jamás elige otro perfil.
+- **Wallets:** solo clones desechables de la rama. Nada real cambia.
+
+## Candado duro anti-producción (sentinela)
 
 ```sql
 -- ⚠️ SOLO EN LA RAMA/STAGING — JAMÁS ejecutar esto en producción
@@ -32,51 +44,43 @@ VALUES ('environment', 'staging', 'Marca de entorno de pruebas — nunca debe ex
 ON CONFLICT (key) DO NOTHING;
 ```
 
-Producción no tiene esta clave → si por error pegas el setup allí, aborta sin
-escribir nada.
+Todos los bloques de escritura abortan si esta clave no existe. Las claves
+`environment=staging` y `test_run_id` viven SOLO en la rama: no están en
+ningún archivo sql/ del repo ni migración, y mueren con la rama.
 
-## Identificadores únicos por corrida (test_run_id)
+## Identificadores por corrida (test_run_id)
 
-El setup genera un `test_run_id` (T2B_YYYYMMDDHHMMSS) y lo guarda en
-`payment_config` — todos los bloques lo leen de ahí, así que NO hay que copiar
-IDs a mano ni editar los SQL. Todo lo creado lo lleva:
-
-- grupo: `__TEST_2TABS_<run>` · dirección: `Av. Prueba <run>`
-- client keys: `<run>_k_m1/2` · órdenes: `<run>_ord_m1/2` · cargos: `<run>_ch_m1/2`
-
-El cleanup filtra por ese run, muestra los conteos antes de borrar y aborta si
-algo no está etiquetado.
+El setup genera `T2B_YYYYMMDDHHMMSS`, lo guarda en payment_config y todo lo
+lee de ahí (SQL con subconsultas; PowerShell lo descarga por REST). Cero
+edición manual de IDs.
 
 ## Qué NO participa
 
-Cero llamadas externas: todo es SQL contra la rama. La RPC no hace red; los
-webhooks, EFs, Stripe y Conekta no participan; las órdenes/cargos son cadenas
-sintéticas inexistentes en cualquier proveedor. Ningún pago real.
+Cero servicios externos: SQL + REST contra la rama. La RPC no hace red;
+webhooks/EFs/Stripe/Conekta no participan; órdenes y cargos son sintéticos.
+Ningún pago real.
 
-## Orden de ejecución completo (aprobado)
+## Orden de ejecución completo
 
 1. Crear la Supabase Branch.
 2. Confirmar que 514, 516, 518 y 519 existen en la rama.
 3. Crear el usuario dedicado `test-2tabs@daricefy.test` en Auth de la rama.
 4. Insertar la sentinela `environment=staging` (solo en la rama).
-5. **Verificar visualmente el project ref de la rama en la URL** — sin esto no se ejecuta nada.
-6. Preflight → `1 · 0 · 0 · 4 · 2 · 1 · <uuid>`.
-7. Setup → `run · 1 · 2 · 2`.
-8. Guion A + verificación A.
-9. Guion B + verificación B.
-10. Guion C + verificación C.
-11. Cleanup + ceros finales.
-12. Eliminar la rama.
-
-Las claves `environment=staging` y `test_run_id` viven SOLO en la rama: no
-forman parte de ningún archivo sql/ del repo (no están en 519 ni en ninguna
-migración) y ningún dato de la rama se fusiona de vuelta — el branching de
-Supabase solo propaga migraciones declaradas, y estas claves se insertan a
-mano en la rama y mueren con ella en el paso 12.
+5. **Verificar visualmente el project ref de la rama** en la URL del dashboard
+   Y en la variable `$U` de PowerShell — sin esto no se ejecuta nada.
+6. **Si hubo una corrida previa (aunque fallara): CLEANUP primero** y setup nuevo.
+7. Preflight → `1 · 0 · 0 · 4 · 2 · 1 · <uuid>`.
+8. Setup → `run · 1 · 2 · 2`.
+9. Preparar PowerShell (bloque PS-0).
+10. Guion A + verificación A.
+11. Guion B + verificación B.
+12. Guion C + verificación C.
+13. Cleanup + ceros finales.
+14. Eliminar la rama.
 
 ---
 
-## PASO 1 — PREFLIGHT (solo lectura, obligatorio)
+## PASO 1 — PREFLIGHT (solo lectura, SQL Editor)
 
 ```sql
 SELECT
@@ -91,16 +95,11 @@ SELECT
   (SELECT id::text FROM profiles WHERE email = 'test-2tabs@daricefy.test')          AS perfil_test_id;
 ```
 
-**Criterio de paro:** debe dar `1 · 0 · 0 · 4 · 2 · 1 · <uuid>`.
-- `entorno_staging_1 = 0` → estás en producción o falta la sentinela → NO seguir.
-- `run_previo_0 > 0` o residuos → corrida anterior sin limpiar → limpiar primero.
-- `perfil_test_1 = 0` → crear el usuario `test-2tabs@daricefy.test` en Auth de la
-  rama antes de continuar. El setup NO elige otro perfil: aborta.
+**Criterio de paro:** `1 · 0 · 0 · 4 · 2 · 1 · <uuid>`. Si `perfil_test_1=0`,
+crear el usuario dedicado (el setup NO elige otro: aborta). Si hay run previo
+o residuos, cleanup primero.
 
-Confirma además, manualmente, que la URL del proyecto en el dashboard es la de
-la rama/staging (no el ref de producción).
-
-## PASO 2 — SETUP (una corrida; aborta solo si falta la sentinela)
+## PASO 2 — SETUP (SQL Editor, una corrida)
 
 ```sql
 BEGIN;
@@ -117,14 +116,14 @@ BEGIN
     RAISE EXCEPTION 'ABORTADO: hay un test_run_id previo sin limpiar. Corre el cleanup primero.';
   END IF;
 
-  v_run := 'T2B_' || to_char(clock_timestamp(), 'YYYYMMDDHH24MISS');
-  INSERT INTO payment_config (key, value, description)
-  VALUES ('test_run_id', v_run, 'Corrida activa del guion de concurrencia F2.2');
-
   SELECT id INTO v_user FROM profiles WHERE email = 'test-2tabs@daricefy.test';
   IF v_user IS NULL THEN
     RAISE EXCEPTION 'ABORTADO: no existe el perfil dedicado test-2tabs@daricefy.test. Créalo en Auth de la rama. NO se elige otro perfil.';
   END IF;
+
+  v_run := 'T2B_' || to_char(clock_timestamp(), 'YYYYMMDDHH24MISS');
+  INSERT INTO payment_config (key, value, description)
+  VALUES ('test_run_id', v_run, 'Corrida activa del guion de concurrencia F2.2');
 
   INSERT INTO groups (name, owner_id, state, country, is_active)
   VALUES ('__TEST_2TABS_' || v_run, v_user, 'Jalisco', 'México', false)
@@ -159,11 +158,50 @@ SELECT
     WHERE client_key LIKE (SELECT value FROM payment_config WHERE key='test_run_id') || '%')     AS attempts_2;
 ```
 
+## PASO 3 — PS-0: preparar PowerShell (una ventana, pegar completo)
+
+Toma la URL y la **service_role key DE LA RAMA** (Settings → API de la rama).
+Verifica visualmente que `$U` es el ref de la rama, no producción.
+
+```powershell
+$U = "https://TU-REF-DE-RAMA.supabase.co"    # ⚠️ ref de la RAMA
+$K = "SERVICE_ROLE_KEY_DE_LA_RAMA"
+$H = @{ apikey = $K; Authorization = "Bearer $K" }
+
+$run  = (Invoke-RestMethod -Uri "$U/rest/v1/payment_config?key=eq.test_run_id&select=value" -Headers $H)[0].value
+$addr = [uri]::EscapeDataString("Av. Prueba $run")
+$r1 = (Invoke-RestMethod -Uri "$U/rest/v1/reservations?address=eq.$addr&event_date=eq.2031-01-01&select=id" -Headers $H)[0].id
+$r2 = (Invoke-RestMethod -Uri "$U/rest/v1/reservations?address=eq.$addr&event_date=eq.2031-01-02&select=id" -Headers $H)[0].id
+"run=$run"; "r1=$r1"; "r2=$r2"
+
+function New-PayBody($ord, $ch, $res) {
+  @{ p_provider="stripe"; p_provider_order_id="${run}_$ord"; p_provider_payment_id="${run}_$ch";
+     p_reservation_id=$res; p_amount_minor=120000; p_currency="MXN"; p_method="card";
+     p_fee_minor=$null; p_fee_source=$null; p_legacy_expected=$null } | ConvertTo-Json
+}
+$bodyM1 = New-PayBody "ord_m1" "ch_m1" $r1
+$bodyM2 = New-PayBody "ord_m2" "ch_m2" $r2
+
+$rpcJob = {
+  param($Url, $Key, $Body, $Tag)
+  $H2 = @{ apikey = $Key; Authorization = "Bearer $Key"; "Content-Type" = "application/json" }
+  $t0 = Get-Date
+  try   { $r = Invoke-RestMethod -Method Post -Uri "$Url/rest/v1/rpc/confirm_reservation_payment_v2" -Headers $H2 -Body $Body }
+  catch { $r = @{ http_error = $_.Exception.Message } }
+  $ms = [int]((Get-Date) - $t0).TotalMilliseconds
+  "[$Tag] $ms ms → " + ($r | ConvertTo-Json -Compress)
+}
+"PS-0 listo"
+```
+
+**Criterio:** imprime `run`, `r1`, `r2` (uuid) y `PS-0 listo`. Si algo viene
+vacío, detente.
+
 ---
 
-## GUION A — Lock timeout real (sin efectos)
+## GUION A — Lock timeout real
 
-**Pestaña 1** (retiene el carril del grupo 20 segundos, una corrida):
+**1) SQL Editor** (retiene el carril 20s — Run y cambia de ventana):
 
 ```sql
 BEGIN;
@@ -174,22 +212,17 @@ SELECT pg_sleep(20);
 COMMIT;
 ```
 
-**Pestaña 2** (dispara DENTRO de los 20s):
+**2) PowerShell** (dentro de los 20s — tenlo pre-escrito y da Enter):
 
-```sql
-SELECT public.confirm_reservation_payment_v2(
-  'stripe',
-  (SELECT value || '_ord_m1' FROM payment_config WHERE key='test_run_id'),
-  (SELECT value || '_ch_m1'  FROM payment_config WHERE key='test_run_id'),
-  (SELECT r.id FROM reservations r
-    WHERE r.address = 'Av. Prueba ' || (SELECT value FROM payment_config WHERE key='test_run_id')
-      AND r.event_date = DATE '2031-01-01'),
-  120000,'MXN','card', NULL,NULL, NULL);
+```powershell
+& $rpcJob $U $K $bodyM1 "A-m1"
 ```
 
-**Esperado:** espera ~5s y devuelve `{"result": "temporary_lock_timeout"}`. Cero escrituras.
+**Esperado:** ~5000 ms → `{"result":"temporary_lock_timeout"}` (o error de
+timeout del servidor si el statement_timeout del rol es menor — ver nota
+inicial; ambos prueban el bloqueo). Cero escrituras.
 
-**Verificación A (esperado: 0 · created · pending_payment/unpaid · 0):**
+**Verificación A (SQL Editor — esperado: 0 · created · pending_payment/unpaid · 0):**
 
 ```sql
 SELECT
@@ -205,41 +238,40 @@ SELECT
       AND gw.pending_balance <> 0)                                                   AS wallet_0;
 ```
 
-**Paro A:** resultado ≠ `temporary_lock_timeout` o cualquier escritura → detener, pegar, NO limpiar.
+**Paro A:** respuesta en <4000 ms o `confirmed` → el lock no estaba retenido
+(¿corriste el bloque del editor?) · escrituras tras timeout → fallo grave →
+detener, pegar, NO limpiar.
 
 ---
 
-## GUION B — Mismo pago simultáneo (idempotencia bajo carrera)
+## GUION B — Mismo pago simultáneo (carrera real sobre el UNIQUE)
 
-**Pestaña 1** (confirma m1 y retiene el lock ~3s antes de commitear):
+**1) SQL Editor** (retiene el carril 4s):
 
 ```sql
 BEGIN;
-SELECT public.confirm_reservation_payment_v2(
-  'stripe',
-  (SELECT value || '_ord_m1' FROM payment_config WHERE key='test_run_id'),
-  (SELECT value || '_ch_m1'  FROM payment_config WHERE key='test_run_id'),
-  (SELECT r.id FROM reservations r
-    WHERE r.address = 'Av. Prueba ' || (SELECT value FROM payment_config WHERE key='test_run_id')
-      AND r.event_date = DATE '2031-01-01'),
-  120000,'MXN','card', NULL,NULL, NULL);
-SELECT pg_sleep(3);
+SELECT pg_advisory_xact_lock(hashtext(
+  (SELECT id::text FROM groups WHERE name =
+    '__TEST_2TABS_' || (SELECT value FROM payment_config WHERE key='test_run_id'))));
+SELECT pg_sleep(4);
 COMMIT;
 ```
 
-**Pestaña 2** (dispara inmediatamente después — la MISMA llamada exacta que pestaña 1).
+**2) PowerShell** (INMEDIATAMENTE — dos jobs en paralelo con el MISMO pago m1):
 
-**Esperado:** pestaña 1 → `confirmed`; pestaña 2 → espera lo que reste del lock y
-devuelve `already_processed`.
+```powershell
+$j1 = Start-Job -ScriptBlock $rpcJob -ArgumentList $U,$K,$bodyM1,"B-1"
+$j2 = Start-Job -ScriptBlock $rpcJob -ArgumentList $U,$K,$bodyM1,"B-2"
+Receive-Job -Job $j1,$j2 -Wait -AutoRemoveJob
+```
 
-Nota de tiempos (corregida): con retención de ~3s y `lock_timeout = 5s`, el
-timeout es imposible en este guion — cuanto más tarde dispares la pestaña 2,
-MENOS espera (si dispara tras el COMMIT, entra sin esperar y da
-`already_processed` igual). El caso timeout ya lo cubre el Guion A con 20s.
-También válido: si disparas la pestaña 2 ANTES que la 1, los roles se invierten
-(2 → `confirmed`, 1 → `already_processed`) — el invariante es el mismo.
+**Esperado:** ambos jobs esperan el carril (elapsed ~1000-4000 ms) y al
+liberarse: **uno `confirmed` y el otro `already_processed`** — en cualquier
+orden. Si los jobs arrancaron tarde y no esperaron (elapsed bajo), el
+invariante se mantiene igual (uno confirma, el otro es idempotente); el
+elapsed alto es la evidencia de que hubo contención real.
 
-**Verificación B (esperado: 1 · confirmed/credited · 1 · 1000):**
+**Verificación B (SQL Editor — esperado: 1 · confirmed/credited · 1 · 1000):**
 
 ```sql
 SELECT
@@ -255,41 +287,28 @@ SELECT
     WHERE g.name = '__TEST_2TABS_' || (SELECT value FROM payment_config WHERE key='test_run_id')) AS bal_1000;
 ```
 
-**Paro B:** 2 receipts, 2 créditos o balance ≠ 1000 → el UNIQUE falló bajo
-carrera = fallo crítico → detener, pegar, NO limpiar.
+**Paro B:** 2 receipts, 2 créditos, balance ≠ 1000, o AMBOS jobs `confirmed`
+→ el UNIQUE falló bajo carrera = fallo crítico → detener, pegar, NO limpiar.
 
 ---
 
 ## GUION C — Dos pagos del mismo grupo (serialización sin deadlock)
 
-**Pestaña 1** (retiene el carril 3s):
+**1) SQL Editor** (retiene el carril 4s — mismo bloque que B).
 
-```sql
-BEGIN;
-SELECT pg_advisory_xact_lock(hashtext(
-  (SELECT id::text FROM groups WHERE name =
-    '__TEST_2TABS_' || (SELECT value FROM payment_config WHERE key='test_run_id'))));
-SELECT pg_sleep(3);
-COMMIT;
+**2) PowerShell** (INMEDIATAMENTE — m1 repetido y m2 en paralelo):
+
+```powershell
+$j1 = Start-Job -ScriptBlock $rpcJob -ArgumentList $U,$K,$bodyM1,"C-m1"
+$j2 = Start-Job -ScriptBlock $rpcJob -ArgumentList $U,$K,$bodyM2,"C-m2"
+Receive-Job -Job $j1,$j2 -Wait -AutoRemoveJob
 ```
 
-**Pestaña 2** (dispara durante el sueño — pago de la OTRA reserva, m2):
+**Esperado:** ambos esperan el carril y se serializan: `C-m1` →
+`already_processed` (ya se confirmó en B) y `C-m2` → `confirmed`. **Sin
+error de deadlock (40P01) en ninguno.**
 
-```sql
-SELECT public.confirm_reservation_payment_v2(
-  'stripe',
-  (SELECT value || '_ord_m2' FROM payment_config WHERE key='test_run_id'),
-  (SELECT value || '_ch_m2'  FROM payment_config WHERE key='test_run_id'),
-  (SELECT r.id FROM reservations r
-    WHERE r.address = 'Av. Prueba ' || (SELECT value FROM payment_config WHERE key='test_run_id')
-      AND r.event_date = DATE '2031-01-02'),
-  120000,'MXN','card', NULL,NULL, NULL);
-```
-
-**Esperado:** la pestaña 2 espera ~2-3s (serialización por grupo) y devuelve
-`confirmed`. Sin error 40P01.
-
-**Verificación C (esperado: 1 · 2 · 2000 · confirmed/paid · confirmed/paid):**
+**Verificación C (SQL Editor — esperado: 1 · 2 · 2000 · confirmed/paid · confirmed/paid):**
 
 ```sql
 SELECT
@@ -306,16 +325,12 @@ SELECT
     WHERE r.address = 'Av. Prueba ' || (SELECT value FROM payment_config WHERE key='test_run_id')) AS reservas;
 ```
 
-**Paro C:** `40P01` (deadlock) = evidencia crítica contra el orden de locks →
-detener TODO y pegar el error completo · balance ≠ 2000 → detener.
+**Paro C:** `40P01` en cualquier job = evidencia crítica contra el orden de
+locks → detener TODO y pegar el error completo · balance ≠ 2000 → detener.
 
 ---
 
-## CLEANUP (una corrida — SOLO al terminar o tras capturar evidencia)
-
-Filtra por el `test_run_id`, muestra los conteos ANTES de borrar, aborta si
-detecta filas no etiquetadas, revierte el crédito del admin-clon con el monto
-exacto del ledger, y elimina la clave del run al final.
+## CLEANUP (SQL Editor, una corrida — al terminar o tras capturar evidencia)
 
 ```sql
 BEGIN;
@@ -339,17 +354,15 @@ BEGIN
   END IF;
 
   SELECT id INTO v_group FROM groups WHERE name = '__TEST_2TABS_' || v_run;
-  v_res     := ARRAY(SELECT id      FROM reservations WHERE group_id = v_group);
+  v_res     := ARRAY(SELECT id       FROM reservations WHERE group_id = v_group);
   v_res_txt := ARRAY(SELECT id::text FROM reservations WHERE group_id = v_group);
 
-  -- Guard: TODO lo que se va a borrar debe estar etiquetado con el run
   SELECT COUNT(*) INTO v_mal FROM reservations
   WHERE id = ANY(v_res) AND address <> 'Av. Prueba ' || v_run;
   IF v_mal > 0 THEN
     RAISE EXCEPTION 'ABORTADO: % reservas del grupo NO llevan la etiqueta del run %', v_mal, v_run;
   END IF;
 
-  -- Conteos que se van a eliminar (quedan visibles en los NOTICE)
   RAISE NOTICE 'A borrar [run %]: receipts=%, refunds=%, attempts=%, ledger=%, reservas=%, grupo=%',
     v_run,
     (SELECT COUNT(*) FROM payment_receipts  WHERE provider_payment_id LIKE v_run || '%' OR reservation_id = ANY(v_res)),
@@ -359,7 +372,6 @@ BEGIN
     COALESCE(array_length(v_res,1),0),
     (v_group IS NOT NULL)::TEXT;
 
-  -- Revertir crédito del admin-clon (exacto, desde el ledger)
   SELECT user_id, COALESCE(SUM(amount),0) INTO v_admin, v_admin_credit
   FROM wallet_transactions
   WHERE reservation_id = ANY(v_res) AND user_id IS NOT NULL AND type='platform_income'
@@ -390,19 +402,19 @@ COMMIT;
 
 -- Verificación post-cleanup (esperado: todo 0)
 SELECT
-  (SELECT COUNT(*) FROM payment_config WHERE key='test_run_id')       AS run_0,
-  (SELECT COUNT(*) FROM groups        WHERE name ~ '^__TEST_2TABS')   AS grupos_0,
-  (SELECT COUNT(*) FROM reservations  WHERE address LIKE 'Av. Prueba T2B_%') AS reservas_0,
-  (SELECT COUNT(*) FROM payment_attempts WHERE client_key LIKE 'T2B_%')      AS attempts_0,
-  (SELECT COUNT(*) FROM payment_receipts WHERE provider_payment_id LIKE 'T2B_%') AS receipts_0,
-  (SELECT COUNT(*) FROM refund_intents  WHERE provider_payment_id LIKE 'T2B_%')  AS refunds_0;
+  (SELECT COUNT(*) FROM payment_config WHERE key='test_run_id')                    AS run_0,
+  (SELECT COUNT(*) FROM groups        WHERE name ~ '^__TEST_2TABS')                AS grupos_0,
+  (SELECT COUNT(*) FROM reservations  WHERE address LIKE 'Av. Prueba T2B_%')       AS reservas_0,
+  (SELECT COUNT(*) FROM payment_attempts WHERE client_key LIKE 'T2B_%')            AS attempts_0,
+  (SELECT COUNT(*) FROM payment_receipts WHERE provider_payment_id LIKE 'T2B_%')   AS receipts_0,
+  (SELECT COUNT(*) FROM refund_intents  WHERE provider_payment_id LIKE 'T2B_%')    AS refunds_0;
 ```
 
 ## Criterios de paro generales
 
-1. Preflight ≠ `1 · 0 · 0 · 4 · 2 · ≥1` → no seguir.
-2. Cualquier resultado distinto al esperado (salvo los "también válido" de B) →
-   detener, pegar el resultado tal cual, NO ejecutar el cleanup (preserva evidencia).
+1. Preflight/PS-0 incompletos → no seguir.
+2. Cualquier resultado distinto al esperado (salvo los "también válido"
+   documentados) → detener, pegar tal cual, NO ejecutar el cleanup.
 3. Deadlock `40P01` → detener todo; evidencia crítica.
-4. El cleanup solo al final; sus NOTICE muestran qué borró y cuánto revirtió.
+4. La service key de la rama muere con la rama (paso 14) — no reutilizarla.
 5. Post-cleanup todo 0; si algo queda > 0, pegar antes de tocar nada.
