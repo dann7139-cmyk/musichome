@@ -104,54 +104,78 @@ $rpcJob = {
   $H2 = @{ apikey = $Key; Authorization = "Bearer $Key"; "Content-Type" = "application/json" }
   $t0 = Get-Date
   try   { $r = Invoke-RestMethod -Method Post -Uri "$Url/rest/v1/rpc/confirm_reservation_payment_v2" -Headers $H2 -Body $Body }
-  catch { $r = @{ http_error = $_.Exception.Message } }
+  catch {
+    $bodyTxt = $null
+    if ($_.Exception.Response) {
+      $sr = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
+      $bodyTxt = $sr.ReadToEnd()
+    }
+    $r = @{ http_error = $_.Exception.Message; body = $bodyTxt }
+  }
   $ms = [int]((Get-Date) - $t0).TotalMilliseconds
   "[$Tag] $ms ms → " + ($r | ConvertTo-Json -Compress)
 }
 
-$holdJob = {
-  param($Url, $Key, $Seconds)
-  $H2 = @{ apikey = $Key; Authorization = "Bearer $Key"; "Content-Type" = "application/json" }
-  $t0 = Get-Date
-  try   { $r = Invoke-RestMethod -Method Post -Uri "$Url/rest/v1/rpc/test_hold_group_lock" -Headers $H2 -Body (@{ p_seconds = $Seconds } | ConvertTo-Json) }
-  catch { $r = @{ http_error = $_.Exception.Message } }
-  $ms = [int]((Get-Date) - $t0).TotalMilliseconds
-  "[HOLD] $ms ms → " + ($r | ConvertTo-Json -Compress)
-}
-
 function Wait-Lock {
-  for ($i = 0; $i -lt 40; $i++) {
+  for ($i = 0; $i -lt 60; $i++) {
     try { $p = Invoke-RestMethod -Method Post -Uri "$U/rest/v1/rpc/test_lock_probe" -Headers $H -Body "{}" }
     catch { $p = @{ held = $false } }
-    if ($p.held) { "PROBE: lock retenido (tras $($i*250) ms de espera)"; return $true }
+    if ($p.held) { "PROBE: lock retenido (tras $($i*250) ms de sondeo)"; return $true }
     Start-Sleep -Milliseconds 250
   }
-  "PROBE TIMEOUT: el lock nunca apareció (10 s)"; return $false
+  "PROBE TIMEOUT: el lock nunca apareció (15 s) — ¿diste Run al bloque SQL?"; return $false
 }
 "PS-0 listo"
 ```
 
-## A-0 — Calibración del retenedor REST (una vez)
+## A-0 — Calibración del retenedor REST — EJECUTADA Y CONCLUIDA
 
-PostgREST aplica el statement_timeout del rol; hay que medir cuánto sostiene:
+**Resultado real (2026-07-19):** `[HOLD] 8817 ms → http_error 500` sin JSON.
+**Diagnóstico:** `statement_timeout = 8s` del rol de API de PostgREST (default
+de Supabase) mató la llamada de 10s. NO es un fallo del mecanismo. Dato útil
+de producción: los webhooks viven bajo el mismo tope de 8s, y una llamada de
+pago que espere sus 5s de lock_timeout termina en ~5.5s < 8s ✓.
 
-```powershell
-$hold = Start-Job -ScriptBlock $holdJob -ArgumentList $U,$K,10
-Receive-Job -Job $hold -Wait -AutoRemoveJob
+Confirmación en SQL (editor de la rama):
+
+```sql
+SELECT rolname, rolconfig FROM pg_roles
+WHERE rolname IN ('service_role','authenticator','anon','authenticated','postgres');
+-- Esperado: statement_timeout=8s en los roles de API; postgres sin ese tope
 ```
 
-- **~10000 ms con JSON (`locked_at`/`released_at`)** → el retenedor aguanta ≥10s → usar 15s en A.
-- **http_error a los ~N ms** → el statement_timeout del rol corta en N; mientras N > 6000 el guion funciona (el probe dispara en <1s y el pago espera 5s). Si N ≤ 6000, repórtalo y paramos.
+**Decisión:** el retenedor REST queda DESCARTADO para los guiones (máx ~8s,
+margen insuficiente). El retenedor vuelve al SQL Editor (rol postgres, sin el
+tope de 8s; D2 probó que el batch sostiene el lock). El timing humano deja de
+importar porque el ORDEN SE INVIERTE: primero se lanza el bloque PowerShell
+(queda sondeando con el probe hasta 15s) y DESPUÉS se da Run al SQL.
+`test_hold_group_lock` puede quedar instalada (inofensiva, guardada por
+sentinela) — el cleanup la borra igual.
 
-## GUION A — Lock timeout real (probe-gated)
+## GUION A — Lock timeout real (holder en editor, probe-gated)
+
+**A-1) PowerShell PRIMERO** (queda sondeando hasta 15 s):
 
 ```powershell
-$hold = Start-Job -ScriptBlock $holdJob -ArgumentList $U,$K,15
 if (Wait-Lock) { & $rpcJob $U $K $bodyM1 "A-m1" }
-Receive-Job -Job $hold -Wait -AutoRemoveJob
 ```
 
-**Esperado:** `PROBE: lock retenido...` → `[A-m1] ~5000 ms → {"result":"temporary_lock_timeout"}` → `[HOLD]` con `locked_at`/`released_at` que ENVUELVEN la ventana del pago (evidencia del servidor). Si el probe nunca ve el lock → pegar el `[HOLD]` (dirá por qué).
+**A-2) SQL Editor INMEDIATAMENTE DESPUÉS** (Run — retiene el carril 20 s):
+
+```sql
+BEGIN;
+SELECT pg_advisory_xact_lock(hashtext(
+  (SELECT id::text FROM groups WHERE name =
+    '__TEST_2TABS_' || (SELECT value FROM payment_config WHERE key='test_run_id'))));
+SELECT pg_sleep(20);
+COMMIT;
+```
+
+**Esperado:** en PowerShell: `PROBE: lock retenido...` seguido de
+`[A-m1] ~5000 ms → {"result":"temporary_lock_timeout"}` (si en su lugar sale
+un error, el catch ahora imprime `body` con el JSON real de PostgREST —
+pégalo). Si el probe expira a los 15 s, no se disparó nada: repite dando Run
+más rápido.
 
 **Verificación A (SQL Editor — esperado: 0 · created · pending_payment/unpaid · 0):**
 
@@ -172,20 +196,34 @@ SELECT
 **Paro A:** `confirmed` con elapsed <4000 ms A PESAR de probe=retenido → eso sí
 implicaría al mecanismo → detener y pegar todo · escrituras tras timeout → grave.
 
-## GUION B — Mismo pago simultáneo (probe-gated)
+## GUION B — Mismo pago simultáneo (holder en editor, probe-gated)
+
+**B-1) PowerShell PRIMERO** (sondea y, al confirmar el lock, lanza los dos jobs):
 
 ```powershell
-$hold = Start-Job -ScriptBlock $holdJob -ArgumentList $U,$K,4
 if (Wait-Lock) {
   $j1 = Start-Job -ScriptBlock $rpcJob -ArgumentList $U,$K,$bodyM1,"B-1"
   $j2 = Start-Job -ScriptBlock $rpcJob -ArgumentList $U,$K,$bodyM1,"B-2"
   Receive-Job -Job $j1,$j2 -Wait -AutoRemoveJob
 }
-Receive-Job -Job $hold -Wait -AutoRemoveJob
 ```
 
-**Esperado:** ambos esperan (elapsed alto = contención real) y al liberarse:
-**uno `confirmed`, el otro `already_processed`** (cualquier orden).
+**B-2) SQL Editor INMEDIATAMENTE DESPUÉS** (Run — retiene el carril 4 s):
+
+```sql
+BEGIN;
+SELECT pg_advisory_xact_lock(hashtext(
+  (SELECT id::text FROM groups WHERE name =
+    '__TEST_2TABS_' || (SELECT value FROM payment_config WHERE key='test_run_id'))));
+SELECT pg_sleep(4);
+COMMIT;
+```
+
+**Esperado:** ambos jobs esperan lo que reste de los 4 s (timeout imposible:
+espera máxima 4 s < 5 s) y al liberarse: **uno `confirmed`, el otro
+`already_processed`** (cualquier orden). Si llegaron tras la liberación
+(spawn lento), el invariante es idéntico; el elapsed alto es la evidencia de
+contención.
 
 **Verificación B (SQL Editor — esperado: 1 · confirmed/credited · 1 · 1000):**
 
@@ -205,19 +243,23 @@ SELECT
 
 **Paro B:** 2 receipts, 2 créditos, balance ≠ 1000, o ambos `confirmed` → fallo crítico del UNIQUE.
 
-## GUION C — Dos pagos del mismo grupo (probe-gated, sin deadlock)
+## GUION C — Dos pagos del mismo grupo (holder en editor, sin deadlock)
+
+**C-1) PowerShell PRIMERO:**
 
 ```powershell
-$hold = Start-Job -ScriptBlock $holdJob -ArgumentList $U,$K,4
 if (Wait-Lock) {
   $j1 = Start-Job -ScriptBlock $rpcJob -ArgumentList $U,$K,$bodyM1,"C-m1"
   $j2 = Start-Job -ScriptBlock $rpcJob -ArgumentList $U,$K,$bodyM2,"C-m2"
   Receive-Job -Job $j1,$j2 -Wait -AutoRemoveJob
 }
-Receive-Job -Job $hold -Wait -AutoRemoveJob
 ```
 
-**Esperado:** `C-m1` → `already_processed` (confirmado en B), `C-m2` → `confirmed`. **Sin `40P01`.**
+**C-2) SQL Editor INMEDIATAMENTE DESPUÉS** — el MISMO bloque de retención de
+4 s de B-2.
+
+**Esperado:** `C-m1` → `already_processed` (confirmado en B), `C-m2` →
+`confirmed`. **Sin `40P01`.**
 
 **Verificación C (SQL Editor — esperado: 1 · 2 · 2000 · confirmed/paid · confirmed/paid):**
 
@@ -422,8 +464,10 @@ DROP FUNCTION IF EXISTS public.test_lock_probe();
 
 ## Criterios de paro generales
 
-1. A-0 con corte ≤6000 ms → parar y reportar (el rol no sostiene la ventana).
-2. Probe nunca ve el lock → pegar el `[HOLD]` (dice por qué) — no disparar pagos.
+1. A-0 CONCLUIDA: statement_timeout del rol de API = 8s → retenedor por REST
+   descartado; retenedor en editor (sin ese tope) con orden invertido.
+2. Probe nunca ve el lock (15 s) → no se disparó nada; repetir dando Run al
+   SQL más rápido. Si persiste, pegar el resultado de la consulta de pg_roles.
 3. `confirmed` rápido A PESAR de probe=retenido → única evidencia que implicaría
    al mecanismo de la RPC → detener y pegar todo.
 4. `40P01` → detener todo.
