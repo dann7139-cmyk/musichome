@@ -12,19 +12,40 @@
 
 BEGIN;
 
--- ── 0. GUARD ─────────────────────────────────────────────────
+-- ── 0. GUARD AMPLIADO ────────────────────────────────────────
+-- Aborta ante CUALQUIER dato financiero/probatorio cuya pérdida o
+-- desconexión sería irreversible. No es posible distinguir con certeza
+-- qué filas nacieron "bajo 521", así que el guard es máximamente
+-- conservador: si el gate o la resolución ya procesaron ALGO, este
+-- rollback destructivo queda prohibido → resolver hacia adelante.
 DO $$
-DECLARE v_ev INT; v_res INT; v_cl INT;
+DECLARE
+  v_ev   INT;  -- evidencias registradas
+  v_obj  INT;  -- archivos en el bucket de evidencia
+  v_res  INT;  -- receipts resueltos manualmente
+  v_rc   INT;  -- receipts existentes (cualquiera)
+  v_cl   INT;  -- intents reclamados/completados
+  v_pi   INT;  -- intents abiertos (pending/processing)
+  v_snap INT;  -- attempts con snapshot contractual poblado
 BEGIN
-  SELECT COUNT(*) INTO v_ev FROM admin_payment_evidence;
-  SELECT COUNT(*) INTO v_res FROM payment_receipts WHERE resolution IS NOT NULL;
-  SELECT COUNT(*) INTO v_cl FROM refund_intents WHERE claimed_by IS NOT NULL OR status='done';
-  IF v_ev > 0 OR v_res > 0 OR v_cl > 0 THEN
+  SELECT COUNT(*) INTO v_ev   FROM admin_payment_evidence;
+  SELECT COUNT(*) INTO v_obj  FROM storage.objects WHERE bucket_id = 'payment-evidence';
+  SELECT COUNT(*) INTO v_res  FROM payment_receipts WHERE resolution IS NOT NULL;
+  SELECT COUNT(*) INTO v_rc   FROM payment_receipts;
+  SELECT COUNT(*) INTO v_cl   FROM refund_intents WHERE claimed_by IS NOT NULL OR status = 'done';
+  SELECT COUNT(*) INTO v_pi   FROM refund_intents WHERE status IN ('pending','processing');
+  SELECT COUNT(*) INTO v_snap FROM payment_attempts
+    WHERE group_base_minor IS NOT NULL OR platform_fee_minor IS NOT NULL;
+
+  IF v_ev > 0 OR v_obj > 0 OR v_res > 0 OR v_rc > 0
+     OR v_cl > 0 OR v_pi > 0 OR v_snap > 0 THEN
     RAISE EXCEPTION USING MESSAGE = format(
-      'ROLLBACK PROHIBIDO — hay datos probatorios/resoluciones reales: '
-      || 'evidencias=%s, receipts resueltos=%s, intents procesados=%s. '
-      || 'El historial NO se borra: resolver hacia adelante.',
-      v_ev, v_res, v_cl);
+      'ROLLBACK PROHIBIDO — datos cuya pérdida sería irreversible: '
+      || 'evidencias=%s, archivos_evidencia=%s, receipts_resueltos=%s, '
+      || 'receipts_totales=%s, intents_procesados=%s, intents_abiertos=%s, '
+      || 'attempts_con_snapshot=%s. El historial financiero, los snapshots '
+      || 'contractuales y las colas abiertas NO se borran: resolver hacia adelante.',
+      v_ev, v_obj, v_res, v_rc, v_cl, v_pi, v_snap);
   END IF;
 END $$;
 
@@ -41,7 +62,14 @@ DROP FUNCTION IF EXISTS public.register_payment_evidence(
 DROP TRIGGER IF EXISTS trg_evidence_immutable ON admin_payment_evidence;
 DROP FUNCTION IF EXISTS public.evidence_immutable_guard();
 DROP TABLE IF EXISTS admin_payment_evidence;
--- El bucket 'payment-evidence' y sus políticas quedan (inertes, sin objetos).
+
+-- Bucket de evidencia: políticas fuera y, como el guard ya verificó que
+-- está vacío, el bucket también se elimina.
+DROP POLICY IF EXISTS pe_admin_insert ON storage.objects;
+DROP POLICY IF EXISTS pe_admin_select ON storage.objects;
+DELETE FROM storage.buckets
+WHERE id = 'payment-evidence'
+  AND NOT EXISTS (SELECT 1 FROM storage.objects WHERE bucket_id = 'payment-evidence');
 
 -- ── 3. RESTAURAR confirm_reservation_payment_v2 (cuerpo de sql/519) ─
 CREATE OR REPLACE FUNCTION public.confirm_reservation_payment_v2(
@@ -393,19 +421,27 @@ BEGIN
   PERFORM ensure_group_wallet(v_group_id);
   SELECT id INTO v_wallet_id FROM group_wallets WHERE group_id = v_group_id;
 
-  IF v_currency = 'USD' THEN
-    UPDATE group_wallets SET
-      pending_balance_usd = pending_balance_usd + v_earnings,
-      total_earned_usd    = total_earned_usd    + v_earnings,
-      updated_at          = NOW()
-    WHERE id = v_wallet_id;
-  ELSE
-    UPDATE group_wallets SET
-      pending_balance = pending_balance + v_earnings,
-      total_earned    = total_earned    + v_earnings,
-      updated_at      = NOW()
-    WHERE id = v_wallet_id;
-  END IF;
+  -- [Ajuste aprobado 2026-07-20]: aunque este rollback restaura el
+  -- comportamiento de sql/519, NO restaura el ELSE-como-MXN. CASE
+  -- explícito: una moneda sin wallet (CAD u otra) lanza excepción y
+  -- aborta — jamás se mezcla en MXN. (En este estado de emergencia un
+  -- pago CAD daría 500/reintento y requeriría intervención manual.)
+  CASE v_currency
+    WHEN 'MXN' THEN
+      UPDATE group_wallets SET
+        pending_balance = pending_balance + v_earnings,
+        total_earned    = total_earned    + v_earnings,
+        updated_at      = NOW()
+      WHERE id = v_wallet_id;
+    WHEN 'USD' THEN
+      UPDATE group_wallets SET
+        pending_balance_usd = pending_balance_usd + v_earnings,
+        total_earned_usd    = total_earned_usd    + v_earnings,
+        updated_at          = NOW()
+      WHERE id = v_wallet_id;
+    ELSE
+      RAISE EXCEPTION 'moneda % sin wallet autorizada — crédito prohibido', v_currency;
+  END CASE;
 
   UPDATE reservations SET
     status              = CASE WHEN status IN ('pending','pending_payment',
@@ -441,19 +477,22 @@ BEGIN
     VALUES (v_admin_id, 0, 0, 0)
     ON CONFLICT (user_id) DO NOTHING;
 
-    IF v_currency = 'USD' THEN
-      UPDATE wallets SET
-        available_balance_usd = available_balance_usd + v_admin_bruto,
-        total_earned_usd      = COALESCE(total_earned_usd, 0) + v_admin_bruto,
-        updated_at            = NOW()
-      WHERE user_id = v_admin_id;
-    ELSE
-      UPDATE wallets SET
-        available_balance = available_balance + v_admin_bruto,
-        total_earned      = COALESCE(total_earned, 0) + v_admin_bruto,
-        updated_at        = NOW()
-      WHERE user_id = v_admin_id;
-    END IF;
+    CASE v_currency
+      WHEN 'MXN' THEN
+        UPDATE wallets SET
+          available_balance = available_balance + v_admin_bruto,
+          total_earned      = COALESCE(total_earned, 0) + v_admin_bruto,
+          updated_at        = NOW()
+        WHERE user_id = v_admin_id;
+      WHEN 'USD' THEN
+        UPDATE wallets SET
+          available_balance_usd = available_balance_usd + v_admin_bruto,
+          total_earned_usd      = COALESCE(total_earned_usd, 0) + v_admin_bruto,
+          updated_at            = NOW()
+        WHERE user_id = v_admin_id;
+      ELSE
+        RAISE EXCEPTION 'moneda % sin wallet admin autorizada — crédito prohibido', v_currency;
+    END CASE;
 
     INSERT INTO wallet_transactions (user_id, type, amount, reservation_id, description, currency_code)
     VALUES (v_admin_id, 'platform_income', v_admin_bruto, p_reservation_id,
