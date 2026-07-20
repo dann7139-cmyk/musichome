@@ -23,8 +23,9 @@ DECLARE
   v_group    UUID;
   v_r1 UUID; v_r2 UUID; v_r3 UUID; v_rusd UUID; v_rcad UUID; v_r19 UUID;
   v_rc1 UUID; v_rc2 UUID; v_rc3 UUID; v_rc4 UUID; v_rcu UUID; v_rc19 UUID;
-  v_ev1 UUID; v_evd UUID; v_evnc UUID;
+  v_ev1 UUID; v_evd UUID; v_evnc UUID; v_evz UUID;
   v_int UUID;
+  v_snap_b JSONB; v_snap_a JSONB;
   v_json JSONB;
   v_bal_mxn NUMERIC; v_bal_usd NUMERIC;
   v_adm_mxn NUMERIC; v_adm_usd NUMERIC;
@@ -132,10 +133,24 @@ BEGIN
     jsonb_build_object('total','stripe.pi.amount','currency','stripe.pi.currency'),
     NULL, NULL, 'evidencia válida ch_521_a', NULL);
   v_ev1 := (v_json->>'evidence_id')::UUID;
-  IF (v_json->>'ok')::BOOLEAN AND length(v_json->>'snapshot_sha256') = 64 THEN
-    v_report := v_report || 'T3  evidencia válida registrada + sha256 server-side ......... PASS' || E'\n';
+  -- Recomputar el SHA-256 EXACTO desde la fila (misma construcción que la RPC)
+  SELECT (e.snapshot_sha256 = encode(digest(convert_to(
+           jsonb_build_object(
+             'provider', e.provider, 'payment_id', e.provider_payment_id,
+             'order_id', e.provider_order_id, 'reservation_id', e.reservation_id,
+             'captured', e.captured, 'amount_minor', e.amount_minor,
+             'currency', e.currency, 'discount_minor', e.discount_minor,
+             'msi_fee_minor', e.msi_fee_minor, 'group_base_minor', e.group_base_minor,
+             'platform_fee_minor', e.platform_fee_minor,
+             'consulted_at', e.consulted_at, 'payload', e.payload,
+             'field_sources', e.field_sources
+           )::text, 'UTF8'), 'sha256'), 'hex'))
+    INTO v_txt
+  FROM admin_payment_evidence e WHERE e.id = v_ev1;
+  IF (v_json->>'ok')::BOOLEAN AND v_txt::BOOLEAN THEN
+    v_report := v_report || 'T3  sha256 RECOMPUTADO desde la fila == almacenado ........... PASS' || E'\n';
   ELSE
-    v_report := v_report || 'T3  evidencia válida ................................ FAIL ' || v_json::text || E'\n';
+    v_report := v_report || 'T3  hash no reproducible ............................ FAIL ' || v_json::text || E'\n';
   END IF;
 
   ---------------------------------------------------------------
@@ -161,6 +176,51 @@ BEGIN
       v_report := v_report || 'T5  DELETE evidencia: error inesperado .............. FAIL ' || SQLERRM || E'\n';
     END IF;
   END;
+
+  ---------------------------------------------------------------
+  -- T5b: segunda versión SIN supersedes → supersedes_required
+  ---------------------------------------------------------------
+  v_json := public.register_payment_evidence(
+    'stripe','ch_521_a','ord_521_a', v_r1, TRUE, 120000,'MXN',0,0,
+    100000, 20000, NOW(), '{"src":"v2"}'::jsonb, '{"total":"t"}'::jsonb,
+    NULL, NULL, 'v2 sin supersedes', NULL);
+  IF v_json->>'error' = 'supersedes_required' THEN
+    v_report := v_report || 'T5b v2 sin supersedes → supersedes_required .................. PASS' || E'\n';
+  ELSE
+    v_report := v_report || 'T5b v2 sin supersedes ............................... FAIL ' || v_json::text || E'\n';
+  END IF;
+
+  ---------------------------------------------------------------
+  -- T5c: supersedes de OTRO pago → supersedes_invalid
+  ---------------------------------------------------------------
+  v_json := public.register_payment_evidence(
+    'stripe','ch_521_z','ord_521_z', NULL, FALSE, 1000,'MXN',0,0,
+    NULL, NULL, NOW(), '{"src":"z"}'::jsonb, '{"s":"t"}'::jsonb,
+    NULL, NULL, 'evidencia de otro pago', NULL);
+  v_evz := (v_json->>'evidence_id')::UUID;
+  v_json := public.register_payment_evidence(
+    'stripe','ch_521_a','ord_521_a', v_r1, TRUE, 120000,'MXN',0,0,
+    100000, 20000, NOW(), '{"src":"v2"}'::jsonb, '{"total":"t"}'::jsonb,
+    NULL, NULL, 'v2 con supersedes ajeno', v_evz);
+  IF v_json->>'error' = 'supersedes_invalid' THEN
+    v_report := v_report || 'T5c supersedes de otro pago → supersedes_invalid ............. PASS' || E'\n';
+  ELSE
+    v_report := v_report || 'T5c supersedes ajeno ................................ FAIL ' || v_json::text || E'\n';
+  END IF;
+
+  ---------------------------------------------------------------
+  -- T5d: v2 con supersedes = versión previa correcta → OK
+  --      (mismos valores para no alterar los tests posteriores)
+  ---------------------------------------------------------------
+  v_json := public.register_payment_evidence(
+    'stripe','ch_521_a','ord_521_a', v_r1, TRUE, 120000,'MXN',0,0,
+    100000, 20000, NOW(), '{"src":"v2-correccion"}'::jsonb, '{"total":"t"}'::jsonb,
+    NULL, NULL, 'corrección v2 legítima', v_ev1);
+  IF (v_json->>'ok')::BOOLEAN AND (v_json->>'version')::INT = 2 THEN
+    v_report := v_report || 'T5d supersedes correcto (v1→v2 mismo pago) → registrada ...... PASS' || E'\n';
+  ELSE
+    v_report := v_report || 'T5d versionado legítimo ............................. FAIL ' || v_json::text || E'\n';
+  END IF;
 
   ---------------------------------------------------------------
   -- T6: credit SIN evidencia → evidence_required
@@ -442,6 +502,27 @@ BEGIN
     'stripe','ch_521_t19','ord_521_t19', v_r19, TRUE, 120000,'MXN',0,0,
     100000, 20000, NOW(), '{"src":"t19"}'::jsonb, '{"total":"t"}'::jsonb,
     NULL, NULL, 'evidencia t19', NULL);
+  -- SNAPSHOT COMPLETO antes: balances y totales de ambas wallets (2 monedas),
+  -- ledgers, auditorías, notificaciones, reserva y receipt
+  v_snap_b :=
+    COALESCE((SELECT jsonb_build_object(
+        'gw_pend', pending_balance, 'gw_pend_usd', COALESCE(pending_balance_usd,0),
+        'gw_tot',  total_earned,    'gw_tot_usd',  COALESCE(total_earned_usd,0))
+      FROM group_wallets WHERE group_id = v_group), '{}'::jsonb)
+    || COALESCE((SELECT jsonb_build_object(
+        'aw_av', COALESCE(available_balance,0), 'aw_av_usd', COALESCE(available_balance_usd,0),
+        'aw_tot', COALESCE(total_earned,0),     'aw_tot_usd', COALESCE(total_earned_usd,0))
+      FROM wallets WHERE user_id = v_admin), '{}'::jsonb)
+    || jsonb_build_object(
+        'ledger_r19', (SELECT COUNT(*) FROM wallet_transactions WHERE reservation_id = v_r19),
+        'audit_r19',  (SELECT COUNT(*) FROM financial_audit_logs WHERE entity_id = v_r19),
+        'notif_r19',  (SELECT COUNT(*) FROM notifications WHERE (data->>'reservation_id') = v_r19::text),
+        'reserva',    (SELECT status||'/'||payment_status||'/'||COALESCE(payout_status,'-')
+                       FROM reservations WHERE id = v_r19),
+        'receipt',    (SELECT money_state||'/'||settlement_status||'/'||COALESCE(resolution,'-')
+                       FROM payment_receipts WHERE id = v_rc19));
+
+  v_txt := NULL;
   ALTER TABLE wallet_transactions ADD CONSTRAINT __t522_fail CHECK (amount < 0) NOT VALID;
   BEGIN
     v_json := public.resolve_payment_receipt(
@@ -449,16 +530,36 @@ BEGIN
       v_r19, v_r19, 120000, 'MXN', NULL, NULL);
     v_report := v_report || 'T19 excepción inducida .............................. FAIL (no abortó)' || E'\n';
   EXCEPTION WHEN OTHERS THEN
-    IF SQLERRM LIKE '%__t522_fail%'
-       AND (SELECT payment_status FROM reservations WHERE id=v_r19) = 'unpaid'
-       AND (SELECT resolution FROM payment_receipts WHERE id=v_rc19) IS NULL
-       AND (SELECT settlement_status FROM payment_receipts WHERE id=v_rc19) = 'unsettled' THEN
-      v_report := v_report || 'T19 excepción a mitad del credit → CERO efectos parciales .... PASS' || E'\n';
-    ELSE
-      v_report := v_report || 'T19 rollback parcial ................................ FAIL ' || SQLERRM || E'\n';
-    END IF;
+    v_txt := SQLERRM;
   END;
   ALTER TABLE wallet_transactions DROP CONSTRAINT __t522_fail;
+
+  -- SNAPSHOT COMPLETO después (misma expresión) — debe ser IDÉNTICO
+  v_snap_a :=
+    COALESCE((SELECT jsonb_build_object(
+        'gw_pend', pending_balance, 'gw_pend_usd', COALESCE(pending_balance_usd,0),
+        'gw_tot',  total_earned,    'gw_tot_usd',  COALESCE(total_earned_usd,0))
+      FROM group_wallets WHERE group_id = v_group), '{}'::jsonb)
+    || COALESCE((SELECT jsonb_build_object(
+        'aw_av', COALESCE(available_balance,0), 'aw_av_usd', COALESCE(available_balance_usd,0),
+        'aw_tot', COALESCE(total_earned,0),     'aw_tot_usd', COALESCE(total_earned_usd,0))
+      FROM wallets WHERE user_id = v_admin), '{}'::jsonb)
+    || jsonb_build_object(
+        'ledger_r19', (SELECT COUNT(*) FROM wallet_transactions WHERE reservation_id = v_r19),
+        'audit_r19',  (SELECT COUNT(*) FROM financial_audit_logs WHERE entity_id = v_r19),
+        'notif_r19',  (SELECT COUNT(*) FROM notifications WHERE (data->>'reservation_id') = v_r19::text),
+        'reserva',    (SELECT status||'/'||payment_status||'/'||COALESCE(payout_status,'-')
+                       FROM reservations WHERE id = v_r19),
+        'receipt',    (SELECT money_state||'/'||settlement_status||'/'||COALESCE(resolution,'-')
+                       FROM payment_receipts WHERE id = v_rc19));
+
+  IF v_txt LIKE '%__t522_fail%' AND v_snap_a = v_snap_b THEN
+    v_report := v_report || 'T19 excepción a mitad del credit → snapshot IDÉNTICO ......... PASS' || E'\n';
+  ELSE
+    v_report := v_report || 'T19 rollback parcial ................................ FAIL err='
+      || COALESCE(v_txt, 'sin excepción') || ' antes=' || v_snap_b::text
+      || ' después=' || v_snap_a::text || E'\n';
+  END IF;
 
   ---------------------------------------------------------------
   -- T20: coherencia settlement (CHECK) + conciliación total
@@ -470,6 +571,32 @@ BEGIN
     v_report := v_report || 'T20a settlement incoherente → CHECK lo rechaza ............... PASS' || E'\n';
   END;
 
+  -- T20b: admin_pending_receipts() DIRECTO — exactamente las 2 partidas
+  -- abiertas del set (t19 unsettled + cad refund_pending), sin finales
+  -- ni duplicados
+  SELECT COUNT(*) INTO v_n
+  FROM public.admin_pending_receipts() apr
+  WHERE apr.provider_payment_id LIKE 'ch_521%';
+  IF v_n = 2
+     AND (SELECT COUNT(DISTINCT apr.receipt_id) FROM public.admin_pending_receipts() apr
+          WHERE apr.provider_payment_id LIKE 'ch_521%') = 2
+     AND EXISTS (SELECT 1 FROM public.admin_pending_receipts() apr
+                 WHERE apr.provider_payment_id = 'ch_521_t19'
+                   AND apr.settlement_status = 'unsettled')
+     AND EXISTS (SELECT 1 FROM public.admin_pending_receipts() apr
+                 WHERE apr.provider_payment_id = 'ch_521_cad'
+                   AND apr.settlement_status = 'refund_pending'
+                   AND apr.intent_status = 'pending')
+     AND NOT EXISTS (SELECT 1 FROM public.admin_pending_receipts() apr
+                     WHERE apr.provider_payment_id LIKE 'ch_521%'
+                       AND apr.settlement_status IN
+                         ('credited','refund_completed','no_capture_verified','duplicate_linked')) THEN
+    v_report := v_report || 'T20b reporte: EXACTO 2 abiertas (t19+cad), 0 finales, 0 dups . PASS' || E'\n';
+  ELSE
+    v_report := v_report || 'T20b reporte conciliación ........................... FAIL n=' || v_n::text || E'\n';
+  END IF;
+
+  -- T20c: ninguna resolución hizo desaparecer un pago del universo
   SELECT COUNT(*) INTO v_n FROM payment_receipts
   WHERE provider_payment_id LIKE 'ch_521%';
   IF v_n = 7
@@ -477,9 +604,9 @@ BEGIN
           WHERE provider_payment_id LIKE 'ch_521%'
             AND settlement_status IN ('credited','refund_pending','refund_completed',
                                       'no_capture_verified','duplicate_linked','unsettled')) = 7 THEN
-    v_report := v_report || 'T20b conciliación: los 7 receipts visibles, ninguno perdido .. PASS' || E'\n';
+    v_report := v_report || 'T20c conciliación: los 7 receipts visibles, ninguno perdido .. PASS' || E'\n';
   ELSE
-    v_report := v_report || 'T20b conciliación ................................... FAIL n=' || v_n::text || E'\n';
+    v_report := v_report || 'T20c conciliación ................................... FAIL n=' || v_n::text || E'\n';
   END IF;
 
   v_report := v_report || E'══════ FIN — todo se revierte ahora (RAISE) ══════';

@@ -193,9 +193,27 @@ BEGIN
   FROM admin_payment_evidence
   WHERE provider = p_provider AND provider_payment_id = p_provider_payment_id;
 
-  IF v_version > 1 AND p_supersedes IS NULL THEN
-    RETURN jsonb_build_object('ok', false, 'error', 'supersedes_required',
-      'detail', 'Ya existe evidencia previa: la corrección debe referenciarla');
+  IF v_version = 1 AND p_supersedes IS NOT NULL THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'supersedes_invalid',
+      'detail', 'No existe evidencia previa que corregir');
+  END IF;
+  IF v_version > 1 THEN
+    IF p_supersedes IS NULL THEN
+      RETURN jsonb_build_object('ok', false, 'error', 'supersedes_required',
+        'detail', 'Ya existe evidencia previa: la corrección debe referenciarla');
+    END IF;
+    -- supersedes debe ser la VERSIÓN PREVIA del MISMO pago
+    IF NOT EXISTS (
+      SELECT 1 FROM admin_payment_evidence e
+      WHERE e.id = p_supersedes
+        AND e.provider = p_provider
+        AND e.provider_payment_id = p_provider_payment_id
+        AND e.version = v_version - 1
+    ) THEN
+      RETURN jsonb_build_object('ok', false, 'error', 'supersedes_invalid',
+        'detail', format('supersedes debe ser la versión %s de %s/%s',
+          v_version - 1, p_provider, p_provider_payment_id));
+    END IF;
   END IF;
 
   -- Hash del snapshot calculado por el SERVIDOR (el admin no lo provee)
@@ -204,8 +222,10 @@ BEGIN
       'provider', p_provider, 'payment_id', p_provider_payment_id,
       'order_id', p_provider_order_id, 'reservation_id', p_reservation_id,
       'captured', p_captured, 'amount_minor', p_amount_minor,
-      'currency', UPPER(p_currency), 'discount_minor', p_discount_minor,
-      'msi_fee_minor', p_msi_fee_minor, 'group_base_minor', p_group_base_minor,
+      -- valores NORMALIZADOS (los mismos que se almacenan) para que el hash
+      -- sea siempre recomputable desde la fila
+      'currency', UPPER(p_currency), 'discount_minor', COALESCE(p_discount_minor, 0),
+      'msi_fee_minor', COALESCE(p_msi_fee_minor, 0), 'group_base_minor', p_group_base_minor,
       'platform_fee_minor', p_platform_fee_minor,
       'consulted_at', p_consulted_at, 'payload', p_payload,
       'field_sources', p_field_sources
