@@ -66,10 +66,13 @@ BEGIN
   VALUES (v_group, v_user, DATE '2032-01-04', TIME '18:00', 3, 'pending_payment', 'unpaid', 1200, 1000, 'Av. Prueba 521')
   RETURNING id INTO v_rusd;
   UPDATE reservations SET currency_code = 'USD' WHERE id = v_rusd;
+  -- Reserva para T17: se queda en MXN a propósito — reservations.currency_code
+  -- solo admite MXN/USD (CHECK de sql/239; reservas CAD = fase futura). El
+  -- escenario CAD es del LADO DEL COBRO: attempt+pago llegan en CAD y el D0
+  -- del gate bloquea por la moneda del pago, antes de tocar la reserva.
   INSERT INTO reservations (group_id, client_id, event_date, event_time, hours_count, status, payment_status, total_price, base_price, address)
   VALUES (v_group, v_user, DATE '2032-01-05', TIME '18:00', 3, 'pending_payment', 'unpaid', 1200, 1000, 'Av. Prueba 521')
   RETURNING id INTO v_rcad;
-  UPDATE reservations SET currency_code = 'CAD' WHERE id = v_rcad;
   INSERT INTO reservations (group_id, client_id, event_date, event_time, hours_count, status, payment_status, total_price, base_price, address)
   VALUES (v_group, v_user, DATE '2032-01-06', TIME '18:00', 3, 'pending_payment', 'unpaid', 1200, 1000, 'Av. Prueba 521')
   RETURNING id INTO v_r19;
