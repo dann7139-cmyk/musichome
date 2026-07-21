@@ -52,21 +52,47 @@ SELECT
 
 ## PARTE 2 — Desplegar los 4 Edge Functions
 
-⚠️ **Antes de desplegar `create-conekta-order` y `conekta-webhook`, verifica
-en el dashboard de PRODUCCIÓN** (Edge Functions → función → "Enforce JWT
-Verification") si tienen la verificación desactivada — el código de ambas
-hace su propia autenticación interna y el comentario histórico de
-`conekta-webhook` dice explícitamente "Deploy con Verify JWT = OFF". Replica
-en staging exactamente lo que ya está en producción para esas dos; para
-`create-payment-intent` y `stripe-webhook`, `supabase/config.toml` ya
-declara `verify_jwt = false` — uso ese valor.
+⚠️ **BLOQUEADO hasta que confirmes 2 valores del dashboard de PRODUCCIÓN**
+(Edge Functions → función → "Enforce JWT Verification") para:
+- `create-conekta-order`: ON o OFF → **`<VALOR_1>`**
+- `conekta-webhook`: ON u OFF → **`<VALOR_2>`**
+
+No asumo ninguno de los dos. Reemplaza `<VALOR_1>`/`<VALOR_2>` abajo y
+elige la línea de comando que corresponda a cada uno — nunca uses la que
+no aplica.
+
+**Nota de seguridad ya verificada (no depende de lo que confirmes):**
+`create-conekta-order` exige y valida un JWT de usuario **dentro de su
+propio código** ([líneas 66-71](../supabase/functions/create-conekta-order/index.ts#L66-L71):
+`admin.auth.getUser(jwt)` con 401 propio si falta o es inválido) —
+la bandera de la plataforma NO decide si el endpoint queda público, solo
+decide quién emite el 401 (la plataforma o el código). Mismo patrón que
+`create-payment-intent`. `conekta-webhook` en cambio no tiene ningún
+chequeo de JWT/firma en el código — su única barrera es la re-consulta a
+la API de Conekta con la llave privada — por lo que **necesita**
+`Enforce JWT Verification = OFF` sin alternativa, ya que Conekta nunca
+envía un JWT de Supabase.
+
+`create-payment-intent` y `stripe-webhook` no quedan condicionados:
+`supabase/config.toml` ya declara `verify_jwt = false` para ambos.
 
 ```bash
 supabase functions deploy create-payment-intent --project-ref <STAGING_REF> --no-verify-jwt
 supabase functions deploy stripe-webhook          --project-ref <STAGING_REF> --no-verify-jwt
-supabase functions deploy create-conekta-order    --project-ref <STAGING_REF> --no-verify-jwt
-supabase functions deploy conekta-webhook         --project-ref <STAGING_REF> --no-verify-jwt
+
+# create-conekta-order — usa la línea que corresponda a <VALOR_1>:
+supabase functions deploy create-conekta-order    --project-ref <STAGING_REF> --no-verify-jwt   # si <VALOR_1> = OFF
+supabase functions deploy create-conekta-order    --project-ref <STAGING_REF>                   # si <VALOR_1> = ON (sin la bandera)
+
+# conekta-webhook — usa la línea que corresponda a <VALOR_2>:
+supabase functions deploy conekta-webhook         --project-ref <STAGING_REF> --no-verify-jwt   # si <VALOR_2> = OFF
+supabase functions deploy conekta-webhook         --project-ref <STAGING_REF>                   # si <VALOR_2> = ON (sin la bandera)
 ```
+
+⚠️ Si `<VALOR_2>` resultara ser **ON** en producción, avísame antes de
+desplegar en staging: significaría que Conekta actualmente logra pasar el
+gate de la plataforma sin JWT por algún otro mecanismo (poco probable,
+pero no lo asumo), y habría que investigarlo antes de replicarlo.
 
 Confirma cada despliegue exitoso en el dashboard (Edge Functions → lista, con
 timestamp reciente).
