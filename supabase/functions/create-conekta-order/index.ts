@@ -145,6 +145,67 @@ Deno.serve(async (req) => {
       metadata: { reservation_id: reservation_id, folio: res.folio ?? null, method: payMethod },
     };
 
+    // ── F2.2: captura inmutable del checkout (payment_attempts) ─────
+    // Clave determinística: mismo reservation_id+monto → mismo intento.
+    // Se registra ANTES de tocar Conekta; si ya hay una orden 'created'
+    // para esta clave, se reutiliza — jamás se crea una segunda orden.
+    const clientKey = `ord_${reservation_id}_${amountCentavos}`;
+    let attemptRow: any = null;
+    {
+      const { data: inserted, error: insErr } = await admin
+        .from('payment_attempts')
+        .insert({
+          provider:              'conekta',
+          client_key:            clientKey,
+          reservation_id,
+          expected_amount_minor: amountCentavos,
+          currency:              'MXN',
+          method:                payMethod,
+          discount_minor:        discount * 100,
+          msi_months:            1,
+          msi_fee_minor:         0,
+          status:                'creating',
+        })
+        .select()
+        .single();
+
+      if (insErr) {
+        const { data: existing } = await admin
+          .from('payment_attempts')
+          .select('*')
+          .eq('provider', 'conekta')
+          .eq('client_key', clientKey)
+          .maybeSingle();
+        attemptRow = existing;
+      } else {
+        attemptRow = inserted;
+      }
+    }
+
+    // Si ya hay una orden 'created' para esta clave, reutilizar su checkout.
+    if (attemptRow?.status === 'created' && attemptRow?.provider_order_id) {
+      const existingRes = await fetch(
+        `https://api.conekta.io/orders/${attemptRow.provider_order_id}`,
+        { headers: { Accept: 'application/vnd.conekta-v2.1.0+json', Authorization: `Basic ${btoa(`${privateKey}:`)}` } },
+      );
+      const existingOrder = await existingRes.json() as any;
+      if (existingRes.ok && existingOrder?.payment_status === 'paid') {
+        // Carrera rara: Conekta ya cobró pero el webhook aún no marcó la
+        // reserva — NUNCA crear una segunda orden sobre un cobro ya exitoso.
+        return jsonResponse({ error: 'Esta reserva ya fue pagada.' }, 400);
+      }
+      const existingUrl = existingOrder?.checkout?.url ?? null;
+      if (existingRes.ok && existingUrl) {
+        console.log(`[create-conekta-order] Reutilizando orden existente ${attemptRow.provider_order_id} (client_key=${clientKey})`);
+        return jsonResponse({
+          ok: true,
+          order_id:      attemptRow.provider_order_id,
+          checkout_url:  existingUrl,
+          reservation_id,
+        });
+      }
+    }
+
     const conektaRes = await fetch('https://api.conekta.io/orders', {
       method: 'POST',
       headers: {
@@ -168,6 +229,13 @@ Deno.serve(async (req) => {
     }
 
     console.log(`[create-conekta-order] order=${data?.id} reservation=${reservation_id} method=${payMethod} amount=${amountCentavos}`);
+
+    // F2.2: cerrar la captura — SOLO ahora se entrega el checkout al cliente.
+    await admin
+      .from('payment_attempts')
+      .update({ provider_order_id: data?.id, status: 'created' })
+      .eq('provider', 'conekta')
+      .eq('client_key', clientKey);
 
     return jsonResponse({
       ok: true,

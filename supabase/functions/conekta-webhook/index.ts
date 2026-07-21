@@ -38,6 +38,7 @@ async function verifyConektaPayment(orderId: string): Promise<{
   paid: boolean; amountCentavos: number; reservationId: string | null; methodType: string | null;
   feeCentavos: number | null; plusGroupId: string | null;
   promoKind: string | null; promoId: string | null;
+  chargeId: string | null; currency: string;
 }> {
   const auth = btoa(`${PRIVATE_KEY}:`);
   const res = await fetch(`https://api.conekta.io/orders/${orderId}`, {
@@ -48,7 +49,7 @@ async function verifyConektaPayment(orderId: string): Promise<{
   });
   if (!res.ok) {
     console.error('[conekta-webhook] verify: no se pudo consultar la orden', orderId, res.status);
-    return { paid: false, amountCentavos: 0, reservationId: null, methodType: null, feeCentavos: null, plusGroupId: null, promoKind: null, promoId: null };
+    return { paid: false, amountCentavos: 0, reservationId: null, methodType: null, feeCentavos: null, plusGroupId: null, promoKind: null, promoId: null, chargeId: null, currency: 'MXN' };
   }
   const order = await res.json() as any;
 
@@ -79,6 +80,10 @@ async function verifyConektaPayment(orderId: string): Promise<{
     // 📣 Orden de publicidad (create-promo-conekta-order): ad | bid | rec
     promoKind:     order?.metadata?.promo_kind ?? null,
     promoId:       order?.metadata?.promo_id ?? null,
+    // F2.2: identidad normalizada — provider_payment_id del gate = el
+    // CHARGE (no la orden). charge.id existe aun sin fee capturado.
+    chargeId:      charge?.id ?? null,
+    currency:      String(order?.currency ?? 'MXN').toUpperCase(),
   };
 }
 
@@ -210,51 +215,67 @@ Deno.serve(async (req) => {
       });
     }
 
-    // 2. Acreditar wallet — MISMA RPC que Stripe, IDEMPOTENTE.
-    const rpcRes = await fetch(`${SUPABASE_URL}/rest/v1/rpc/confirm_full_payment_and_credit_wallet`, {
+    // 2. F2.2: gate de confirmación — locks, validación preventiva,
+    //    idempotencia, tolerancia cero, acreditación atómica. Reemplaza el
+    //    PATCH de provider/método y el PATCH de status: el gate los fija
+    //    atómicamente dentro de _apply_confirmed_credit.
+    if (!v.chargeId) {
+      // Sin charge no hay identidad de pago verificable — 500 para que
+      // Conekta reintente (el webhook redelivery puede traer el charge).
+      console.error('[conekta-webhook] order.paid sin charge id:', orderId);
+      return new Response(JSON.stringify({ ok: false, error: 'missing_charge' }), {
+        status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const gateRes = await fetch(`${SUPABASE_URL}/rest/v1/rpc/confirm_reservation_payment_v2`, {
       method: 'POST', headers: serviceHeaders,
       body: JSON.stringify({
-        p_reservation_id: v.reservationId,
-        p_mp_payment_id:  orderId,               // id de Conekta como referencia (refund)
-        p_amount_paid:    v.amountCentavos / 100,
-        // 💰 Fee REAL de Conekta (o null → queda "No capturado", jamás estimado en BD)
-        p_stripe_fee:     v.feeCentavos != null ? v.feeCentavos / 100 : null,
+        p_provider:            'conekta',
+        p_provider_order_id:   orderId,
+        p_provider_payment_id: v.chargeId,
+        p_reservation_id:      v.reservationId,
+        p_amount_minor:        v.amountCentavos,
+        p_currency:            v.currency,
+        p_method:              v.methodType,
+        p_fee_minor:           v.feeCentavos,
+        p_fee_source:          v.feeCentavos != null ? 'conekta_order' : null,
+        // Solo se usa si NO existe payment_attempts para esta orden (pagos
+        // creados antes del deploy de F2.2) — fuente: la orden RE-CONSULTADA
+        // en verifyConektaPayment, no la reserva.
+        p_legacy_expected: {
+          amount_minor:   v.amountCentavos,
+          currency:       v.currency,
+          reservation_id: v.reservationId,
+        },
       }),
     });
-    const rpcData = await rpcRes.json().catch(() => null);
-    if (!rpcRes.ok) {
-      // Error real → 500 para que Conekta reintente (la RPC es idempotente).
-      console.error('[conekta-webhook] Error RPC wallet:', JSON.stringify(rpcData));
+    const gateData = await gateRes.json().catch(() => null);
+
+    if (!gateRes.ok) {
+      // Excepción real de la RPC → transacción abortada por completo →
+      // reintentable (la Conekta reintenta order.paid).
+      console.error('[conekta-webhook] Error RPC gate:', JSON.stringify(gateData));
       return new Response(JSON.stringify({ ok: false, error: 'rpc_failed' }), {
         status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    // 3. Marcar proveedor + método real (el refund decide su ruta con esto:
-    //    tarjeta → API de Conekta; SPEI/efectivo → cola de reembolso manual)
-    await fetch(`${SUPABASE_URL}/rest/v1/reservations?id=eq.${v.reservationId}`, {
-      method: 'PATCH',
-      headers: { ...serviceHeaders, Prefer: 'return=minimal' },
-      body: JSON.stringify({ payment_provider: 'conekta', payment_method_type: v.methodType }),
-    });
+    const result = gateData?.result as string | undefined;
 
-    // 3b. status='confirmed' — ESPEJO de stripe-webhook (fix auditoría
-    // 2026-07-18: sin esto, las reservas pagadas con Conekta quedaban en
-    // pending_payment/accepted, fuera del auto-arranque del evento y de
-    // la detección de no-shows). Mismo guard de estados terminales.
-    await fetch(
-      `${SUPABASE_URL}/rest/v1/reservations?id=eq.${v.reservationId}` +
-      `&status=not.in.(cancelled,rejected,expired,completed,in_progress)`,
-      {
-        method: 'PATCH',
-        headers: { ...serviceHeaders, Prefer: 'return=minimal' },
-        body: JSON.stringify({ status: 'confirmed' }),
-      },
-    );
+    // Únicos códigos reintentables — CERO efectos escritos por diseño.
+    if (result === 'temporary_lock_timeout' || result === 'temporary_retry') {
+      console.warn(`[conekta-webhook] ${result} — Conekta reintentará`, orderId);
+      return new Response(JSON.stringify({ ok: false, result }), {
+        status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
 
-    console.log(`[conekta-webhook] ✅ order=${orderId} reservation=${v.reservationId} acreditado (${JSON.stringify(rpcData)})`);
+    console.log(`[conekta-webhook] confirm_reservation_payment_v2 → ${result} order=${orderId} reservation=${v.reservationId}`);
 
-    return new Response(JSON.stringify({ ok: true, reservation_id: v.reservationId }), {
+    // Cualquier otro resultado (blocked/mismatch/capture_missing/etc.) es
+    // FINAL: ya quedó auditado + en cola si aplica. 200, sin reintento.
+    return new Response(JSON.stringify({ ok: result === 'confirmed', result, reservation_id: v.reservationId }), {
       status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
 

@@ -272,66 +272,98 @@ Deno.serve(async (req) => {
 
     // ── Obtener el fee real de Stripe desde balance_transaction ──────────────
     // El charge contiene la balance_transaction con el fee exacto cobrado.
-    let stripeFeeAmount: number | null = null;
-    try {
-      const chargeId = typeof pi.latest_charge === 'string'
-        ? pi.latest_charge
-        : (pi.latest_charge as any)?.id ?? null;
+    // provider_payment_id del gate = el CHARGE (no el PI) — se deriva aquí,
+    // SIN esperar al retrieve (que solo es necesario para el fee).
+    const chargeId = typeof pi.latest_charge === 'string'
+      ? pi.latest_charge
+      : (pi.latest_charge as any)?.id ?? null;
 
+    let stripeFeeCentavos: number | null = null;
+    try {
       if (chargeId) {
         const charge = await stripe.charges.retrieve(chargeId, {
           expand: ['balance_transaction'],
         });
         const balanceTx = charge.balance_transaction as any;
         if (balanceTx && typeof balanceTx.fee === 'number') {
-          // fee viene en centavos (MXN tiene 2 decimales)
-          stripeFeeAmount = balanceTx.fee / 100;
-          console.log(`[Stripe Webhook] Fee real Stripe: $${stripeFeeAmount} MXN (charge=${chargeId})`);
+          stripeFeeCentavos = balanceTx.fee; // YA en centavos — sin conversión
+          console.log(`[Stripe Webhook] Fee real Stripe: ${stripeFeeCentavos} centavos (charge=${chargeId})`);
         }
       }
     } catch (feeErr: any) {
       console.warn('[Stripe Webhook] No se pudo obtener balance_transaction:', feeErr.message);
     }
 
-    // Llamar al RPC de wallet — acredita pending_balance, sets payout_status='held',
-    // guarda mp_payment_id (usamos esa columna para el PI id), marca payment_status='paid'
-    const { data: walletResult, error: walletErr } = await supabase.rpc(
-      'confirm_full_payment_and_credit_wallet',
-      {
-        p_reservation_id: reservationId,
-        p_mp_payment_id:  pi.id,
-        p_amount_paid:    pi.amount / 100,
-        p_stripe_fee:     stripeFeeAmount,
-      },
-    );
-
-    if (walletErr) {
-      console.error('[Stripe Webhook] Error confirm_full_payment_and_credit_wallet:', walletErr.message);
-      return new Response('DB Error', { status: 500 });
+    if (!chargeId) {
+      // Sin charge no hay identidad de pago verificable — 500 para que
+      // Stripe reintente (el redelivery del webhook sí trae latest_charge).
+      console.error('[Stripe Webhook] payment_intent.succeeded sin latest_charge:', pi.id);
+      return new Response('Missing charge', { status: 500 });
     }
 
-    if (walletResult?.skipped) {
-      console.log(`[Stripe Webhook] Reserva ${reservationId} ya procesada (idempotente)`);
-      return new Response('OK', { status: 200 });
-    }
-
-    // Confirmar la reserva (el RPC solo cambia payment_status, no el status de
-    // reserva) + registrar proveedor y método real (Fase 0.3: Stripe no los
-    // escribía y los reportes por procesador quedaban ciegos para Stripe).
     // MSI real = installments del PI; tarjeta normal = 'card'.
     const stripeMethod = (pi.payment_method_options as any)?.card?.installments?.plan
       ? 'card_msi' : 'card';
-    await supabase
-      .from('reservations')
-      .update({ status: 'confirmed', payment_provider: 'stripe', payment_method_type: stripeMethod })
-      .eq('id', reservationId)
-      .not('status', 'in', '("cancelled","rejected","expired","completed")');
+
+    // ── F2.2: gate de confirmación (locks, validación preventiva,
+    //    idempotencia, tolerancia cero, acreditación atómica) ───────────
+    const { data: gateResult, error: gateErr } = await supabase.rpc(
+      'confirm_reservation_payment_v2',
+      {
+        p_provider:            'stripe',
+        p_provider_order_id:   pi.id,
+        p_provider_payment_id: chargeId,
+        p_reservation_id:      reservationId,
+        p_amount_minor:        pi.amount_received ?? pi.amount, // YA en centavos
+        p_currency:            (pi.currency ?? 'mxn').toUpperCase(),
+        p_method:              stripeMethod,
+        p_fee_minor:           stripeFeeCentavos,
+        p_fee_source:          stripeFeeCentavos != null ? 'stripe_balance_txn' : null,
+        // Solo se usa si NO existe payment_attempts para este PI (pagos
+        // creados antes del deploy de F2.2) — fuente: el propio evento
+        // re-consultado de Stripe, no la reserva.
+        p_legacy_expected: {
+          amount_minor: Math.round(
+            (Number(pi.metadata?.total_price ?? 0) + Number(pi.metadata?.msi_fee_amount ?? 0)) * 100,
+          ),
+          currency:        (pi.metadata?.currency ?? 'mxn').toUpperCase(),
+          reservation_id:  reservationId,
+        },
+      },
+    );
+
+    if (gateErr) {
+      // Excepción real de la RPC (parámetros inválidos, anomalía de agenda
+      // inesperada) → transacción abortada por completo → reintentable.
+      console.error('[Stripe Webhook] Error confirm_reservation_payment_v2:', gateErr.message);
+      return new Response('DB Error', { status: 500 });
+    }
+
+    const gateOut = gateResult as { result?: string } | null;
+    const result  = gateOut?.result;
+
+    // Únicos códigos reintentables — CERO efectos escritos por diseño.
+    if (result === 'temporary_lock_timeout' || result === 'temporary_retry') {
+      console.warn(`[Stripe Webhook] ${result} para reserva ${reservationId} — Stripe reintentará`);
+      return new Response(result, { status: 500 });
+    }
+
+    console.log(`[Stripe Webhook] confirm_reservation_payment_v2 → ${result} (reserva ${reservationId})`);
+
+    // Cualquier otro resultado (blocked/mismatch/capture_missing/etc.) es
+    // FINAL: ya quedó auditado + en cola si aplica. 200, sin reintento.
+    if (result !== 'confirmed') {
+      return new Response('OK', { status: 200 });
+    }
 
     const amount    = pi.amount / 100;
     const eventDate = pi.metadata?.event_date ?? '';
     console.log(`[Stripe Webhook] Reserva ${reservationId} → pagada $${amount} | pm=${paymentMethodId}`);
 
-    // ── Notificar al grupo ────────────────────────────────────────────
+    // ── Notificar a la banda completa (owner + miembros aceptados) ──────
+    // El gate solo notifica al owner (g.owner_id); se preserva aquí el
+    // comportamiento existente de avisar también a los miembros del grupo.
+    // Solo en confirmaciones FRESCAS (nunca en already_processed).
     try {
       const { data: res2 } = await supabase
         .from('reservations')

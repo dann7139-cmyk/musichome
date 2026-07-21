@@ -100,6 +100,72 @@ Deno.serve(async (req) => {
       console.log(`[PI] MSI guardado: reservation=${reservation_id} msi_months=${msiMonths} msi_fee=${msiFeeAmount}`);
     }
 
+    // ── F2.2: captura inmutable del checkout (payment_attempts) ─────
+    // Se registra ANTES de tocar Stripe, con la MISMA clave que el
+    // Idempotency-Key de más abajo. Si ya existe un PaymentIntent
+    // 'created' para esta clave, se reutiliza — jamás se crea un
+    // segundo PI ni se entrega una referencia sin captura local.
+    const clientKey = `pi_${reservation_id}_${amountCentavos}`;
+    let attemptRow: any = null;
+    {
+      const { data: inserted, error: insErr } = await supabase
+        .from('payment_attempts')
+        .insert({
+          provider:              'stripe',
+          client_key:            clientKey,
+          reservation_id,
+          expected_amount_minor: amountCentavos,
+          currency:              stripeCurrency.toUpperCase(),
+          method:                'card',
+          discount_minor:        0,
+          msi_months:            msiMonths,
+          msi_fee_minor:         Math.round(msiFeeAmount * 100),
+          status:                'creating',
+        })
+        .select()
+        .single();
+
+      if (insErr) {
+        // Conflicto por client_key repetido (reintento del mismo checkout)
+        const { data: existing } = await supabase
+          .from('payment_attempts')
+          .select('*')
+          .eq('provider', 'stripe')
+          .eq('client_key', clientKey)
+          .maybeSingle();
+        attemptRow = existing;
+      } else {
+        attemptRow = inserted;
+      }
+    }
+
+    // Si ya hay un PI 'created' para esta clave, reutilizarlo tal cual.
+    if (attemptRow?.status === 'created' && attemptRow?.provider_order_id) {
+      const existingRes = await fetch(
+        `https://api.stripe.com/v1/payment_intents/${attemptRow.provider_order_id}`,
+        { headers: { Authorization: `Bearer ${stripeKey}` } },
+      );
+      const existingPi = await existingRes.json() as any;
+      if (existingRes.ok && existingPi.status === 'succeeded') {
+        // Carrera rara: Stripe ya cobró pero el webhook aún no marcó la
+        // reserva — NUNCA crear un segundo PI sobre un cobro ya exitoso.
+        return jsonResponse({ error: 'Esta reserva ya fue pagada.' }, 400);
+      }
+      if (existingRes.ok && existingPi.status !== 'canceled') {
+        console.log(`[PI] Reutilizando PaymentIntent existente ${existingPi.id} (client_key=${clientKey})`);
+        return jsonResponse({
+          client_secret:     existingPi.client_secret,
+          payment_intent_id: existingPi.id,
+          total_price:       totalPrice,
+          msi_fee_amount:    msiFeeAmount,
+          charge_amount:     chargeAmount,
+          amount_centavos:   amountCentavos,
+          msi_months:        msiMonths,
+          currency:          stripeCurrency,
+        });
+      }
+    }
+
     // ── Obtener o crear Stripe Customer para este usuario ───────────
     const { data: profile } = await supabase
       .from('profiles')
@@ -188,6 +254,13 @@ Deno.serve(async (req) => {
       `[Stripe] PI ${stripeData.id} | base=${totalPrice} msi_fee=${msiFeeAmount} total=${chargeAmount} ` +
       `centavos=${amountCentavos} | msi=${msiMonths}m | customer=${stripeCustomerId}`
     );
+
+    // F2.2: cerrar la captura — SOLO ahora se entrega el checkout al cliente.
+    await supabase
+      .from('payment_attempts')
+      .update({ provider_order_id: stripeData.id, status: 'created' })
+      .eq('provider', 'stripe')
+      .eq('client_key', clientKey);
 
     return jsonResponse({
       client_secret:     stripeData.client_secret,
