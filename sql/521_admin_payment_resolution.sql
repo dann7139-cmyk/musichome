@@ -767,6 +767,11 @@ BEGIN
   -- ── B. ORDEN DE LOCKS ────────────────────────────────────────────
   SELECT group_id INTO v_group_id FROM reservations WHERE id = p_reservation_id;
   IF NOT FOUND THEN
+    -- [Fix 2026-07-20] Bug latente desde sql/519, nunca ejercitado por
+    -- sql/520 (ningún caso simulaba metadata→reserva inexistente):
+    -- entity_id=NULL violaba financial_audit_logs.entity_id NOT NULL.
+    -- Ancla ahora al RECEIPT (nunca puede ser NULL) — mismo criterio
+    -- aplicado en resolve_payment_receipt (refund/dismiss).
     INSERT INTO payment_receipts
       (provider, provider_payment_id, provider_order_id, attempt_id,
        amount_minor, currency, method, result, money_state,
@@ -778,14 +783,20 @@ BEGIN
        'payment_identity_conflict', 'recorded', v_is_legacy,
        jsonb_build_object('metadata_reservation', p_reservation_id,
                           'motivo', 'reserva_inexistente'))
-    ON CONFLICT (provider, provider_payment_id) DO NOTHING;
+    ON CONFLICT (provider, provider_payment_id) DO NOTHING
+    RETURNING id INTO v_receipt_id;
+
+    IF v_receipt_id IS NULL THEN
+      SELECT id INTO v_receipt_id FROM payment_receipts
+      WHERE provider = p_provider AND provider_payment_id = p_provider_payment_id;
+    END IF;
 
     INSERT INTO financial_audit_logs
       (entity_type, entity_id, action, actor_id, actor_role, amount, notes)
-    VALUES ('payment', NULL, 'payment_identity_conflict', NULL, 'system',
+    VALUES ('payment_receipt', v_receipt_id, 'payment_identity_conflict', NULL, 'system',
       p_amount_minor / 100.0,
-      format('SEVERIDAD ALTA: pago %s/%s con metadata de reserva inexistente %s. Sin reembolso automático.',
-        p_provider, p_provider_payment_id, p_reservation_id));
+      format('SEVERIDAD ALTA: pago %s/%s con metadata de reserva inexistente %s (receipt=%s). Sin reembolso automático.',
+        p_provider, p_provider_payment_id, p_reservation_id, v_receipt_id));
 
     INSERT INTO notifications (user_id, type, title, body, data)
     SELECT p.id, 'reservation', '🚨 Conflicto de identidad de pago',
@@ -793,7 +804,7 @@ BEGIN
       jsonb_build_object('screen', 'AdminFinancial')
     FROM profiles p WHERE p.role = 'admin';
 
-    RETURN jsonb_build_object('result', 'payment_identity_conflict');
+    RETURN jsonb_build_object('result', 'payment_identity_conflict', 'receipt_id', v_receipt_id);
   END IF;
 
   PERFORM pg_advisory_xact_lock(hashtext(v_group_id::text));
@@ -1193,12 +1204,19 @@ BEGIN
       updated_at        = NOW()
     WHERE id = p_receipt_id;
 
+    -- entity_id NUNCA nulo: si el receipt no tiene reserva (capture_missing
+    -- sin metadata resoluble), la auditoría se ancla al RECEIPT, no a una
+    -- reserva inexistente. financial_audit_logs.entity_id es NOT NULL.
     INSERT INTO financial_audit_logs
       (entity_type, entity_id, action, actor_id, actor_role, amount, notes)
-    VALUES ('payment', v_r.reservation_id, 'manual_refund_queued', auth.uid(), 'admin',
+    VALUES (
+      CASE WHEN v_r.reservation_id IS NOT NULL THEN 'payment' ELSE 'payment_receipt' END,
+      COALESCE(v_r.reservation_id, v_r.id),
+      'manual_refund_queued', auth.uid(), 'admin',
       v_r.amount_minor / 100.0,
-      format('Reembolso manual en cola: %s/%s. Nota: %s',
-        v_r.provider, v_r.provider_payment_id, p_note));
+      format('Reembolso manual en cola: %s/%s (receipt=%s, reserva=%s). Nota: %s',
+        v_r.provider, v_r.provider_payment_id, v_r.id,
+        COALESCE(v_r.reservation_id::text, 'sin reserva'), p_note));
 
     RETURN jsonb_build_object('ok', true, 'result', 'refund_queued');
   END IF;
@@ -1253,12 +1271,18 @@ BEGIN
     updated_at           = NOW()
   WHERE id = p_receipt_id;
 
+  -- entity_id NUNCA nulo: mismo criterio que refund — receipt como ancla
+  -- cuando no hay reserva (p.ej. duplicado o basura sin reservation_id).
   INSERT INTO financial_audit_logs
     (entity_type, entity_id, action, actor_id, actor_role, amount, notes)
-  VALUES ('payment', v_r.reservation_id, 'receipt_dismissed', auth.uid(), 'admin',
+  VALUES (
+    CASE WHEN v_r.reservation_id IS NOT NULL THEN 'payment' ELSE 'payment_receipt' END,
+    COALESCE(v_r.reservation_id, v_r.id),
+    'receipt_dismissed', auth.uid(), 'admin',
     v_r.amount_minor / 100.0,
-    format('Dismiss %s/%s motivo=%s canonico=%s evidencia=%s(v%s). Nota: %s',
-      v_r.provider, v_r.provider_payment_id, p_dismiss_reason,
+    format('Dismiss %s/%s (receipt=%s, reserva=%s) motivo=%s canonico=%s evidencia=%s(v%s). Nota: %s',
+      v_r.provider, v_r.provider_payment_id, v_r.id,
+      COALESCE(v_r.reservation_id::text, 'sin reserva'), p_dismiss_reason,
       COALESCE(p_canonical_receipt_id::text,'—'), v_ev.id, v_ev.version, p_note));
 
   RETURN jsonb_build_object('ok', true, 'result', 'dismissed',
