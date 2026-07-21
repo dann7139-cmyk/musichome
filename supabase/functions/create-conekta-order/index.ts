@@ -13,6 +13,7 @@
 // ═══════════════════════════════════════════════════════════════════
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { claimAttempt, makeSupabaseAttemptStore } from './attemptLock.ts';
 
 // Descuento por pagar con SPEI. Sale del MARGEN de la plataforma, NUNCA de
 // group_earnings (el grupo cobra completo). Constante configurable: cambiar
@@ -145,102 +146,99 @@ Deno.serve(async (req) => {
       metadata: { reservation_id: reservation_id, folio: res.folio ?? null, method: payMethod },
     };
 
-    // ── F2.2: captura inmutable del checkout (payment_attempts) ─────
-    // Clave determinística: mismo reservation_id+monto → mismo intento.
-    // Se registra ANTES de tocar Conekta; si ya hay una orden 'created'
-    // para esta clave, se reutiliza — jamás se crea una segunda orden.
+    // ── F2.2: captura inmutable del checkout + EXCLUSIÓN MUTUA ──────
+    // claimAttempt() garantiza que orders.create se llame EXACTAMENTE
+    // una vez por client_key, incluso bajo doble clic / dos pestañas /
+    // reintento de red. Ver attemptLock.ts (8 pruebas de concurrencia).
     const clientKey = `ord_${reservation_id}_${amountCentavos}`;
-    let attemptRow: any = null;
-    {
-      const { data: inserted, error: insErr } = await admin
-        .from('payment_attempts')
-        .insert({
-          provider:              'conekta',
-          client_key:            clientKey,
-          reservation_id,
-          expected_amount_minor: amountCentavos,
-          currency:              'MXN',
-          method:                payMethod,
-          discount_minor:        discount * 100,
-          msi_months:            1,
-          msi_fee_minor:         0,
-          status:                'creating',
-        })
-        .select()
-        .single();
+    const attemptStore = makeSupabaseAttemptStore(admin, 'conekta', clientKey, {
+      reservation_id,
+      expected_amount_minor: amountCentavos,
+      currency:              'MXN',
+      method:                payMethod,
+      discount_minor:        discount * 100,
+      msi_months:            1,
+      msi_fee_minor:         0,
+    });
 
-      if (insErr) {
-        const { data: existing } = await admin
-          .from('payment_attempts')
-          .select('*')
-          .eq('provider', 'conekta')
-          .eq('client_key', clientKey)
-          .maybeSingle();
-        attemptRow = existing;
-      } else {
-        attemptRow = inserted;
-      }
+    const claim = await claimAttempt(attemptStore);
+
+    if (claim.kind === 'conflict') {
+      // Otra invocación sigue creando la orden — NUNCA se crea una segunda
+      // en paralelo. El cliente debe reintentar en un momento.
+      console.warn(`[create-conekta-order] checkout en curso, no resuelto a tiempo (client_key=${clientKey})`);
+      return jsonResponse({ error: 'Ya hay un checkout en proceso para esta reserva. Intenta de nuevo en unos segundos.', retry: true }, 409);
     }
 
-    // Si ya hay una orden 'created' para esta clave, reutilizar su checkout.
-    if (attemptRow?.status === 'created' && attemptRow?.provider_order_id) {
+    if (claim.kind === 'reuse') {
       const existingRes = await fetch(
-        `https://api.conekta.io/orders/${attemptRow.provider_order_id}`,
+        `https://api.conekta.io/orders/${claim.row.provider_order_id}`,
         { headers: { Accept: 'application/vnd.conekta-v2.1.0+json', Authorization: `Basic ${btoa(`${privateKey}:`)}` } },
       );
       const existingOrder = await existingRes.json() as any;
       if (existingRes.ok && existingOrder?.payment_status === 'paid') {
         // Carrera rara: Conekta ya cobró pero el webhook aún no marcó la
-        // reserva — NUNCA crear una segunda orden sobre un cobro ya exitoso.
+        // reserva — NUNCA crear una segunda orden sobre un cobro exitoso.
         return jsonResponse({ error: 'Esta reserva ya fue pagada.' }, 400);
       }
       const existingUrl = existingOrder?.checkout?.url ?? null;
       if (existingRes.ok && existingUrl) {
-        console.log(`[create-conekta-order] Reutilizando orden existente ${attemptRow.provider_order_id} (client_key=${clientKey})`);
+        console.log(`[create-conekta-order] Reutilizando orden existente ${claim.row.provider_order_id} (client_key=${clientKey})`);
         return jsonResponse({
           ok: true,
-          order_id:      attemptRow.provider_order_id,
+          order_id:      claim.row.provider_order_id,
           checkout_url:  existingUrl,
           reservation_id,
         });
       }
+      // La orden reutilizable ya no sirve (expiró en Conekta) — no crear
+      // una nueva por esta vía; pedir reintento controlado.
+      return jsonResponse({ error: 'El checkout anterior expiró. Intenta de nuevo.', retry: true }, 409);
     }
 
-    const conektaRes = await fetch('https://api.conekta.io/orders', {
-      method: 'POST',
-      headers: {
-        'Accept':        'application/vnd.conekta-v2.1.0+json',
-        'Content-Type':  'application/json',
-        'Authorization': `Basic ${auth}`,
-      },
-      body: JSON.stringify(orderBody),
-    });
-    const data = await conektaRes.json() as any;
+    // claim.kind === 'own' — ESTA invocación es la única dueña: llama a
+    // Conekta. Cualquier fallo marca 'abandoned' (reintento seguro
+    // inmediato para la siguiente invocación, sin esperar el timeout).
+    let data: any;
+    try {
+      const conektaRes = await fetch('https://api.conekta.io/orders', {
+        method: 'POST',
+        headers: {
+          'Accept':        'application/vnd.conekta-v2.1.0+json',
+          'Content-Type':  'application/json',
+          'Authorization': `Basic ${auth}`,
+        },
+        body: JSON.stringify(orderBody),
+      });
+      data = await conektaRes.json() as any;
 
-    if (!conektaRes.ok) {
-      console.error('[create-conekta-order] Error Conekta:', JSON.stringify(data));
-      return jsonResponse({ error: data?.details?.[0]?.message ?? 'Error creando orden Conekta' }, 502);
-    }
+      if (!conektaRes.ok) {
+        console.error('[create-conekta-order] Error Conekta:', JSON.stringify(data));
+        await attemptStore.markAbandoned(claim.row.id);
+        return jsonResponse({ error: data?.details?.[0]?.message ?? 'Error creando orden Conekta' }, 502);
+      }
 
-    const checkoutUrl = data?.checkout?.url ?? null;
-    if (!checkoutUrl) {
-      console.error('[create-conekta-order] Sin checkout.url:', JSON.stringify(data?.checkout));
-      return jsonResponse({ error: 'Conekta no devolvió checkout.url' }, 502);
+      const checkoutUrl = data?.checkout?.url ?? null;
+      if (!checkoutUrl) {
+        console.error('[create-conekta-order] Sin checkout.url:', JSON.stringify(data?.checkout));
+        await attemptStore.markAbandoned(claim.row.id);
+        return jsonResponse({ error: 'Conekta no devolvió checkout.url' }, 502);
+      }
+    } catch (conektaErr: any) {
+      console.error('[create-conekta-order] Excepción llamando a Conekta:', conektaErr.message);
+      await attemptStore.markAbandoned(claim.row.id);
+      throw conektaErr; // el catch externo responde 500 (reintentable)
     }
 
     console.log(`[create-conekta-order] order=${data?.id} reservation=${reservation_id} method=${payMethod} amount=${amountCentavos}`);
 
     // F2.2: cerrar la captura — SOLO ahora se entrega el checkout al cliente.
-    await admin
-      .from('payment_attempts')
-      .update({ provider_order_id: data?.id, status: 'created' })
-      .eq('provider', 'conekta')
-      .eq('client_key', clientKey);
+    await attemptStore.finalizeCreated(claim.row.id, data.id);
 
     return jsonResponse({
       ok: true,
       order_id:      data?.id ?? null,
-      checkout_url:  checkoutUrl,
+      checkout_url:  data?.checkout?.url ?? null,
       reservation_id,
     });
 
