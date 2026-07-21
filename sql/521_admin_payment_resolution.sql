@@ -30,6 +30,11 @@
 
 BEGIN;
 
+-- pgcrypto: en Supabase casi siempre YA existe, instalada en el esquema
+-- "extensions" (no en "public"). IF NOT EXISTS es idempotente incluso si
+-- ya vive en otro esquema — no falla, solo no la mueve. Por eso la función
+-- que usa digest() califica su propio search_path (ver más abajo) en vez
+-- de asumir dónde quedó instalada.
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 -- ────────────────────────────────────────────────────────────
@@ -153,7 +158,11 @@ CREATE OR REPLACE FUNCTION public.register_payment_evidence(
   p_supersedes          UUID DEFAULT NULL
 )
 RETURNS JSONB
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = public
+-- search_path incluye "extensions": en Supabase pgcrypto casi siempre vive
+-- ahí, no en "public" — sin esto, digest() no se encuentra aunque la
+-- extensión esté instalada. Portable también si algún despliegue la
+-- instaló en public (public sigue en la ruta).
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions
 AS $$
 DECLARE
   v_version INT;

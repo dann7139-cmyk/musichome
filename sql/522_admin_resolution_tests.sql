@@ -33,6 +33,12 @@ DECLARE
   v_txt TEXT;
   v_report TEXT := E'\n══════ REPORTE DE PRUEBAS 522 (resolución admin) ══════\n';
 BEGIN
+  -- pgcrypto suele vivir en el esquema "extensions" en Supabase, no en
+  -- "public" — T3 recomputa digest() inline (fuera de la RPC, que ya trae
+  -- su propio search_path corregido); esto lo hace resoluble aquí también.
+  -- SET LOCAL a la transacción de esta prueba (se revierte con el RAISE final).
+  PERFORM set_config('search_path', 'public, extensions, pg_temp', TRUE);
+
   -- ─────────────────── SETUP ───────────────────
   SELECT id INTO v_admin FROM profiles WHERE role = 'admin' ORDER BY created_at LIMIT 1;
   IF v_admin IS NULL THEN
