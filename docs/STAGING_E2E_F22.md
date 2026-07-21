@@ -52,47 +52,47 @@ SELECT
 
 ## PARTE 2 — Desplegar los 4 Edge Functions
 
-⚠️ **BLOQUEADO hasta que confirmes 2 valores del dashboard de PRODUCCIÓN**
-(Edge Functions → función → "Enforce JWT Verification") para:
-- `create-conekta-order`: ON o OFF → **`<VALOR_1>`**
-- `conekta-webhook`: ON u OFF → **`<VALOR_2>`**
+**Valores confirmados en producción (2026-07-20) — staging replica exactamente:**
 
-No asumo ninguno de los dos. Reemplaza `<VALOR_1>`/`<VALOR_2>` abajo y
-elige la línea de comando que corresponda a cada uno — nunca uses la que
-no aplica.
-
-**Nota de seguridad ya verificada (no depende de lo que confirmes):**
-`create-conekta-order` exige y valida un JWT de usuario **dentro de su
-propio código** ([líneas 66-71](../supabase/functions/create-conekta-order/index.ts#L66-L71):
-`admin.auth.getUser(jwt)` con 401 propio si falta o es inválido) —
-la bandera de la plataforma NO decide si el endpoint queda público, solo
-decide quién emite el 401 (la plataforma o el código). Mismo patrón que
-`create-payment-intent`. `conekta-webhook` en cambio no tiene ningún
-chequeo de JWT/firma en el código — su única barrera es la re-consulta a
-la API de Conekta con la llave privada — por lo que **necesita**
-`Enforce JWT Verification = OFF` sin alternativa, ya que Conekta nunca
-envía un JWT de Supabase.
-
-`create-payment-intent` y `stripe-webhook` no quedan condicionados:
-`supabase/config.toml` ya declara `verify_jwt = false` para ambos.
+| Función | Enforce JWT en producción | Bandera de despliegue |
+|---|---|---|
+| `create-payment-intent` | OFF | `--no-verify-jwt` |
+| `stripe-webhook` | OFF | `--no-verify-jwt` |
+| `create-conekta-order` | **ON** | *(sin bandera — se omite)* |
+| `conekta-webhook` | OFF | `--no-verify-jwt` |
 
 ```bash
 supabase functions deploy create-payment-intent --project-ref <STAGING_REF> --no-verify-jwt
 supabase functions deploy stripe-webhook          --project-ref <STAGING_REF> --no-verify-jwt
-
-# create-conekta-order — usa la línea que corresponda a <VALOR_1>:
-supabase functions deploy create-conekta-order    --project-ref <STAGING_REF> --no-verify-jwt   # si <VALOR_1> = OFF
-supabase functions deploy create-conekta-order    --project-ref <STAGING_REF>                   # si <VALOR_1> = ON (sin la bandera)
-
-# conekta-webhook — usa la línea que corresponda a <VALOR_2>:
-supabase functions deploy conekta-webhook         --project-ref <STAGING_REF> --no-verify-jwt   # si <VALOR_2> = OFF
-supabase functions deploy conekta-webhook         --project-ref <STAGING_REF>                   # si <VALOR_2> = ON (sin la bandera)
+supabase functions deploy create-conekta-order    --project-ref <STAGING_REF>
+supabase functions deploy conekta-webhook         --project-ref <STAGING_REF> --no-verify-jwt
 ```
 
-⚠️ Si `<VALOR_2>` resultara ser **ON** en producción, avísame antes de
-desplegar en staging: significaría que Conekta actualmente logra pasar el
-gate de la plataforma sin JWT por algún otro mecanismo (poco probable,
-pero no lo asumo), y habría que investigarlo antes de replicarlo.
+**Confirmación de seguridad para `create-conekta-order` (ON en producción):**
+con la plataforma en `Enforce JWT Verification = ON`, el gateway de
+Supabase valida la firma y vigencia del JWT **antes** de invocar la
+función — si el JWT falta o es inválido, la función ni siquiera se
+ejecuta. Pero ese gate de plataforma **no entrega el objeto de usuario a
+la función**: sigue siendo el propio código quien obtiene al usuario
+autenticado, en [líneas 66-71](../supabase/functions/create-conekta-order/index.ts#L66-L71):
+
+```
+const jwt = authHeader.replace('Bearer ', '').trim();
+if (!jwt) return jsonResponse({ error: 'No autorizado' }, 401);
+const { data: authData, error: authErr } = await admin.auth.getUser(jwt);
+if (authErr || !authData?.user) return jsonResponse({ error: 'Token inválido' }, 401);
+const user = authData.user;
+```
+
+Con `ON`, la verificación queda en **dos capas independientes**: (1) el
+gateway de la plataforma rechaza cualquier request sin un JWT válido
+antes de llegar al código; (2) el código igual llama `auth.getUser(jwt)`
+para obtener el `user` real y, más abajo en la función, exige
+`res.client_id === user.id` antes de crear cualquier orden — sin eso,
+ninguna ruta del archivo queda alcanzable. **Ninguna ruta de
+`create-conekta-order` es accesible sin autenticación real, ni con la
+bandera ON ni con OFF** — la diferencia entre ambas es únicamente cuál
+capa emite el rechazo cuando falta el JWT.
 
 Confirma cada despliegue exitoso en el dashboard (Edge Functions → lista, con
 timestamp reciente).
