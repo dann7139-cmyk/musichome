@@ -140,6 +140,9 @@
     "error_date_and_address": "Select a date and add the event address",
     "error_login": "You must be signed in",
     "error_date_taken": "This date was just booked. Please select another.",
+    "calendar_legend": "🟡 Has an event (still available) · ⚫ Blocked · ✅ Available",
+    "error_daily_limit": "This group already has 2 events booked that day. Please choose another date.",
+    "error_time_overlap": "The selected time clashes with another event the group has that day. Choose another time or date.",
     "error_conflict": "Group unavailable",
     "error_conflict_body": "This group is not available due to logistics and travel time.",
     "error_create": "Could not create the booking"

@@ -41,6 +41,7 @@ import {
 } from '../../utils/calculations';
 import { analyzeMessage } from '../../utils/phoneFilter';
 import { checkGroupLogistics, currencyForCountry } from '../../utils/logistics';
+import { buildGroupCalendarMarks } from '../../utils/groupCalendarAvailability';
 import { useAuth } from '../../context/AuthContext';
 import { useTranslation } from 'react-i18next';
 
@@ -161,34 +162,17 @@ export default function BookingScreen({ route, navigation }: any) {
       .select('date')
       .eq('group_id', group.id);
 
-    const marked: any = {};
-    if (reservations) {
-      reservations.forEach((r: any) => {
-        if (r.event_date) {
-          marked[r.event_date] = {
-            disabled: true,
-            disableTouchEvent: true,
-            customStyles: {
-              container: { backgroundColor: 'rgba(239,83,80,0.2)' },
-              text: { color: COLORS.red },
-            },
-          };
-        }
-      });
-    }
-    if (blocked) {
-      blocked.forEach((b: any) => {
-        if (b.date && !marked[b.date]) {
-          marked[b.date] = {
-            disabled: true, disableTouchEvent: true,
-            customStyles: {
-              container: { backgroundColor: COLORS.card2 },
-              text: { color: COLORS.muted },
-            },
-          };
-        }
-      });
-    }
+    // Fase A (máximo 2 eventos/día): un día con reserva existente NO se
+    // deshabilita — el grupo puede tener hasta 2 eventos el mismo día sin
+    // traslape real. Solo el bloqueo manual (group_unavailability)
+    // deshabilita el día; la disponibilidad real la decide el backend al
+    // confirmar (create_booking_with_event).
+    const marked = buildGroupCalendarMarks(
+      reservations,
+      blocked,
+      { backgroundColor: 'rgba(255,179,0,0.18)', textColor: COLORS.gold },
+      { backgroundColor: COLORS.card2, textColor: COLORS.muted },
+    );
     setMarkedDates(marked);
     setLoadingDates(false);
   };
@@ -335,20 +319,10 @@ export default function BookingScreen({ route, navigation }: any) {
       return;
     }
 
-    // Verificar disponibilidad en tiempo real (vía RPC — el select directo
-    // lo bloqueaba la RLS; el candado definitivo vive en el RPC de reserva)
-    const { data: busyToday } = await supabase.rpc('get_group_busy_days', {
-      p_group_id: group.id,
-      p_from: selectedDate,
-      p_to: selectedDate,
-    });
-
-    if (busyToday && busyToday.length > 0) {
-      Alert.alert(t('common.error'), t('booking.error_date_taken'));
-      setLoading(false);
-      await fetchUnavailableDates();
-      return;
-    }
+    // Fase A (máximo 2 eventos/día): la disponibilidad real (bloqueo manual,
+    // límite diario, traslape) la decide el RPC create_booking_with_event()
+    // en el servidor — única fuente de verdad, no se duplica aquí un
+    // pre-check basado en "¿existe cualquier reserva ese día?".
 
     // Validación logística: tiempo de traslado entre eventos del grupo
     const logistics = await checkGroupLogistics({
@@ -404,9 +378,24 @@ export default function BookingScreen({ route, navigation }: any) {
 
     setLoading(false);
 
-    // Candado server-side (sql/430): el RPC rechaza días bloqueados/ocupados
+    // Candado server-side (sql/430 + Fase A): date_blocked lo devuelve el
+    // RPC de forma controlada (return temprano, antes del INSERT). Pero
+    // daily_event_limit/time_overlap los lanza el TRIGGER durante el
+    // INSERT dentro del propio RPC — create_booking_with_event() no tiene
+    // EXCEPTION WHEN OTHERS, así que llegan como excepción real de
+    // Postgres en `error.message`, NUNCA en bookingResult.error.
     if (bookingResult?.error === 'date_blocked' || bookingResult?.error === 'date_taken') {
       Alert.alert(t('booking.error_date_unavailable'), t('booking.error_date_taken'));
+      await fetchUnavailableDates();
+      return;
+    }
+    if (error?.message?.includes('daily_event_limit')) {
+      Alert.alert(t('booking.error_date_unavailable'), t('booking.error_daily_limit'));
+      await fetchUnavailableDates();
+      return;
+    }
+    if (error?.message?.includes('time_overlap')) {
+      Alert.alert(t('booking.error_date_unavailable'), t('booking.error_time_overlap'));
       await fetchUnavailableDates();
       return;
     }
@@ -508,7 +497,7 @@ export default function BookingScreen({ route, navigation }: any) {
           {/* CALENDARIO */}
           <Text style={styles.sectionTitle}>{t('booking.select_date')}</Text>
           <Text style={styles.sectionHint}>
-            🔴 Reservadas · ⚫ Bloqueadas · ✅ Disponibles
+            {t('booking.calendar_legend')}
           </Text>
 
           {loadingDates ? (

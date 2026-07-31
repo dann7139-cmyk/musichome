@@ -230,7 +230,21 @@ export default function QuotePaymentScreen({ route, navigation }: any) {
           })
           .select('id')
           .single();
-        if (resErr || !resData?.id) throw new Error('No se pudo crear la reserva.');
+        if (resErr || !resData?.id) {
+          // Candado universal (trigger sql/431, actualizado en Fase A): la
+          // fecha se bloqueó/ocupó o el grupo ya llegó a su límite/traslape
+          const code = resErr?.message ?? '';
+          if (code.includes('date_blocked') || code.includes('date_taken')) {
+            throw new Error('Esa fecha ya no está disponible para el grupo (se ocupó o la bloqueó). Coordina otra fecha antes de continuar.');
+          }
+          if (code.includes('daily_event_limit')) {
+            throw new Error('Este grupo ya tiene 2 eventos agendados ese día. Coordina otra fecha antes de continuar.');
+          }
+          if (code.includes('time_overlap')) {
+            throw new Error('El horario de este evento choca con otro evento del grupo ese día. Coordina otro horario o fecha antes de continuar.');
+          }
+          throw new Error('No se pudo crear la reserva. Intenta de nuevo.');
+        }
 
         reservationId = resData.id;
 

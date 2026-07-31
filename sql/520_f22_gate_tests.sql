@@ -18,6 +18,20 @@
 -- transacción: ver el guion de 2 pestañas entregado junto a este
 -- archivo (lock timeout real, mismo pago simultáneo, UNIQUE bajo
 -- carrera). Aquí T16 verifica estáticamente que el mecanismo existe.
+--
+-- AJUSTE 2026-07-28 (Fase A — máximo 2 eventos/día, sql/523): T7
+-- probaba que can_schedule() bloqueara la revivificación de una reserva
+-- expirada con 'date_taken_legacy' — ese candado se retiró
+-- deliberadamente en sql/523 (autorizado). El escenario de T7 (v_r5,
+-- 2030-06-05) es exactamente el caso que Fase A vino a permitir: un
+-- segundo evento el mismo día, sin traslape real, dentro del límite de
+-- 2. T7 ahora espera revivificación EXITOSA. Eso acredita $1000
+-- adicionales al wallet del grupo de prueba, lo que cambia en cascada
+-- las aserciones numéricas de T10b, T11, T15, T17 y T17b (documentado
+-- en cada caso). Ningún otro escenario de la suite se tocó — todos los
+-- demás resultados/montos siguen siendo los mismos. T18 se invirtió
+-- para verificar la ausencia del candado legado (y la presencia de las
+-- 3 protecciones vigentes) en vez de su presencia.
 -- ============================================================
 
 DO $$
@@ -223,20 +237,27 @@ BEGIN
   END IF;
 
   ---------------------------------------------------------------
-  -- T7: DISPONIBILIDAD PERDIDA al revivir (date_taken sigue activo)
+  -- T7: REVIVIFICACIÓN con 2º evento válido el mismo día (Fase A)
+  --
+  -- ANTES (pre-Fase A): esperaba 'payment_blocked_refund_pending' con
+  -- reason 'date_taken_legacy' — el candado legado bloqueaba CUALQUIER
+  -- 2º evento el mismo día sin comparar horario.
+  -- AHORA: v_r5 (2030-06-05) no tiene traslape real con v_r5b (mismo
+  -- día, otro horario) y el grupo no llega al límite de 2 — exactamente
+  -- el caso que Fase A vino a permitir. Debe revivir y confirmarse.
+  -- $1000 adicionales se acreditan aquí → bal pasa de 2000 a 3000,
+  -- efecto que se propaga a T10b/T11/T15/T17/T17b (documentado en cada uno).
   ---------------------------------------------------------------
   v_json := public.confirm_reservation_payment_v2(
     'stripe','ord_t5','ch_t5', v_r5, 120000,'MXN','card', NULL,NULL, NULL);
   SELECT * INTO v_res FROM reservations WHERE id = v_r5;
   SELECT pending_balance INTO v_bal FROM group_wallets WHERE group_id = v_group;
-  IF v_json->>'result' = 'payment_blocked_refund_pending'
-     AND v_json->>'reason' LIKE '%date_taken_legacy%'
-     AND v_res.status = 'expired' AND v_res.payment_status = 'paid_blocked'
-     AND v_bal = 2000
-     AND (SELECT COUNT(*) FROM refund_intents WHERE provider_payment_id='ch_t5') = 1 THEN
-    v_report := v_report || 'T7  disponibilidad perdida (date_taken ACTIVO bloquea revive) ....... PASS' || E'\n';
+  IF v_json->>'result' = 'confirmed' AND (v_json->>'revived')::boolean
+     AND v_res.status = 'confirmed' AND v_res.payment_status = 'paid'
+     AND v_bal = 3000 THEN
+    v_report := v_report || 'T7  2º evento válido el mismo día → revive y confirma (Fase A) ...... PASS' || E'\n';
   ELSE
-    v_report := v_report || 'T7  disponibilidad perdida .......................... FAIL ' || v_json::text || E'\n';
+    v_report := v_report || 'T7  revivificación con 2º evento válido ............. FAIL ' || v_json::text || E'\n';
   END IF;
 
   ---------------------------------------------------------------
@@ -273,9 +294,12 @@ BEGIN
     v_report := v_report || 'T10 moneda .......................................... FAIL ' || v_json::text || E'\n';
   END IF;
 
+  -- AJUSTE Fase A: bal esperado 2000→3000 porque T7 ahora acredita
+  -- $1000 (ver nota en T7). Las 5 ramas bloqueadas (T3/T6/T8/T9/T10)
+  -- siguen sin aportar nada a la wallet — eso no cambió.
   SELECT pending_balance INTO v_bal FROM group_wallets WHERE group_id = v_group;
-  IF v_bal = 2000 THEN
-    v_report := v_report || 'T10b tras 5 ramas bloqueadas la wallet sigue INTACTA ($2000) ........ PASS' || E'\n';
+  IF v_bal = 3000 THEN
+    v_report := v_report || 'T10b tras 5 ramas bloqueadas la wallet sigue INTACTA ($3000) ........ PASS' || E'\n';
   ELSE
     v_report := v_report || 'T10b wallet tras bloqueos ........................... FAIL bal=' || v_bal::text || E'\n';
   END IF;
@@ -293,7 +317,8 @@ BEGIN
      AND (SELECT money_state FROM payment_receipts WHERE provider_payment_id='ch_t1') = 'credited'
      AND (SELECT COUNT(*) FROM refund_intents WHERE provider_payment_id='ch_t1') = 0
      AND (SELECT COUNT(*) FROM financial_audit_logs WHERE action='payment_identity_conflict') >= 1
-     AND (SELECT pending_balance FROM group_wallets WHERE group_id=v_group) = 2000 THEN
+     -- AJUSTE Fase A: 2000→3000, mismo motivo que T10b (crédito de T7)
+     AND (SELECT pending_balance FROM group_wallets WHERE group_id=v_group) = 3000 THEN
     v_report := v_report || 'T11 payment_id de otra reserva → conflicto, SIN tocar nada ......... PASS' || E'\n';
   ELSE
     v_report := v_report || 'T11 conflicto cruzado ............................... FAIL ' || v_json::text || E'\n';
@@ -359,7 +384,8 @@ BEGIN
        AND (SELECT status FROM reservations WHERE id=v_r9) = 'pending_payment'
        AND (SELECT payment_status FROM reservations WHERE id=v_r9) = 'unpaid'
        AND (SELECT COUNT(*) FROM refund_intents WHERE provider_payment_id='ch_t9') = 0
-       AND (SELECT pending_balance FROM group_wallets WHERE group_id=v_group) = 2000 THEN
+       -- AJUSTE Fase A: 2000→3000, mismo motivo que T10b (crédito de T7)
+       AND (SELECT pending_balance FROM group_wallets WHERE group_id=v_group) = 3000 THEN
       v_report := v_report || 'T15 excepción técnica → aborta TODO, sin efectos parciales .......... PASS' || E'\n';
     ELSE
       v_report := v_report || 'T15 excepción técnica ............................... FAIL ' || SQLERRM || E'\n';
@@ -383,35 +409,58 @@ BEGIN
 
   ---------------------------------------------------------------
   -- T17: AGREGADOS FINALES — el ledger del grupo tiene EXACTAMENTE
-  --      2 créditos (T1 y T5); ninguna rama bloqueada escribió nada
+  --      3 créditos (T1, T5 y T7 — Fase A); ninguna rama bloqueada
+  --      escribió nada
+  --
+  -- AJUSTE Fase A: T7 ahora es una confirmación exitosa (3er crédito,
+  -- no una rama bloqueada), así que:
+  --   • credit_pending: 2 → 3 (T1 + T5 + T7)
+  --   • pending_balance: 2000 → 3000
+  --   • refund_intents: 6 → 5 (T7 ya NO genera refund_intent — antes
+  --     lo hacía por date_taken_legacy; las otras 5 ramas bloqueadas
+  --     — T3, T6, T8, T9, T10 — no cambiaron)
   ---------------------------------------------------------------
   IF (SELECT COUNT(*) FROM wallet_transactions wt
-      WHERE wt.group_id = v_group AND wt.type = 'credit_pending') = 2
-     AND (SELECT pending_balance FROM group_wallets WHERE group_id = v_group) = 2000
+      WHERE wt.group_id = v_group AND wt.type = 'credit_pending') = 3
+     AND (SELECT pending_balance FROM group_wallets WHERE group_id = v_group) = 3000
      AND (SELECT COUNT(*) FROM refund_intents ri
-          WHERE ri.reservation_id IN (v_r1,v_r2,v_r3,v_r4,v_r5,v_r6,v_r7,v_r8,v_r9)) = 6 THEN
-    v_report := v_report || 'T17 ledger exacto: 2 créditos, $2000, 6 refund_intents (uno por caso) PASS' || E'\n';
+          WHERE ri.reservation_id IN (v_r1,v_r2,v_r3,v_r4,v_r5,v_r6,v_r7,v_r8,v_r9)) = 5 THEN
+    v_report := v_report || 'T17 ledger exacto: 3 créditos, $3000, 5 refund_intents (Fase A) ..... PASS' || E'\n';
   ELSE
     v_report := v_report || 'T17 agregados ....................................... FAIL' || E'\n';
   END IF;
 
+  -- AJUSTE Fase A: 400→600 (3 confirmaciones × $200 — T1, T5, T7 — en
+  -- vez de 2, porque T7 ahora también confirma).
   IF v_admin_id IS NOT NULL THEN
     SELECT COALESCE(available_balance,0) INTO v_adm FROM wallets WHERE user_id = v_admin_id;
-    IF v_adm - v_adm0 = 400 THEN
-      v_report := v_report || 'T17b admin: +$400 bruto (2 confirmaciones × $200, cero estimaciones) PASS' || E'\n';
+    IF v_adm - v_adm0 = 600 THEN
+      v_report := v_report || 'T17b admin: +$600 bruto (3 confirmaciones × $200, Fase A) ........... PASS' || E'\n';
     ELSE
       v_report := v_report || 'T17b admin final .................................... FAIL delta=' || (v_adm - v_adm0)::text || E'\n';
     END IF;
   END IF;
 
   ---------------------------------------------------------------
-  -- T18: date_taken sigue activo en AMBAS capas
+  -- T18: candado legado AUSENTE + protecciones vigentes PRESENTES
+  --      (Fase A, sql/523) — invertido respecto a la versión anterior,
+  --      que verificaba lo contrario (date_taken activo). El candado se
+  --      retiró deliberadamente de las 4 capas que sql/523 modificó;
+  --      date_blocked/daily_event_limit/time_overlap deben seguir
+  --      siendo la única fuente de verdad en el trigger y en
+  --      can_schedule().
   ---------------------------------------------------------------
-  IF (SELECT prosrc LIKE '%date_taken%' FROM pg_proc WHERE proname='enforce_group_availability')
-     AND (SELECT prosrc LIKE '%date_taken_legacy%' FROM pg_proc WHERE proname='can_schedule') THEN
-    v_report := v_report || 'T18 date_taken activo en trigger F1 y en can_schedule ............... PASS' || E'\n';
+  IF NOT (SELECT prosrc LIKE '%date_taken%' FROM pg_proc WHERE proname='enforce_group_availability')
+     AND NOT (SELECT prosrc LIKE '%date_taken_legacy%' FROM pg_proc WHERE proname='can_schedule')
+     AND NOT (SELECT prosrc LIKE '%date_taken%' FROM pg_proc WHERE proname='create_booking_with_event')
+     AND NOT (SELECT prosrc LIKE '%group_unavailable%' FROM pg_proc WHERE proname='client_accept_proposal')
+     AND (SELECT prosrc LIKE '%date_blocked%' AND prosrc LIKE '%daily_event_limit%' AND prosrc LIKE '%time_overlap%'
+          FROM pg_proc WHERE proname='enforce_group_availability')
+     AND (SELECT prosrc LIKE '%date_blocked%' AND prosrc LIKE '%daily_limit%' AND prosrc LIKE '%time_overlap%'
+          FROM pg_proc WHERE proname='can_schedule') THEN
+    v_report := v_report || 'T18 candado legado ausente, protecciones Fase A presentes (4 capas) . PASS' || E'\n';
   ELSE
-    v_report := v_report || 'T18 date_taken ...................................... FAIL' || E'\n';
+    v_report := v_report || 'T18 candado legado / protecciones Fase A ............ FAIL' || E'\n';
   END IF;
 
   v_report := v_report || E'══════ FIN — todo se revierte ahora (RAISE) ══════';

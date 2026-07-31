@@ -287,6 +287,20 @@ export default function OpenRequestScreen({ navigation, route }: any) {
           );
           return;
         }
+        if (code.includes('daily_event_limit')) {
+          Alert.alert(
+            'Fecha no disponible',
+            'Este grupo ya tiene 2 eventos agendados ese día. La propuesta no puede confirmarse.',
+          );
+          return;
+        }
+        if (code.includes('time_overlap')) {
+          Alert.alert(
+            'Horario no disponible',
+            'El horario de esta propuesta choca con otro evento del grupo ese día. La propuesta no puede confirmarse.',
+          );
+          return;
+        }
         Alert.alert('Error', `No se pudo confirmar. ${code || 'Inténtalo de nuevo.'}`);
         return;
       }
