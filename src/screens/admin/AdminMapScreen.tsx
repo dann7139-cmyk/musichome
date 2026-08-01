@@ -1456,7 +1456,7 @@ export default function AdminMapScreen({ navigation }: any) {
       <MapView
         ref={mapRef}
         style={StyleSheet.absoluteFillObject}
-        provider={PROVIDER_GOOGLE}
+        provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
         customMapStyle={EARTH_STYLE}
         userInterfaceStyle="dark"
         initialRegion={{ latitude: 23.5, longitude: -102.5, latitudeDelta: 26, longitudeDelta: 26 }}
