@@ -11,7 +11,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.daricefy.app",
       "config": {
-        "googleMapsApiKey": "AIzaSyDFdU_w3aQ30HKv05MpJHYCx072myJpeAw"
+        "googleMapsApiKey": "AIzaSyCraVvDcuo9zsXoFD1xESee54_BgOAsOrU"
       },
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "Daricefy necesita tu ubicación para mostrarte grupos cerca de donde estás.",
@@ -25,7 +25,7 @@
       "package": "com.daricefy.app",
       "config": {
         "googleMaps": {
-          "apiKey": "AIzaSyDFdU_w3aQ30HKv05MpJHYCx072myJpeAw"
+          "apiKey": "AIzaSyDsYYbmFWAaCX1DtDTjO-ru4v8LiPkAXrk"
         }
       },
       "permissions": [
