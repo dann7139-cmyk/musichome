@@ -1,11 +1,13 @@
 import {
   ArrowLeft,
   ArrowUpRight,
+  Building2,
   CheckCircle,
   Clock,
   CreditCard,
   ExternalLink,
   TrendingUp,
+  User,
   Wallet,
 } from 'lucide-react-native';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -19,6 +21,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -27,6 +30,7 @@ import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import Particles from '../../components/ui/Particles';
 import Button from '../../components/ui/Button';
+import { validateClabe, bankFromClabe } from '../../utils/clabe';
 
 function formatCurrency(n: number) {
   return '$' + Number(n ?? 0).toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
@@ -36,6 +40,7 @@ const TYPE_LABELS: Record<string, { label: string; color: string; sign: string; 
   // Tipos nuevos (group_wallets / 184a)
   credit_pending:         { label: 'Pago retenido',             color: COLORS.orange, sign: '+' },
   credit_available:       { label: 'Ganancias liberadas',        color: COLORS.green,  sign: '+' },
+  final_settlement:       { label: 'Pago final',                 color: COLORS.green,  sign: '+', icon: '✅' },
   debit_payout:           { label: 'Retiro',                     color: COLORS.red,    sign: '-' },
   debit_refund:           { label: 'Reembolso',                  color: COLORS.blue,   sign: '-' },
   // Tipos legacy (wallets / 59)
@@ -75,6 +80,17 @@ export default function WalletScreen({ navigation }: any) {
     group_id: null,
   });
 
+  // ── Datos bancarios permanentes (Fase P1A) ──────────────────────────────────
+  const [bankClabe, setBankClabe]             = useState('');
+  const [bankName, setBankName]               = useState('');
+  const [accountHolder, setAccountHolder]     = useState('');
+  const [savingBank, setSavingBank]           = useState(false);
+
+  // ── "Solicitar pago" por reserva (Fase P1D) — el grupo ya no retira ────────
+  const [payableReservations, setPayableReservations] = useState<any[]>([]);
+  const [requestingPayment, setRequestingPayment]      = useState<string | null>(null);
+  const hasBankData = !!(bankClabe && bankClabe.length === 18 && bankName.trim() && accountHolder.trim());
+
   const appStateRef = useRef(AppState.currentState);
 
   const load = useCallback(async () => {
@@ -102,6 +118,24 @@ export default function WalletScreen({ navigation }: any) {
         role,
         group_id: grp?.id ?? null,
       });
+
+      // Datos bancarios ya guardados (tabla `wallets`, no `group_wallets` —
+      // get_my_wallet() no los incluye para rol group). Mismo patrón de
+      // lectura ya usado en WithdrawScreen.tsx.
+      const { data: bankData } = await supabase
+        .from('wallets')
+        .select('bank_clabe, bank_name, account_holder')
+        .eq('user_id', user.id)
+        .maybeSingle();
+      if (bankData) {
+        setBankClabe(bankData.bank_clabe ?? '');
+        setBankName(bankData.bank_name ?? '');
+        setAccountHolder(bankData.account_holder ?? '');
+      }
+
+      // Fase P1D — reservas ya liberadas con saldo pendiente, propias del grupo
+      const { data: payableData } = await supabase.rpc('group_get_payable_reservations');
+      if ((payableData as any)?.ok) setPayableReservations((payableData as any).items ?? []);
     } else {
       setStripeStatus({
         stripe_account_id:          prof?.stripe_account_id ?? null,
@@ -258,6 +292,71 @@ export default function WalletScreen({ navigation }: any) {
     }
   };
 
+  // ── Datos bancarios permanentes (Fase P1A) ──────────────────────────────────
+  // Solo guarda/valida — nunca toca group_wallets, wallet_transactions ni withdrawals.
+  const handleSaveBank = async () => {
+    const clabeCheck = validateClabe(bankClabe);
+    if (!clabeCheck.valid) {
+      Alert.alert('CLABE inválida', clabeCheck.error);
+      return;
+    }
+    const detectedBank = bankFromClabe(bankClabe);
+    const finalBank = detectedBank ?? bankName.trim();
+    if (!finalBank) {
+      Alert.alert('Error', 'Ingresa el nombre del banco.');
+      return;
+    }
+    if (!accountHolder.trim()) {
+      Alert.alert('Error', 'Ingresa el nombre del titular.');
+      return;
+    }
+
+    setSavingBank(true);
+    try {
+      const { data, error } = await supabase.rpc('save_bank_account', {
+        p_clabe:          bankClabe,
+        p_bank_name:       finalBank,
+        p_account_holder:  accountHolder.trim(),
+      });
+      if (error || !data?.ok) {
+        Alert.alert('Error', data?.error === 'invalid_clabe'
+          ? 'CLABE inválida.'
+          : (error?.message ?? data?.error ?? 'No se pudo guardar.'));
+        return;
+      }
+      setBankName(finalBank);
+      Alert.alert('✅ Datos guardados', 'Tus datos bancarios quedaron guardados.');
+    } catch (e: any) {
+      Alert.alert('Error', e.message ?? 'Intenta de nuevo.');
+    } finally {
+      setSavingBank(false);
+    }
+  };
+
+  // Fase P1D — "Solicitar pago": aviso administrativo, nunca mueve dinero.
+  const handleRequestPayment = async (reservationId: string) => {
+    setRequestingPayment(reservationId);
+    try {
+      const { data, error } = await supabase.rpc('group_request_payment', { p_reservation_id: reservationId });
+      if (error || !(data as any)?.ok) {
+        const err = (data as any)?.error ?? error?.message;
+        const msg = err === 'missing_bank_data' ? 'Completa tus datos bancarios antes de solicitar el pago.'
+          : err === 'no_balance_due' ? 'Esta reserva ya no tiene saldo pendiente.'
+          : err ?? 'No se pudo enviar la solicitud.';
+        Alert.alert('Error', msg);
+        return;
+      }
+      Alert.alert('✅ Solicitud enviada', 'Le avisamos a Daricefy que quieres que te paguen este evento.');
+      setPayableReservations(prev => prev.map(r =>
+        r.reservation_id === reservationId ? { ...r, payment_requested: true } : r
+      ));
+    } catch (e: any) {
+      Alert.alert('Error', e.message ?? 'Intenta de nuevo.');
+    } finally {
+      setRequestingPayment(null);
+    }
+  };
+
   if (loading) {
     return (
       <View style={{ flex: 1, backgroundColor: COLORS.bg, alignItems: 'center', justifyContent: 'center' }}>
@@ -341,22 +440,135 @@ export default function WalletScreen({ navigation }: any) {
             </View>
           )}
 
-          {/* Botón retirar */}
-          <View style={{ marginBottom: 16 }}>
-            <Button
-              label={t('wallet.withdraw')}
-              onPress={() => navigation.navigate('Withdraw', { available })}
-              size="lg"
-              disabled={available <= 0}
-            />
-            {available <= 0 ? (
-              <Text style={st.noBalanceHint}>{t('wallet.withdraw_hint_no_balance')}</Text>
-            ) : null}
-          </View>
+          {/* Fase P1D — el grupo ya NO retira dinero: solo puede avisar que
+              quiere que le paguen una reserva específica. La transferencia
+              real siempre la hace el admin. Roles distintos de "group"
+              (admin/talent/client, wallet personal en `wallets`) conservan
+              el botón "Retirar" tal cual — ese flujo no cambia aquí. */}
+          {stripeStatus.role === 'group' ? (
+            <View style={{ marginBottom: 16 }}>
+              <Text style={st.sectionTitle}>Eventos disponibles para pago</Text>
+              {payableReservations.length === 0 && (
+                <View style={st.noBalanceHintCard}>
+                  <Text style={st.noBalanceHint}>
+                    Aquí aparecerán tus eventos en cuanto Daricefy libere su pago.
+                  </Text>
+                </View>
+              )}
+              {payableReservations.map((r: any) => (
+                <View key={r.reservation_id} style={st.payableCard}>
+                  <Text style={st.payableTitle} numberOfLines={1}>
+                    {r.folio ? `Folio ${r.folio}` : 'Evento'}
+                  </Text>
+                  <Text style={st.payableSub}>
+                    {r.event_date ? new Date(r.event_date).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
+                  </Text>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 }}>
+                    <Text style={st.payableRowLabel}>Ganancia del grupo</Text>
+                    <Text style={st.payableRowValue}>{formatCurrency(Number(r.group_earnings ?? 0))}</Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                    <Text style={st.payableRowLabel}>Anticipos recibidos</Text>
+                    <Text style={st.payableRowValue}>{formatCurrency(Number(r.total_anticipado ?? 0))}</Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                    <Text style={[st.payableRowLabel, { color: COLORS.green }]}>Saldo pendiente</Text>
+                    <Text style={[st.payableRowValue, { color: COLORS.green }]}>{formatCurrency(Number(r.saldo_pendiente ?? 0))}</Text>
+                  </View>
+                  {!hasBankData ? (
+                    <Pressable style={[st.payableBtn, { backgroundColor: COLORS.orange + '20', borderColor: COLORS.orange }]}
+                      onPress={() => Alert.alert(
+                        'Faltan tus datos bancarios',
+                        'Completa CLABE, banco y titular en la sección "Datos bancarios" de esta misma pantalla para poder solicitar el pago.',
+                      )}>
+                      <Text style={[st.payableBtnTx, { color: COLORS.orange }]}>Completa tus datos bancarios para solicitar el pago</Text>
+                    </Pressable>
+                  ) : r.payment_requested ? (
+                    <View style={[st.payableBtn, { backgroundColor: COLORS.card2, borderColor: COLORS.border }]}>
+                      <Text style={[st.payableBtnTx, { color: COLORS.muted2 }]}>✓ Pago solicitado</Text>
+                    </View>
+                  ) : (
+                    <Pressable
+                      style={[st.payableBtn, requestingPayment === r.reservation_id && { opacity: 0.6 }]}
+                      disabled={requestingPayment === r.reservation_id}
+                      onPress={() => handleRequestPayment(r.reservation_id)}
+                    >
+                      <Text style={st.payableBtnTx}>
+                        {requestingPayment === r.reservation_id ? 'Enviando…' : 'Solicitar pago'}
+                      </Text>
+                    </Pressable>
+                  )}
+                </View>
+              ))}
+            </View>
+          ) : (
+            <View style={{ marginBottom: 16 }}>
+              <Button
+                label={t('wallet.withdraw')}
+                onPress={() => navigation.navigate('Withdraw', { available })}
+                size="lg"
+                disabled={available <= 0}
+              />
+              {available <= 0 ? (
+                <Text style={st.noBalanceHint}>{t('wallet.withdraw_hint_no_balance')}</Text>
+              ) : null}
+            </View>
+          )}
 
           {/* Retiros: transferencia SPEI procesada por Daricefy con comprobante.
               (El onboarding de Stripe Connect quedó fuera del modelo v2 —
               la CLABE se captura en el formulario de retiro.) */}
+
+          {/* Datos bancarios permanentes (Fase P1A) — solo guarda/edita datos
+              de contacto para que el admin pueda usarlos al pagar; no mueve
+              dinero, no crea ninguna solicitud. */}
+          {stripeStatus.role === 'group' && (
+            <View style={st.bankCard}>
+              <Text style={st.sectionTitle}>Datos bancarios</Text>
+
+              <View style={st.bankFieldWrap}>
+                <CreditCard size={16} color={COLORS.muted2} style={st.bankFieldIcon} />
+                <TextInput
+                  style={st.bankField}
+                  placeholder="CLABE (18 dígitos)"
+                  placeholderTextColor={COLORS.muted}
+                  keyboardType="number-pad"
+                  maxLength={18}
+                  value={bankClabe}
+                  onChangeText={setBankClabe}
+                />
+              </View>
+
+              <View style={st.bankFieldWrap}>
+                <Building2 size={16} color={COLORS.muted2} style={st.bankFieldIcon} />
+                <TextInput
+                  style={st.bankField}
+                  placeholder="Banco (ej. BBVA, Banorte, HSBC)"
+                  placeholderTextColor={COLORS.muted}
+                  value={bankName}
+                  onChangeText={setBankName}
+                />
+              </View>
+
+              <View style={st.bankFieldWrap}>
+                <User size={16} color={COLORS.muted2} style={st.bankFieldIcon} />
+                <TextInput
+                  style={st.bankField}
+                  placeholder="Nombre del titular de la cuenta"
+                  placeholderTextColor={COLORS.muted}
+                  value={accountHolder}
+                  onChangeText={setAccountHolder}
+                />
+              </View>
+
+              <Button
+                label="Guardar datos bancarios"
+                onPress={handleSaveBank}
+                loading={savingBank}
+                size="md"
+              />
+            </View>
+          )}
 
           {/* 📈 "Mi desempeño" vive en el DASHBOARD del grupo (movido
               2026-07-18 a petición) — aquí solo queda la descarga */}
@@ -580,6 +792,44 @@ const st = StyleSheet.create({
   noBalanceHint: {
     fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted,
     textAlign: 'center', marginTop: 10, lineHeight: 18,
+  },
+  noBalanceHintCard: {
+    backgroundColor: COLORS.card, borderRadius: RADIUS.lg,
+    borderWidth: 1, borderColor: COLORS.border, padding: SPACING.lg,
+  },
+
+  // "Solicitar pago" por reserva (Fase P1D)
+  payableCard: {
+    backgroundColor: COLORS.card, borderRadius: RADIUS.lg,
+    borderWidth: 1, borderColor: COLORS.border,
+    padding: SPACING.lg, marginTop: 10,
+  },
+  payableTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: COLORS.text },
+  payableSub:   { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted, marginTop: 2 },
+  payableRowLabel: { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2 },
+  payableRowValue: { fontFamily: FONTS.bodyMedium, fontSize: 12, color: COLORS.text },
+  payableBtn: {
+    marginTop: 10, borderRadius: RADIUS.md, borderWidth: 1, borderColor: COLORS.green,
+    backgroundColor: COLORS.greenMuted, paddingVertical: 10, alignItems: 'center',
+  },
+  payableBtnTx: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.green },
+
+  // Datos bancarios (Fase P1A)
+  bankCard: {
+    backgroundColor: COLORS.card, borderRadius: RADIUS.xl,
+    borderWidth: 1, borderColor: COLORS.border,
+    padding: SPACING.lg, marginBottom: 16,
+  },
+  bankFieldWrap: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: COLORS.card2, borderRadius: RADIUS.lg,
+    borderWidth: 1, borderColor: COLORS.border,
+    paddingHorizontal: SPACING.lg, marginBottom: 10,
+  },
+  bankFieldIcon: { marginRight: 10 },
+  bankField: {
+    flex: 1, fontFamily: FONTS.body, fontSize: 15, color: COLORS.text,
+    paddingVertical: 14,
   },
 
   // Stripe Connect card

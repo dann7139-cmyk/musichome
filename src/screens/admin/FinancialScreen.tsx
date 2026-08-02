@@ -30,10 +30,12 @@ import {
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as WebBrowser from 'expo-web-browser';
+import { Calendar } from 'react-native-calendars';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import Particles from '../../components/ui/Particles';
+import TimePickerModal from '../../components/ui/TimePickerModal';
 import { calcGroupEarnings, calcServiceFee } from '../../utils/calculations';
 import { flagFor, placeLine, methodLabel } from '../../utils/countryFormat';
 
@@ -134,6 +136,8 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
   const [downloadingReport, setDownloadingReport] = useState(false);
   const [eventFinancials, setEventFins] = useState<EventFinancial[]>([]);
   const [payouts, setPayouts]           = useState<Payout[]>([]);
+  // Fase P1B — cola automática de pagos pendientes por reservation_id (solo lectura)
+  const [pendingGroupPayments, setPendingGroupPayments] = useState<any[]>([]);
   const [adIncome, setAdIncome]         = useState<any[]>([]);
   const [filter, setFilter]             = useState<DateFilter>('30d');
   const [activeTab, setActiveTab]       = useState<TabView>(route?.params?.initialTab ?? 'overview');
@@ -151,6 +155,21 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
   const [refundRef, setRefundRef]       = useState('');
   const [receiptUri, setReceiptUri]     = useState<string | null>(null);
   const [refundSaving, setRefundSaving] = useState(false);
+  // Fase P1C — registrar anticipo manual por reservation_id
+  const [advanceModal, setAdvanceModal]     = useState<any | null>(null); // item de la cola P1B
+  const [advanceAmount, setAdvanceAmount]   = useState('');
+  const [advanceNote, setAdvanceNote]       = useState('');
+  const [advanceReceiptUri, setAdvanceReceiptUri] = useState<string | null>(null);
+  const [advanceSaving, setAdvanceSaving]   = useState(false);
+  const [advanceTransferRef, setAdvanceTransferRef] = useState('');       // opcional para anticipo
+  const [advanceTransferredAt, setAdvanceTransferredAt] = useState<Date>(new Date());
+  // Fase P1E — liquidación final por reservation_id (kind='final_settlement')
+  const [finalModal, setFinalModal]         = useState<any | null>(null); // item de la cola P1B
+  const [finalNote, setFinalNote]           = useState('');
+  const [finalReceiptUri, setFinalReceiptUri] = useState<string | null>(null);
+  const [finalTransferRef, setFinalTransferRef] = useState('');           // obligatoria
+  const [finalTransferredAt, setFinalTransferredAt] = useState<Date>(new Date());
+  const [finalSaving, setFinalSaving]       = useState(false);
   // Toolbar de las colas (Reembolsos/Transfers): búsqueda + filtros rápidos.
   // Binacional 🇲🇽/🇺🇸 desde sql/470: el país/moneda vienen del servidor.
   const [qSearch, setQSearch] = useState('');
@@ -239,7 +258,7 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
     if (isRefresh) setRefreshing(true);
     else setLoading(true);
     try {
-      await Promise.all([fetchOverview(), fetchEventFinancials(), fetchPayouts(), fetchAdIncome(), fetchRefunds()]);
+      await Promise.all([fetchOverview(), fetchEventFinancials(), fetchPayouts(), fetchPendingGroupPayments(), fetchAdIncome(), fetchRefunds()]);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -442,6 +461,157 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
     if (from) q = q.gte('created_at', from);
     const { data } = await q;
     setAdIncome(data ?? []);
+  };
+
+  // ── Fase P1B: cola automática de pagos pendientes por reservation_id ─────
+  // Solo lectura. Aparece automáticamente al liberarse una reserva, sin
+  // depender de que el grupo solicite nada. total_anticipado/saldo_pendiente
+  // son una aproximación provisional hasta que exista P1C (ver copy en la UI).
+  const fetchPendingGroupPayments = async () => {
+    const { data, error } = await supabase.rpc('admin_get_pending_group_payments', { p_limit: 50 });
+    if (error || !(data as any)?.ok) {
+      console.warn('[FinancialScreen] pending group payments:', error?.message ?? (data as any)?.error);
+      setPendingGroupPayments([]);
+      return;
+    }
+    setPendingGroupPayments((data as any).items ?? []);
+  };
+
+  // Fase P1C — registrar anticipo manual por reservation_id. Único RPC de
+  // escritura de esta fase; siempre kind='advance', nunca 'final_settlement'
+  // (eso es P1E). No toca withdrawals ni WalletScreen.
+  const pickAdvanceReceipt = async () => {
+    Keyboard.dismiss();
+    const res = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'], quality: 0.8, allowsEditing: false,
+    });
+    if (res.canceled || !res.assets?.[0]?.uri) return;
+    try {
+      const small = await ImageManipulator.manipulateAsync(
+        res.assets[0].uri,
+        [{ resize: { width: 1200 } }],
+        { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG },
+      );
+      setAdvanceReceiptUri(small.uri);
+    } catch {
+      setAdvanceReceiptUri(res.assets[0].uri);
+    }
+  };
+
+  const handleRegisterAdvance = async () => {
+    if (!advanceModal) return;
+    const numAmount = parseFloat(advanceAmount);
+    if (!advanceAmount || isNaN(numAmount) || numAmount <= 0) {
+      Alert.alert('Monto inválido', 'Ingresa un monto válido.'); return;
+    }
+    if (!advanceReceiptUri) {
+      Alert.alert('Falta el comprobante', 'El comprobante es obligatorio para registrar un anticipo.'); return;
+    }
+    setAdvanceSaving(true);
+    try {
+      const receiptPath = `${advanceModal.group_id}/advance_${advanceModal.reservation_id}_${Date.now()}.jpg`;
+      const buf = await fetch(advanceReceiptUri).then(r => r.arrayBuffer());
+      const { error: upErr } = await supabase.storage
+        .from('refund-receipts')
+        .upload(receiptPath, buf, { contentType: 'image/jpeg', upsert: true });
+      if (upErr) throw new Error(`No se pudo subir el comprobante: ${upErr.message}`);
+      const { data, error } = await supabase.rpc('admin_register_group_payment', {
+        p_reservation_id: advanceModal.reservation_id,
+        p_amount: numAmount,
+        p_kind: 'advance',
+        p_receipt_path: receiptPath,
+        p_note: advanceNote.trim() || null,
+        p_transfer_reference: advanceTransferRef.trim() || null,
+        p_transferred_at: advanceTransferredAt.toISOString(),
+      });
+      if (error || (data as any)?.ok === false) {
+        const err = (data as any)?.error ?? error?.message;
+        const msg = err === 'exceeds_group_earnings' ? 'El monto excede lo que le corresponde al grupo por esta reserva.'
+          : err === 'insufficient_wallet_bucket' ? 'El grupo ya recibió este dinero por otra vía — revisa su historial antes de continuar.'
+          : err === 'payout_status_not_eligible' ? 'Esta reserva ya no admite anticipos (no está en estado "retenido").'
+          : err === 'receipt_required' ? 'El comprobante es obligatorio.'
+          : err === 'transferred_at_required' ? 'Indica la fecha y hora de la transferencia.'
+          : err ?? 'No se pudo registrar el anticipo.';
+        throw new Error(msg);
+      }
+      Alert.alert('✅ Anticipo registrado', 'El grupo fue notificado.');
+      setAdvanceModal(null); setAdvanceAmount(''); setAdvanceNote(''); setAdvanceReceiptUri(null);
+      setAdvanceTransferRef(''); setAdvanceTransferredAt(new Date());
+      fetchPendingGroupPayments();
+    } catch (e: any) {
+      Alert.alert('Error', e.message ?? 'Intenta de nuevo.');
+    } finally {
+      setAdvanceSaving(false);
+    }
+  };
+
+  // Fase P1E — comprobante de la liquidación final (mismo patrón de compresión)
+  const pickFinalReceipt = async () => {
+    Keyboard.dismiss();
+    const res = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'], quality: 0.8, allowsEditing: false,
+    });
+    if (res.canceled || !res.assets?.[0]?.uri) return;
+    try {
+      const small = await ImageManipulator.manipulateAsync(
+        res.assets[0].uri,
+        [{ resize: { width: 1200 } }],
+        { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG },
+      );
+      setFinalReceiptUri(small.uri);
+    } catch {
+      setFinalReceiptUri(res.assets[0].uri);
+    }
+  };
+
+  // Fase P1E — liquidación final: monto SIEMPRE el saldo pendiente exacto,
+  // nunca editable (el backend rechaza cualquier otro monto: debe ser el
+  // remanente exacto, no un pago parcial adicional).
+  const handleRegisterFinalSettlement = async () => {
+    if (!finalModal) return;
+    const amount = Number(finalModal.saldo_pendiente ?? 0);
+    if (!(amount > 0)) { Alert.alert('Sin saldo', 'Esta reserva ya no tiene saldo pendiente.'); return; }
+    if (!finalReceiptUri) { Alert.alert('Falta el comprobante', 'El comprobante es obligatorio para la liquidación final.'); return; }
+    if (!finalTransferRef.trim()) { Alert.alert('Falta la referencia', 'La referencia de transferencia es obligatoria para la liquidación final.'); return; }
+    setFinalSaving(true);
+    try {
+      const receiptPath = `${finalModal.group_id}/final_${finalModal.reservation_id}_${Date.now()}.jpg`;
+      const buf = await fetch(finalReceiptUri).then(r => r.arrayBuffer());
+      const { error: upErr } = await supabase.storage
+        .from('refund-receipts')
+        .upload(receiptPath, buf, { contentType: 'image/jpeg', upsert: true });
+      if (upErr) throw new Error(`No se pudo subir el comprobante: ${upErr.message}`);
+      const { data, error } = await supabase.rpc('admin_register_group_payment', {
+        p_reservation_id: finalModal.reservation_id,
+        p_amount: amount,
+        p_kind: 'final_settlement',
+        p_receipt_path: receiptPath,
+        p_note: finalNote.trim() || null,
+        p_transfer_reference: finalTransferRef.trim(),
+        p_transferred_at: finalTransferredAt.toISOString(),
+      });
+      if (error || (data as any)?.ok === false) {
+        const err = (data as any)?.error ?? error?.message;
+        const msg = err === 'final_amount_must_match_balance' ? 'El saldo cambió — cierra y vuelve a abrir la liquidación para tomar el monto actualizado.'
+          : err === 'exceeds_group_earnings' ? 'El monto excede el saldo pendiente de esta reserva.'
+          : err === 'insufficient_wallet_bucket' ? 'El grupo ya recibió este dinero por otra vía — revisa su historial antes de continuar.'
+          : err === 'payout_status_not_eligible' ? 'Esta reserva no está lista para liquidación final.'
+          : err === 'missing_bank_data' ? 'Al grupo le faltan datos bancarios completos — pídele que los complete en su Wallet.'
+          : err === 'receipt_required' ? 'El comprobante es obligatorio.'
+          : err === 'transfer_reference_required' ? 'La referencia de transferencia es obligatoria.'
+          : err === 'transferred_at_required' ? 'Indica la fecha y hora de la transferencia.'
+          : err ?? 'No se pudo registrar la liquidación final.';
+        throw new Error(msg);
+      }
+      Alert.alert('✅ Liquidación final registrada', 'El grupo fue notificado — evento liquidado.');
+      setFinalModal(null); setFinalNote(''); setFinalReceiptUri(null);
+      setFinalTransferRef(''); setFinalTransferredAt(new Date());
+      fetchPendingGroupPayments();
+    } catch (e: any) {
+      Alert.alert('Error', e.message ?? 'Intenta de nuevo.');
+    } finally {
+      setFinalSaving(false);
+    }
   };
 
   // ── Historial de retiros (payout_requests) ───────────────────────────────
@@ -804,7 +974,78 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
             ));
             return (
             <>
-              <Text style={s.sectionTitle}>Pagos a grupos</Text>
+              {/* ══ Fase P1B: pagos pendientes por reservation_id (solo lectura) ══ */}
+              <Text style={s.sectionTitle}>Pagos pendientes por reserva</Text>
+              <Text style={s.p1bHint}>
+                El saldo ya descuenta los anticipos registrados — aparece automáticamente
+                al liberarse cada reserva, sin depender de que el grupo solicite nada.
+                Las reservas ya cubiertas al 100% no aparecen aquí.
+              </Text>
+              {pendingGroupPayments.length === 0 && (
+                <View style={s.emptyCard}>
+                  <Text style={s.emptyText}>Sin reservas liberadas pendientes de pago</Text>
+                </View>
+              )}
+              {pendingGroupPayments.map((r: any) => (
+                <View key={r.reservation_id} style={s.refundCard}>
+                  <Text style={s.payoutName} numberOfLines={1}>
+                    {r.group_name ?? '—'} · {r.client_name ?? '—'}
+                  </Text>
+                  <Text style={s.payoutType}>
+                    {r.folio ? `Folio ${r.folio} · ` : ''}
+                    {r.event_date ? new Date(r.event_date).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
+                    {r.event_time ? ` · ${r.event_time}` : ''}
+                  </Text>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 }}>
+                    <Text style={s.payoutType}>Ganancia del grupo</Text>
+                    <Text style={s.payoutType}>{fmt(Number(r.group_earnings ?? 0))}</Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                    <Text style={s.payoutType}>Total anticipado</Text>
+                    <Text style={s.payoutType}>{fmt(Number(r.total_anticipado ?? 0))}</Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                    <Text style={[s.payoutAmount, { fontSize: 16 }]}>Saldo estimado</Text>
+                    <Text style={[s.payoutAmount, { fontSize: 16 }]}>{fmt(Number(r.saldo_pendiente ?? 0))}</Text>
+                  </View>
+                  {r.bank_clabe ? (
+                    <Text style={[s.payoutType, { marginTop: 6 }]}>
+                      🏦 {r.bank_name ?? 'Banco'} · CLABE ···{String(r.bank_clabe).slice(-4)} · {r.account_holder ?? '—'}
+                    </Text>
+                  ) : (
+                    <Text style={[s.payoutType, { marginTop: 6, color: COLORS.orange }]}>
+                      ⚠️ Sin datos bancarios — pide al grupo que los complete en su Wallet
+                    </Text>
+                  )}
+                  {r.payment_requested && (
+                    <View style={[s.statusPill, { alignSelf: 'flex-start', marginTop: 8, backgroundColor: 'rgba(0,230,118,0.14)', borderColor: COLORS.green }]}>
+                      <Text style={[s.statusPillTx, { color: COLORS.green }]}>📢 Pago solicitado por el grupo</Text>
+                    </View>
+                  )}
+                  <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
+                    <Pressable
+                      style={[s.reportBtn, { flex: 1, paddingVertical: 10 }]}
+                      onPress={() => {
+                        setAdvanceModal(r); setAdvanceAmount(''); setAdvanceNote(''); setAdvanceReceiptUri(null);
+                        setAdvanceTransferRef(''); setAdvanceTransferredAt(new Date());
+                      }}
+                    >
+                      <Text style={s.reportBtnTx}>💵 Registrar anticipo</Text>
+                    </Pressable>
+                    <Pressable
+                      style={[s.reportBtn, { flex: 1, paddingVertical: 10, backgroundColor: COLORS.green }]}
+                      onPress={() => {
+                        setFinalModal(r); setFinalNote(''); setFinalReceiptUri(null);
+                        setFinalTransferRef(''); setFinalTransferredAt(new Date());
+                      }}
+                    >
+                      <Text style={[s.reportBtnTx, { color: COLORS.bg }]}>✅ Pagar saldo final</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              ))}
+
+              <Text style={[s.sectionTitle, { marginTop: 24 }]}>Pagos a grupos</Text>
               {renderQueueToolbar({
                 label: pendUSD > 0 ? 'Por transferir (MXN · USD aparte)' : 'Por transferir a grupos',
                 amount: pendMXN,
@@ -1157,6 +1398,159 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
             </View>
           </KeyboardAvoidingView>
         </Modal>
+
+        {/* ── Modal: registrar anticipo (Fase P1C) — solo kind='advance' ── */}
+        <Modal
+          visible={!!advanceModal}
+          transparent animationType="slide"
+          onRequestClose={() => setAdvanceModal(null)}
+        >
+          <KeyboardAvoidingView
+            style={s.refundModalOverlay}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          >
+            <View style={s.refundModalSheet}>
+              <View style={s.refundModalHead}>
+                <Text style={s.refundModalTitle}>Registrar anticipo</Text>
+                <Pressable onPress={() => setAdvanceModal(null)} hitSlop={8}>
+                  <X size={20} color={COLORS.muted2} />
+                </Pressable>
+              </View>
+              <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+                {advanceModal && (
+                  <Text style={s.refundIntro}>
+                    {advanceModal.group_name ?? 'Grupo'} · Saldo pendiente: {fmt(Number(advanceModal.saldo_pendiente ?? 0))}
+                  </Text>
+                )}
+                <Text style={s.refundModalLabel}>Monto del anticipo *</Text>
+                <TextInput
+                  style={s.refundModalInput}
+                  value={advanceAmount}
+                  onChangeText={setAdvanceAmount}
+                  placeholder="0.00"
+                  keyboardType="decimal-pad"
+                  placeholderTextColor={COLORS.muted}
+                />
+                <Text style={s.refundModalLabel}>Nota (opcional)</Text>
+                <TextInput
+                  style={s.refundModalInput}
+                  value={advanceNote}
+                  onChangeText={setAdvanceNote}
+                  placeholder="Ej. anticipo solicitado por el grupo"
+                  placeholderTextColor={COLORS.muted}
+                />
+                <Text style={s.refundModalLabel}>Referencia de transferencia (opcional)</Text>
+                <TextInput
+                  style={s.refundModalInput}
+                  value={advanceTransferRef}
+                  onChangeText={setAdvanceTransferRef}
+                  placeholder="Ej. clave de rastreo SPEI"
+                  placeholderTextColor={COLORS.muted}
+                />
+                <TransferDateTimeField
+                  label="Fecha y hora de la transferencia *"
+                  value={advanceTransferredAt}
+                  onChange={setAdvanceTransferredAt}
+                />
+                <Text style={s.refundModalLabel}>Comprobante (foto/captura) *</Text>
+                <Pressable style={s.refundReceiptPick} onPress={pickAdvanceReceipt}>
+                  {advanceReceiptUri
+                    ? <Image source={{ uri: advanceReceiptUri }} style={s.refundReceiptImg} resizeMode="cover" />
+                    : <Text style={s.refundReceiptTx}>📎 Subir comprobante</Text>}
+                </Pressable>
+                <Pressable
+                  style={[s.refundBtn, { marginTop: 14 }, advanceSaving && { opacity: 0.5 }]}
+                  onPress={handleRegisterAdvance}
+                  disabled={advanceSaving}
+                >
+                  {advanceSaving
+                    ? (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <ActivityIndicator size="small" color="#000" />
+                        <Text style={s.refundBtnTx}>Registrando…</Text>
+                      </View>
+                    )
+                    : <Text style={s.refundBtnTx}>Registrar anticipo</Text>}
+                </Pressable>
+              </ScrollView>
+            </View>
+          </KeyboardAvoidingView>
+        </Modal>
+
+        {/* ── Modal: liquidación final (Fase P1E) — solo kind='final_settlement' ── */}
+        <Modal
+          visible={!!finalModal}
+          transparent animationType="slide"
+          onRequestClose={() => setFinalModal(null)}
+        >
+          <KeyboardAvoidingView
+            style={s.refundModalOverlay}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          >
+            <View style={s.refundModalSheet}>
+              <View style={s.refundModalHead}>
+                <Text style={s.refundModalTitle}>Pagar saldo final</Text>
+                <Pressable onPress={() => setFinalModal(null)} hitSlop={8}>
+                  <X size={20} color={COLORS.muted2} />
+                </Pressable>
+              </View>
+              <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+                {finalModal && (
+                  <Text style={s.refundIntro}>
+                    {finalModal.group_name ?? 'Grupo'} · Liquida el evento por completo
+                  </Text>
+                )}
+                <Text style={s.refundModalLabel}>Monto a pagar (saldo exacto, no editable)</Text>
+                <View style={[s.refundModalInput, { justifyContent: 'center' }]}>
+                  <Text style={{ fontFamily: FONTS.bodySemiBold, fontSize: 16, color: COLORS.green }}>
+                    {fmt(Number(finalModal?.saldo_pendiente ?? 0))}
+                  </Text>
+                </View>
+                <Text style={s.refundModalLabel}>Referencia de transferencia *</Text>
+                <TextInput
+                  style={s.refundModalInput}
+                  value={finalTransferRef}
+                  onChangeText={setFinalTransferRef}
+                  placeholder="Ej. clave de rastreo SPEI"
+                  placeholderTextColor={COLORS.muted}
+                />
+                <TransferDateTimeField
+                  label="Fecha y hora de la transferencia *"
+                  value={finalTransferredAt}
+                  onChange={setFinalTransferredAt}
+                />
+                <Text style={s.refundModalLabel}>Nota (opcional)</Text>
+                <TextInput
+                  style={s.refundModalInput}
+                  value={finalNote}
+                  onChangeText={setFinalNote}
+                  placeholder="Ej. liquidación tras el evento"
+                  placeholderTextColor={COLORS.muted}
+                />
+                <Text style={s.refundModalLabel}>Comprobante (foto/captura) *</Text>
+                <Pressable style={s.refundReceiptPick} onPress={pickFinalReceipt}>
+                  {finalReceiptUri
+                    ? <Image source={{ uri: finalReceiptUri }} style={s.refundReceiptImg} resizeMode="cover" />
+                    : <Text style={s.refundReceiptTx}>📎 Subir comprobante</Text>}
+                </Pressable>
+                <Pressable
+                  style={[s.refundBtn, { marginTop: 14 }, finalSaving && { opacity: 0.5 }]}
+                  onPress={handleRegisterFinalSettlement}
+                  disabled={finalSaving}
+                >
+                  {finalSaving
+                    ? (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <ActivityIndicator size="small" color="#000" />
+                        <Text style={s.refundBtnTx}>Registrando…</Text>
+                      </View>
+                    )
+                    : <Text style={s.refundBtnTx}>Confirmar liquidación final</Text>}
+                </Pressable>
+              </ScrollView>
+            </View>
+          </KeyboardAvoidingView>
+        </Modal>
       </SafeAreaView>
     </View>
   );
@@ -1201,6 +1595,85 @@ function EventRow({
       <Text style={[s.eventRowValue, { color }, bold && { fontFamily: FONTS.bodySemiBold }]}>
         {value}
       </Text>
+    </View>
+  );
+}
+
+// Selector de fecha/hora real de la transferencia (Fase P1E) — reutiliza el
+// mismo patrón ya existente en el proyecto: Calendar (react-native-calendars)
+// para la fecha + TimePickerModal para la hora. No es una librería nueva.
+function TransferDateTimeField({
+  label, value, onChange,
+}: {
+  label: string; value: Date; onChange: (d: Date) => void;
+}) {
+  const [dateOpen, setDateOpen] = useState(false);
+  const [timeOpen, setTimeOpen] = useState(false);
+  const dateStr = value.toISOString().slice(0, 10);
+  const timeStr = `${String(value.getHours()).padStart(2, '0')}:${String(value.getMinutes()).padStart(2, '0')}`;
+
+  return (
+    <View>
+      <Text style={s.refundModalLabel}>{label}</Text>
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        <Pressable style={[s.refundModalInput, { flex: 1.3, justifyContent: 'center' }]} onPress={() => setDateOpen(true)}>
+          <Text style={{ fontFamily: FONTS.body, fontSize: 14, color: COLORS.text }}>
+            {value.toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })}
+          </Text>
+        </Pressable>
+        <Pressable style={[s.refundModalInput, { flex: 1, justifyContent: 'center' }]} onPress={() => setTimeOpen(true)}>
+          <Text style={{ fontFamily: FONTS.body, fontSize: 14, color: COLORS.text }}>{timeStr}</Text>
+        </Pressable>
+      </View>
+
+      <Modal visible={dateOpen} transparent animationType="fade" onRequestClose={() => setDateOpen(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', padding: 20 }}>
+          <View style={{ backgroundColor: COLORS.card, borderRadius: RADIUS.lg, borderWidth: 1, borderColor: COLORS.border, padding: 12 }}>
+            <Calendar
+              current={dateStr}
+              maxDate={new Date().toISOString().slice(0, 10)}
+              onDayPress={(day: { dateString: string }) => {
+                const [y, m, dd] = day.dateString.split('-').map(Number);
+                const d = new Date(value);
+                d.setFullYear(y, m - 1, dd);
+                onChange(d);
+                setDateOpen(false);
+              }}
+              markedDates={{ [dateStr]: { selected: true, selectedColor: COLORS.green } }}
+              theme={{
+                calendarBackground: COLORS.card,
+                textSectionTitleColor: COLORS.muted,
+                selectedDayBackgroundColor: COLORS.green,
+                selectedDayTextColor: '#fff',
+                todayTextColor: COLORS.green,
+                dayTextColor: COLORS.text,
+                textDisabledColor: COLORS.muted,
+                monthTextColor: COLORS.text,
+                textMonthFontFamily: FONTS.bodySemiBold,
+                textDayFontFamily: FONTS.body,
+                textDayHeaderFontFamily: FONTS.bodyMedium,
+              }}
+            />
+            <Pressable style={{ alignSelf: 'flex-end', padding: 10 }} onPress={() => setDateOpen(false)}>
+              <Text style={{ color: COLORS.green, fontFamily: FONTS.bodySemiBold }}>Cerrar</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      <TimePickerModal
+        visible={timeOpen}
+        value={timeStr}
+        title="Hora de la transferencia"
+        onConfirm={(t) => {
+          const [h, m] = t.split(':').map(Number);
+          const d = new Date(value);
+          d.setHours(h, m, 0, 0);
+          onChange(d);
+          setTimeOpen(false);
+        }}
+        onClose={() => setTimeOpen(false)}
+      />
     </View>
   );
 }
@@ -1271,6 +1744,10 @@ const s = StyleSheet.create({
 
   // Section
   sectionTitle: { fontFamily: FONTS.title, fontSize: 16, color: COLORS.text },
+  p1bHint: {
+    fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted,
+    marginTop: 4, marginBottom: 10, lineHeight: 17,
+  },
   overviewVal:   { fontFamily: FONTS.title, fontSize: 15, color: COLORS.text, textAlign: 'center' },
   overviewLabel: { fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted, textAlign: 'center', marginTop: 2 },
 
