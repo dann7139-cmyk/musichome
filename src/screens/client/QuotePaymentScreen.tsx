@@ -243,6 +243,12 @@ export default function QuotePaymentScreen({ route, navigation }: any) {
           if (code.includes('time_overlap')) {
             throw new Error('El horario de este evento choca con otro evento del grupo ese día. Coordina otro horario o fecha antes de continuar.');
           }
+          // Límite de 3 grupos por evento (sql/556): esta ruta inserta
+          // directo en reservations (sin RPC), así que no hay pre-check
+          // amistoso — el trigger lo lanza como excepción real.
+          if (code.includes('event_group_limit_reached')) {
+            throw new Error('Ya hay 3 grupos contratados para este evento.');
+          }
           throw new Error('No se pudo crear la reserva. Intenta de nuevo.');
         }
 

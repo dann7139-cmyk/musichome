@@ -142,6 +142,7 @@
     "error_date_taken": "Esta fecha acaba de ser reservada. Por favor selecciona otra.",
     "calendar_legend": "🟡 Con evento (aún disponible) · ⚫ Bloqueadas · ✅ Disponibles",
     "error_daily_limit": "Este grupo ya tiene 2 eventos agendados ese día. Elige otra fecha.",
+    "error_group_limit": "Ya hay 3 grupos contratados para este evento.",
     "error_time_overlap": "El horario elegido choca con otro evento del grupo ese día. Elige otro horario o fecha.",
     "error_conflict": "Grupo no disponible",
     "error_conflict_body": "Este grupo no está disponible por logística y tiempo de traslado.",

@@ -389,6 +389,14 @@ export default function BookingScreen({ route, navigation }: any) {
       await fetchUnavailableDates();
       return;
     }
+    // Límite de 3 grupos por evento (sql/556): el pre-check del RPC lo
+    // devuelve controlado en bookingResult.error; si una carrera lo dejó
+    // pasar hasta el INSERT, el trigger lo lanza como excepción real en
+    // error.message — se cubren ambos casos, igual que daily_event_limit.
+    if (bookingResult?.error === 'event_group_limit_reached' || error?.message?.includes('event_group_limit_reached')) {
+      Alert.alert(t('booking.error_date_unavailable'), t('booking.error_group_limit'));
+      return;
+    }
     if (error?.message?.includes('daily_event_limit')) {
       Alert.alert(t('booking.error_date_unavailable'), t('booking.error_daily_limit'));
       await fetchUnavailableDates();
