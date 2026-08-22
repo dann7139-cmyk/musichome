@@ -413,7 +413,7 @@ export default function BookingScreen({ route, navigation }: any) {
     } else {
       Alert.alert(
         t('booking.success_title'),
-        t('booking.success_body', { group: group.name }),
+        t('booking.success_body', { group: group.name }) + t('booking.success_addon'),
         [
           { text: t('booking.see_reservations'), onPress: () => navigation.navigate('ClientReservations') },
           { text: t('booking.go_home'), onPress: () => navigation.popToTop() },

@@ -130,6 +130,7 @@
     "confirm_body": "Group: {{group}}\nPackage: {{package}}\nDate: {{date}}\nTotal: ${{amount}} {{currency}}\nPayment: {{payment}}\n\nPayment is released only when the event finishes successfully.",
     "success_title": "Booking sent! 🎉",
     "success_body": "Your request was sent to \"{{group}}\". We'll notify you when they confirm.",
+    "success_addon": "\n\nWant to add another service to your event? You can book up to 3 providers for the same event — for example a DJ, comedian, clowns, or musicians/soloists like saxophonists. Just use the same date and address when booking the next one; no need to start a new event from scratch. Each provider is booked and paid separately.\n\nFor musicians: for large events we'll contact you to review sound/equipment needs. DJs, clowns, and other providers who usually bring their own equipment are coordinated separately.",
     "see_reservations": "View my bookings",
     "go_home": "Home",
     "error_date_unavailable": "Date not available",

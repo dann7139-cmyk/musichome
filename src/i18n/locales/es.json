@@ -130,6 +130,7 @@
     "confirm_body": "Grupo: {{group}}\nPaquete: {{package}}\nFecha: {{date}}\nTotal: ${{amount}} {{currency}}\nPago: {{payment}}\n\nEl pago se libera solo cuando el evento termina correctamente.",
     "success_title": "¡Reserva enviada! 🎉",
     "success_body": "Tu solicitud fue enviada al grupo \"{{group}}\". Te notificaremos cuando la confirmen.",
+    "success_addon": "\n\n¿Quieres agregar otro servicio a tu evento? Puedes contratar hasta 3 proveedores para el mismo evento — por ejemplo DJ, comediante, payasos o músicos/solistas como saxofonistas. Solo usa la misma fecha y dirección al reservar el siguiente; no necesitas crear otro evento desde cero. Cada proveedor se reserva y se paga por separado.\n\nPara músicos: en eventos grandes te contactaremos para revisar las necesidades de sonido/equipo. DJs, payasos y otros proveedores que normalmente llevan su propio equipo se coordinan por separado.",
     "see_reservations": "Ver mis reservas",
     "go_home": "Inicio",
     "error_date_unavailable": "Fecha no disponible",
