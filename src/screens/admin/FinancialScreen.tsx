@@ -10,6 +10,8 @@ import {
   Zap,
 } from 'lucide-react-native';
 import React, { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import {
   ActivityIndicator,
   Alert,
@@ -107,11 +109,11 @@ interface ManualRefund {
   processed_at:       string | null;
 }
 
-const DATE_OPTIONS: { label: string; value: DateFilter }[] = [
-  { label: '7 días',  value: '7d' },
-  { label: '30 días', value: '30d' },
-  { label: '90 días', value: '90d' },
-  { label: 'Todo',    value: 'all' },
+const getDateOptions = (t: TFunction): { label: string; value: DateFilter }[] => [
+  { label: t('adminFinancialScreen.dateFilters.days7'),  value: '7d' },
+  { label: t('adminFinancialScreen.dateFilters.days30'), value: '30d' },
+  { label: t('adminFinancialScreen.dateFilters.days90'), value: '90d' },
+  { label: t('adminFinancialScreen.dateFilters.all'),    value: 'all' },
 ];
 
 function dateFrom(filter: DateFilter): string | null {
@@ -130,6 +132,8 @@ function daysFrom(filter: DateFilter): number | null {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function AdminFinancialScreen({ navigation, route }: any) {
+  const { t } = useTranslation();
+  const DATE_OPTIONS = getDateOptions(t);
   const [overview, setOverview]         = useState<FinancialOverview | null>(null);
   // Fila USD de la fuente única (monedas separadas, nunca sumadas)
   const [overviewUsd, setOverviewUsd]   = useState<any | null>(null);
@@ -170,6 +174,13 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
   const [finalTransferRef, setFinalTransferRef] = useState('');           // obligatoria
   const [finalTransferredAt, setFinalTransferredAt] = useState<Date>(new Date());
   const [finalSaving, setFinalSaving]       = useState(false);
+  // sql/584 — cola de propinas/regalos acumulados, independiente de cualquier reserva
+  const [pendingGiftPayouts, setPendingGiftPayouts] = useState<any[]>([]);
+  const [giftPayoutModal, setGiftPayoutModal]       = useState<any | null>(null);
+  const [giftPayoutReceiptUri, setGiftPayoutReceiptUri] = useState<string | null>(null);
+  const [giftPayoutTransferRef, setGiftPayoutTransferRef] = useState('');
+  const [giftPayoutTransferredAt, setGiftPayoutTransferredAt] = useState<Date>(new Date());
+  const [giftPayoutSaving, setGiftPayoutSaving]     = useState(false);
   // Toolbar de las colas (Reembolsos/Transfers): búsqueda + filtros rápidos.
   // Binacional 🇲🇽/🇺🇸 desde sql/470: el país/moneda vienen del servidor.
   const [qSearch, setQSearch] = useState('');
@@ -190,7 +201,7 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
       .from('refund-receipts')
       .createSignedUrl(path, 3600);
     if (signed?.signedUrl) await WebBrowser.openBrowserAsync(signed.signedUrl);
-    else Alert.alert('Comprobante', 'No se pudo abrir el comprobante.');
+    else Alert.alert(t('adminFinancialScreen.alerts.receiptTitle'), t('adminFinancialScreen.alerts.receiptOpenError'));
   };
 
   // Toolbar de cola: KPI de dinero pendiente + búsqueda + filtros rápidos.
@@ -209,11 +220,11 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
         </View>
         <View style={{ alignItems: 'flex-end', gap: 4 }}>
           <View style={[s.statusPill, { backgroundColor: 'rgba(255,179,0,0.14)', borderColor: COLORS.orange }]}>
-            <Text style={[s.statusPillTx, { color: COLORS.orange }]}>{opts.count} pendiente{opts.count === 1 ? '' : 's'}</Text>
+            <Text style={[s.statusPillTx, { color: COLORS.orange }]}>{t('adminFinancialScreen.queue.pendingCount', { count: opts.count })}</Text>
           </View>
           {(opts.overdue ?? 0) > 0 && (
             <View style={[s.statusPill, { backgroundColor: 'rgba(239,83,80,0.14)', borderColor: '#EF5350' }]}>
-              <Text style={[s.statusPillTx, { color: '#EF5350' }]}>⚠️ {opts.overdue} vencido{opts.overdue === 1 ? '' : 's'}</Text>
+              <Text style={[s.statusPillTx, { color: '#EF5350' }]}>⚠️ {t('adminFinancialScreen.queue.overdueCount', { count: opts.overdue })}</Text>
             </View>
           )}
         </View>
@@ -223,11 +234,11 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
           style={s.queueSearch}
           value={qSearch}
           onChangeText={setQSearch}
-          placeholder="Buscar por grupo, cliente o folio…"
+          placeholder={t('adminFinancialScreen.queue.searchPlaceholder')}
           placeholderTextColor={COLORS.muted}
         />
         <View style={s.queueChips}>
-          {([['pending', 'Pendientes'], ['done', 'Hechos'], ['all', 'Todos']] as const).map(([key, lbl]) => (
+          {([['pending', t('adminFinancialScreen.queue.filterPending')], ['done', t('adminFinancialScreen.queue.filterDone')], ['all', t('adminFinancialScreen.queue.filterAll')]] as const).map(([key, lbl]) => (
             <Pressable
               key={key}
               style={[s.queueChip, qFilter === key && s.queueChipActive]}
@@ -238,7 +249,7 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
           ))}
         </View>
         <View style={s.queueChips}>
-          {([['all', '🌎 Todos'], ['MX', '🇲🇽 México'], ['US', '🇺🇸 EE.UU.']] as const).map(([key, lbl]) => (
+          {([['all', t('adminFinancialScreen.queue.countryAll')], ['MX', t('adminFinancialScreen.queue.countryMx')], ['US', t('adminFinancialScreen.queue.countryUs')]] as const).map(([key, lbl]) => (
             <Pressable
               key={key}
               style={[s.queueChip, qCountry === key && s.queueChipActive]}
@@ -258,7 +269,7 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
     if (isRefresh) setRefreshing(true);
     else setLoading(true);
     try {
-      await Promise.all([fetchOverview(), fetchEventFinancials(), fetchPayouts(), fetchPendingGroupPayments(), fetchAdIncome(), fetchRefunds()]);
+      await Promise.all([fetchOverview(), fetchEventFinancials(), fetchPayouts(), fetchPendingGroupPayments(), fetchPendingGiftPayouts(), fetchAdIncome(), fetchRefunds()]);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -276,7 +287,7 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
     const { data } = await supabase.rpc('admin_process_manual_refund', {
       p_refund_id: mr.id, p_action: 'processing',
     });
-    if ((data as any)?.ok === false) { Alert.alert('Error', (data as any)?.error ?? 'Intenta de nuevo'); return; }
+    if ((data as any)?.ok === false) { Alert.alert(t('adminFinancialScreen.alerts.errorTitle'), (data as any)?.error ?? t('adminFinancialScreen.alerts.tryAgain')); return; }
     fetchRefunds();
   };
 
@@ -303,7 +314,7 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
   const completeRefund = async () => {
     if (!refundModal) return;
     const reference = refundRef.trim();
-    if (!reference) { Alert.alert('Falta la referencia', 'Escribe la clave de rastreo o folio de la transferencia.'); return; }
+    if (!reference) { Alert.alert(t('adminFinancialScreen.alerts.missingReferenceTitle'), t('adminFinancialScreen.alerts.missingReferenceMessage')); return; }
     setRefundSaving(true);
     try {
       // 1. Subir comprobante (opcional pero recomendado)
@@ -314,7 +325,7 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
         const { error: upErr } = await supabase.storage
           .from('refund-receipts')
           .upload(receiptPath, buf, { contentType: 'image/jpeg', upsert: true });
-        if (upErr) throw new Error(`No se pudo subir el comprobante: ${upErr.message}`);
+        if (upErr) throw new Error(t('adminFinancialScreen.alerts.receiptUploadError', { message: upErr.message }));
       }
       // 2. Marcar enviado + notificar al cliente
       const { data, error } = await supabase.rpc('admin_process_manual_refund', {
@@ -322,13 +333,13 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
         p_transfer_reference: reference, p_receipt_path: receiptPath,
       });
       if (error || (data as any)?.ok === false) {
-        throw new Error((data as any)?.error ?? error?.message ?? 'No se pudo completar');
+        throw new Error((data as any)?.error ?? error?.message ?? t('adminFinancialScreen.alerts.couldNotComplete'));
       }
-      Alert.alert('✅ Reembolso completado', 'El cliente fue notificado de que su dinero fue enviado.');
+      Alert.alert(t('adminFinancialScreen.alerts.refundCompletedTitle'), t('adminFinancialScreen.alerts.refundCompletedMessage'));
       setRefundModal(null); setRefundRef(''); setReceiptUri(null);
       fetchRefunds();
     } catch (e: any) {
-      Alert.alert('Error', e.message ?? 'Intenta de nuevo.');
+      Alert.alert(t('adminFinancialScreen.alerts.errorTitle'), e.message ?? t('adminFinancialScreen.alerts.tryAgainPeriod'));
     } finally {
       setRefundSaving(false);
     }
@@ -477,6 +488,17 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
     setPendingGroupPayments((data as any).items ?? []);
   };
 
+  // sql/584 — cola de solicitudes de cobro de propinas/regalos acumulados
+  const fetchPendingGiftPayouts = async () => {
+    const { data, error } = await supabase.rpc('admin_get_pending_gift_payouts');
+    if (error || !(data as any)?.ok) {
+      console.warn('[FinancialScreen] pending gift payouts:', error?.message ?? (data as any)?.error);
+      setPendingGiftPayouts([]);
+      return;
+    }
+    setPendingGiftPayouts((data as any).items ?? []);
+  };
+
   // Fase P1C — registrar anticipo manual por reservation_id. Único RPC de
   // escritura de esta fase; siempre kind='advance', nunca 'final_settlement'
   // (eso es P1E). No toca withdrawals ni WalletScreen.
@@ -502,10 +524,10 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
     if (!advanceModal) return;
     const numAmount = parseFloat(advanceAmount);
     if (!advanceAmount || isNaN(numAmount) || numAmount <= 0) {
-      Alert.alert('Monto inválido', 'Ingresa un monto válido.'); return;
+      Alert.alert(t('adminFinancialScreen.alerts.invalidAmountTitle'), t('adminFinancialScreen.alerts.invalidAmountMessage')); return;
     }
     if (!advanceReceiptUri) {
-      Alert.alert('Falta el comprobante', 'El comprobante es obligatorio para registrar un anticipo.'); return;
+      Alert.alert(t('adminFinancialScreen.alerts.missingReceiptTitle'), t('adminFinancialScreen.alerts.missingReceiptAdvanceMessage')); return;
     }
     setAdvanceSaving(true);
     try {
@@ -514,7 +536,7 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
       const { error: upErr } = await supabase.storage
         .from('refund-receipts')
         .upload(receiptPath, buf, { contentType: 'image/jpeg', upsert: true });
-      if (upErr) throw new Error(`No se pudo subir el comprobante: ${upErr.message}`);
+      if (upErr) throw new Error(t('adminFinancialScreen.alerts.receiptUploadError', { message: upErr.message }));
       const { data, error } = await supabase.rpc('admin_register_group_payment', {
         p_reservation_id: advanceModal.reservation_id,
         p_amount: numAmount,
@@ -526,20 +548,20 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
       });
       if (error || (data as any)?.ok === false) {
         const err = (data as any)?.error ?? error?.message;
-        const msg = err === 'exceeds_group_earnings' ? 'El monto excede lo que le corresponde al grupo por esta reserva.'
-          : err === 'insufficient_wallet_bucket' ? 'El grupo ya recibió este dinero por otra vía — revisa su historial antes de continuar.'
-          : err === 'payout_status_not_eligible' ? 'Esta reserva ya no admite anticipos (no está en estado "retenido").'
-          : err === 'receipt_required' ? 'El comprobante es obligatorio.'
-          : err === 'transferred_at_required' ? 'Indica la fecha y hora de la transferencia.'
-          : err ?? 'No se pudo registrar el anticipo.';
+        const msg = err === 'exceeds_group_earnings' ? t('adminFinancialScreen.alerts.advanceExceedsEarnings')
+          : err === 'insufficient_wallet_bucket' ? t('adminFinancialScreen.alerts.alreadyReceivedOtherWay')
+          : err === 'payout_status_not_eligible' ? t('adminFinancialScreen.alerts.advanceNotEligible')
+          : err === 'receipt_required' ? t('adminFinancialScreen.alerts.receiptRequired')
+          : err === 'transferred_at_required' ? t('adminFinancialScreen.alerts.transferDateRequired')
+          : err ?? t('adminFinancialScreen.alerts.advanceRegisterError');
         throw new Error(msg);
       }
-      Alert.alert('✅ Anticipo registrado', 'El grupo fue notificado.');
+      Alert.alert(t('adminFinancialScreen.alerts.advanceRegisteredTitle'), t('adminFinancialScreen.alerts.groupNotified'));
       setAdvanceModal(null); setAdvanceAmount(''); setAdvanceNote(''); setAdvanceReceiptUri(null);
       setAdvanceTransferRef(''); setAdvanceTransferredAt(new Date());
       fetchPendingGroupPayments();
     } catch (e: any) {
-      Alert.alert('Error', e.message ?? 'Intenta de nuevo.');
+      Alert.alert(t('adminFinancialScreen.alerts.errorTitle'), e.message ?? t('adminFinancialScreen.alerts.tryAgainPeriod'));
     } finally {
       setAdvanceSaving(false);
     }
@@ -570,9 +592,9 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
   const handleRegisterFinalSettlement = async () => {
     if (!finalModal) return;
     const amount = Number(finalModal.saldo_pendiente ?? 0);
-    if (!(amount > 0)) { Alert.alert('Sin saldo', 'Esta reserva ya no tiene saldo pendiente.'); return; }
-    if (!finalReceiptUri) { Alert.alert('Falta el comprobante', 'El comprobante es obligatorio para la liquidación final.'); return; }
-    if (!finalTransferRef.trim()) { Alert.alert('Falta la referencia', 'La referencia de transferencia es obligatoria para la liquidación final.'); return; }
+    if (!(amount > 0)) { Alert.alert(t('adminFinancialScreen.alerts.noBalanceTitle'), t('adminFinancialScreen.alerts.noBalanceMessage')); return; }
+    if (!finalReceiptUri) { Alert.alert(t('adminFinancialScreen.alerts.missingReceiptTitle'), t('adminFinancialScreen.alerts.missingReceiptFinalMessage')); return; }
+    if (!finalTransferRef.trim()) { Alert.alert(t('adminFinancialScreen.alerts.missingReferenceTitle'), t('adminFinancialScreen.alerts.missingReferenceFinalMessage')); return; }
     setFinalSaving(true);
     try {
       const receiptPath = `${finalModal.group_id}/final_${finalModal.reservation_id}_${Date.now()}.jpg`;
@@ -580,7 +602,7 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
       const { error: upErr } = await supabase.storage
         .from('refund-receipts')
         .upload(receiptPath, buf, { contentType: 'image/jpeg', upsert: true });
-      if (upErr) throw new Error(`No se pudo subir el comprobante: ${upErr.message}`);
+      if (upErr) throw new Error(t('adminFinancialScreen.alerts.receiptUploadError', { message: upErr.message }));
       const { data, error } = await supabase.rpc('admin_register_group_payment', {
         p_reservation_id: finalModal.reservation_id,
         p_amount: amount,
@@ -592,25 +614,88 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
       });
       if (error || (data as any)?.ok === false) {
         const err = (data as any)?.error ?? error?.message;
-        const msg = err === 'final_amount_must_match_balance' ? 'El saldo cambió — cierra y vuelve a abrir la liquidación para tomar el monto actualizado.'
-          : err === 'exceeds_group_earnings' ? 'El monto excede el saldo pendiente de esta reserva.'
-          : err === 'insufficient_wallet_bucket' ? 'El grupo ya recibió este dinero por otra vía — revisa su historial antes de continuar.'
-          : err === 'payout_status_not_eligible' ? 'Esta reserva no está lista para liquidación final.'
-          : err === 'missing_bank_data' ? 'Al grupo le faltan datos bancarios completos — pídele que los complete en su Wallet.'
-          : err === 'receipt_required' ? 'El comprobante es obligatorio.'
-          : err === 'transfer_reference_required' ? 'La referencia de transferencia es obligatoria.'
-          : err === 'transferred_at_required' ? 'Indica la fecha y hora de la transferencia.'
-          : err ?? 'No se pudo registrar la liquidación final.';
+        const msg = err === 'final_amount_must_match_balance' ? t('adminFinancialScreen.alerts.balanceChanged')
+          : err === 'exceeds_group_earnings' ? t('adminFinancialScreen.alerts.finalExceedsBalance')
+          : err === 'insufficient_wallet_bucket' ? t('adminFinancialScreen.alerts.alreadyReceivedOtherWay')
+          : err === 'payout_status_not_eligible' ? t('adminFinancialScreen.alerts.finalNotReady')
+          : err === 'missing_bank_data' ? t('adminFinancialScreen.alerts.missingBankData')
+          : err === 'receipt_required' ? t('adminFinancialScreen.alerts.receiptRequired')
+          : err === 'transfer_reference_required' ? t('adminFinancialScreen.alerts.transferReferenceRequired')
+          : err === 'transferred_at_required' ? t('adminFinancialScreen.alerts.transferDateRequired')
+          : err ?? t('adminFinancialScreen.alerts.finalRegisterError');
         throw new Error(msg);
       }
-      Alert.alert('✅ Liquidación final registrada', 'El grupo fue notificado — evento liquidado.');
+      Alert.alert(t('adminFinancialScreen.alerts.finalRegisteredTitle'), t('adminFinancialScreen.alerts.finalRegisteredMessage'));
       setFinalModal(null); setFinalNote(''); setFinalReceiptUri(null);
       setFinalTransferRef(''); setFinalTransferredAt(new Date());
       fetchPendingGroupPayments();
     } catch (e: any) {
-      Alert.alert('Error', e.message ?? 'Intenta de nuevo.');
+      Alert.alert(t('adminFinancialScreen.alerts.errorTitle'), e.message ?? t('adminFinancialScreen.alerts.tryAgainPeriod'));
     } finally {
       setFinalSaving(false);
+    }
+  };
+
+  // sql/584 — comprobante del pago de propinas/regalos acumulados (mismo patrón de compresión)
+  const pickGiftPayoutReceipt = async () => {
+    Keyboard.dismiss();
+    const res = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'], quality: 0.8, allowsEditing: false,
+    });
+    if (res.canceled || !res.assets?.[0]?.uri) return;
+    try {
+      const small = await ImageManipulator.manipulateAsync(
+        res.assets[0].uri,
+        [{ resize: { width: 1200 } }],
+        { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG },
+      );
+      setGiftPayoutReceiptUri(small.uri);
+    } catch {
+      setGiftPayoutReceiptUri(res.assets[0].uri);
+    }
+  };
+
+  // sql/584 — monto SIEMPRE el saldo de propinas exacto, nunca editable
+  // (el backend rechaza cualquier otro monto: debe ser el remanente exacto).
+  const handleRegisterGiftPayout = async () => {
+    if (!giftPayoutModal) return;
+    const amount = Number(giftPayoutModal.amount ?? 0);
+    if (!giftPayoutReceiptUri) { Alert.alert(t('adminFinancialScreen.alerts.missingReceiptTitle'), t('adminFinancialScreen.alerts.missingReceiptFinalMessage')); return; }
+    if (!giftPayoutTransferRef.trim()) { Alert.alert(t('adminFinancialScreen.alerts.missingReferenceTitle'), t('adminFinancialScreen.alerts.missingReferenceFinalMessage')); return; }
+    setGiftPayoutSaving(true);
+    try {
+      const receiptPath = `${giftPayoutModal.group_id}/gift_payout_${Date.now()}.jpg`;
+      const buf = await fetch(giftPayoutReceiptUri).then(r => r.arrayBuffer());
+      const { error: upErr } = await supabase.storage
+        .from('refund-receipts')
+        .upload(receiptPath, buf, { contentType: 'image/jpeg', upsert: true });
+      if (upErr) throw new Error(t('adminFinancialScreen.alerts.receiptUploadError', { message: upErr.message }));
+      const { data, error } = await supabase.rpc('admin_register_gift_payout', {
+        p_group_id: giftPayoutModal.group_id,
+        p_amount: amount,
+        p_currency_code: giftPayoutModal.currency,
+        p_receipt_path: receiptPath,
+        p_transfer_reference: giftPayoutTransferRef.trim(),
+        p_transferred_at: giftPayoutTransferredAt.toISOString(),
+      });
+      if (error || (data as any)?.ok === false) {
+        const err = (data as any)?.error ?? error?.message;
+        const msg = err === 'amount_must_match_balance' ? t('adminFinancialScreen.alerts.balanceChanged')
+          : err === 'insufficient_wallet_bucket' ? t('adminFinancialScreen.alerts.alreadyReceivedOtherWay')
+          : err === 'receipt_required' ? t('adminFinancialScreen.alerts.receiptRequired')
+          : err === 'transfer_reference_required' ? t('adminFinancialScreen.alerts.transferReferenceRequired')
+          : err === 'transferred_at_required' ? t('adminFinancialScreen.alerts.transferDateRequired')
+          : err ?? t('adminFinancialScreen.alerts.finalRegisterError');
+        throw new Error(msg);
+      }
+      Alert.alert(t('adminFinancialScreen.alerts.finalRegisteredTitle'), t('adminFinancialScreen.alerts.groupNotified'));
+      setGiftPayoutModal(null); setGiftPayoutReceiptUri(null);
+      setGiftPayoutTransferRef(''); setGiftPayoutTransferredAt(new Date());
+      fetchPendingGiftPayouts();
+    } catch (e: any) {
+      Alert.alert(t('adminFinancialScreen.alerts.errorTitle'), e.message ?? t('adminFinancialScreen.alerts.tryAgainPeriod'));
+    } finally {
+      setGiftPayoutSaving(false);
     }
   };
 
@@ -957,6 +1042,47 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
                   )}
                   <EventRow label="Ganancia neta plataforma" value={fmt(ev.net_platform_profit)} color={COLORS.green} bold />
                   <EventRow label="Pagado a artistas" value={fmt(ev.artists_payout)} color={COLORS.gold} />
+                </View>
+              ))}
+
+              {/* ══ sql/584: propinas/regalos acumulados, independientes de reserva ══ */}
+              <Text style={[s.sectionTitle, { marginTop: 20 }]}>Propinas y regalos acumulados</Text>
+              <Text style={s.p1bHint}>
+                El grupo solicita cobrar cuando su saldo de propinas pasa el mínimo
+                ($200 MXN / $12 USD) — no depende de ninguna reserva.
+              </Text>
+              {pendingGiftPayouts.length === 0 && (
+                <View style={s.emptyCard}>
+                  <Text style={s.emptyText}>Sin solicitudes de propinas pendientes</Text>
+                </View>
+              )}
+              {pendingGiftPayouts.map((r: any) => (
+                <View key={r.request_id} style={s.refundCard}>
+                  <Text style={s.payoutName} numberOfLines={1}>{r.group_name ?? '—'}</Text>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 }}>
+                    <Text style={[s.payoutAmount, { fontSize: 16 }]}>Monto solicitado</Text>
+                    <Text style={[s.payoutAmount, { fontSize: 16 }]}>
+                      {r.currency === 'USD' ? 'US$' : '$'}{Number(r.amount ?? 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} {r.currency}
+                    </Text>
+                  </View>
+                  {r.bank_clabe ? (
+                    <Text style={[s.payoutType, { marginTop: 6 }]}>
+                      🏦 {r.bank_name ?? 'Banco'} · CLABE ···{String(r.bank_clabe).slice(-4)} · {r.account_holder ?? '—'}
+                    </Text>
+                  ) : (
+                    <Text style={[s.payoutType, { marginTop: 6, color: COLORS.orange }]}>
+                      ⚠️ Sin datos bancarios — pide al grupo que los complete en su Wallet
+                    </Text>
+                  )}
+                  <Pressable
+                    style={[s.reportBtn, { marginTop: 10, backgroundColor: COLORS.green }]}
+                    onPress={() => {
+                      setGiftPayoutModal(r); setGiftPayoutReceiptUri(null);
+                      setGiftPayoutTransferRef(''); setGiftPayoutTransferredAt(new Date());
+                    }}
+                  >
+                    <Text style={[s.reportBtnTx, { color: COLORS.bg }]}>🎁 Registrar pago de propinas</Text>
+                  </Pressable>
                 </View>
               ))}
             </>
@@ -1546,6 +1672,74 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
                       </View>
                     )
                     : <Text style={s.refundBtnTx}>Confirmar liquidación final</Text>}
+                </Pressable>
+              </ScrollView>
+            </View>
+          </KeyboardAvoidingView>
+        </Modal>
+
+        {/* ── Modal: pago de propinas/regalos acumulados (sql/584) ── */}
+        <Modal
+          visible={!!giftPayoutModal}
+          transparent animationType="slide"
+          onRequestClose={() => setGiftPayoutModal(null)}
+        >
+          <KeyboardAvoidingView
+            style={s.refundModalOverlay}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          >
+            <View style={s.refundModalSheet}>
+              <View style={s.refundModalHead}>
+                <Text style={s.refundModalTitle}>Pagar propinas acumuladas</Text>
+                <Pressable onPress={() => setGiftPayoutModal(null)} hitSlop={8}>
+                  <X size={20} color={COLORS.muted2} />
+                </Pressable>
+              </View>
+              <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+                {giftPayoutModal && (
+                  <Text style={s.refundIntro}>
+                    {giftPayoutModal.group_name ?? 'Grupo'} · Paga el saldo de propinas por completo
+                  </Text>
+                )}
+                <Text style={s.refundModalLabel}>Monto a pagar (saldo exacto, no editable)</Text>
+                <View style={[s.refundModalInput, { justifyContent: 'center' }]}>
+                  <Text style={{ fontFamily: FONTS.bodySemiBold, fontSize: 16, color: COLORS.green }}>
+                    {giftPayoutModal?.currency === 'USD' ? 'US$' : '$'}
+                    {Number(giftPayoutModal?.amount ?? 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} {giftPayoutModal?.currency}
+                  </Text>
+                </View>
+                <Text style={s.refundModalLabel}>Referencia de transferencia *</Text>
+                <TextInput
+                  style={s.refundModalInput}
+                  value={giftPayoutTransferRef}
+                  onChangeText={setGiftPayoutTransferRef}
+                  placeholder="Ej. clave de rastreo SPEI"
+                  placeholderTextColor={COLORS.muted}
+                />
+                <TransferDateTimeField
+                  label="Fecha y hora de la transferencia *"
+                  value={giftPayoutTransferredAt}
+                  onChange={setGiftPayoutTransferredAt}
+                />
+                <Text style={s.refundModalLabel}>Comprobante (foto/captura) *</Text>
+                <Pressable style={s.refundReceiptPick} onPress={pickGiftPayoutReceipt}>
+                  {giftPayoutReceiptUri
+                    ? <Image source={{ uri: giftPayoutReceiptUri }} style={s.refundReceiptImg} resizeMode="cover" />
+                    : <Text style={s.refundReceiptTx}>📎 Subir comprobante</Text>}
+                </Pressable>
+                <Pressable
+                  style={[s.refundBtn, { marginTop: 14 }, giftPayoutSaving && { opacity: 0.5 }]}
+                  onPress={handleRegisterGiftPayout}
+                  disabled={giftPayoutSaving}
+                >
+                  {giftPayoutSaving
+                    ? (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <ActivityIndicator size="small" color="#000" />
+                        <Text style={s.refundBtnTx}>Registrando…</Text>
+                      </View>
+                    )
+                    : <Text style={s.refundBtnTx}>Confirmar pago de propinas</Text>}
                 </Pressable>
               </ScrollView>
             </View>

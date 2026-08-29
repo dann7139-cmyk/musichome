@@ -15,6 +15,7 @@ import {
   ActivityIndicator,
   Alert,
   AppState,
+  Image,
   Linking,
   Pressable,
   RefreshControl,
@@ -52,6 +53,8 @@ const TYPE_LABELS: Record<string, { label: string; color: string; sign: string; 
   refund:                 { label: 'Reembolso',                  color: COLORS.blue,   sign: '+' },
   platform_income:        { label: 'Comisión de plataforma',     color: COLORS.green,  sign: '+' },
   commission_correction:  { label: 'Ajuste Stripe',              color: COLORS.muted2, sign: '-' },
+  // 🎁 Regalos/donaciones (sql/566-568)
+  gift_income:            { label: 'Regalo recibido',            color: COLORS.gold,   sign: '+', icon: '🎁' },
   // Ingresos publicitarios (admin)
   ad_income:              { label: 'Publicidad',                 color: '#C9A84C',     sign: '+', icon: '📢' },
   bid_income:             { label: 'Posicionamiento (bid)',       color: '#A78BFA',     sign: '+', icon: '🔥' },
@@ -89,6 +92,13 @@ export default function WalletScreen({ navigation }: any) {
   // ── "Solicitar pago" por reserva (Fase P1D) — el grupo ya no retira ────────
   const [payableReservations, setPayableReservations] = useState<any[]>([]);
   const [requestingPayment, setRequestingPayment]      = useState<string | null>(null);
+
+  // ── Cobro de propinas/regalos acumulados (sql/584) ──────────────────────
+  const [giftPayoutStatus, setGiftPayoutStatus] = useState<any>(null);
+  const [requestingGiftPayout, setRequestingGiftPayout] = useState(false);
+
+  // 🎁 Quién ha donado (solo grupo, sql/566-568)
+  const [giftDonors, setGiftDonors] = useState<any[]>([]);
   const hasBankData = !!(bankClabe && bankClabe.length === 18 && bankName.trim() && accountHolder.trim());
 
   const appStateRef = useRef(AppState.currentState);
@@ -119,6 +129,22 @@ export default function WalletScreen({ navigation }: any) {
         group_id: grp?.id ?? null,
       });
 
+      // 🎁 Quién le ha donado a este grupo — RLS ya lo permite (dueño del
+      // grupo puede leer sus propios group_gifts, sql/566).
+      if (grp?.id) {
+        // group_amount (60% del grupo) — NUNCA amount (precio completo del
+        // regalo): la comisión de Daricefy es invisible para el grupo, aquí
+        // solo debe ver lo que a ÉL le tocó, igual que en wallet_transactions.
+        const { data: giftsData } = await supabase
+          .from('group_gifts')
+          .select('id, group_amount, currency_code, created_at, sender:profiles!sender_id(full_name, avatar_url), gift:gift_catalog(emoji, name)')
+          .eq('group_id', grp.id)
+          .eq('status', 'paid')
+          .order('created_at', { ascending: false })
+          .limit(20);
+        setGiftDonors(giftsData ?? []);
+      }
+
       // Datos bancarios ya guardados (tabla `wallets`, no `group_wallets` —
       // get_my_wallet() no los incluye para rol group). Mismo patrón de
       // lectura ya usado en WithdrawScreen.tsx.
@@ -136,6 +162,10 @@ export default function WalletScreen({ navigation }: any) {
       // Fase P1D — reservas ya liberadas con saldo pendiente, propias del grupo
       const { data: payableData } = await supabase.rpc('group_get_payable_reservations');
       if ((payableData as any)?.ok) setPayableReservations((payableData as any).items ?? []);
+
+      // sql/584 — saldo de propinas/regalos acumulados sin cobrar
+      const { data: giftPayoutData } = await supabase.rpc('group_get_gift_payout_status');
+      if ((giftPayoutData as any)?.ok) setGiftPayoutStatus(giftPayoutData);
     } else {
       setStripeStatus({
         stripe_account_id:          prof?.stripe_account_id ?? null,
@@ -357,6 +387,33 @@ export default function WalletScreen({ navigation }: any) {
     }
   };
 
+  // sql/584 — pedir el pago de propinas/regalos acumulados (aviso administrativo, no mueve dinero).
+  const handleRequestGiftPayout = async () => {
+    setRequestingGiftPayout(true);
+    try {
+      const { data, error } = await supabase.rpc('group_request_gift_payout');
+      if (error || !(data as any)?.ok) {
+        const err = (data as any)?.error ?? error?.message;
+        const msg = err === 'missing_bank_data' ? 'Completa tus datos bancarios antes de solicitar el pago.'
+          : err === 'below_minimum' ? 'Todavía no llegas al mínimo para solicitar el pago.'
+          : err ?? 'No se pudo enviar la solicitud.';
+        Alert.alert('Error', msg);
+        return;
+      }
+      Alert.alert('✅ Solicitud enviada', 'Le avisamos a Daricefy que quieres cobrar tus propinas acumuladas.');
+      setGiftPayoutStatus((prev: any) => ({
+        ...prev,
+        has_pending_request: true,
+        pending_amount: (data as any).amount,
+        pending_currency: (data as any).currency,
+      }));
+    } catch (e: any) {
+      Alert.alert('Error', e.message ?? 'Intenta de nuevo.');
+    } finally {
+      setRequestingGiftPayout(false);
+    }
+  };
+
   if (loading) {
     return (
       <View style={{ flex: 1, backgroundColor: COLORS.bg, alignItems: 'center', justifyContent: 'center' }}>
@@ -372,6 +429,11 @@ export default function WalletScreen({ navigation }: any) {
   const pendingUsd = wallet?.pending_balance_usd   ?? 0;
   const totalUsd   = wallet?.total_earned_usd      ?? 0;
   const hasUsd     = availUsd > 0 || pendingUsd > 0 || totalUsd > 0;
+  // 🎁 Total de regalos — grupo (total_gift_income) o admin (total_gift_commission).
+  // Mismo saldo de siempre, solo un desglose aparte para que no se confunda
+  // con las ganancias de eventos (pedido explícito del usuario).
+  const giftTotal    = wallet?.total_gift_income    ?? wallet?.total_gift_commission    ?? 0;
+  const giftTotalUsd = wallet?.total_gift_income_usd ?? wallet?.total_gift_commission_usd ?? 0;
   const stripeOk   = stripeStatus.stripe_onboarding_completed;
   const stripeLinked = !!stripeStatus.stripe_account_id;
 
@@ -397,18 +459,18 @@ export default function WalletScreen({ navigation }: any) {
           <View style={st.heroCard}>
             <Wallet size={22} color={COLORS.green} style={{ marginBottom: 8 }} />
             <Text style={st.heroLabel}>{t('wallet.available')}</Text>
-            <Text style={st.heroAmount} numberOfLines={1} adjustsFontSizeToFit>{formatCurrency(available)}</Text>
+            <Text style={st.heroAmount} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>{formatCurrency(available)}</Text>
             <View style={st.heroRow}>
               <View style={st.heroStat}>
                 <Clock size={14} color={COLORS.muted2} />
                 <Text style={st.heroStatLabel}>{t('wallet.pending')}</Text>
-                <Text style={st.heroStatValue}>{formatCurrency(pending)}</Text>
+                <Text style={st.heroStatValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>{formatCurrency(pending)}</Text>
               </View>
               <View style={st.heroDivider} />
               <View style={st.heroStat}>
                 <TrendingUp size={14} color={COLORS.muted2} />
                 <Text style={st.heroStatLabel}>{t('wallet.total_earned')}</Text>
-                <Text style={st.heroStatValue}>{formatCurrency(total)}</Text>
+                <Text style={st.heroStatValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>{formatCurrency(total)}</Text>
               </View>
             </View>
           </View>
@@ -417,14 +479,14 @@ export default function WalletScreen({ navigation }: any) {
           {hasUsd && (
             <View style={[st.heroCard, { marginTop: 12 }]}>
               <Text style={[st.heroLabel, { marginBottom: 4 }]}>{t('wallet.usd_balance')}</Text>
-              <Text style={st.heroAmount} numberOfLines={1} adjustsFontSizeToFit>
+              <Text style={st.heroAmount} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>
                 US${availUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </Text>
               <View style={st.heroRow}>
                 <View style={st.heroStat}>
                   <Clock size={14} color={COLORS.muted2} />
                   <Text style={st.heroStatLabel}>{t('wallet.pending')}</Text>
-                  <Text style={st.heroStatValue}>
+                  <Text style={st.heroStatValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>
                     US${pendingUsd.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                   </Text>
                 </View>
@@ -432,11 +494,53 @@ export default function WalletScreen({ navigation }: any) {
                 <View style={st.heroStat}>
                   <TrendingUp size={14} color={COLORS.muted2} />
                   <Text style={st.heroStatLabel}>{t('wallet.total_earned')}</Text>
-                  <Text style={st.heroStatValue}>
+                  <Text style={st.heroStatValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>
                     US${totalUsd.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                   </Text>
                 </View>
               </View>
+            </View>
+          )}
+
+          {/* 🎁 Desglose de regalos — mismo saldo de arriba, aparte para que
+              no se confunda con las ganancias de eventos. */}
+          {(giftTotal > 0 || giftTotalUsd > 0) && (
+            <View style={st.giftCard}>
+              <Text style={st.giftCardTitle}>
+                🎁 {stripeStatus.role === 'group' ? 'Total recibido en regalos' : 'Comisión total por regalos'}
+              </Text>
+              {giftTotal > 0 && (
+                <Text style={st.giftCardAmount}>{formatCurrency(giftTotal)} MXN</Text>
+              )}
+              {giftTotalUsd > 0 && (
+                <Text style={st.giftCardAmount}>
+                  US${giftTotalUsd.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
+                </Text>
+              )}
+            </View>
+          )}
+
+          {stripeStatus.role === 'group' && giftDonors.length > 0 && (
+            <View style={st.giftCard}>
+              <Text style={st.giftCardTitle}>🎁 Quién te ha apoyado</Text>
+              {giftDonors.map(g => (
+                <View key={g.id} style={st.donorRow}>
+                  {g.sender?.avatar_url ? (
+                    <Image source={{ uri: g.sender.avatar_url }} style={st.donorAvatar} />
+                  ) : (
+                    <View style={[st.donorAvatar, st.donorAvatarPh]}>
+                      <User size={13} color={COLORS.muted} />
+                    </View>
+                  )}
+                  <Text style={st.donorText} numberOfLines={1}>
+                    <Text style={st.donorName}>{g.sender?.full_name ?? 'Alguien'}</Text>
+                    {' te regaló '}{g.gift?.emoji} {g.gift?.name}
+                  </Text>
+                  <Text style={st.donorAmount}>
+                    {g.currency_code === 'USD' ? 'US$' : '$'}{g.group_amount}
+                  </Text>
+                </View>
+              ))}
             </View>
           )}
 
@@ -512,6 +616,69 @@ export default function WalletScreen({ navigation }: any) {
               {available <= 0 ? (
                 <Text style={st.noBalanceHint}>{t('wallet.withdraw_hint_no_balance')}</Text>
               ) : null}
+            </View>
+          )}
+
+          {/* sql/584 — cobro de propinas/regalos acumulados, independiente de
+              cualquier reserva. Solo aparece cuando pasa el mínimo o ya hay
+              una solicitud pendiente (para que el grupo vea su estatus). */}
+          {stripeStatus.role === 'group' && giftPayoutStatus && (
+            giftPayoutStatus.has_pending_request ||
+            giftPayoutStatus.unpaid_mxn >= giftPayoutStatus.threshold_mxn ||
+            giftPayoutStatus.unpaid_usd >= giftPayoutStatus.threshold_usd
+          ) && (
+            <View style={st.payableCard}>
+              <Text style={st.payableTitle}>🎁 Propinas y regalos acumulados</Text>
+              <Text style={st.payableSub}>
+                Este saldo ya está aparte de tus eventos — puedes cobrarlo cuando quieras arriba del mínimo.
+              </Text>
+              {giftPayoutStatus.has_pending_request ? (
+                <>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 }}>
+                    <Text style={[st.payableRowLabel, { color: COLORS.green }]}>Solicitado</Text>
+                    <Text style={[st.payableRowValue, { color: COLORS.green }]}>
+                      {giftPayoutStatus.pending_currency === 'USD' ? 'US$' : '$'}{giftPayoutStatus.pending_amount} {giftPayoutStatus.pending_currency}
+                    </Text>
+                  </View>
+                  <View style={[st.payableBtn, { backgroundColor: COLORS.card2, borderColor: COLORS.border }]}>
+                    <Text style={[st.payableBtnTx, { color: COLORS.muted2 }]}>✓ Pago solicitado</Text>
+                  </View>
+                </>
+              ) : (
+                <>
+                  {giftPayoutStatus.unpaid_mxn > 0 && (
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 }}>
+                      <Text style={st.payableRowLabel}>Sin cobrar (MXN)</Text>
+                      <Text style={st.payableRowValue}>{formatCurrency(Number(giftPayoutStatus.unpaid_mxn))}</Text>
+                    </View>
+                  )}
+                  {giftPayoutStatus.unpaid_usd > 0 && (
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                      <Text style={st.payableRowLabel}>Sin cobrar (USD)</Text>
+                      <Text style={st.payableRowValue}>US${Number(giftPayoutStatus.unpaid_usd).toFixed(2)}</Text>
+                    </View>
+                  )}
+                  {!hasBankData ? (
+                    <Pressable style={[st.payableBtn, { backgroundColor: COLORS.orange + '20', borderColor: COLORS.orange }]}
+                      onPress={() => Alert.alert(
+                        'Faltan tus datos bancarios',
+                        'Completa CLABE, banco y titular en la sección "Datos bancarios" de esta misma pantalla para poder solicitar el pago.',
+                      )}>
+                      <Text style={[st.payableBtnTx, { color: COLORS.orange }]}>Completa tus datos bancarios para solicitar el pago</Text>
+                    </Pressable>
+                  ) : (
+                    <Pressable
+                      style={[st.payableBtn, requestingGiftPayout && { opacity: 0.6 }]}
+                      disabled={requestingGiftPayout}
+                      onPress={handleRequestGiftPayout}
+                    >
+                      <Text style={st.payableBtnTx}>
+                        {requestingGiftPayout ? 'Enviando…' : 'Solicitar pago de propinas'}
+                      </Text>
+                    </Pressable>
+                  )}
+                </>
+              )}
             </View>
           )}
 
@@ -702,6 +869,13 @@ export default function WalletScreen({ navigation }: any) {
                   if (stripeStatus.role !== 'admin' && (tx.type === 'platform_income' || tx.type === 'commission' || tx.type === 'commission_correction')) {
                     meta = { ...meta, label: tx.type === 'platform_income' ? 'Ingreso' : 'Ajuste' };
                   }
+                  // 💰 Para el admin, 'commission' es SU ganancia llegando a su
+                  // wallet (ej. comisión por regalo) — no un descuento. El signo
+                  // "-" tenía sentido pensando en a quién se le cobra, pero en
+                  // esta lista siempre es la vista del dueño de la wallet.
+                  if (stripeStatus.role === 'admin' && tx.type === 'commission') {
+                    meta = { ...meta, sign: '+', color: COLORS.green };
+                  }
                   const timeStr = new Date(tx.created_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
                   const isDebit  = meta.sign === '-';
                   const isPending = tx.status === 'pending';
@@ -788,6 +962,24 @@ const st = StyleSheet.create({
   heroStatLabel: { fontFamily: FONTS.body, fontSize: 10, color: COLORS.muted },
   heroStatValue: { fontFamily: FONTS.bodyMedium, fontSize: 11, color: COLORS.text },
   heroDivider:   { width: 1, height: 36, backgroundColor: COLORS.border },
+
+  // 🎁 Regalos/donaciones (sql/566-569)
+  giftCard: {
+    backgroundColor: COLORS.card, borderRadius: RADIUS.xl,
+    borderWidth: 1, borderColor: COLORS.border,
+    padding: SPACING.lg, marginTop: 12, gap: 6,
+  },
+  giftCardTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.text },
+  giftCardAmount: { fontFamily: FONTS.title, fontSize: 20, color: COLORS.gold },
+  donorRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingVertical: 6, borderTopWidth: 1, borderTopColor: COLORS.border,
+  },
+  donorAvatar: { width: 26, height: 26, borderRadius: 13, backgroundColor: COLORS.card2 },
+  donorAvatarPh: { alignItems: 'center', justifyContent: 'center' },
+  donorText: { flex: 1, fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2 },
+  donorName: { fontFamily: FONTS.bodyMedium, color: COLORS.text },
+  donorAmount: { fontFamily: FONTS.bodySemiBold, fontSize: 12, color: COLORS.gold },
 
   noBalanceHint: {
     fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted,
