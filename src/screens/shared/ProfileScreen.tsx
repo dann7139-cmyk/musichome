@@ -124,7 +124,7 @@ export default function ProfileScreen({ navigation }: any) {
   const [referralInput,   setReferralInput]   = useState('');
   const [applyingCode,    setApplyingCode]    = useState(false);
   const [referralApplied, setReferralApplied] = useState(false);
-  const [referralStats,   setReferralStats]   = useState<{ total: number; pending: number; earned: number } | null>(null);
+  const [referralStats,   setReferralStats]   = useState<{ total: number; pending: number; earned: number; currencyCode: string; rewardUnit: number } | null>(null);
 
   // Ciudades de servicio (solo grupos)
   const [serviceCitiesModal,    setServiceCitiesModal]    = useState(false);
@@ -231,9 +231,12 @@ export default function ProfileScreen({ navigation }: any) {
     const { data } = await supabase.rpc('get_referral_stats', { p_group_id: groupId });
     if ((data as any)?.ok) {
       setReferralStats({
-        total:  (data as any).total  ?? 0,
-        pending:(data as any).pending ?? 0,
-        earned: (data as any).earned  ?? 0,
+        total:       (data as any).total        ?? 0,
+        pending:     (data as any).pending       ?? 0,
+        earned:      (data as any).earned        ?? 0,
+        // sql/598 — moneda real del grupo (antes siempre asumía MXN)
+        currencyCode:(data as any).currency_code ?? 'MXN',
+        rewardUnit:  (data as any).reward_unit   ?? 100,
       });
     }
   };
@@ -592,7 +595,10 @@ export default function ProfileScreen({ navigation }: any) {
           ) : (
             <View style={{ width: 40 }} />
           )}
-          <Text style={st.headerTitle}>Mi Perfil</Text>
+          {/* Petición real (2026-09-03): quitado "Mi Perfil" — el tab de
+              abajo ya dice "Perfil". Se conserva el botón de regresar
+              (sigue siendo necesario cuando esta pantalla se abre
+              empujada, no como tab raíz). */}
           <View style={{ width: 40 }} />
         </View>
 
@@ -694,7 +700,15 @@ export default function ProfileScreen({ navigation }: any) {
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 2 }}>
                   <Text style={[st.groupCompactName, { flex: 1 }]} numberOfLines={1}>{group.name}</Text>
                   {group.is_verified && (
-                    <VerifiedBadge size={16} tier={(group as any).is_plus_active ? 'plus' : 'free'} />
+                    <VerifiedBadge
+                      size={16}
+                      tier={
+                        !!(group as any).is_plus_active &&
+                        (!(group as any).plus_expires_at || new Date((group as any).plus_expires_at) > new Date())
+                          ? 'plus'
+                          : 'free'
+                      }
+                    />
                   )}
                   <View style={[st.groupRolePill, groupRole === 'member' && { backgroundColor: 'rgba(99,102,241,0.22)', borderColor: 'rgba(99,102,241,0.5)' }]}>
                     <Text style={[st.groupRolePillText, groupRole === 'member' && { color: '#a5b4fc' }]}>
@@ -736,10 +750,10 @@ export default function ProfileScreen({ navigation }: any) {
                 <Text style={st.referralCardTitle}>Comparte tu código y gana beneficios</Text>
               </View>
               <Text style={st.referralCardSub}>
-                Gana $100 por cada cliente que se registre y haga su primera reserva con tu código
+                Gana ${referralStats?.rewardUnit ?? 100} {referralStats?.currencyCode ?? 'MXN'} por cada cliente que se registre y haga su primera reserva con tu código
               </Text>
               <View style={st.referralCodeRow}>
-                <Text style={st.referralCodeText}>{(group as any).referral_code}</Text>
+                <Text style={st.referralCodeText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>{(group as any).referral_code}</Text>
                 <Pressable
                   style={st.referralCopyBtn}
                   onPress={() => Alert.alert('Tu código de referido', (group as any).referral_code)}
@@ -769,7 +783,9 @@ export default function ProfileScreen({ navigation }: any) {
                   </View>
                   <View style={st.referralStatDivider} />
                   <View style={st.referralStat}>
-                    <Text style={[st.referralStatNum, { color: COLORS.green }]}>${referralStats.earned}</Text>
+                    <Text style={[st.referralStatNum, { color: COLORS.green }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
+                      ${referralStats.earned} {referralStats.currencyCode}
+                    </Text>
                     <Text style={st.referralStatLabel}>Ganado</Text>
                   </View>
                 </View>
@@ -861,6 +877,10 @@ export default function ProfileScreen({ navigation }: any) {
             {/* Verificación para clientes y talentos */}
             {(profile?.role === 'client' || profile?.role === 'talent') && (
               <MenuItem icon="🛡️" label="Verificación"       onPress={() => navigation.navigate('ClientVerification')} />
+            )}
+
+            {profile?.role !== 'admin' && (
+              <MenuItem icon="⭐" label="Grupos que sigues"    onPress={() => navigation.navigate('FollowedGroups')} />
             )}
 
             <MenuItem icon="❓" label="Ayuda y soporte"      onPress={() => setSupportVisible(true)} />
@@ -1214,7 +1234,7 @@ function ProfileLoyaltyCard({ loyalty, navigation }: { loyalty: any; navigation:
     >
       <LinearGradient
         colors={[cfg.color + '12', 'transparent']}
-        style={StyleSheet.absoluteFillObject}
+        style={StyleSheet.absoluteFill}
         start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
       />
       <View style={[st.loyaltyIcon, { borderColor: cfg.color + '50' }]}>

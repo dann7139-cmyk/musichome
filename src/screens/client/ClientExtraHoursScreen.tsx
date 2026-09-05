@@ -10,6 +10,7 @@
  */
 import { ArrowLeft, Banknote, CheckCircle, DollarSign, XCircle } from 'lucide-react-native';
 import React, { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   ActivityIndicator,
   Alert,
@@ -30,6 +31,7 @@ import { formatExtraHourRange, formatProposedAt } from '../../utils/extraHoursFo
 // ─── Barra de progreso de saldo ───────────────────────────────────────────────
 
 function BalanceBar({ used, total }: { used: number; total: number }) {
+  const { t } = useTranslation();
   const ratio       = total > 0 ? Math.min(1, used / total) : 0;
   const remaining   = total - used;
   const pct         = Math.round(ratio * 100);
@@ -38,8 +40,8 @@ function BalanceBar({ used, total }: { used: number; total: number }) {
   return (
     <View style={bar.wrap}>
       <View style={bar.row}>
-        <Text style={bar.label}>Saldo usado</Text>
-        <Text style={bar.label}>Disponible</Text>
+        <Text style={bar.label}>{t('clientExtraHoursScreen.balanceUsed')}</Text>
+        <Text style={bar.label}>{t('clientExtraHoursScreen.balanceAvailable')}</Text>
       </View>
       <View style={bar.track}>
         <View style={[bar.fill, { width: `${pct}%` as any, backgroundColor: barColor }]} />
@@ -64,6 +66,7 @@ const bar = StyleSheet.create({
 // ─── Pantalla principal ────────────────────────────────────────────────────────
 
 export default function ClientExtraHoursScreen({ route, navigation }: any) {
+  const { t } = useTranslation();
   const params = route.params ?? {};
 
   // Soporte doble: { reservation, extraHour } (desde EventTimer) o { reservation_id, extra_hour_id } (desde notificaciones)
@@ -145,12 +148,12 @@ export default function ClientExtraHoursScreen({ route, navigation }: any) {
   const handleApprove = async () => {
     if (isCash) {
       Alert.alert(
-        '💵 Pago en efectivo',
-        `El grupo recibirá ${formatCurrency(extraTotal)} directamente de ti. ¿Confirmas?`,
+        t('clientExtraHoursScreen.cashPaymentAlertTitle'),
+        t('clientExtraHoursScreen.cashPaymentAlertBody', { amount: formatCurrency(extraTotal) }),
         [
-          { text: 'Cancelar', style: 'cancel' },
+          { text: t('clientExtraHoursScreen.cancel'), style: 'cancel' },
           {
-            text: 'Confirmar',
+            text: t('clientExtraHoursScreen.confirm'),
             onPress: async () => {
               setLoading(true);
               // RPC atómica: marca paid en una sola transacción
@@ -158,7 +161,7 @@ export default function ClientExtraHoursScreen({ route, navigation }: any) {
                 p_extra_hour_id: extraHour.id,
               });
               setLoading(false);
-              if (error) Alert.alert('Error', error.message);
+              if (error) Alert.alert(t('clientExtraHoursScreen.error'), error.message);
               else setApproved(true);
             },
           },
@@ -169,8 +172,11 @@ export default function ClientExtraHoursScreen({ route, navigation }: any) {
 
     if (!balanceSuff) {
       Alert.alert(
-        'Saldo insuficiente',
-        `Tu saldo disponible es ${formatCurrency(clientBalance ?? 0)} y la hora extra cuesta ${formatCurrency(extraTotal)}.\n\nContacta al grupo para acordar el pago.`
+        t('clientExtraHoursScreen.insufficientBalanceAlertTitle'),
+        t('clientExtraHoursScreen.insufficientBalanceAlertBody', {
+          available: formatCurrency(clientBalance ?? 0),
+          cost: formatCurrency(extraTotal),
+        })
       );
       return;
     }
@@ -183,7 +189,7 @@ export default function ClientExtraHoursScreen({ route, navigation }: any) {
     });
     setLoading(false);
 
-    if (error) Alert.alert('Error', error.message);
+    if (error) Alert.alert(t('clientExtraHoursScreen.error'), error.message);
     else setApproved(true);
   };
 
@@ -191,12 +197,12 @@ export default function ClientExtraHoursScreen({ route, navigation }: any) {
 
   const handleReject = () => {
     Alert.alert(
-      'Rechazar hora extra',
-      '¿Estás seguro de que no quieres agregar esta hora extra?\n\nEl grupo continuará hasta cumplir el tiempo contratado.',
+      t('clientExtraHoursScreen.rejectAlertTitle'),
+      t('clientExtraHoursScreen.rejectAlertBody'),
       [
-        { text: 'Cancelar', style: 'cancel' },
+        { text: t('clientExtraHoursScreen.cancel'), style: 'cancel' },
         {
-          text: 'Rechazar',
+          text: t('clientExtraHoursScreen.reject'),
           style: 'destructive',
           onPress: async () => {
             setRejectLoading(true);
@@ -220,13 +226,16 @@ export default function ClientExtraHoursScreen({ route, navigation }: any) {
         <SafeAreaView style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: SPACING.xl }}>
           <View style={styles.resultCard}>
             <CheckCircle size={60} color={COLORS.green} />
-            <Text style={styles.resultTitle}>¡Hora extra aprobada!</Text>
+            <Text style={styles.resultTitle}>{t('clientExtraHoursScreen.approvedTitle')}</Text>
             <Text style={styles.resultDesc}>
               {isCash
-                ? `Paga ${formatCurrency(extraTotal)} directamente al grupo en efectivo.`
-                : `Se descontaron ${formatCurrency(extraTotal)} de tu saldo disponible.\n\nSaldo restante: ${formatCurrency((clientBalance ?? 0) - extraTotal)}`}
+                ? t('clientExtraHoursScreen.approvedDescCash', { amount: formatCurrency(extraTotal) })
+                : t('clientExtraHoursScreen.approvedDescBalance', {
+                    amount: formatCurrency(extraTotal),
+                    remaining: formatCurrency((clientBalance ?? 0) - extraTotal),
+                  })}
             </Text>
-            <Button label="Entendido" onPress={() => navigation.goBack()} size="lg" />
+            <Button label={t('clientExtraHoursScreen.understood')} onPress={() => navigation.goBack()} size="lg" />
           </View>
         </SafeAreaView>
       </View>
@@ -241,11 +250,11 @@ export default function ClientExtraHoursScreen({ route, navigation }: any) {
         <SafeAreaView style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: SPACING.xl }}>
           <View style={styles.resultCard}>
             <XCircle size={60} color={COLORS.red} />
-            <Text style={styles.resultTitle}>Hora extra rechazada</Text>
+            <Text style={styles.resultTitle}>{t('clientExtraHoursScreen.rejectedTitle')}</Text>
             <Text style={styles.resultDesc}>
-              El evento continuará hasta cumplir el tiempo contratado originalmente.
+              {t('clientExtraHoursScreen.rejectedDesc')}
             </Text>
-            <Button label="Volver" onPress={() => navigation.goBack()} size="lg" />
+            <Button label={t('clientExtraHoursScreen.back')} onPress={() => navigation.goBack()} size="lg" />
           </View>
         </SafeAreaView>
       </View>
@@ -262,7 +271,7 @@ export default function ClientExtraHoursScreen({ route, navigation }: any) {
             <ArrowLeft size={20} color={COLORS.text} />
           </Pressable>
           <Text style={styles.headerTitle}>
-            {isCash ? 'Pago en Efectivo' : 'Agregar Horas Extra'}
+            {isCash ? t('clientExtraHoursScreen.headerCash') : t('clientExtraHoursScreen.headerExtraHours')}
           </Text>
           <View style={{ width: 40 }} />
         </View>
@@ -274,22 +283,22 @@ export default function ClientExtraHoursScreen({ route, navigation }: any) {
             <View style={styles.balanceCard}>
               <View style={styles.balanceHeader}>
                 <DollarSign size={18} color={COLORS.green} />
-                <Text style={styles.balanceTitle}>Tu Saldo Disponible</Text>
+                <Text style={styles.balanceTitle}>{t('clientExtraHoursScreen.yourAvailableBalance')}</Text>
               </View>
 
               <View style={styles.balanceRows}>
                 <View style={styles.balanceRow}>
-                  <Text style={styles.balanceRowLabel}>Pagaste inicialmente</Text>
+                  <Text style={styles.balanceRowLabel}>{t('clientExtraHoursScreen.initiallyPaid')}</Text>
                   <Text style={styles.balanceRowValue}>{formatCurrency(totalPaid)}</Text>
                 </View>
                 <View style={styles.balanceRow}>
-                  <Text style={styles.balanceRowLabel}>Tarifa de servicio</Text>
+                  <Text style={styles.balanceRowLabel}>{t('clientExtraHoursScreen.serviceFee')}</Text>
                   <Text style={[styles.balanceRowValue, { color: COLORS.muted }]}>-{formatCurrency(serviceFee)}</Text>
                 </View>
                 <View style={styles.balanceDivider} />
                 <View style={styles.balanceRow}>
                   <Text style={[styles.balanceRowLabel, { fontFamily: FONTS.bodySemiBold }]}>
-                    Saldo para horas extra
+                    {t('clientExtraHoursScreen.balanceForExtraHours')}
                   </Text>
                   <Text style={[styles.balanceRowValue, { color: COLORS.green, fontFamily: FONTS.title, fontSize: 20 }]}>
                     {formatCurrency(totalPaid - serviceFee)}
@@ -304,7 +313,7 @@ export default function ClientExtraHoursScreen({ route, navigation }: any) {
               />
 
               <Text style={styles.balanceNote}>
-                ℹ️ No se hará ningún cargo adicional a tu tarjeta. Todo se descuenta del pago inicial.
+                {t('clientExtraHoursScreen.balanceNote')}
               </Text>
             </View>
           )}
@@ -312,20 +321,20 @@ export default function ClientExtraHoursScreen({ route, navigation }: any) {
           {/* SOLICITUD DEL GRUPO */}
           <View style={styles.requestCard}>
             <Text style={styles.requestTitle}>
-              {isCash ? '💵 El grupo solicita pago en efectivo' : `➕ +${hoursAdded} hora${hoursAdded > 1 ? 's' : ''} adicional${hoursAdded > 1 ? 'es' : ''}`}
+              {isCash ? t('clientExtraHoursScreen.cashRequestTitle') : t('clientExtraHoursScreen.extraHoursRequestTitle', { count: hoursAdded })}
             </Text>
 
             <View style={styles.requestDetails}>
               <View style={styles.requestRow}>
                 <Text style={styles.requestLabel}>
-                  {isCash ? 'Monto solicitado' : `+${hoursAdded} hora${hoursAdded > 1 ? 's' : ''} adicional${hoursAdded > 1 ? 'es' : ''}`}
+                  {isCash ? t('clientExtraHoursScreen.amountRequested') : t('clientExtraHoursScreen.extraHoursLabel', { count: hoursAdded })}
                 </Text>
                 <Text style={styles.requestAmount}>{formatCurrency(extraTotal)}</Text>
               </View>
 
               {timeRange && (
                 <View style={styles.requestRow}>
-                  <Text style={styles.requestLabel}>Horario</Text>
+                  <Text style={styles.requestLabel}>{t('clientExtraHoursScreen.schedule')}</Text>
                   <Text style={[styles.requestLabel, { color: COLORS.text }]}>
                     {timeRange.from} → {timeRange.to}
                   </Text>
@@ -334,16 +343,16 @@ export default function ClientExtraHoursScreen({ route, navigation }: any) {
 
               {proposedAt && (
                 <View style={styles.requestRow}>
-                  <Text style={styles.requestLabel}>Propuesta</Text>
+                  <Text style={styles.requestLabel}>{t('clientExtraHoursScreen.proposed')}</Text>
                   <Text style={[styles.requestLabel, { color: COLORS.muted }]}>{proposedAt}</Text>
                 </View>
               )}
 
               {!isCash && (
                 <View style={styles.requestRow}>
-                  <Text style={styles.requestLabel}>Después de esta hora extra</Text>
+                  <Text style={styles.requestLabel}>{t('clientExtraHoursScreen.afterThisExtraHour')}</Text>
                   <Text style={[styles.requestLabel, { color: COLORS.muted }]}>
-                    Saldo restante: {formatCurrency((clientBalance ?? 0) - extraTotal)}
+                    {t('clientExtraHoursScreen.remainingBalance', { amount: formatCurrency((clientBalance ?? 0) - extraTotal) })}
                   </Text>
                 </View>
               )}
@@ -353,22 +362,24 @@ export default function ClientExtraHoursScreen({ route, navigation }: any) {
               <View style={styles.cashInfo}>
                 <Banknote size={18} color={COLORS.orange} />
                 <Text style={styles.cashInfoText}>
-                  Paga directamente al grupo en efectivo. La app solo registra la transacción.
+                  {t('clientExtraHoursScreen.cashInfoText')}
                 </Text>
               </View>
             ) : !balanceSuff ? (
               <View style={styles.insufficientWarn}>
-                <Text style={styles.insufficientTitle}>⚠️ Saldo Insuficiente</Text>
+                <Text style={styles.insufficientTitle}>{t('clientExtraHoursScreen.insufficientBalanceTitle')}</Text>
                 <Text style={styles.insufficientDesc}>
-                  Tu saldo disponible ({formatCurrency(clientBalance ?? 0)}) no cubre esta hora extra ({formatCurrency(extraTotal)}).{'\n\n'}
-                  Habla con el grupo para acordar el pago en efectivo.
+                  {t('clientExtraHoursScreen.insufficientBalanceDesc', {
+                    available: formatCurrency(clientBalance ?? 0),
+                    cost: formatCurrency(extraTotal),
+                  })}
                 </Text>
               </View>
             ) : (
               <View style={styles.balanceOkBanner}>
                 <CheckCircle size={16} color={COLORS.green} />
                 <Text style={styles.balanceOkText}>
-                  Tienes saldo suficiente. El descuento es automático, sin cargo a tu tarjeta.
+                  {t('clientExtraHoursScreen.balanceOkText')}
                 </Text>
               </View>
             )}
@@ -377,7 +388,7 @@ export default function ClientExtraHoursScreen({ route, navigation }: any) {
           {/* AVISO BASE */}
           <View style={styles.baseNotice}>
             <Text style={styles.baseNoticeText}>
-              ⚠️ El evento base ya está incluido. Las horas extra son adicionales al contrato original.
+              {t('clientExtraHoursScreen.baseNoticeText')}
             </Text>
           </View>
 
@@ -385,27 +396,27 @@ export default function ClientExtraHoursScreen({ route, navigation }: any) {
           <View style={{ marginTop: 8, marginBottom: 32, gap: 12 }}>
             {isCash ? (
               <Button
-                label={`💵 Confirmar pago de ${formatCurrency(extraTotal)} en efectivo`}
+                label={t('clientExtraHoursScreen.confirmCashPayment', { amount: formatCurrency(extraTotal) })}
                 onPress={handleApprove}
                 loading={loading}
                 size="lg"
               />
             ) : balanceSuff ? (
               <Button
-                label={`✅ Confirmar y descontar de mi saldo`}
+                label={t('clientExtraHoursScreen.confirmAndDeduct')}
                 onPress={handleApprove}
                 loading={loading}
                 size="lg"
               />
             ) : (
               <Button
-                label="Hablar con el grupo"
+                label={t('clientExtraHoursScreen.talkToGroup')}
                 onPress={() => navigation.goBack()}
                 size="lg"
               />
             )}
             <Button
-              label="Rechazar hora extra"
+              label={t('clientExtraHoursScreen.rejectExtraHour')}
               onPress={handleReject}
               loading={rejectLoading}
               variant="ghost"

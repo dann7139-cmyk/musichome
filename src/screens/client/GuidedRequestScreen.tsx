@@ -33,6 +33,7 @@ import MapAddressPicker, { AddressResult } from '../../components/ui/MapAddressP
 import { analyzeMessage, PHONE_WARNING } from '../../utils/phoneFilter';
 import { containsBlockedContact } from '../../utils/contentModeration';
 import i18n from '../../i18n';
+import { useTranslation } from 'react-i18next';
 
 // ─── Datos ────────────────────────────────────────────────────────────────────
 
@@ -124,6 +125,7 @@ function Chip({
 // ─── Screen ──────────────────────────────────────────────────────────────────
 
 export default function GuidedRequestScreen({ navigation, route }: any) {
+  const { t } = useTranslation();
   const preselectedType = route?.params?.event_type;
 
   // Step state
@@ -225,7 +227,7 @@ export default function GuidedRequestScreen({ navigation, route }: any) {
 
   const handleSubmit = async () => {
     if (!step3Valid) {
-      Alert.alert('Campos incompletos', 'Completa la dirección y los detalles del lugar.');
+      Alert.alert(t('guidedRequestScreen.alerts.incompleteFieldsTitle'), t('guidedRequestScreen.alerts.incompleteFieldsBody'));
       return;
     }
 
@@ -235,7 +237,7 @@ export default function GuidedRequestScreen({ navigation, route }: any) {
     }
 
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { Alert.alert('Error', 'Sesión no encontrada.'); return; }
+    if (!user) { Alert.alert(t('guidedRequestScreen.alerts.error'), t('guidedRequestScreen.alerts.sessionNotFound')); return; }
 
     setLoading(true);
 
@@ -266,7 +268,7 @@ export default function GuidedRequestScreen({ navigation, route }: any) {
 
     if (error || !inserted) {
       setLoading(false);
-      Alert.alert('Error', error?.message ?? 'No se pudo enviar tu solicitud.');
+      Alert.alert(t('guidedRequestScreen.alerts.error'), error?.message ?? t('guidedRequestScreen.alerts.submitFailed'));
       return;
     }
 
@@ -300,9 +302,9 @@ export default function GuidedRequestScreen({ navigation, route }: any) {
 
     const notified = rpcResult?.notified ?? 0;
     Alert.alert(
-      '✅ Solicitud enviada',
-      `Tu solicitud llegó a ${notified} grupo${notified !== 1 ? 's' : ''} de ${genre}. Recibirás propuestas pronto.`,
-      [{ text: 'Ver solicitudes', onPress: () => navigation.replace('OpenRequest', { tab: 'mine' }) }],
+      t('guidedRequestScreen.alerts.sentTitle'),
+      t('guidedRequestScreen.alerts.sentBody', { count: notified, genre }),
+      [{ text: t('guidedRequestScreen.alerts.viewRequests'), onPress: () => navigation.replace('OpenRequest', { tab: 'mine' }) }],
     );
   };
 
@@ -312,7 +314,7 @@ export default function GuidedRequestScreen({ navigation, route }: any) {
     <View style={s.container}>
       <LinearGradient
         colors={['rgba(0,230,118,0.06)', 'rgba(4,4,4,0)']}
-        style={StyleSheet.absoluteFillObject}
+        style={StyleSheet.absoluteFill}
         start={{ x: 0, y: 0 }} end={{ x: 1, y: 0.5 }}
       />
       <SafeAreaView style={{ flex: 1 }}>
@@ -324,7 +326,7 @@ export default function GuidedRequestScreen({ navigation, route }: any) {
           }}>
             <ArrowLeft size={20} color={COLORS.text} />
           </Pressable>
-          <Text style={s.headerTitle}>Solicitar grupo</Text>
+          <Text style={s.headerTitle}>{t('guidedRequestScreen.header.title')}</Text>
           <View style={{ width: 40 }} />
         </View>
 
@@ -338,7 +340,7 @@ export default function GuidedRequestScreen({ navigation, route }: any) {
             {/* ── PASO 1: TIPO DE EVENTO ── */}
             {step === 1 && (
               <>
-                <StepHeader step={1} total={3} label="¿Qué tipo de evento?" />
+                <StepHeader step={1} total={3} label={t('guidedRequestScreen.step1.label')} />
                 <View style={s.eventTypeGrid}>
                   {EVENT_TYPES.map(et => (
                     <Pressable
@@ -351,7 +353,7 @@ export default function GuidedRequestScreen({ navigation, route }: any) {
                     >
                       <Text style={s.eventTypeEmoji}>{et.emoji}</Text>
                       <Text style={[s.eventTypeLabel, eventType === et.key && s.eventTypeLabelActive]}>
-                        {et.label}
+                        {t(`guidedRequestScreen.step1.eventTypes.${et.key}`)}
                       </Text>
                     </Pressable>
                   ))}
@@ -362,10 +364,10 @@ export default function GuidedRequestScreen({ navigation, route }: any) {
             {/* ── PASO 2: DETALLES ── */}
             {step === 2 && (
               <>
-                <StepHeader step={2} total={3} label="Detalles del evento" />
+                <StepHeader step={2} total={3} label={t('guidedRequestScreen.step2.label')} />
 
                 {/* Tipo de música */}
-                <Text style={s.fieldLabel}>¿Qué tipo de música?</Text>
+                <Text style={s.fieldLabel}>{t('guidedRequestScreen.step2.genreLabel')}</Text>
                 <View style={s.chipWrap}>
                   {MUSIC_GENRES.map(g => (
                     <Pressable
@@ -380,11 +382,11 @@ export default function GuidedRequestScreen({ navigation, route }: any) {
                 </View>
 
                 {/* Ubicación — GPS auto-detect */}
-                <Text style={s.fieldLabel}>Ubicación *</Text>
+                <Text style={s.fieldLabel}>{t('guidedRequestScreen.step2.locationLabel')}</Text>
                 {locationLoading ? (
                   <View style={s.locationLoadingRow}>
                     <ActivityIndicator size="small" color={COLORS.green} />
-                    <Text style={s.locationLoadingText}>Detectando ubicación…</Text>
+                    <Text style={s.locationLoadingText}>{t('guidedRequestScreen.step2.locationDetecting')}</Text>
                   </View>
                 ) : locationDetected && !showLocationInputs ? (
                   <View style={s.locationCard}>
@@ -393,7 +395,7 @@ export default function GuidedRequestScreen({ navigation, route }: any) {
                       <Text style={s.locationCardEstado}>{estado}</Text>
                     </View>
                     <Pressable style={s.locationEditBtn} onPress={() => setShowLocationInputs(true)}>
-                      <Text style={s.locationEditBtnText}>Editar</Text>
+                      <Text style={s.locationEditBtnText}>{t('guidedRequestScreen.step2.editBtn')}</Text>
                     </Pressable>
                   </View>
                 ) : (
@@ -403,7 +405,7 @@ export default function GuidedRequestScreen({ navigation, route }: any) {
                         style={s.input}
                         value={city}
                         onChangeText={setCity}
-                        placeholder="Ciudad"
+                        placeholder={t('guidedRequestScreen.step2.cityPlaceholder')}
                         placeholderTextColor={COLORS.muted}
                       />
                     </View>
@@ -412,7 +414,7 @@ export default function GuidedRequestScreen({ navigation, route }: any) {
                         style={s.input}
                         value={estado}
                         onChangeText={setEstado}
-                        placeholder="Estado"
+                        placeholder={t('guidedRequestScreen.step2.statePlaceholder')}
                         placeholderTextColor={COLORS.muted}
                       />
                     </View>
@@ -420,29 +422,29 @@ export default function GuidedRequestScreen({ navigation, route }: any) {
                 )}
 
                 {/* Hora de inicio */}
-                <Text style={s.fieldLabel}>Hora de inicio *</Text>
+                <Text style={s.fieldLabel}>{t('guidedRequestScreen.step2.timeLabel')}</Text>
                 <Pressable
                   style={[s.chip, s.timeChip, !!eventTime && s.chipActive]}
                   onPress={() => setShowTimePicker(true)}
                 >
                   <Text style={[s.chipText, !!eventTime && s.chipTextActive]}>
-                    {eventTime || 'Seleccionar hora'}
+                    {eventTime || t('guidedRequestScreen.step2.selectTimePlaceholder')}
                   </Text>
                 </Pressable>
 
                 {/* Invitados */}
-                <Text style={s.fieldLabel}>Número aproximado de invitados *</Text>
+                <Text style={s.fieldLabel}>{t('guidedRequestScreen.step2.guestsLabel')}</Text>
                 <TextInput
                   style={s.input}
                   value={guestCount}
                   onChangeText={setGuestCount}
-                  placeholder="Ej: 100"
+                  placeholder={t('guidedRequestScreen.step2.guestsPlaceholder')}
                   placeholderTextColor={COLORS.muted}
                   keyboardType="number-pad"
                 />
 
                 {/* Duración */}
-                <Text style={s.fieldLabel}>Duración del evento *</Text>
+                <Text style={s.fieldLabel}>{t('guidedRequestScreen.step2.durationLabel')}</Text>
                 <View style={s.chipWrap}>
                   {DURATION_OPTIONS.map(d => (
                     <Chip key={d.value} label={d.label} active={hours === d.value} onPress={() => setHours(d.value)} />
@@ -453,7 +455,7 @@ export default function GuidedRequestScreen({ navigation, route }: any) {
                   style={[s.nextBtn, !step2Valid && s.nextBtnDisabled]}
                   onPress={() => step2Valid && goToStep(3)}
                 >
-                  <Text style={s.nextBtnText}>Continuar</Text>
+                  <Text style={s.nextBtnText}>{t('guidedRequestScreen.step2.continueBtn')}</Text>
                   <ChevronRight size={18} color={step2Valid ? COLORS.bg : COLORS.muted} />
                 </Pressable>
               </>
@@ -462,10 +464,10 @@ export default function GuidedRequestScreen({ navigation, route }: any) {
             {/* ── PASO 3: LUGAR + ENVIAR ── */}
             {step === 3 && (
               <>
-                <StepHeader step={3} total={3} label="Detalles del lugar" />
+                <StepHeader step={3} total={3} label={t('guidedRequestScreen.step3.label')} />
 
                 {/* Dirección */}
-                <Text style={s.fieldLabel}>Dirección del evento *</Text>
+                <Text style={s.fieldLabel}>{t('guidedRequestScreen.step3.addressLabel')}</Text>
 
                 {address && !showManualAddress ? (
                   <Pressable style={s.addressCard} onPress={() => setMapPickerOpen(true)}>
@@ -474,7 +476,7 @@ export default function GuidedRequestScreen({ navigation, route }: any) {
                       <Text style={s.addressCardText} numberOfLines={2}>{address}</Text>
                       {municipio ? <Text style={s.addressCardSub}>{municipio}</Text> : null}
                     </View>
-                    <Text style={s.addressCardEdit}>Cambiar</Text>
+                    <Text style={s.addressCardEdit}>{t('guidedRequestScreen.step3.changeBtn')}</Text>
                   </Pressable>
                 ) : showManualAddress ? (
                   <>
@@ -482,42 +484,42 @@ export default function GuidedRequestScreen({ navigation, route }: any) {
                       style={s.input}
                       value={address}
                       onChangeText={setAddress}
-                      placeholder="Calle, número y colonia"
+                      placeholder={t('guidedRequestScreen.step3.streetPlaceholder')}
                       placeholderTextColor={COLORS.muted}
                     />
                     <TextInput
                       style={[s.input, { marginTop: 8 }]}
                       value={municipio}
                       onChangeText={setMunicipio}
-                      placeholder="Municipio / Alcaldía (opcional)"
+                      placeholder={t('guidedRequestScreen.step3.municipioPlaceholder')}
                       placeholderTextColor={COLORS.muted}
                     />
                     <Pressable onPress={() => setMapPickerOpen(true)} style={s.useMapBtn}>
-                      <Text style={s.useMapBtnText}>📍 Usar mapa</Text>
+                      <Text style={s.useMapBtnText}>{t('guidedRequestScreen.step3.useMapBtn')}</Text>
                     </Pressable>
                   </>
                 ) : (
                   <>
                     <Pressable style={s.mapPickerBtn} onPress={() => setMapPickerOpen(true)}>
                       <MapPin size={18} color={COLORS.green} />
-                      <Text style={s.mapPickerBtnText}>📍 Seleccionar en el mapa</Text>
+                      <Text style={s.mapPickerBtnText}>{t('guidedRequestScreen.step3.selectOnMapBtn')}</Text>
                     </Pressable>
                     <Pressable onPress={() => setShowManualAddress(true)} style={s.manualFallback}>
-                      <Text style={s.manualFallbackText}>Escribir dirección manualmente</Text>
+                      <Text style={s.manualFallbackText}>{t('guidedRequestScreen.step3.manualAddressBtn')}</Text>
                     </Pressable>
                   </>
                 )}
 
                 {/* ¿Espacio techado? */}
-                <Text style={s.fieldLabel}>¿El evento es en espacio techado? *</Text>
+                <Text style={s.fieldLabel}>{t('guidedRequestScreen.step3.coveredLabel')}</Text>
                 <View style={s.chipWrap}>
                   {COVERED_OPTIONS.map(o => (
-                    <Chip key={o.key} label={o.label} active={venueCovered === o.key} onPress={() => setVenueCovered(o.key)} />
+                    <Chip key={o.key} label={t(`guidedRequestScreen.step3.coveredOptions.${o.key}`)} active={venueCovered === o.key} onPress={() => setVenueCovered(o.key)} />
                   ))}
                 </View>
 
                 {/* Tamaño del lugar */}
-                <Text style={s.fieldLabel}>Tamaño del lugar *</Text>
+                <Text style={s.fieldLabel}>{t('guidedRequestScreen.step3.venueSizeLabel')}</Text>
                 <View style={s.venueGrid}>
                   {VENUE_SIZES.map(vs => (
                     <Pressable
@@ -527,22 +529,22 @@ export default function GuidedRequestScreen({ navigation, route }: any) {
                     >
                       <Text style={s.venueEmoji}>{vs.emoji}</Text>
                       <Text style={[s.venueLabel, venueSize === vs.key && s.venueLabelActive]} numberOfLines={2}>
-                        {vs.label}
+                        {t(`guidedRequestScreen.step3.venueSizes.${vs.key}`)}
                       </Text>
                     </Pressable>
                   ))}
                 </View>
 
                 {/* Sonido */}
-                <Text style={s.fieldLabel}>¿Necesitas equipo de sonido? *</Text>
+                <Text style={s.fieldLabel}>{t('guidedRequestScreen.step3.soundLabel')}</Text>
                 <View style={s.chipWrap}>
                   {SOUND_OPTIONS.map(o => (
-                    <Chip key={o.key} label={o.label} active={needsSound === o.key} onPress={() => setNeedsSound(o.key)} />
+                    <Chip key={o.key} label={t(`guidedRequestScreen.step3.soundOptions.${o.key}`)} active={needsSound === o.key} onPress={() => setNeedsSound(o.key)} />
                   ))}
                 </View>
 
                 {/* Comentarios */}
-                <Text style={s.fieldLabel}>Comentarios adicionales (opcional)</Text>
+                <Text style={s.fieldLabel}>{t('guidedRequestScreen.step3.commentsLabel')}</Text>
                 <TextInput
                   style={[s.input, s.textArea]}
                   value={comments}
@@ -554,7 +556,7 @@ export default function GuidedRequestScreen({ navigation, route }: any) {
                     setCommentsWarn(result.blocked);
                     setComments(c);
                   }}
-                  placeholder="Ej: necesito música hasta las 2am, tema especial para el cumpleañero..."
+                  placeholder={t('guidedRequestScreen.step3.commentsPlaceholder')}
                   placeholderTextColor={COLORS.muted}
                   multiline
                   numberOfLines={3}
@@ -569,17 +571,17 @@ export default function GuidedRequestScreen({ navigation, route }: any) {
 
                 {/* Resumen rápido */}
                 <View style={s.summaryCard}>
-                  <Text style={s.summaryTitle}>Resumen</Text>
+                  <Text style={s.summaryTitle}>{t('guidedRequestScreen.step3.summaryTitle')}</Text>
                   <Text style={s.summaryLine}>
                     {EVENT_TYPES.find(e => e.key === eventType)?.emoji ?? '🎵'}{' '}
-                    {EVENT_TYPES.find(e => e.key === eventType)?.label ?? eventType}
+                    {eventType ? t(`guidedRequestScreen.step1.eventTypes.${eventType}`) : eventType}
                     {'  ·  '}
                     {MUSIC_GENRES.find(g => g.key === genre)?.emoji ?? '🎵'} {genre}
                   </Text>
                   <Text style={s.summaryLine}>
                     📍 {city}{estado ? `, ${estado}` : ''}
                     {'  ·  '}
-                    👥 {guestCount} invitados
+                    👥 {t('guidedRequestScreen.step3.summaryGuests', { count: guestCount })}
                   </Text>
                   <Text style={s.summaryLine}>
                     📅 {eventDate}  ⏰ {eventTime}  ⏱ {hours}h
@@ -596,13 +598,13 @@ export default function GuidedRequestScreen({ navigation, route }: any) {
                     ? <ActivityIndicator color={COLORS.bg} />
                     : <>
                         <Zap size={18} color={COLORS.bg} />
-                        <Text style={s.submitBtnText}>Enviar solicitud a grupos</Text>
+                        <Text style={s.submitBtnText}>{t('guidedRequestScreen.step3.submitBtn')}</Text>
                       </>
                   }
                 </Pressable>
 
                 <Text style={s.submitHint}>
-                  Los grupos recibirán tu solicitud al instante y te enviarán su propuesta de precio.
+                  {t('guidedRequestScreen.step3.submitHint')}
                 </Text>
               </>
             )}

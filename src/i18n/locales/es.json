@@ -25,9 +25,9 @@
     "load_more": "Cargar más",
     "no_results": "Sin resultados",
     "try_again": "Intenta de nuevo",
-    "all": "Todos"
+    "all": "Todos",
+    "someone": "Alguien"
   },
-
   "tabs": {
     "home": "Inicio",
     "explore": "Explorar",
@@ -45,7 +45,6 @@
     "talents": "Talentos",
     "financial": "Financiero"
   },
-
   "auth": {
     "login": {
       "title": "Iniciar sesión",
@@ -57,7 +56,11 @@
       "forgot_password": "¿Olvidaste tu contraseña?",
       "no_account": "¿No tienes cuenta? ",
       "register_link": "Regístrate",
-      "error_empty": "Ingresa tu correo y contraseña"
+      "error_empty": "Ingresa tu correo y contraseña",
+      "forgot_email_required_title": "Correo requerido",
+      "forgot_email_required_message": "Escribe tu correo arriba y luego toca esta opción.",
+      "forgot_email_sent_title": "Correo enviado",
+      "forgot_email_sent_message": "Revisa tu bandeja de entrada para restablecer tu contraseña."
     },
     "register": {
       "title": "Crear cuenta",
@@ -82,7 +85,157 @@
       "role_provider_desc": "Recibe cotizaciones y gestiona eventos"
     }
   },
-
+  "splashScreen": {
+    "tagline": "Música para tu evento, en minutos"
+  },
+  "introScreen": {
+    "tagline": "Conecta talento y eventos",
+    "subtitle": "La plataforma de música en vivo que te lleva más lejos.",
+    "formTitle": "Iniciar sesión",
+    "emailLabel": "Correo electrónico",
+    "emailPlaceholder": "tu@correo.com",
+    "passwordLabel": "Contraseña",
+    "passwordPlaceholder": "••••••••",
+    "submit": "Iniciar sesión",
+    "forgotPassword": "¿Olvidaste tu contraseña?",
+    "noAccount": "¿No tienes cuenta? ",
+    "registerLink": "Regístrate",
+    "alertEmptyFieldsTitle": "Campos vacíos",
+    "alertEmptyFieldsMessage": "Ingresa tu correo y contraseña",
+    "alertLoginErrorTitle": "Error al iniciar sesión",
+    "alertForgotEmailRequiredTitle": "Correo requerido",
+    "alertForgotEmailRequiredMessage": "Escribe tu correo arriba y luego toca esta opción.",
+    "alertErrorTitle": "Error",
+    "alertEmailSentTitle": "Correo enviado",
+    "alertEmailSentMessage": "Revisa tu bandeja de entrada para restablecer tu contraseña."
+  },
+  "registerScreen": {
+    "backButton": "← Volver",
+    "subtitle": "Únete al ecosistema de entretenimiento",
+    "roleQuestion": "¿Cómo quieres usar Daricefy?",
+    "roleSubtitleTalent": "Músico",
+    "roleSubtitleGroup": "Grupo · DJ · Show · Foto",
+    "talentSectionTitle": "Perfil de Talento · 🎵 Música",
+    "instrumentLabel": "Instrumento o rol *",
+    "instrumentPlaceholder": "Ej: Guitarrista, Vocalista, Baterista...",
+    "experienceLabel": "Años de experiencia",
+    "experiencePlaceholder": "Ej: 5",
+    "bioLabel": "Bio (opcional)",
+    "bioPlaceholder": "Cuéntanos sobre ti, tu estilo, lo que ofreces...",
+    "phoneLabel": "Teléfono de contacto",
+    "phonePlaceholder": "Ej: 5512345678",
+    "providerSectionTitle": "¿Qué tipo de servicio ofreces?",
+    "referralQuestion": "¿Tienes un código de referido?",
+    "referralPlaceholder": "Ej: TROVADORES10  (opcional)",
+    "referralHint": "Ingresa el código que te compartió el grupo · Recibirás un beneficio en tu primera reserva",
+    "legalAccept": "Acepto los ",
+    "legalTerms": "Términos y condiciones",
+    "legalAnd": " y el ",
+    "legalPrivacy": "Aviso de privacidad",
+    "alertTermsTitle": "📜 Falta aceptar los términos",
+    "alertTermsMessage": "Para crear tu cuenta marca la casilla de aceptación de los Términos y condiciones y el Aviso de privacidad.",
+    "alertErrorTitle": "Error",
+    "referralInvalidCode": "Código inválido",
+    "alertDoneTitle": "¡Listo!",
+    "alertDoneMessage": "Cuenta creada. Revisa tu correo para verificar tu cuenta.{{referralMsg}}",
+    "referralAppliedMsg": "\n\n✅ Código aplicado correctamente. Recibirás un beneficio en tu primera reserva.",
+    "referralInvalidMsg": "\n\n⚠️ Código de referido no válido: {{error}}",
+    "successTalentTitle": "¡Bienvenido a Daricefy!",
+    "successTalentSub": "Tu perfil ya está visible en la bolsa de trabajo. Los grupos podrán invitarte a tocadas o a formar parte de su banda.",
+    "enterAppButton": "Entrar a la app →",
+    "successTalentHint": "Recibirás notificaciones cuando un grupo te invite.",
+    "successClientTitle": "¡Cuenta creada!",
+    "successClientSub": "Conecta tu cuenta bancaria para recibir pagos automáticamente cuando completes eventos.",
+    "connectButtonOpening": "Abriendo...",
+    "connectButtonNow": "💳 Conectar cuenta ahora",
+    "laterButton": "Después →",
+    "categories": {
+      "grupo": {
+        "label": "Grupo / Solista",
+        "desc": "Banda, conjunto musical o artista solista"
+      },
+      "dj": {
+        "label": "DJ",
+        "desc": "Música electrónica y mezclas"
+      },
+      "payaso": {
+        "label": "Payaso / Animación",
+        "desc": "Entretenimiento infantil"
+      },
+      "fotografia": {
+        "label": "Foto / Video",
+        "desc": "Fotografía y videografía de eventos"
+      },
+      "show": {
+        "label": "Espectáculo",
+        "desc": "Shows, magia, performance"
+      },
+      "maestro_ceremonias": {
+        "label": "Maestro de Ceremonias",
+        "desc": "MC y conducción de eventos"
+      },
+      "animacion": {
+        "label": "Animación / Brincolines",
+        "desc": "Entretenimiento general"
+      }
+    }
+  },
+  "citySelectScreen": {
+    "demandHigh": "Alta demanda",
+    "demandActive": "Activa",
+    "demandNew": "Nueva",
+    "detectingTitle": "Detectando tu ubicación…",
+    "detectingSub": "Esto solo toma un momento. Usamos tu ubicación para mostrar grupos y precios locales.",
+    "titleNotAvailable": "\"{{city}}\" no está disponible aún",
+    "titleWhichCity": "¿En qué ciudad estás?",
+    "subtitleSelectNearest": "Selecciona la ciudad más cercana. Esto personaliza tu experiencia.",
+    "subtitleCustomize": "Esto personaliza los grupos, precios y anuncios que ves.",
+    "searchPlaceholder": "Buscar ciudad…",
+    "errorLoadCities": "No se pudieron cargar las ciudades. Intenta de nuevo.",
+    "errorSaveCity": "No se pudo guardar tu ciudad. Intenta de nuevo.",
+    "emptyNoResults": "Sin resultados para \"{{search}}\"",
+    "emptyNoCities": "No hay ciudades disponibles.",
+    "groupCount_one": "{{count}} grupo",
+    "groupCount_other": "{{count}} grupos",
+    "confirmWithCity": "Confirmar — {{city}}",
+    "selectCityPrompt": "Selecciona una ciudad"
+  },
+  "locationRequestScreen": {
+    "roleSubtitleClient": "Necesitamos tu ubicación para mostrarte grupos disponibles en tu zona.",
+    "roleSubtitleGroup": "Necesitamos tu ubicación para que los clientes de tu estado puedan encontrarte.",
+    "roleSubtitleTalent": "Necesitamos tu ubicación para que los grupos de tu estado puedan invitarte.",
+    "alertZoneUnavailableTitle": "Zona no disponible",
+    "alertZoneUnavailableMessage": "Daricefy todavía no opera en {{location}}. Por favor selecciona tu país de origen manualmente.",
+    "defaultLocationLabel": "tu ubicación actual",
+    "alertLocationErrorTitle": "Error de ubicación",
+    "alertLocationErrorTimeout": "No pudimos detectar tu ubicación (tiempo agotado).",
+    "alertLocationErrorGeneric": "Ocurrió un error al detectar tu ubicación.",
+    "retryButton": "Reintentar",
+    "selectManuallyButton": "Seleccionar manualmente",
+    "alertSaveErrorTitle": "Error",
+    "alertSaveErrorMessage": "No pudimos guardar tu ubicación. Intenta de nuevo.",
+    "initialTitle": "¿Dónde estás?",
+    "detectAutomaticallyButton": "Detectar automáticamente",
+    "detectingTitle": "Detectando tu ubicación...",
+    "detectingHint": "Asegúrate de tener el GPS activo y buena señal.",
+    "cancelButton": "Cancelar",
+    "confirmingTitle": "Te detectamos en:",
+    "confirmingQuestion": "¿Es correcto?",
+    "confirmYesButton": "Sí, continuar",
+    "confirmNoButton": "No, seleccionar otro",
+    "backButton": "← Volver",
+    "manualTitle": "Selecciona tu ubicación",
+    "notFoundHintWithState": "No reconocimos \"{{state}}\". Selecciona tu estado de la lista.",
+    "notFoundHintGeneric": "No reconocimos tu estado. Selecciónalo de la lista.",
+    "countryLabel": "País",
+    "selectCountryPlaceholder": "Selecciona un país",
+    "stateLabel": "Estado / Provincia",
+    "selectStatePlaceholder": "Selecciona un estado",
+    "selectCountryFirstPlaceholder": "Primero selecciona un país",
+    "saveLocationButton": "Guardar ubicación",
+    "countryModalTitle": "País",
+    "stateModalTitle": "Estado / Provincia"
+  },
   "home": {
     "greeting_morning": "Buenos días",
     "greeting_afternoon": "Buenas tardes",
@@ -99,9 +252,15 @@
     "see_all": "Ver todos",
     "no_groups": "Sin grupos disponibles",
     "no_groups_sub": "Sé el primero en tu ciudad",
-    "loading_groups": "Buscando grupos..."
+    "loading_groups": "Buscando grupos...",
+    "eventCtxBanner": "Estás agregando otro proveedor a tu evento del {{date}} · {{address}}",
+    "eventCtxClearFilter": "Quitar filtro",
+    "noProvidersYet": "Aún no hay {{category}} en tu zona",
+    "noProvidersYetSub": "Avísanos y te contactamos en cuanto tengamos uno disponible",
+    "notifyMe": "Avísame",
+    "interestSent": "Listo, te avisamos",
+    "interestErrorBody": "No se pudo enviar, intenta de nuevo"
   },
-
   "booking": {
     "title": "Reservar",
     "select_package": "Selecciona un paquete",
@@ -147,9 +306,9 @@
     "error_time_overlap": "El horario elegido choca con otro evento del grupo ese día. Elige otro horario o fecha.",
     "error_conflict": "Grupo no disponible",
     "error_conflict_body": "Este grupo no está disponible por logística y tiempo de traslado.",
-    "error_create": "No se pudo crear la reserva"
+    "error_create": "No se pudo crear la reserva",
+    "addAnotherProviderBtn": "Buscar otro proveedor para este evento"
   },
-
   "reservations": {
     "title": "Mis Reservas",
     "tab_events": "Eventos",
@@ -181,9 +340,11 @@
     "proposal_received": "Propuesta recibida",
     "searching_group": "Buscando grupo...",
     "proposed_total": "Total propuesto:",
-    "arrives_at": "🕐 Llegan a las {{time}}"
+    "arrives_at": "🕐 Llegan a las {{time}}",
+    "myEventTitle": "🎉 Mi evento — {{date}}",
+    "defaultProvider": "Proveedor",
+    "addAnotherProvider": "Agregar otro proveedor"
   },
-
   "wallet": {
     "title": "Mi Billetera",
     "available": "Saldo disponible",
@@ -214,7 +375,6 @@
     "tx_this_week": "Esta semana",
     "tx_this_month": "Este mes"
   },
-
   "notifications": {
     "payment_received_title": "💰 Pago recibido",
     "payment_received_body": "Pago confirmado de ${{amount}} {{currency}} para tu evento del {{date}}. Las ganancias se liberarán al finalizar.",
@@ -225,17 +385,2049 @@
     "extra_hours_title": "💰 Hora extra cobrada",
     "extra_hours_body": "Se agregaron ${{amount}} {{currency}} a tu billetera por hora(s) extra."
   },
-
   "moderation": {
     "title": "Información de contacto",
     "no_contact": "No compartas teléfonos, redes sociales o contacto antes de reservar."
   },
-
   "errors": {
     "generic": "Ocurrió un error. Intenta de nuevo.",
     "network": "Sin conexión. Revisa tu internet.",
     "auth": "No autorizado. Inicia sesión de nuevo.",
     "not_found": "No encontrado.",
     "session": "Sesión expirada. Inicia sesión de nuevo."
+  },
+  "gifts": {
+    "supportTitle": "🎁 Apoya a {{name}}",
+    "tipTitle": "🎁 Dale propina a {{name}}",
+    "supportSubtitle": "Elige un regalo — precio en {{currency}}",
+    "tipSubtitle": "Elige un monto para agradecerle su evento — precio en {{currency}}",
+    "currencyDollars": "dólares",
+    "currencyPesos": "pesos",
+    "otherAmount": "Otro monto",
+    "youChoose": "Tú eliges",
+    "minimum": "Mínimo {{amount}}",
+    "howMuch": "¿Cuánto quieres darle a {{name}}?",
+    "sendGift": "Enviar regalo",
+    "back": "Regresar",
+    "invalidAmount": "Monto inválido",
+    "minimumIs": "El mínimo es {{amount}}.",
+    "couldNotSend": "No se pudo enviar",
+    "tryAgain": "Intenta de nuevo.",
+    "thanksTitle": "💚 ¡Gracias por tu apoyo!",
+    "sentGift": "Le mandaste {{emoji}} {{giftName}}{{amount}} a {{group}}. Gracias por apoyar la música 🎶",
+    "sentCustom": "Le mandaste 🌟 {{amount}} a {{group}}. Gracias por apoyar la música 🎶",
+    "pendingTitle": "Pago sin confirmar",
+    "pendingBody": "No pudimos confirmar tu pago todavía. Si sí pagaste, se acreditará solo en unos momentos; si cerraste antes de terminar, no se cobró nada.",
+    "tipButton": "Dar propina",
+    "revealThanks": "Gracias por apoyar la música 🎶",
+    "revealFrom": "{{name}} te mandó un regalo sorpresa",
+    "revealError": "No se pudo cargar el regalo.",
+    "names": {
+      "Corazón": "Corazón",
+      "Fuego": "Fuego",
+      "Rayo": "Rayo",
+      "Diamante": "Diamante",
+      "Corona": "Corona",
+      "Trofeo": "Trofeo"
+    }
+  },
+  "feedScreen": {
+    "title": "Inicio",
+    "timeAgoJustNow": "Hace un momento",
+    "timeAgoMinutes": "Hace {{count}} min",
+    "timeAgoHours": "Hace {{count}}h",
+    "timeAgoYesterday": "Ayer",
+    "timeAgoDays": "Hace {{count}} días",
+    "timeAgoMonths_one": "Hace {{count}} mes",
+    "timeAgoMonths_other": "Hace {{count}} meses",
+    "plusExclusiveTitle": "🏆 Exclusivo de Plus",
+    "plusExclusiveBody": "Subir fotos de tus eventos es un beneficio de la insignia Plus — también desbloqueas ganar dinero con regalos de tus fans.",
+    "notNow": "Ahora no",
+    "seePlus": "Ver Plus",
+    "uploadSuccessTitle": "✅ Publicación subida",
+    "uploadSuccessBody": "Quedó en revisión — se publica en tu perfil al aprobarse.",
+    "uploadErrorBody": "No se pudo subir la publicación.",
+    "defaultGroupName": "este grupo",
+    "shareMessage": "Mira esta publicación de {{groupName}} en Daricefy 🎵\ndaricefy://group/{{groupId}}",
+    "composerPlaceholder": "Cuenta algo de tu último evento...",
+    "uploading": "Subiendo…",
+    "publish": "Publicar",
+    "plusHintPrefix": "🏆 Con ",
+    "plusHintSuffix": " puedes publicar fotos y ganar dinero con regalos de tus fans →",
+    "emptyFollowTitle": "Sigue grupos para ver sus publicaciones aquí",
+    "emptyFollowText": "Explora grupos, entra a su perfil y dale seguir. Sus publicaciones van a aparecer en tu Inicio, como en un feed.",
+    "exploreGroups": "Explorar grupos",
+    "emptyPostsTitle": "Todavía no hay publicaciones",
+    "emptyPostsText": "Los grupos que sigues aún no han subido nada. Cuando publiquen algo, va a aparecer aquí.",
+    "defaultGroupLabel": "Grupo"
+  },
+  "guidedRequestScreen": {
+    "header": {
+      "title": "Solicitar grupo"
+    },
+    "step1": {
+      "label": "¿Qué tipo de evento?",
+      "eventTypes": {
+        "boda": "Boda",
+        "cumpleanos": "Cumpleaños",
+        "fiesta": "Fiesta",
+        "empresarial": "Empresarial",
+        "serenata": "Serenata",
+        "graduacion": "Graduación",
+        "otro": "Otro"
+      }
+    },
+    "step2": {
+      "label": "Detalles del evento",
+      "genreLabel": "¿Qué tipo de música?",
+      "locationLabel": "Ubicación *",
+      "locationDetecting": "Detectando ubicación…",
+      "editBtn": "Editar",
+      "cityPlaceholder": "Ciudad",
+      "statePlaceholder": "Estado",
+      "timeLabel": "Hora de inicio *",
+      "selectTimePlaceholder": "Seleccionar hora",
+      "guestsLabel": "Número aproximado de invitados *",
+      "guestsPlaceholder": "Ej: 100",
+      "durationLabel": "Duración del evento *",
+      "continueBtn": "Continuar"
+    },
+    "step3": {
+      "label": "Detalles del lugar",
+      "addressLabel": "Dirección del evento *",
+      "changeBtn": "Cambiar",
+      "streetPlaceholder": "Calle, número y colonia",
+      "municipioPlaceholder": "Municipio / Alcaldía (opcional)",
+      "useMapBtn": "📍 Usar mapa",
+      "selectOnMapBtn": "📍 Seleccionar en el mapa",
+      "manualAddressBtn": "Escribir dirección manualmente",
+      "coveredLabel": "¿El evento es en espacio techado? *",
+      "coveredOptions": {
+        "si": "Sí",
+        "no": "No",
+        "no_se": "No sé"
+      },
+      "venueSizeLabel": "Tamaño del lugar *",
+      "venueSizes": {
+        "patio_pequeno": "Patio pequeño",
+        "salon_mediano": "Salón mediano",
+        "jardin_grande": "Jardín grande",
+        "escenario_profesional": "Escenario profesional"
+      },
+      "soundLabel": "¿Necesitas equipo de sonido? *",
+      "soundOptions": {
+        "si": "Necesito sonido",
+        "no": "No necesito",
+        "ya_tengo": "Ya tengo sonido"
+      },
+      "commentsLabel": "Comentarios adicionales (opcional)",
+      "commentsPlaceholder": "Ej: necesito música hasta las 2am, tema especial para el cumpleañero...",
+      "summaryTitle": "Resumen",
+      "summaryGuests": "{{count}} invitados",
+      "submitBtn": "Enviar solicitud a grupos",
+      "submitHint": "Los grupos recibirán tu solicitud al instante y te enviarán su propuesta de precio."
+    },
+    "alerts": {
+      "incompleteFieldsTitle": "Campos incompletos",
+      "incompleteFieldsBody": "Completa la dirección y los detalles del lugar.",
+      "error": "Error",
+      "sessionNotFound": "Sesión no encontrada.",
+      "submitFailed": "No se pudo enviar tu solicitud.",
+      "sentTitle": "✅ Solicitud enviada",
+      "sentBody_one": "Tu solicitud llegó a {{count}} grupo de {{genre}}. Recibirás propuestas pronto.",
+      "sentBody_other": "Tu solicitud llegó a {{count}} grupos de {{genre}}. Recibirás propuestas pronto.",
+      "viewRequests": "Ver solicitudes"
+    }
+  },
+  "groupsMapScreen": {
+    "header": {
+      "title": "Explorar grupos",
+      "searching": "Buscando...",
+      "countAvailable_one": "{{count}} grupo disponible",
+      "countAvailable_other": "{{count}} grupos disponibles",
+      "searchPlaceholder": "Buscar grupo o ciudad..."
+    },
+    "filters": {
+      "all": "🎵 Todos ({{count}})"
+    },
+    "loading": {
+      "nearby": "Buscando grupos cerca de ti..."
+    },
+    "stats": {
+      "groupCount_one": "{{count}} grupo",
+      "groupCount_other": "{{count}} grupos"
+    },
+    "nearMe": {
+      "locating": "Localizando...",
+      "button": "Cerca de mí"
+    },
+    "alerts": {
+      "permissionTitle": "Permiso necesario",
+      "permissionBody": "Activa la ubicación para ver grupos cercanos a ti.",
+      "error": "Error",
+      "locationError": "No se pudo obtener tu ubicación."
+    },
+    "card": {
+      "priceFrom": "Desde",
+      "viewProfile": "Ver perfil",
+      "requestQuote": "Pedir cotización"
+    },
+    "empty": {
+      "withFilter": "No hay grupos de {{genre}} disponibles",
+      "noFilter": "No hay grupos disponibles"
+    }
+  },
+  "clientQuoteDetailScreen": {
+    "eventTypes": {
+      "fiesta_privada": "🎉 Fiesta privada",
+      "boda": "💍 Boda",
+      "cumpleanos": "🎂 Cumpleaños",
+      "graduacion": "🎓 Graduación",
+      "empresarial": "🏢 Empresarial",
+      "otro": "🎵 Otro"
+    },
+    "genericGroupName": "Grupo",
+    "loading": {
+      "notFound": "No se encontró la cotización."
+    },
+    "header": {
+      "title": "Cotización recibida",
+      "viewProfile": "Ver perfil ›"
+    },
+    "status": {
+      "accepted": "Cotización aceptada ✅",
+      "cancelled": "Cotización cancelada"
+    },
+    "map": {
+      "scheduled": "📅 Programada"
+    },
+    "price": {
+      "label": "Total cotizado",
+      "travelNote": "Incluye ${{amount}} de traslado"
+    },
+    "eventDetails": {
+      "title": "Detalles del evento",
+      "type": "Tipo",
+      "date": "Fecha",
+      "duration": "Duración",
+      "durationValue": "{{hours}} horas",
+      "time": "Hora"
+    },
+    "overtime": {
+      "title": "Horas extra disponibles",
+      "note": "⏱ Al finalizar el evento podrás contratar horas extra directamente desde la app, antes de que concluya el servicio.",
+      "plus1": "+1 hora extra",
+      "plus2": "+2 horas extra",
+      "plus3": "+3 horas extra"
+    },
+    "groupNotes": {
+      "title": "Notas del grupo"
+    },
+    "actions": {
+      "cancel": "Cancelar",
+      "hireAndPay": "Contratar y pagar",
+      "requoteAgain": "Volver a cotizar"
+    },
+    "confirmDialog": {
+      "title": "¿Confirmar contratación?",
+      "message": "Total: ${{amount}} MXN\n\nElegirás tu forma de pago en el siguiente paso.\n\nEl pago se libera al finalizar el evento.",
+      "review": "Revisar",
+      "continue": "Continuar al pago"
+    },
+    "cancelDialog": {
+      "title": "Cancelar cotización",
+      "message": "¿Estás seguro de que quieres cancelar esta cotización?",
+      "no": "No",
+      "yesCancel": "Sí, cancelar"
+    },
+    "cancelResult": {
+      "errorTitle": "Error",
+      "errorMessage": "No se pudo procesar. Intenta de nuevo.",
+      "cancelledTitle": "Cancelada",
+      "cancelledMessage": "¿Quieres volver a cotizar con este grupo?",
+      "noThanks": "No, gracias",
+      "requote": "Volver a cotizar"
+    },
+    "errors": {
+      "noSession": "No hay sesión activa.",
+      "eventCreateFailed": "No se pudo registrar el evento. Intenta de nuevo.",
+      "dateBlocked": "Esa fecha ya no está disponible para el grupo (se ocupó o la bloqueó). Coordina otra fecha antes de aceptar.",
+      "dailyLimit": "Este grupo ya tiene 2 eventos agendados ese día. Coordina otra fecha antes de aceptar.",
+      "timeOverlap": "El horario de este evento choca con otro evento del grupo ese día. Coordina otro horario o fecha antes de aceptar.",
+      "reservationCreateFailed": "No se pudo crear la reserva. Intenta de nuevo.",
+      "genericProblemTitle": "Ocurrió un problema",
+      "genericProblemMessage": "No se pudo procesar tu solicitud. Intenta de nuevo.",
+      "groupLimitReached": "Ya hay 3 proveedores contratados para este evento."
+    },
+    "notifications": {
+      "quoteAcceptedTitle": "✅ Cotización aceptada",
+      "quoteAcceptedBody": "Cliente aceptó tu cotización de ${{amount}} MXN.",
+      "quoteCancelledTitle": "❌ Cotización cancelada",
+      "quoteCancelledBody": "El cliente canceló la cotización."
+    }
+  },
+  "followedGroupsScreen": {
+    "headerTitle": "Grupos que sigues",
+    "emptyTitle": "Aún no sigues a ningún grupo",
+    "emptyText": "Cuando sigas un grupo desde su perfil, va a aparecer aquí."
+  },
+  "groupDetailScreen": {
+    "videoDeck": {
+      "unavailable": "Video no disponible"
+    },
+    "timeAgo": {
+      "justNow": "Hace un momento",
+      "minutes": "Hace {{count}} min",
+      "hours": "Hace {{count}}h",
+      "yesterday": "Ayer",
+      "days": "Hace {{count}} días",
+      "months_one": "Hace {{count}} mes",
+      "months_other": "Hace {{count}} meses"
+    },
+    "gifts": {
+      "unavailableTitle": "Regalos no disponibles",
+      "unavailableBody": "Este grupo no tiene la insignia Plus activa, así que no puede recibir regalos por ahora."
+    },
+    "share": {
+      "groupMessage": "Mira a {{name}} en Daricefy 🎵",
+      "defaultGroupName": "este grupo",
+      "captionPrefix": "\"{{caption}}\"\n\n",
+      "postMessage": "Mira esta publicación de {{name}} en Daricefy 🎵"
+    },
+    "reviews": {
+      "defaultClientName": "Cliente",
+      "countLabel_one": "{{count}} reseña",
+      "countLabel_other": "{{count}} reseñas",
+      "noComment": "Sin comentario"
+    },
+    "notifications": {
+      "likeTitle": "Nuevo like ❤️",
+      "commentTitle": "Nuevo comentario 💬",
+      "likeBody": "A alguien le gustó una de tus publicaciones",
+      "commentBody": "Alguien comentó una de tus publicaciones"
+    },
+    "follow": {
+      "errorTitle": "No se pudo seguir",
+      "errorSelfBody": "No puedes seguirte a ti mismo.",
+      "errorGenericBody": "Intenta de nuevo más tarde.",
+      "following": "Siguiendo",
+      "followBtn": "Seguir"
+    },
+    "comments": {
+      "errorTitle": "No se pudo comentar",
+      "genericErrorTitle": "Error al comentar",
+      "genericErrorBody": "No se pudo publicar tu comentario. Intenta de nuevo."
+    },
+    "nearby": {
+      "yourZone": "Tu zona",
+      "outOfZone": "Fuera de tu zona"
+    },
+    "trust": {
+      "eventsRealized_one": "{{count}} evento realizado",
+      "eventsRealized_other": "{{count}} eventos realizados",
+      "followers_one": "seguidor",
+      "followers_other": "seguidores",
+      "quote": "Cotizar"
+    },
+    "badges": {
+      "unverified": "Sin verificar",
+      "quickResponse": "Responde rápido",
+      "trustedGroup": "Grupo confiable",
+      "topArtist": "Top artista",
+      "highDemand": "Alta demanda",
+      "highAcceptance": "Alta aceptación",
+      "quickResponseAlt": "Respuesta rápida",
+      "topCity": "Top en tu ciudad"
+    },
+    "sections": {
+      "videos": "🎬 Videos",
+      "posts": "Publicaciones",
+      "seeMore": "Ver más",
+      "alsoLike": "También te puede gustar"
+    },
+    "guarantee": {
+      "title": "Reserva protegida por Daricefy",
+      "subtitle": "Si el grupo no llega, te ayudamos o te devolvemos el dinero",
+      "benefitVerified": "Grupos verificados por el equipo",
+      "benefitSupport": "Soporte durante el evento",
+      "benefitHistory": "Historial y calificaciones reales",
+      "safetyNotice": "Para tu seguridad, mantén toda la contratación dentro de la app"
+    },
+    "ad": {
+      "label": "PUBLICIDAD",
+      "more": "Ver más"
+    },
+    "report": {
+      "sendErrorTitle": "No se pudo enviar",
+      "tryAgain": "Intenta de nuevo.",
+      "sentTitle": "Reporte enviado",
+      "sentBody": "Gracias — nuestro equipo revisará este perfil.",
+      "promptTitle": "🚩 Reportar este perfil",
+      "promptQuestion": "¿Qué quieres reportar?",
+      "reasonCopyright": "Música o video que no es suyo (derechos de autor)",
+      "reasonInappropriate": "Contenido inapropiado",
+      "reasonFalseInfo": "Información falsa",
+      "cancel": "Cancelar",
+      "linkText": "🚩 Reportar este perfil"
+    },
+    "postDetail": {
+      "noComments": "Aún no hay comentarios",
+      "defaultUser": "Usuario",
+      "reply": "Responder",
+      "hideReplies": "Ocultar respuestas",
+      "viewReplies_one": "Ver {{count}} respuesta",
+      "viewReplies_other": "Ver {{count}} respuestas",
+      "viewMoreComments_one": "Ver {{count}} comentario más",
+      "viewMoreComments_other": "Ver {{count}} comentarios más",
+      "replyingTo": "Respondiendo a {{name}}",
+      "placeholderReplyTo": "Responde a {{name}}...",
+      "placeholderComment": "Escribe un comentario..."
+    }
+  },
+  "quoteFormScreen": {
+    "eventTypes": {
+      "fiesta_privada": "🎉 Fiesta privada",
+      "boda": "💍 Boda",
+      "cumpleanos": "🎂 Cumpleaños",
+      "graduacion": "🎓 Graduación",
+      "empresarial": "🏢 Empresarial",
+      "otro": "🎵 Otro"
+    },
+    "durationOptions": {
+      "h3": "3 horas",
+      "h4": "4 horas",
+      "h5": "5 horas",
+      "h6": "6 horas",
+      "h7": "7 horas",
+      "h8": "8+ horas"
+    },
+    "coveredOptions": {
+      "si": "Sí",
+      "no": "No",
+      "no_se": "No sé"
+    },
+    "venueSizes": {
+      "patio_pequeno": "🏡 Patio pequeño",
+      "salon_mediano": "🏛️ Salón mediano",
+      "jardin_grande": "🌳 Jardín grande",
+      "escenario_profesional": "🎤 Escenario profesional"
+    },
+    "soundOptions": {
+      "no_group_brings": "No (grupo trae)",
+      "si_50": "Sí, hasta 50",
+      "si_100": "Sí, hasta 100",
+      "si_200": "Sí, hasta 200",
+      "si_300": "Sí, 300+"
+    },
+    "lightingOptions": {
+      "no": "No",
+      "simple": "Sencilla",
+      "pro": "Profesional",
+      "premium": "Premium"
+    },
+    "stageOptions": {
+      "no": "No",
+      "small": "Chico 3×2m",
+      "medium": "Mediano 4×3m",
+      "wedding": "Grande boda 6×4m"
+    },
+    "ledOptions": {
+      "no": "No",
+      "medium": "Mediana",
+      "large": "Grande",
+      "xl": "XL boda"
+    },
+    "breakOptions": {
+      "typeA": {
+        "label": "15 min por hora",
+        "desc": "Descanso de 15 min después de cada hora (excepto la última)"
+      },
+      "typeB": {
+        "label": "15 min único",
+        "desc": "Un solo descanso de 15 min a la mitad del evento"
+      },
+      "typeD": {
+        "label": "Sin descanso",
+        "desc": "El grupo toca corrido sin pausas (solo para eventos de 3h exactas)"
+      }
+    },
+    "incompleteFieldsTitle": "Campos incompletos",
+    "incompleteFieldsBody": "Por favor completa todos los campos requeridos.",
+    "giftRecipientMissingTitle": "¿Para quién es el regalo?",
+    "giftRecipientMissingBody": "Escribe el nombre de la persona a quien le regalas el evento.",
+    "error": "Error",
+    "sessionNotFound": "Sesión no encontrada.",
+    "waitMomentTitle": "🛑 Espera un momento",
+    "errorDetailedTitle": "Error detallado",
+    "notifTitle": "📋 Nueva solicitud de cotización",
+    "notifBodyOwner": "Un cliente solicita cotización para un evento de {{duration}}h. Revisa y envía el precio.",
+    "notifBodyMembers": "Tu grupo recibió una solicitud de cotización de {{duration}}h. El dueño enviará el precio.",
+    "requestSentTitle": "✅ Solicitud enviada",
+    "requestSentBody": "Tu solicitud de cotización a \"{{groupName}}\" fue enviada. Te notificaremos cuando el grupo responda.",
+    "understood": "Entendido",
+    "logisticsConflictTitle": "⏰ Ese horario no le da al grupo",
+    "logisticsConflictBody": "El grupo tiene otra tocada muy cerca de ese horario y no alcanzaría a llegar. Revisa la rejilla de horarios disponibles y elige otra hora.",
+    "tightTimeTitle": "🕐 Hora muy cercana a otra tocada",
+    "tightTimeBody": "Ese día el grupo tiene otra tocada y el tiempo para trasladarse queda muy justo. Puedes enviar tu solicitud de todos modos: el grupo verá los horarios y decidirá si alcanza a llegar.",
+    "changeTimeBtn": "Cambiar hora",
+    "sendAnywayBtn": "Enviar así",
+    "headerTitle": "Solicitar cotización",
+    "progressLabel": "{{completed}} de {{total}} completadas",
+    "infoBanner": "📍 El grupo revisará tu solicitud y te enviará un precio personalizado. Mínimo 3 horas de servicio.",
+    "section1Title": "1. Tipo de evento *",
+    "section2Title": "2. Ubicación del evento *",
+    "addressChange": "Cambiar",
+    "addressPlaceholderFull": "Dirección completa",
+    "municipioPlaceholder": "Municipio",
+    "estadoPlaceholder": "Estado",
+    "useMapBtn": "📍 Usar mapa",
+    "selectOnMapBtn": "📍 Seleccionar en el mapa",
+    "writeManualAddress": "Escribir dirección manualmente",
+    "section3Title": "3. Fecha del evento *",
+    "selectDatePlaceholder": "📅 Seleccionar fecha",
+    "busyNoticeTitle": "🎪 El grupo ya tiene evento este día:",
+    "busyRangeFull": "De {{start}} a {{end}}",
+    "busyRangeStart": "De {{start}}",
+    "busyPending": "Horario por confirmar",
+    "busyNoticeHint": "Puedes contratarlo en un horario diferente — elige tu hora considerando este compromiso.",
+    "eventConflictNoticeTitle": "📅 Ya hay otro proveedor con hora en tu evento:",
+    "eventConflictRangeLine": "{{group}}: de {{start}} a {{end}}",
+    "eventConflictNoticeHint": "Elige una hora que no se encime — puede empezar justo cuando el otro termine.",
+    "section4Title": "4. Hora de inicio *",
+    "hourGridTitle": "Horarios de tu grupo ese día ({{dur}}h de evento)",
+    "hourGridTitleEventOnly": "Horarios ocupados en tu evento ({{dur}}h de evento)",
+    "legendAvailable": "🟩 disponible",
+    "legendTight": "🟨 muy cercana",
+    "legendBusy": "🟥 tocando",
+    "legendTransfer": "⬜ traslado",
+    "hourTightNote": "🕐 Hora muy cercana a la otra tocada del grupo — el tiempo le queda justo. El grupo decidirá si la acepta al cotizarte.",
+    "hourAfterPriorGigNote": "ℹ️ El grupo tiene un evento antes de tu horario. Verá si ese evento pide horas extra y te confirma al cotizarte.",
+    "hourSuggestTimes": "💡 Te sugerimos las {{times}} — le dan tiempo al grupo entre tocadas",
+    "timeChipPlaceholder": "Toca para elegir la hora",
+    "proximityOk": "✓ El grupo tiene tiempo para coordinarse",
+    "proximityWarn": "⏱ Evento próximo — el grupo tendrá ventana reducida para responder.",
+    "proximityBlockTitle": "🚨 Tu evento es en menos de 6 horas",
+    "proximityBlockBodyPart1": "Las cotizaciones programadas no son rápidas — el grupo puede tardar en responder y no llegar a tiempo.\n\nPara eventos urgentes usa ",
+    "proximityBlockBodyBold": "Solicitar grupo ahora",
+    "proximityBlockBodyPart2": " — múltiples grupos disponibles te responderán al instante.",
+    "proximityExpressBtn": "Solicitar grupo ahora →",
+    "proximityBypassAlertTitle": "Continuar con cotización programada",
+    "proximityBypassAlertBody": "El grupo podría no tener tiempo suficiente para organizarse y llegar al evento. ¿Seguro que quieres enviar la solicitud?",
+    "cancel": "Cancelar",
+    "proximityBypassConfirm": "Sí, enviar de todas formas",
+    "proximityBypassLink": "Entiendo, continuar de todas formas",
+    "proximityPast": "Este evento ya pasó. Selecciona una fecha y hora futura.",
+    "section5Title": "5. Duración *",
+    "minNote": "(mínimo 3 horas)",
+    "durationLockedNote": "🔒 Ese día tu grupo tiene otra tocada — solo puedes contratar las horas que le dan tiempo de llegar. Elige más temprano para contratar más horas.",
+    "durationLockedNoteEvent": "🔒 Esa duración se encima con otro proveedor de tu evento — elige menos horas o una hora diferente.",
+    "extraHoursBoxedIn": "ℹ️ Después de tu evento el grupo tiene otra tocada, así que NO habrá horas extra ese día. Contrata desde ahora todas las horas que necesitas.",
+    "extraHoursTip": "💡 Elige bien las horas desde ahora. Si el evento se extiende, cada hora extra se cobra por separado y puede salir más caro que contratarlas de antemano.",
+    "section6Title": "6. Tipo de descanso *",
+    "section6Note": "Todos los tipos están incluidos sin costo adicional.",
+    "section7Title": "7. Número aproximado de personas *",
+    "numPersonasPlaceholder": "Ej: 50",
+    "section8Title": "8. ¿El lugar está techado? *",
+    "section9Title": "9. Espacio aproximado *",
+    "section10Title": "10. ¿Qué necesitas para tu evento? *",
+    "equipSoundTitle": "🎵 Sonido *",
+    "included": "✅ Incluido",
+    "extraQuote": "⚠️ Cotización extra",
+    "equipLightingTitle": "💡 Iluminación",
+    "optionalTag": "(opcional)",
+    "equipStageTitle": "🎭 Tarima / Escenario",
+    "equipLedTitle": "📺 Pantalla LED",
+    "equipSummaryLine1": "📋 El grupo verá tu solicitud y enviará el precio total,",
+    "equipSummaryLine2": "incluyendo cualquier equipo adicional que necesites rentar.",
+    "section11Title": "11. Comentarios adicionales",
+    "commentsPlaceholder": "Ej: \"El evento es en rancho a 30 min de la ciudad\"\n\"Es al aire libre\"\n\"Queremos música variada\"",
+    "charCount": "{{count}}/500",
+    "giftToggleTitle": "🎁 ¿Es un regalo?",
+    "giftToggleHint": "Actívalo para regalar este evento a otra persona.",
+    "giftBoxHint": "Al pagar generamos un ticket de regalo para que se lo compartas a quien tú quieras (WhatsApp, correo, etc.), cuando tú decidas.",
+    "giftRecipientLabel": "Para (nombre del festejado) *",
+    "giftRecipientPlaceholder": "Ej: Mamá, Sofía, Familia López",
+    "giftMessageLabel": "Mensaje personalizado",
+    "giftMessagePlaceholder": "Ej: \"¡Feliz cumpleaños! Con todo mi cariño 🎉\"",
+    "giftContactLabel": "Contacto del destinatario (opcional)",
+    "giftContactPlaceholder": "WhatsApp o correo (opcional)",
+    "submitting": "Enviando...",
+    "submitBtn": "Enviar solicitud de cotización",
+    "calendarTitle": "Selecciona la fecha",
+    "dateUnavailableTitle": "Fecha no disponible",
+    "dateUnavailableBody": "El grupo no está disponible ese día. Elige otra fecha.",
+    "timePickerTitle": "Hora de inicio",
+    "eventContextBanner": "Estás cotizando para tu evento existente del {{date}} · {{address}}",
+    "soundContextBanner": "Ya se declaró una necesidad de sonido/equipo para este evento.",
+    "soundContextBy": "Pedido por: {{names}}. Tu propia respuesta se guarda por separado."
+  },
+  "quotePaymentScreen": {
+    "header": {
+      "title": "Confirmar pago"
+    },
+    "badges": {
+      "protected": "Pago protegido",
+      "guarantee": "Garantía Daricefy"
+    },
+    "detail": {
+      "durationHours": "{{hours}}h de servicio",
+      "totalLabel": "Total del evento"
+    },
+    "payQuestion": "¿Cómo quieres pagar?",
+    "genericGroupName": "Grupo",
+    "methods": {
+      "card": {
+        "title": "Tarjeta",
+        "line1": "Pago inmediato",
+        "line2": "Débito o crédito",
+        "line3": "Pago protegido por Daricefy"
+      },
+      "spei": {
+        "title": "Transferencia SPEI",
+        "tag": "Sin tarjeta",
+        "line1": "No necesitas tarjeta",
+        "line2": "Pago desde tu banca",
+        "savings": "Ahorra ${{amount}} MXN pagando por transferencia"
+      },
+      "cash": {
+        "title": "Pago en efectivo",
+        "tag": "Sin tarjeta",
+        "line1": "OXXO, 7-Eleven, farmacias y más",
+        "line2": "Ideal si no tienes tarjeta"
+      },
+      "msi": {
+        "title": "Pagar a meses",
+        "tag": "Tarjeta de crédito",
+        "line1": "3, 6, 9 y 12 meses"
+      },
+      "bnpl": {
+        "title": "Compra ahora, paga después",
+        "tag": "Sin tarjeta",
+        "line1": "La música suena hoy, la pagas después",
+        "line2": "Aplazo, Creditea y más"
+      }
+    },
+    "recommendedPill": "⭐ Recomendado",
+    "soonPill": "Próximamente",
+    "comingSoonAlert": {
+      "title": "🎶 Muy pronto",
+      "message": "Estamos habilitando el pago a plazos (Aplazo, Creditea y más). ¡Podrás usarlo muy pronto!"
+    },
+    "months": {
+      "label": "{{count}} meses",
+      "fee": "Comisión +{{feePct}}% · total ${{amount}} {{currency}}",
+      "perMonth": "/mes"
+    },
+    "benefits": {
+      "title": "Tu pago está protegido",
+      "refund": "Reembolso si el grupo no se presenta",
+      "walletProtected": "Wallet protegida"
+    },
+    "errors": {
+      "insufficientAmountTitle": "Monto insuficiente",
+      "insufficientAmountMessage": "Pagar a meses está disponible solo para montos mayores a ${{minAmount}} MXN.",
+      "noSession": "No hay sesión activa.",
+      "eventCreateFailed": "No se pudo crear el evento.",
+      "dateBlocked": "Esa fecha ya no está disponible para el grupo (se ocupó o la bloqueó). Coordina otra fecha antes de continuar.",
+      "dailyLimit": "Este grupo ya tiene 2 eventos agendados ese día. Coordina otra fecha antes de continuar.",
+      "timeOverlap": "El horario de este evento choca con otro evento del grupo ese día. Coordina otro horario o fecha antes de continuar.",
+      "groupLimitReached": "Ya hay 3 grupos contratados para este evento.",
+      "reservationCreateFailed": "No se pudo crear la reserva. Intenta de nuevo.",
+      "conektaInitFailed": "No se pudo iniciar el pago con Conekta. Intenta de nuevo.",
+      "paymentErrorPrefix": "Error de pago: {{message}}",
+      "noServerResponse": "Sin respuesta del servidor de pagos.",
+      "cardInstallmentsNotSupported": "Esta tarjeta no es compatible con pago en parcialidades. Selecciona \"1 pago\" o intenta con otra tarjeta.",
+      "paymentInitFailed": "No se pudo inicializar el pago.",
+      "noPaymentToken": "No se recibió el token de pago.",
+      "cardInstallmentsNotSupportedRetry": "Esta tarjeta no es compatible con pago en parcialidades. Puedes intentar con otra tarjeta o pagar en 1 solo pago.",
+      "paymentProcessingProblem": "Ocurrió un problema al procesar el pago.",
+      "paymentErrorTitle": "Error al procesar el pago",
+      "genericRetry": "Intenta de nuevo."
+    },
+    "pendingPayment": {
+      "title": "Pago pendiente",
+      "message": "Puedes completar el pago desde \"Mis Eventos\" cuando quieras.",
+      "seeReservations": "Ver mis eventos",
+      "incompleteTitle": "Pago sin completar",
+      "incompleteMessage": "Si terminaste el pago, se confirmará en un momento y verás tu evento en \"Mis Eventos\". Si no lo completaste, puedes reintentarlo desde el aviso \"⚡ Pago pendiente\" en tu inicio.",
+      "understood": "Entendido"
+    },
+    "notifications": {
+      "quoteAcceptedTitle": "✅ Cotización aceptada",
+      "quoteAcceptedBody": "Un cliente aceptó tu cotización de ${{amount}} {{currency}}."
+    },
+    "referenceScreen": {
+      "transferTitle": "Transfiere para confirmar",
+      "payInStoreTitle": "Paga en tienda para confirmar",
+      "speiInstructions": "Haz una transferencia SPEI desde tu banca con estos datos:",
+      "cashInstructions": "Da esta referencia en OXXO, 7-Eleven, farmacias y más:",
+      "clabeLabel": "CLABE",
+      "referenceLabel": "Referencia",
+      "bankLabel": "Banco destino: {{bank}}",
+      "exactAmount": "Monto exacto: ${{amount}} MXN",
+      "copied": "¡Copiado!",
+      "copyClabe": "Copiar CLABE",
+      "copyReference": "Copiar referencia",
+      "note": "Tu evento se confirmará automáticamente en cuanto recibamos tu pago. Copia estos datos antes de salir — si los pierdes, puedes generar unos nuevos desde \"Pago pendiente\" en tu inicio.",
+      "seeMyEvents": "Ver mis eventos"
+    },
+    "success": {
+      "title": "¡Pago exitoso!",
+      "subtitle": "Tu reserva está confirmada",
+      "seeReservations": "Ver mis reservas",
+      "addAnotherProvider": "Agregar otro proveedor a este evento"
+    }
+  },
+  "adminCategoryInterestScreen": {
+    "title": "Interés sin proveedor",
+    "tabPending": "Pendientes",
+    "tabContacted": "Contactados",
+    "emptyPending": "No hay leads pendientes",
+    "emptyContacted": "Aún no has marcado ninguno como contactado",
+    "noPhone": "Sin teléfono",
+    "markContacted": "Marcar contactado",
+    "markError": "No se pudo marcar, intenta de nuevo"
+  },
+  "adminDisputesScreen": {
+    "title": "Disputas",
+    "status": {
+      "open": "Abierta",
+      "underReview": "En revisión",
+      "resolvedClient": "Ganó cliente",
+      "resolvedGroup": "Ganó grupo"
+    },
+    "errors": {
+      "loadTitle": "Error al cargar disputas",
+      "resolveTitle": "No se pudo resolver",
+      "resolveDefault": "Intenta de nuevo."
+    },
+    "resolveSuccess": {
+      "title": "Disputa resuelta ✅",
+      "message": "Se notificó el veredicto al cliente y al grupo."
+    },
+    "confirmGroup": {
+      "title": "Resolver a favor del GRUPO",
+      "message": "Se liberará el pago del evento al grupo y se notificará el veredicto a ambas partes.\n\n¿Confirmas?"
+    },
+    "confirmClient": {
+      "title": "Resolver a favor del CLIENTE",
+      "message": "Se revertirá el saldo pendiente del grupo y se notificará el veredicto a ambas partes.\n\n⚠️ IMPORTANTE: revisa manualmente el reembolso al cliente y cualquier pago ya liberado al grupo — no se procesan automáticamente todavía.\n\n¿Confirmas?"
+    },
+    "actions": {
+      "cancel": "Cancelar",
+      "confirm": "Confirmar"
+    },
+    "chips": {
+      "open": "Abiertas ({{count}})",
+      "underReview": "En revisión ({{count}})",
+      "resolved": "Resueltas ({{count}})",
+      "all": "Todas"
+    },
+    "summary": {
+      "open": "Abiertas",
+      "underReview": "En revisión",
+      "resolved": "Resueltas"
+    },
+    "empty": {
+      "title": "Sin disputas aquí",
+      "open": "No hay disputas abiertas en este momento",
+      "other": "Nada en este filtro"
+    },
+    "card": {
+      "openedBy": "Abierta por: {{email}}",
+      "event": "Evento: {{date}} • ${{price}}"
+    },
+    "panel": {
+      "label": "Resolución / notas (se envía a ambas partes)",
+      "placeholder": "Describe la resolución...",
+      "favorClient": "A favor del cliente",
+      "favorGroup": "A favor del grupo"
+    }
+  },
+  "advertisingPackagesScreen": {
+    "headerTitle": "Consigue más eventos",
+    "headerSub": "Aumenta tu visibilidad y recibe más solicitudes",
+    "types": {
+      "banner_home": {
+        "label": "Banner en Inicio",
+        "title": "Máxima visibilidad",
+        "desc": "Tu anuncio aparece en el carrusel de Inicio (donde ven las publicaciones de los grupos que siguen) Y en Explorar (donde buscan y reservan). Lo ven todos los usuarios al abrir la app.",
+        "benefit": "🎯 Mayor alcance de la plataforma",
+        "visibility": "+35% visibilidad",
+        "requests": "8–15 solicitudes estimadas"
+      },
+      "sponsored_group": {
+        "label": "Grupo Destacado",
+        "title": "Aparece primero",
+        "desc": "Tu grupo aparece al tope de \"Destacados\" antes que el resto. Más visitas, más contrataciones.",
+        "benefit": "🚀 Más contrataciones garantizadas",
+        "visibility": "+20% visibilidad",
+        "requests": "5–10 solicitudes estimadas"
+      },
+      "profile_ad": {
+        "label": "Anuncio en Perfiles",
+        "title": "Llega al momento de decisión",
+        "desc": "Tu anuncio aparece dentro de los perfiles de grupos, justo cuando el cliente está decidiendo contratar.",
+        "benefit": "💡 Alta intención de compra",
+        "visibility": "+15% visibilidad",
+        "requests": "3–8 solicitudes estimadas"
+      }
+    },
+    "demandComparison": {
+      "high": "Mayor que el promedio en tu ciudad",
+      "medium": "Similar a otros grupos activos",
+      "default": "Buen momento para posicionarte antes que otros"
+    },
+    "positionTier": {
+      "top1_3": "Top 1–3 🟢",
+      "top4_10": "Top 4–10 🟡",
+      "top11_20": "Top 11–20 ⚪"
+    },
+    "recommendedBadge": "⭐ Recomendado",
+    "bestSellerBadge": "🔥 Más vendido",
+    "recommendedMsg": "Más visibilidad por menor costo diario",
+    "bestSellerMsg": "🔥 Más elegido por grupos exitosos",
+    "status": {
+      "active": "Activo",
+      "pending_review": "En revisión",
+      "pending_payment": "Sin pago",
+      "paused": "Pausado",
+      "rejected": "Rechazado",
+      "expired": "Vencido"
+    },
+    "fomoGroupUpdated": "⚡ Un grupo acaba de actualizar su promoción en tu ciudad",
+    "seedingUrgencyTitle": "⏳ Precio de lanzamiento por tiempo limitado",
+    "seedingUrgencySub": "Solo por los primeros {{count}} grupos en la ciudad",
+    "seedingScarcityAllTaken": "🔴 Todos los lugares de lanzamiento están ocupados",
+    "seedingScarcityCritical_one": "🔴 Solo {{count}} espacio disponible con precio de lanzamiento",
+    "seedingScarcityCritical_other": "🔴 Solo {{count}} espacios disponibles con precio de lanzamiento",
+    "seedingScarcityAvailable": "🟡 {{count}} espacios disponibles con precio de lanzamiento",
+    "noAdsFomoText": "⚠️ Sin promoción estás perdiendo visibilidad frente a otros grupos",
+    "highDemandFomo": "🔥 Otros grupos ya están aprovechando esta demanda",
+    "stats": {
+      "activeUsers": "Usuarios activos",
+      "approval": "Aprobación",
+      "formats": "Formatos"
+    },
+    "demandBanner": {
+      "high": "⚡ Alta demanda en tu zona — si no te posicionas hoy pierdes eventos",
+      "medium": "🔥 Buen momento para promocionarte — la competencia está creciendo",
+      "low": "🟢 Precio especial disponible · Sé el primero en tu ciudad"
+    },
+    "dynamicPriceActive": "Precio dinámico activo ×{{multiplier}}",
+    "priceRisingBadge": "🔥 Precio subiendo por alta demanda",
+    "socialProofGroups": "+{{count}} grupos ya se están promocionando en tu ciudad",
+    "scarcityWaitlist": "🔴 Sin espacios disponibles hoy — lista de espera",
+    "scarcityCritical_one": "🔴 Solo {{count}} espacio disponible — actúa rápido",
+    "scarcityCritical_other": "🔴 Solo {{count}} espacios disponibles — actúa rápido",
+    "scarcityAvailable": "🟡 {{count}} espacios disponibles hoy",
+    "durationDays": "{{count}} días",
+    "tierTop1_3Desc": "Máxima visibilidad en tu ciudad",
+    "tierTop4_10Desc": "Alta visibilidad a menor costo",
+    "estimatedReach": "👥 Alcance estimado: +{{reach}} personas",
+    "launchPriceBadge": "🚀 Precio de lanzamiento",
+    "launchDiscount": "-30% lanzamiento",
+    "normalPrice": "Normal ${{price}}",
+    "cityMultiplier": "Tu ciudad ×{{multiplier}}",
+    "basePrice": "Base ${{price}}",
+    "basePriceLabel": "Precio base",
+    "perDay": "${{price}}/día",
+    "continueRecommended": "👉 Continuar con recomendado",
+    "hire": "Contratar",
+    "estReceiveRange": "Recibirás aproximadamente {{min}}–{{max}} solicitudes",
+    "estDisclaimerMain": "La mayoría de los grupos activos reciben clientes en este rango",
+    "estViews": "≈ {{views}} clientes verán tu grupo",
+    "estCompact": "📨 Recibirás ≈ {{min}}–{{max}} solicitudes · 👁 ≈ {{views}} vistas",
+    "emptyTitle": "Sin paquetes disponibles",
+    "emptySub": "Vuelve pronto, estamos preparando nuevas opciones.",
+    "myAdsTitle": "Mis anuncios",
+    "views": "Vistas",
+    "clicks": "Clics",
+    "remaining": "Restantes",
+    "advertisingTag": "PUBLICIDAD",
+    "liveNow": "En vivo ahora",
+    "howItWorksTitle": "¿Cómo funciona?",
+    "steps": {
+      "step1": {
+        "title": "Elige tu paquete",
+        "desc": "Selecciona el tipo y duración que más te conviene."
+      },
+      "step2": {
+        "title": "Sube tu contenido",
+        "desc": "Imagen o video + título + texto del botón."
+      },
+      "step3": {
+        "title": "Realiza el pago",
+        "desc": "Pago seguro con tarjeta, OXXO o SPEI."
+      },
+      "step4": {
+        "title": "Revisión en 24h",
+        "desc": "El equipo revisa tu anuncio y lo activa automáticamente."
+      }
+    }
+  },
+  "clientExtraHoursScreen": {
+    "balanceUsed": "Saldo usado",
+    "balanceAvailable": "Disponible",
+    "cashPaymentAlertTitle": "💵 Pago en efectivo",
+    "cashPaymentAlertBody": "El grupo recibirá {{amount}} directamente de ti. ¿Confirmas?",
+    "cancel": "Cancelar",
+    "confirm": "Confirmar",
+    "error": "Error",
+    "insufficientBalanceAlertTitle": "Saldo insuficiente",
+    "insufficientBalanceAlertBody": "Tu saldo disponible es {{available}} y la hora extra cuesta {{cost}}.\n\nContacta al grupo para acordar el pago.",
+    "rejectAlertTitle": "Rechazar hora extra",
+    "rejectAlertBody": "¿Estás seguro de que no quieres agregar esta hora extra?\n\nEl grupo continuará hasta cumplir el tiempo contratado.",
+    "reject": "Rechazar",
+    "approvedTitle": "¡Hora extra aprobada!",
+    "approvedDescCash": "Paga {{amount}} directamente al grupo en efectivo.",
+    "approvedDescBalance": "Se descontaron {{amount}} de tu saldo disponible.\n\nSaldo restante: {{remaining}}",
+    "understood": "Entendido",
+    "rejectedTitle": "Hora extra rechazada",
+    "rejectedDesc": "El evento continuará hasta cumplir el tiempo contratado originalmente.",
+    "back": "Volver",
+    "headerCash": "Pago en Efectivo",
+    "headerExtraHours": "Agregar Horas Extra",
+    "yourAvailableBalance": "Tu Saldo Disponible",
+    "initiallyPaid": "Pagaste inicialmente",
+    "serviceFee": "Tarifa de servicio",
+    "balanceForExtraHours": "Saldo para horas extra",
+    "balanceNote": "ℹ️ No se hará ningún cargo adicional a tu tarjeta. Todo se descuenta del pago inicial.",
+    "cashRequestTitle": "💵 El grupo solicita pago en efectivo",
+    "extraHoursRequestTitle_one": "➕ +{{count}} hora adicional",
+    "extraHoursRequestTitle_other": "➕ +{{count}} horas adicionales",
+    "amountRequested": "Monto solicitado",
+    "extraHoursLabel_one": "+{{count}} hora adicional",
+    "extraHoursLabel_other": "+{{count}} horas adicionales",
+    "schedule": "Horario",
+    "proposed": "Propuesta",
+    "afterThisExtraHour": "Después de esta hora extra",
+    "remainingBalance": "Saldo restante: {{amount}}",
+    "cashInfoText": "Paga directamente al grupo en efectivo. La app solo registra la transacción.",
+    "insufficientBalanceTitle": "⚠️ Saldo Insuficiente",
+    "insufficientBalanceDesc": "Tu saldo disponible ({{available}}) no cubre esta hora extra ({{cost}}).\n\nHabla con el grupo para acordar el pago en efectivo.",
+    "balanceOkText": "Tienes saldo suficiente. El descuento es automático, sin cargo a tu tarjeta.",
+    "baseNoticeText": "⚠️ El evento base ya está incluido. Las horas extra son adicionales al contrato original.",
+    "confirmCashPayment": "💵 Confirmar pago de {{amount}} en efectivo",
+    "confirmAndDeduct": "✅ Confirmar y descontar de mi saldo",
+    "talkToGroup": "Hablar con el grupo",
+    "rejectExtraHour": "Rechazar hora extra"
+  },
+  "groupAvailabilityScreen": {
+    "headerTitle": "Disponibilidad",
+    "calendarSectionTitle": "Calendario de disponibilidad",
+    "calendarHint": "Toca una fecha para bloquearla. Las fechas bloqueadas aparecerán en rojo y no estarán disponibles para reservas.",
+    "blockedDatesTitle": "Fechas bloqueadas ({{count}})",
+    "common": {
+      "cancel": "Cancelar",
+      "unblock": "Desbloquear",
+      "error": "Error"
+    },
+    "blockedAlert": {
+      "title": "Fecha bloqueada",
+      "message": "Esta fecha ya está bloqueada.",
+      "noReason": "Sin motivo especificado"
+    },
+    "alreadyBlockedAlert": {
+      "title": "Fecha ya bloqueada",
+      "message": "{{date}} ya estaba bloqueada. ¿Quieres desbloquearla?",
+      "keep": "Dejarla bloqueada"
+    },
+    "blockedSuccess": {
+      "title": "✓ Bloqueada",
+      "message": "La fecha {{date}} fue bloqueada correctamente."
+    },
+    "unblockAlert": {
+      "title": "Desbloquear fecha",
+      "message": "¿Desbloquear {{date}}?"
+    },
+    "errors": {
+      "loadTitle": "Error al cargar bloqueos",
+      "loadMessage": "No se pudieron cargar tus fechas bloqueadas. Vuelve a entrar a la pantalla."
+    },
+    "modal": {
+      "title": "Bloquear fecha",
+      "reasonLabel": "Motivo (opcional)",
+      "reasonPlaceholder": "Ej: Día festivo, vacaciones..."
+    }
+  },
+  "groupEarningsScreen": {
+    "headerTitle": "Mis Ganancias",
+    "thisMonth": "Este mes",
+    "totalYear": "Total {{year}}",
+    "emptyTitle": "Sin ganancias",
+    "emptyText": "No hay eventos completados en {{month}}",
+    "defaultClient": "Cliente",
+    "months": [
+      "Ene",
+      "Feb",
+      "Mar",
+      "Abr",
+      "May",
+      "Jun",
+      "Jul",
+      "Ago",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dic"
+    ]
+  },
+  "groupPerformanceScreen": {
+    "ranges": {
+      "d90": "90 días",
+      "year": "Este año",
+      "all": "Todo"
+    },
+    "header": {
+      "title": "📈 Mi desempeño"
+    },
+    "export": {
+      "button": "Exportar",
+      "sheetTitle": "⬇ Exportar mi reporte",
+      "sheetMessage": "¿En qué formato?",
+      "cancel": "Cancelar",
+      "excel": "📊 Excel (.xlsx)",
+      "pdf": "📄 PDF",
+      "sessionExpired": "Sesión expirada.",
+      "networkError": "Error de red",
+      "noFile": "No se recibió el archivo",
+      "errorTitle": "Error al exportar",
+      "errorDefault": "Intenta de nuevo."
+    },
+    "kpi": {
+      "avgRating": "Calificación promedio",
+      "reviewsCount_one": "{{count}} reseña de clientes",
+      "reviewsCount_other": "{{count}} reseñas de clientes",
+      "eventsRealized": "Eventos realizados",
+      "upcoming": "Próximos",
+      "cancelled": "Cancelados",
+      "cancelledDetail": "{{yours}} tuyos · {{client}} del cliente",
+      "noShows": "No-shows",
+      "noShowsClean": "historial limpio ✅",
+      "noShowsAffects": "afecta tu visibilidad"
+    },
+    "earnings": {
+      "sectionTitle": "💵 Tus ganancias",
+      "totalLabel": "Ganancia total · {{currency}}",
+      "pending": "Pendiente",
+      "pendingDetail": "se libera al finalizar",
+      "paid": "Pagado"
+    },
+    "trend": {
+      "sectionTitle": "📈 Tendencia mensual",
+      "note": "tu ganancia",
+      "last6Months": "Últimos 6 meses"
+    },
+    "cities": {
+      "sectionTitle": "📍 Dónde has trabajado"
+    },
+    "payments": {
+      "sectionTitle": "🧾 Historial de pagos",
+      "note": "últimos",
+      "paidStatus": "Pagado",
+      "releasedStatus": "Liberado",
+      "pendingStatus": "Pendiente"
+    },
+    "reviews": {
+      "sectionTitle": "💬 Comentarios recientes"
+    }
+  },
+  "incomingExpressScreen": {
+    "loader": {
+      "badge": "SOLICITUD EXPRESS",
+      "hint": "Buscando información del evento…"
+    },
+    "eventLabels": {
+      "fiesta_privada": "🎉 Fiesta privada",
+      "boda": "💍 Boda",
+      "cumpleanos": "🎂 Cumpleaños",
+      "graduacion": "🎓 Graduación",
+      "empresarial": "🏢 Empresarial",
+      "otro": "🎵 Evento",
+      "expressFallback": "🎵 Evento express"
+    },
+    "info": {
+      "hours_one": "{{count}} hora",
+      "hours_other": "{{count}} horas",
+      "zone": "Zona {{city}}",
+      "guests": "≈{{count}} invitados"
+    },
+    "countdown": {
+      "label": "Tiempo para cotizar"
+    },
+    "actions": {
+      "locking": "Bloqueando…",
+      "quoting": "Cotizando…",
+      "quoteNow": "Cotizar ahora",
+      "notAvailable": "No disponible"
+    },
+    "taken": {
+      "title": "Se fue.",
+      "body": "Otro grupo envió su cotización primero.",
+      "caption": "Así es esto — rápido.",
+      "stat_one": "{{count}} grupo recibió esta solicitud.",
+      "stat_other": "{{count}} grupos recibieron esta solicitud.",
+      "continueBtn": "Seguir esperando"
+    },
+    "quoted": {
+      "title": "Cotización enviada.",
+      "body": "El cliente la está revisando ahora.",
+      "sub": "Responderá en las próximas horas.",
+      "hint": "Puedes cerrar esta pantalla."
+    }
+  },
+  "talentProfileScreen": {
+    "error": "Error",
+    "notice": "Aviso",
+    "selectEventRequired": "Selecciona el evento para esta tocada",
+    "invalidEventId": "Este evento no tiene ID de evento válido. Contacta soporte.",
+    "duplicateInvite": "Ya enviaste una invitación a este talento para este evento.",
+    "invitationSentTitle": "¡Invitación enviada! 🎉",
+    "invitationSentMessage": "{{name}} recibirá una notificación.",
+    "linkError": "No se pudo abrir el enlace.",
+    "headerTitle": "Perfil de Talento",
+    "available": "🟢 Disponible",
+    "busy": "🔴 Ocupado",
+    "rating": "Rating",
+    "jobs": "Trabajos",
+    "experience": "Años exp.",
+    "about": "Sobre mí",
+    "musicalStyles": "Estilos musicales",
+    "videoSectionTitle": "🎬 Video profesional",
+    "socialSectionTitle": "Redes sociales",
+    "inviteForGig": "🎵 Para una tocada",
+    "inviteToGroup": "🎸 Al grupo",
+    "modalTitle": "Invitar a {{name}}",
+    "inviteTypeLabel": "Tipo de invitación",
+    "typeGigLabel": "Para una tocada",
+    "typeGigDesc": "Evento específico",
+    "typeMembershipLabel": "Unirse al grupo",
+    "typeMembershipDesc": "Permanente",
+    "selectEventLabel": "Selecciona el evento *",
+    "noEvents": "No tienes eventos confirmados próximos.",
+    "paymentLabel": "Pago propuesto (opcional)",
+    "messageLabel": "Mensaje (opcional)",
+    "messagePlaceholder": "Cuéntale sobre el evento o el grupo...",
+    "sending": "Enviando...",
+    "sendInvitation": "Enviar invitación"
+  },
+  "ticketScreen": {
+    "header": {
+      "title": "Tu ticket"
+    },
+    "giftToggle": {
+      "label": "Modo regalo"
+    },
+    "giftFields": {
+      "fromLabel": "De",
+      "toLabel": "Para",
+      "fromPlaceholder": "Tu nombre",
+      "toPlaceholder": "Nombre del festejado"
+    },
+    "ticketHead": {
+      "subGift": "UN REGALO MUSICAL PARA TI",
+      "subNormal": "TU CONTRATACIÓN MUSICAL"
+    },
+    "giftNames": {
+      "from": "De:",
+      "to": "Para:"
+    },
+    "infoLabels": {
+      "date": "FECHA",
+      "startTime": "HORA DE INICIO",
+      "duration": "HORAS DE TOCADA",
+      "total": "TOTAL"
+    },
+    "folio": {
+      "label": "FOLIO DE RESERVACIÓN"
+    },
+    "code": {
+      "label": "CÓDIGO DE INICIO",
+      "hint": "Muéstralo al grupo al llegar al evento"
+    },
+    "footer": {
+      "main": "Daricefy — La música está en tus manos",
+      "confirmed": "✅ Reservación confirmada"
+    },
+    "buttons": {
+      "download": "Descargar como imagen",
+      "share": "Compartir ticket"
+    },
+    "alerts": {
+      "permissionTitle": "Permiso requerido",
+      "permissionMessage": "Necesitamos acceso a tu galería para guardar el ticket.",
+      "savedTitle": "✅ Guardado",
+      "savedMessage": "Tu ticket se guardó en la galería (JPG, 10×10 cm, 300 dpi — listo para imprimir).",
+      "saveErrorMessage": "No se pudo guardar el ticket. Intenta de nuevo."
+    },
+    "share": {
+      "message": "🎵 Mi ticket Daricefy | {{group}} | {{date}} | Folio: {{folio}}",
+      "fallbackMessage": "🎵 Ticket Daricefy\nFolio: {{folio}}\n{{group}} — {{date}}"
+    },
+    "genres": {
+      "mariachi": "Mariachi",
+      "banda": "Banda",
+      "norteño": "Norteño",
+      "jazz": "Jazz",
+      "tropical": "Tropical",
+      "pop": "Pop",
+      "rock": "Rock",
+      "clasica": "Clásica",
+      "folclorico": "Folclórico",
+      "electronica": "Electrónica"
+    }
+  },
+  "openRequestsScreen": {
+    "zoneMap": {
+      "exactLocation": "📍 Ubicación exacta",
+      "eventZone": "📍 Zona del evento",
+      "approxZone": "Zona aproximada"
+    }
+  },
+  "cancellationPolicyScreen": {
+    "header": {
+      "title": "Políticas de cancelación",
+      "subGroup": "Para grupos",
+      "subClient": "Para clientes"
+    },
+    "intro": {
+      "title": "🤝 Daricefy es el intermediario",
+      "p1": "Somos una plataforma tecnológica que conecta clientes con grupos musicales independientes y",
+      "b1": "custodia el pago para proteger a las dos partes",
+      "p2": "Los grupos no son empleados ni representantes de Daricefy: cada grupo es responsable de su servicio y cada cliente de la información de su evento. El dinero queda protegido en custodia y solo se entrega al grupo cuando el evento se cumple."
+    }
+  },
+  "adminMapScreen": {
+    "status": {
+      "playing": "Tocando",
+      "inApp": "En app",
+      "offline": "Offline"
+    },
+    "eventStatus": {
+      "playing": "🎸 Tocando",
+      "arrived": "📍 Llegó",
+      "enRoute": "🚗 En camino",
+      "inEvent": "🎵 En evento",
+      "destination": "📍 Destino"
+    },
+    "fallback": {
+      "group": "Grupo",
+      "talent": "Talento"
+    }
+  },
+  "adminTalentsScreen": {
+    "defaults": {
+      "noName": "Sin nombre"
+    },
+    "alerts": {
+      "noteRequiredTitle": "Nota requerida",
+      "noteRequiredMessage": "Agrega una nota explicando por qué se quita la verificación.",
+      "errorTitle": "Error",
+      "genericUpdateError": "No se pudo actualizar.",
+      "verifiedTitle": "✅ Verificado",
+      "doneTitle": "✓ Listo",
+      "verifiedMessage": "{{name}} ahora está verificado.",
+      "unverifiedMessage": "Verificación removida correctamente."
+    },
+    "list": {
+      "title": "Talentos registrados",
+      "searchPlaceholder": "Buscar por nombre, instrumento o ciudad..."
+    }
+  },
+  "adminPromotionsScreen": {
+    "alerts": {
+      "error": "Error",
+      "titleRequired": "El título es obligatorio",
+      "deleteTitle": "Eliminar anuncio",
+      "deleteMessage": "¿Eliminar \"{{title}}\"?",
+      "cancel": "Cancelar",
+      "delete": "Eliminar",
+      "uploadError": "No se pudo subir el archivo."
+    },
+    "header": {
+      "title": "Publicidad"
+    },
+    "tabs": {
+      "ads": "Anuncios",
+      "messages": "Mensajes"
+    },
+    "empty": {
+      "adsTitle": "Sin anuncios",
+      "adsHint": "Crea tu primer anuncio para mostrarlo en Explorar",
+      "createButton": "+ Crear anuncio"
+    }
+  },
+  "adminVerificationsScreen": {
+    "geoFilter": {
+      "all": "Todos",
+      "allStates": "Todos los estados"
+    },
+    "alerts": {
+      "error": "Error",
+      "fileLinkError": "No se pudo generar el enlace para ver el {{label}}.",
+      "cancel": "Cancelar",
+      "done": "¡Listo!",
+      "group": {
+        "approveTitle": "Aprobar verificación",
+        "rejectTitle": "Rechazar verificación",
+        "approveMessage": "¿Verificar el grupo \"{{name}}\"?",
+        "rejectMessage": "¿Rechazar la solicitud de \"{{name}}\"?",
+        "genericError": "No se pudo procesar.",
+        "approveSuccess": "Solicitud aprobada.",
+        "rejectSuccess": "Solicitud rechazada."
+      },
+      "profile": {
+        "roleTalent": "talento",
+        "roleClient": "cliente",
+        "verifyTitle": "Verificar {{role}}",
+        "rejectTitle": "Rechazar {{role}}",
+        "verifyMessage": "¿Verificar {{name}}?",
+        "rejectMessage": "¿Rechazar la verificación de {{name}}?",
+        "genericError": "No se pudo actualizar.",
+        "verifySuccess": "{{name}} fue verificado.",
+        "rejectSuccess": "Solicitud rechazada."
+      }
+    },
+    "buttons": {
+      "approve": "Aprobar",
+      "reject": "Rechazar",
+      "verify": "Verificar"
+    }
+  },
+  "adminMediaReviewScreen": {
+    "rejectReasons": {
+      "phoneVisible": "Número de teléfono visible",
+      "socialVisible": "Redes sociales visibles",
+      "inappropriate": "Contenido inapropiado",
+      "other": "Otro"
+    },
+    "notifications": {
+      "mediaTypePhoto": "foto",
+      "mediaTypeVideo": "video",
+      "photoRejectedTitle": "❌ Foto rechazada",
+      "videoRejectedTitle": "❌ Video rechazado",
+      "rejectedBody": "Tu {{mediaType}} fue rechazado: {{reason}}. Sube uno nuevo que cumpla los requisitos.",
+      "newPostTitle": "📸 Nueva publicación",
+      "newPostBody": "{{groupName}} compartió fotos de un evento reciente",
+      "defaultGroupFollow": "El grupo que sigues"
+    },
+    "common": {
+      "error": "Error",
+      "cancel": "Cancelar",
+      "rejectAction": "Rechazar"
+    },
+    "errors": {
+      "approvePhotoFailed": "No se pudo aprobar la foto.",
+      "rejectPhotoFailed": "No se pudo rechazar la foto.",
+      "approveVideoFailed": "No se pudo aprobar el video.",
+      "rejectVideoFailed": "No se pudo rechazar el video.",
+      "approvePostFailed": "No se pudo aprobar la publicación.",
+      "rejectPostFailed": "No se pudo rechazar la publicación."
+    },
+    "prompts": {
+      "rejectPhotoTitle": "Rechazar foto",
+      "rejectVideoTitle": "Rechazar video",
+      "rejectPostTitle": "Rechazar publicación",
+      "reasonPrompt": "Indica el motivo del rechazo:",
+      "reasonSelect": "Selecciona el motivo del rechazo:"
+    }
+  },
+  "adminGroupsScreen": {
+    "alerts": {
+      "noteRequiredTitle": "Nota requerida",
+      "noteRequiredMessage": "Agrega una nota explicando por qué se quita la verificación.",
+      "genericErrorTitle": "Error",
+      "updateFailed": "No se pudo actualizar.",
+      "verifiedTitle": "✅ Verificado",
+      "doneTitle": "✓ Listo",
+      "groupNowVerified": "{{name}} ahora está verificado.",
+      "verificationRemoved": "Verificación removida correctamente.",
+      "activateGroupTitle": "Activar grupo",
+      "suspendGroupTitle": "Suspender grupo",
+      "confirmActivateMessage": "¿Activar a {{name}}?",
+      "confirmSuspendMessage": "¿Suspender a {{name}}?",
+      "cancel": "Cancelar",
+      "activate": "Activar",
+      "suspend": "Suspender",
+      "updateStatusFailed": "No se pudo actualizar el estado. Intenta de nuevo.",
+      "grantPlusFailed": "No se pudo activar Plus.",
+      "plusActivatedTitle": "✨ Plus activado",
+      "plusActivatedMessage": "{{name}} tiene Plus hasta {{date}}.",
+      "grantPlusTitle": "✨ Activar Plus (cortesía)",
+      "grantPlusMessage": "{{name}} tendrá Plus gratis, sin pasar por Stripe. ¿Por cuánto tiempo?",
+      "oneMonth": "1 mes",
+      "twoMonths": "2 meses",
+      "oneYear": "1 año",
+      "stripeWarning": "\n\n⚠️ Este grupo tiene una suscripción Stripe DE PAGO. Revocar aquí solo lo desactiva en la app — cancela también la suscripción en Stripe para que no se le siga cobrando.",
+      "revokePlusTitle": "Quitar Plus",
+      "revokePlusMessage": "{{name}} perderá los beneficios Plus.{{warning}}",
+      "revokePlusFailed": "No se pudo revocar Plus.",
+      "plusRevoked": "Plus revocado correctamente.",
+      "photoUploadFailed": "No se pudo subir la imagen"
+    },
+    "list": {
+      "title": "Grupos registrados",
+      "searchPlaceholder": "Buscar por nombre, ciudad o estado..."
+    }
+  },
+  "talentSearchScreen": {
+    "error": "Error",
+    "selectEventRequired": "Selecciona el evento para esta tocada",
+    "invalidEventId": "Este evento no tiene ID de evento válido. Contacta soporte.",
+    "notice": "Aviso",
+    "duplicateInvite": "Ya enviaste una invitación a este talento para este evento.",
+    "invitationSentTitle": "¡Invitación enviada! 🎉",
+    "invitationSentMessage": "{{name}} recibirá una notificación.",
+    "headerTitle": "Buscar Talentos",
+    "searchPlaceholder": "Buscar por instrumento o rol...",
+    "filterAll": "Todos",
+    "filterAvailable": "🟢 Disponibles",
+    "filterBusy": "🔴 Ocupados",
+    "loading": "Buscando talentos...",
+    "emptyTitle": "Sin resultados",
+    "emptyText": "Prueba con otro instrumento o quita los filtros.",
+    "resultsFound_one": "{{count}} talento encontrado",
+    "resultsFound_other": "{{count}} talentos encontrados",
+    "adminBadge": "👁 Modo Admin — solo lectura",
+    "modalTitle": "Invitar a {{name}}",
+    "inviteTypeLabel": "Tipo de invitación",
+    "typeGigLabel": "Para una tocada",
+    "typeGigDesc": "Evento específico",
+    "typeMembershipLabel": "Unirse al grupo",
+    "typeMembershipDesc": "Permanente",
+    "selectEventLabel": "Selecciona el evento *",
+    "noEvents": "No tienes eventos confirmados próximos.",
+    "paymentLabel": "Pago propuesto (opcional)",
+    "messageLabel": "Mensaje (opcional)",
+    "messagePlaceholder": "Cuéntale sobre el evento o el grupo...",
+    "sending": "Enviando...",
+    "sendInvitation": "Enviar invitación",
+    "available": "Disponible",
+    "busy": "Ocupado",
+    "rating": "Rating",
+    "yearsExp": "años exp.",
+    "jobs": "trabajos",
+    "viewProfile": "Ver perfil"
+  },
+  "adminTicketSearchScreen": {
+    "status": {
+      "completed": "🏁 Completado",
+      "inProgress": "🔴 En curso",
+      "accepted": "✅ Pagado",
+      "confirmed": "✅ Confirmado",
+      "cancelled": "❌ Cancelado",
+      "rejected": "🚫 Rechazado",
+      "pending": "⏳ Pendiente",
+      "pendingPayment": "⏳ Por pagar",
+      "expired": "⌛ Expirado"
+    },
+    "alerts": {
+      "ticketsLoadFailed": "No se pudo cargar la cola de tickets",
+      "errorTitle": "Error",
+      "detailLoadFailed": "No se pudo cargar el expediente.",
+      "searchMinChars": "Escribe al menos 3 letras o números",
+      "searchFailed": "No se pudo buscar."
+    },
+    "header": {
+      "folioTitle": "📂 {{folio}}",
+      "defaultFolio": "Expediente",
+      "title": "📂 Expediente"
+    },
+    "search": {
+      "placeholder": "Folio, cliente, grupo o teléfono"
+    },
+    "tickets": {
+      "title": "🎫 Tickets por descargar",
+      "countryMx": "México",
+      "countryUs": "EE.UU.",
+      "countryCa": "Canadá",
+      "hint": "🎁 = regalo · 🎫 = normal. Toca uno → \"Ver ticket completo\" → Descargar (el de regalo sale con su destinatario).",
+      "emptyCountry": "Sin eventos próximos pagados en este país.",
+      "giftFor": "Para: {{name}} · {{group}}",
+      "clientGroup": "{{client}} · {{group}}"
+    },
+    "results": {
+      "backToQueue": "← Volver a tickets por descargar",
+      "empty": "Sin resultados — prueba con otra parte del folio, nombre o teléfono."
+    },
+    "detail": {
+      "mapLink": "🗺️ Ver dirección en el mapa",
+      "paymentLabel": "pago",
+      "payoutLabel": "payout",
+      "cancelledByPrefix": "❌ Cancelado por:",
+      "evidence": {
+        "enRoute": "🚐 En camino:",
+        "pin": "🔢 PIN:",
+        "arrival": "📍 Llegada:",
+        "end": "🏁 Fin:",
+        "gpsVerified": "✅ GPS",
+        "gpsMissing": "⚠️ sin GPS"
+      },
+      "compareTrack": "⚖️ Comparar rastro del grupo → evento",
+      "viewTicketBtn": "🎟 Ver ticket completo",
+      "viewEventBtn": "Ver evento completo"
+    }
+  },
+  "groupCalendarScreen": {
+    "daysShort": {
+      "sun": "Dom",
+      "mon": "Lun",
+      "tue": "Mar",
+      "wed": "Mié",
+      "thu": "Jue",
+      "fri": "Vie",
+      "sat": "Sáb"
+    },
+    "months": {
+      "jan": "Enero",
+      "feb": "Febrero",
+      "mar": "Marzo",
+      "apr": "Abril",
+      "may": "Mayo",
+      "jun": "Junio",
+      "jul": "Julio",
+      "aug": "Agosto",
+      "sep": "Septiembre",
+      "oct": "Octubre",
+      "nov": "Noviembre",
+      "dec": "Diciembre"
+    },
+    "status": {
+      "pending": "Pendiente",
+      "confirmed": "Confirmada",
+      "inProgress": "En curso",
+      "completed": "Completada",
+      "cancelled": "Cancelada"
+    },
+    "errors": {
+      "loadAvailabilityTitle": "Error al cargar disponibilidad",
+      "loadAvailabilityMessage": "No se pudieron cargar tus días bloqueados.",
+      "groupNotFound": "No se encontró tu grupo. Sal y vuelve a entrar.",
+      "saveTitle": "Error al guardar",
+      "saveMessage": "No se pudo guardar."
+    },
+    "common": {
+      "error": "Error",
+      "cancel": "Cancelar"
+    },
+    "toggleAlert": {
+      "unblockTitle": "¿Volver a trabajar este día?",
+      "blockTitle": "¿Bloquear este día?",
+      "unblockMessage": "{{date}} volverá a estar disponible para reservas.",
+      "blockMessage": "{{date}} dejará de estar disponible para reservas.",
+      "confirmUnblock": "Sí, desbloquear",
+      "confirmBlock": "Sí, bloquear"
+    },
+    "headerTitle": "Mi Disponibilidad",
+    "legend": {
+      "free": "Libre",
+      "reserved": "Reservado",
+      "unavailable": "No disponible",
+      "past": "Pasado"
+    },
+    "hint": "Toca un día libre para bloquearlo · Toca un reservado para ver detalles"
+  },
+  "adminAdApprovalScreen": {
+    "statusTabs": {
+      "all": "Todos",
+      "active": "Activos",
+      "pendingReview": "Pendientes",
+      "paused": "Pausados",
+      "rejected": "Rechazados",
+      "expired": "Expirados"
+    },
+    "typeLabels": {
+      "bannerHome": "Banner Home",
+      "sponsoredGroup": "Grupo Destacado",
+      "profileAd": "Anuncio en Perfil",
+      "bidOrder": "Bidding",
+      "recommendationAd": "Recomendado"
+    },
+    "typeFilters": {
+      "all": "Todos",
+      "banner": "📢 Banner",
+      "sponsored": "⭐ Destacado",
+      "profile": "👤 Perfil",
+      "bidding": "⬆️ Bidding",
+      "recommendation": "🔥 Reco."
+    },
+    "imageAdTypes": {
+      "banner": "Banner",
+      "profile": "Perfil"
+    },
+    "groupPromoTypes": {
+      "sponsored": "Destacado",
+      "recommendation": "Recomendado",
+      "bidding": "Bidding"
+    },
+    "freeDurations": {
+      "days7": "7 días",
+      "days30": "30 días",
+      "days60": "60 días",
+      "unlimited": "Sin límite"
+    },
+    "createModal": {
+      "buttonTextDefault": "Ver más"
+    },
+    "alerts": {
+      "error": "Error",
+      "approve": {
+        "title": "Aprobar anuncio",
+        "message": "¿Aprobar \"{{title}}\"?",
+        "cancel": "Cancelar",
+        "confirm": "Aprobar",
+        "limitReached": "Límite alcanzado: ya hay {{count}} anuncios activos de tipo \"{{type}}\" (máx {{limit}}).",
+        "genericFail": "No se pudo aprobar",
+        "cannotApproveTitle": "No se puede aprobar"
+      },
+      "toggle": {
+        "pauseVerb": "pausar",
+        "reactivateVerb": "reactivar",
+        "title": "¿{{action}} anuncio?"
+      },
+      "delete": {
+        "title": "Eliminar anuncio",
+        "message": "¿Eliminar permanentemente \"{{title}}\"?",
+        "cancel": "Cancelar",
+        "confirm": "Eliminar",
+        "genericFail": "No se pudo eliminar"
+      },
+      "heavyFile": {
+        "title": "Archivo muy pesado"
+      }
+    }
+  },
+  "adminFinancialScreen": {
+    "dateFilters": {
+      "days7": "7 días",
+      "days30": "30 días",
+      "days90": "90 días",
+      "all": "Todo"
+    },
+    "alerts": {
+      "receiptTitle": "Comprobante",
+      "receiptOpenError": "No se pudo abrir el comprobante.",
+      "errorTitle": "Error",
+      "tryAgain": "Intenta de nuevo",
+      "tryAgainPeriod": "Intenta de nuevo.",
+      "missingReferenceTitle": "Falta la referencia",
+      "missingReferenceMessage": "Escribe la clave de rastreo o folio de la transferencia.",
+      "missingReferenceFinalMessage": "La referencia de transferencia es obligatoria para la liquidación final.",
+      "receiptUploadError": "No se pudo subir el comprobante: {{message}}",
+      "couldNotComplete": "No se pudo completar",
+      "refundCompletedTitle": "✅ Reembolso completado",
+      "refundCompletedMessage": "El cliente fue notificado de que su dinero fue enviado.",
+      "invalidAmountTitle": "Monto inválido",
+      "invalidAmountMessage": "Ingresa un monto válido.",
+      "missingReceiptTitle": "Falta el comprobante",
+      "missingReceiptAdvanceMessage": "El comprobante es obligatorio para registrar un anticipo.",
+      "missingReceiptFinalMessage": "El comprobante es obligatorio para la liquidación final.",
+      "advanceExceedsEarnings": "El monto excede lo que le corresponde al grupo por esta reserva.",
+      "alreadyReceivedOtherWay": "El grupo ya recibió este dinero por otra vía — revisa su historial antes de continuar.",
+      "advanceNotEligible": "Esta reserva ya no admite anticipos (no está en estado \"retenido\").",
+      "receiptRequired": "El comprobante es obligatorio.",
+      "transferDateRequired": "Indica la fecha y hora de la transferencia.",
+      "advanceRegisterError": "No se pudo registrar el anticipo.",
+      "advanceRegisteredTitle": "✅ Anticipo registrado",
+      "groupNotified": "El grupo fue notificado.",
+      "noBalanceTitle": "Sin saldo",
+      "noBalanceMessage": "Esta reserva ya no tiene saldo pendiente.",
+      "balanceChanged": "El saldo cambió — cierra y vuelve a abrir la liquidación para tomar el monto actualizado.",
+      "finalExceedsBalance": "El monto excede el saldo pendiente de esta reserva.",
+      "finalNotReady": "Esta reserva no está lista para liquidación final.",
+      "missingBankData": "Al grupo le faltan datos bancarios completos — pídele que los complete en su Wallet.",
+      "transferReferenceRequired": "La referencia de transferencia es obligatoria.",
+      "finalRegisterError": "No se pudo registrar la liquidación final.",
+      "finalRegisteredTitle": "✅ Liquidación final registrada",
+      "finalRegisteredMessage": "El grupo fue notificado — evento liquidado."
+    },
+    "queue": {
+      "pendingCount_other": "{{count}} pendientes",
+      "overdueCount_other": "{{count}} vencidos",
+      "searchPlaceholder": "Buscar por grupo, cliente o folio…",
+      "filterPending": "Pendientes",
+      "filterDone": "Hechos",
+      "filterAll": "Todos",
+      "countryAll": "🌎 Todos",
+      "countryMx": "🇲🇽 México",
+      "countryUs": "🇺🇸 EE.UU.",
+      "pendingCount_one": "{{count}} pendiente",
+      "overdueCount_one": "{{count}} vencido"
+    }
+  },
+  "adminStatsScreen": {
+    "tabs": {
+      "platform": "Plataforma",
+      "users": "Usuarios",
+      "commercial": "Comercial",
+      "finance": "Finanzas",
+      "risk": "Riesgo",
+      "intelligence": "Inteligencia"
+    },
+    "common": {
+      "noCity": "Sin ciudad",
+      "completed": "Completados"
+    },
+    "finance": {
+      "alertRevenueDrop": "Ingresos bajaron {{pct}}% esta semana",
+      "alertAdsGrowing": "Publicidad creciendo esta semana",
+      "alertBiddingGrowing": "Bidding subiendo esta semana",
+      "alertStable": "Ingresos estables esta semana ({{sign}}{{pct}}%)"
+    },
+    "header": {
+      "title": "Estadísticas Admin"
+    },
+    "platform": {
+      "statTotalEvents": "Eventos totales",
+      "statThisMonth": "Este mes",
+      "statGrossRevenue": "Ingresos brutos",
+      "statGrossRevenueSub": "Pagado por clientes",
+      "statPlatformProfit": "Ganancia plataforma",
+      "statPlatformProfitSub": "Wallet real",
+      "growthSection": "Crecimiento y rendimiento",
+      "monthlyGrowth": "Crecimiento mensual",
+      "commissionThisMonth": "Comisión este mes",
+      "adsThisMonth": "Publicidad este mes",
+      "biddingThisMonth": "Bidding este mes",
+      "recoThisMonth": "Recomendaciones este mes",
+      "totalIncomeMonth": "Ingreso total este mes",
+      "pendingReservations": "Reservas pendientes",
+      "cancelledReservations": "Reservas canceladas",
+      "totalReservations": "Total reservas",
+      "expressRequests30d": "Solicitudes express (30d)",
+      "expressConversion": "Conversión express",
+      "newClients30d": "Nuevos clientes (30d)",
+      "newGroups30d": "Nuevos grupos (30d)",
+      "last6Months": "Últimos 6 meses",
+      "legendRevenue": "Ingresos",
+      "legendCommissions": "Comisiones"
+    },
+    "users": {
+      "statGroups": "Grupos",
+      "statTalents": "Talentos",
+      "statClients": "Clientes",
+      "statActive": "Activos",
+      "statActiveSub": "Grupos",
+      "newRegistrations": "Nuevos registros este mes",
+      "newUsersAllRoles": "Usuarios nuevos (todos los roles)",
+      "newGroups": "Grupos nuevos",
+      "distribution": "Distribución de usuarios",
+      "clients": "Clientes",
+      "talents": "Talentos",
+      "groupOwners": "Grupos (dueños)",
+      "loyalty": "Fidelización de clientes",
+      "loyaltyClients": "Clientes con puntos",
+      "silver": "🥈 Plata",
+      "gold": "🥇 Oro",
+      "vip": "💎 VIP",
+      "avgEventsPerClient": "Promedio eventos/cliente",
+      "repeatClientsPct": "% Clientes recurrentes",
+      "pointsAwarded30d": "Puntos otorgados (30d)",
+      "goldVipRevenue": "Ingresos gold+VIP"
+    }
+  },
+  "adminDashboardScreen": {
+    "statusChips": {
+      "pending": "Pendientes",
+      "confirmed": "Confirmadas",
+      "inProgress": "En curso",
+      "completed": "Completadas",
+      "cancelled": "Canceladas"
+    },
+    "quickActions": {
+      "verifications": "Verificaciones",
+      "disputes": "Disputas",
+      "groups": "Grupos",
+      "talents": "Talentos",
+      "stats": "Estadísticas",
+      "finances": "Finanzas",
+      "reports": "Reportes",
+      "liveMap": "Mapa en vivo",
+      "withdrawals": "Retiros",
+      "ads": "Anuncios"
+    },
+    "common": {
+      "close": "Cerrar",
+      "retry": "Reintentar",
+      "cancel": "Cancelar",
+      "confirm": "Confirmar",
+      "apply": "Aplicar",
+      "tryAgain": "Intenta de nuevo."
+    },
+    "noShowResolve": {
+      "refundErrorDefault": "No se pudo procesar el reembolso.",
+      "refundErrorTitle": "Error en reembolso",
+      "refundErrorMessage": "{{detail}}\n\nPuedes reintentar sin riesgo — la operación es idempotente (no genera doble reembolso).",
+      "strikeNoteNoRefund": "Strike fuerte — sin reembolso al cliente",
+      "strikeNoteNoShow": "Strike por no presentación al evento",
+      "resolvedTitle": "¡Listo!",
+      "resolvedRefunded": "Reembolso procesado y strike aplicado.",
+      "resolvedNoRefund": "Strike aplicado. Sin reembolso al cliente.",
+      "resolvedReviewed": "No-show marcado como revisado."
+    },
+    "forceStart": {
+      "errorTitle": "No se pudo forzar el inicio",
+      "successTitle": "Evento iniciado",
+      "successMessage": "Se marcó como en curso y se notificó al grupo y al cliente. El pago se libera al finalizar; la llegada GPS sigue siendo obligatoria."
+    },
+    "phone": {
+      "call": "📞 Llamar",
+      "copyShare": "📋 Copiar / compartir",
+      "groupWho": "Grupo · {{name}}",
+      "callGroup": "Llamar al grupo",
+      "clientWho": "Cliente · {{name}}",
+      "callClient": "Llamar al cliente"
+    },
+    "stuckMenu": {
+      "markNoShowErrorTitle": "No se pudo marcar no-show",
+      "lateSuffix": "  ·  {{minutes}} min tarde",
+      "title": "¿Cómo resolver este evento atorado?",
+      "message": "{{group}} · {{folio}}\nCliente: {{client}} · {{price}}{{late}}",
+      "groupFallback": "Grupo",
+      "forceStartOption": "▶️ Forzar inicio del evento",
+      "forceStartTitle": "Forzar inicio",
+      "forceStartMessage": "Marca el evento como iniciado (GPS roto o grupo que sí llegó pero no pudo registrar). La llegada GPS del grupo sigue siendo obligatoria; el pago se libera al finalizar.",
+      "forceStartButton": "Forzar inicio",
+      "refundOption": "💚 Grupo no irá — Reembolsar 100% + Strike",
+      "refundConfirmTitle": "Confirmar reembolso",
+      "refundConfirmMessage": "Se cancelará el evento como no-show, se reembolsarán {{price}} al cliente y se aplicará un strike al grupo.",
+      "noRefundOption": "⛔ Grupo no irá — Sin reembolso + Strike",
+      "noRefundConfirmTitle": "Confirmar sin reembolso",
+      "noRefundConfirmMessage": "Se cancelará el evento como no-show y se aplicará un strike al grupo. El cliente NO recibirá reembolso."
+    },
+    "unverifiedPayouts": {
+      "releaseErrorTitle": "No se pudo liberar",
+      "notReleasedTitle": "No se liberó",
+      "notReleasedMessage": "El pago no se pudo liberar (motivo: {{reason}}). Revisa disputa o estado del pago.",
+      "unknownReason": "desconocido",
+      "releasedTitle": "Pago liberado",
+      "releasedMessage": "Se marcó la llegada como verificada y se liberó el pago al grupo.",
+      "blockErrorTitle": "No se pudo bloquear",
+      "blockedTitle": "Pago bloqueado",
+      "blockedMessage": "El pago quedó bloqueado — no se libera al grupo.",
+      "menuTitle": "Verificar llegada del grupo",
+      "menuMessage": "{{group}} · {{folio}}\nCliente: {{client}} · {{price}}\n\nEl grupo nunca marcó llegada GPS. Llama para confirmar si tocó el evento antes de liberar.",
+      "arrivedOption": "💚 Sí llegó — Liberar pago",
+      "releaseConfirmTitle": "Confirmar liberación",
+      "releaseConfirmMessage": "Se marcará la llegada como verificada y se liberará el pago al grupo.",
+      "releaseButton": "Liberar",
+      "notArrivedOption": "⛔ No llegó — Bloquear pago",
+      "blockConfirmTitle": "Confirmar bloqueo",
+      "blockConfirmMessage": "El pago quedará bloqueado (no se paga al grupo). Si procede reembolso al cliente, hazlo desde la cola de No-Shows.",
+      "blockButton": "Bloquear"
+    },
+    "noShowMenu": {
+      "title": "¿Cómo resolver este no-show?",
+      "message": "{{group}} · {{folio}}\nCliente: {{client}} · {{price}}",
+      "refundOption": "✅ Reembolsar 100% + Strike",
+      "refundConfirmMessage": "Se reembolsarán {{price}} al cliente y se aplicará un strike al grupo.",
+      "noRefundOption": "⛔ Sin reembolso + Strike",
+      "noRefundConfirmMessage": "Se aplicará un strike al grupo. El cliente NO recibirá reembolso.",
+      "archiveOption": "📁 Archivar (revisado, sin acción)",
+      "archiveConfirmTitle": "Archivar no-show",
+      "archiveConfirmMessage": "Se marcará como revisado y pasará al historial. No habrá reembolso ni strike.",
+      "archiveButton": "Archivar"
+    }
+  },
+  "adminReportsScreen": {
+    "ranges": {
+      "d30": "30 días",
+      "d90": "90 días",
+      "year": "Este año",
+      "all": "Todo"
+    },
+    "tabs": {
+      "resumen": "Resumen",
+      "finanzas": "Finanzas",
+      "eventos": "Eventos",
+      "paises": "Países",
+      "rankings": "Rankings",
+      "alertas": "Alertas"
+    },
+    "paises": {
+      "alwaysAllNote": "Esta pestaña siempre compara los 3 países a la vez — el filtro de arriba no aplica aquí."
+    },
+    "months": {
+      "jan": "ene",
+      "feb": "feb",
+      "mar": "mar",
+      "apr": "abr",
+      "may": "may",
+      "jun": "jun",
+      "jul": "jul",
+      "aug": "ago",
+      "sep": "sep",
+      "oct": "oct",
+      "nov": "nov",
+      "dec": "dic"
+    },
+    "currencyCountry": {
+      "MXN": "México",
+      "USD": "Estados Unidos",
+      "CAD": "Canadá"
+    },
+    "pending": {
+      "errorTitle": "Error",
+      "errorGeneric": "No se pudo asignar",
+      "assignQuestion": "¿A qué país pertenece?",
+      "cancel": "Cancelar",
+      "mexico": "México",
+      "unitedStates": "Estados Unidos",
+      "canada": "Canadá"
+    },
+    "export": {
+      "allCountries": "Todos",
+      "title": "Exportar",
+      "message": "Se exporta lo que estás viendo:",
+      "cancel": "Cancelar",
+      "excel": "Excel (.xlsx)",
+      "pdf": "PDF ejecutivo",
+      "sessionExpired": "Sesión expirada.",
+      "networkError": "Error de red",
+      "noFile": "No se recibió el archivo",
+      "errorTitle": "Error al exportar",
+      "tryAgain": "Intenta de nuevo."
+    },
+    "finance": {
+      "emptyMsg": "Sin cobros en este rango y filtros.",
+      "emptyHint": "Prueba el rango \"Todo\" o quita filtros.",
+      "currenciesNote": "las monedas nunca se suman",
+      "soldLabel": "¿Cuánto vendimos?",
+      "eventsChargedDetail": "{{count}} eventos cobrados",
+      "earnedLabel": "¿Cuánto ganamos?",
+      "earnedDetail": "comisión estimada",
+      "oweLabel": "¿Cuánto debemos pagar?",
+      "oweDetail": "retenido a grupos",
+      "paidLabel": "¿Cuánto ya pagamos?",
+      "forGroupsLabel": "Para grupos (total)",
+      "processorFeeLabel": "Comisión procesadores",
+      "feesNotCaptured": "{{count}} no capturados",
+      "feesAllReal": "todas reales",
+      "refundsLabel": "Reembolsos",
+      "refundsDetail": "{{count}} reembolsos"
+    },
+    "countries": {
+      "emptyMsg": "Sin datos de países todavía.",
+      "groups": "Grupos",
+      "talents": "Talentos",
+      "events": "Eventos",
+      "income": "Ingresos {{currency}}"
+    },
+    "rankings": {
+      "noData": "Sin datos en este rango."
+    },
+    "alerts": {
+      "attendPill": "atender",
+      "loading": "Cargando alertas…",
+      "withdrawalsPending": "Retiros pendientes",
+      "withdrawalsPendingSub": "grupos esperando su pago",
+      "heldPayments": "Pagos retenidos +3 días",
+      "heldPaymentsSub": "eventos completados sin liberar",
+      "openDisputes": "Disputas abiertas",
+      "openDisputesSub": "requieren resolución",
+      "refundsPending": "Reembolsos pendientes",
+      "refundsPendingSub": "por procesar",
+      "unclosedEvents": "Eventos sin cerrar",
+      "unclosedEventsSub": "revisar estado",
+      "suspendedGroups": "Grupos suspendidos",
+      "suspendedGroupsSub": "revisar o reactivar",
+      "noCountry": "Registros sin país",
+      "noCountrySub": "clasifícalos uno por uno",
+      "uncapturedFees": "Fees no capturados",
+      "uncapturedFeesSub": "cobros sin comisión de procesador registrada",
+      "multiGroupReview": "Eventos grandes por coordinar",
+      "multiGroupReviewSub": "2+ proveedores con sonido/luz/escenario grande",
+      "allGood": "Todo en orden",
+      "allGoodHint": "No hay nada que requiera tu atención ahora."
+    },
+    "header": {
+      "title": "Reportes",
+      "export": "Exportar"
+    },
+    "summary": {
+      "alertBand_one": "{{count}} tema requiere tu atención — ver Alertas →",
+      "alertBand_other": "{{count}} temas requieren tu atención — ver Alertas →",
+      "pendBand_one": "{{count}} registro pendiente de clasificar por país — corregir →",
+      "pendBand_other": "{{count}} registros pendientes de clasificar por país — corregir →",
+      "howCountryDoing": "¿Cómo va cada país?",
+      "mixNote": "nunca se mezclan",
+      "trendTitle": "Tendencia"
+    },
+    "events": {
+      "trendCurrencyNote": "ingreso bruto · {{currency}}",
+      "trendLast6Months": "Últimos 6 meses",
+      "title": "Eventos",
+      "total": "Total de eventos",
+      "totalSub": "reservas creadas en el rango",
+      "completed": "Completados",
+      "upcoming": "Próximos",
+      "upcomingSub": "aceptados con fecha por venir",
+      "cancellations": "Cancelaciones",
+      "cancellationsSub": "{{client}} del cliente · {{group}} del grupo",
+      "noShows": "No-shows",
+      "noShowsStrikes": "strikes",
+      "noShowsClean": "limpio",
+      "refunded": "Reembolsados",
+      "trendTitle": "Tendencia mensual"
+    }
+  },
+  "eventBuilder": {
+    "confirmTitle": "¿Es para tu evento?",
+    "confirmMessage": "¿Esto es para tu evento del {{date}} en {{address}}?",
+    "newEvent": "Es un evento nuevo",
+    "addToExisting": "Sí, agregar a ese evento",
+    "multiTitle": "¿A cuál evento pertenece?",
+    "multiMessage": "Tienes más de un evento en construcción."
+  },
+  "adminEventDetailScreen": {
+    "headerTitle": "Detalle del evento",
+    "notFound": "Evento no encontrado",
+    "providersSection": "Proveedores ({{count}})",
+    "soundReviewPrefix": "Revisar sonido/equipo",
+    "soundRequestedBy": "Pedido por: {{names}}",
+    "ownSoundTag": "🔊 trae su sonido",
+    "status": {
+      "pending": "Pendiente",
+      "pending_payment": "Falta pagar",
+      "pending_group_confirmation": "Por confirmar",
+      "accepted": "Aceptada",
+      "confirmed": "Confirmada",
+      "in_progress": "En curso",
+      "completed": "Completada",
+      "cancelled": "Cancelada",
+      "rejected": "Rechazada"
+    },
+    "needsSound": {
+      "si_50": "Sonido chico (~50 personas)",
+      "si_100": "Sonido mediano (~100 personas)",
+      "si_200": "Sonido grande (~200 personas)",
+      "si": "Sonido (sin especificar tamaño)"
+    },
+    "quoteStatusPrefix": "Cotización:"
+  },
+  "adminEventsReviewScreen": {
+    "headerTitle": "Eventos por coordinar",
+    "headerHint": "2+ proveedores en el mismo evento con sonido/luz/escenario grande — decide si dejas que coticen solos o cotizas tú por ellos.",
+    "empty": "Nada por coordinar",
+    "emptyHint": "Ningún evento grande con varios proveedores necesita tu atención ahora.",
+    "providersCount": "{{count}} proveedores",
+    "bigSetup": "Escenario/equipo grande declarado",
+    "requestedBy": "Pedido por: {{names}}",
+    "noPhone": "sin teléfono"
+  },
+  "eventCategoryPicker": {
+    "title": "Agregar proveedor",
+    "subtitle": "Elige qué tipo de proveedor quieres agregar a tu evento",
+    "addingToEvent": "Agregando a tu evento del {{date}} · {{address}}",
+    "grupo": "🎵 Grupo musical",
+    "solista": "🎷 Solista / saxofonista",
+    "dj": "🎧 DJ",
+    "comediante": "🎤 Comediante",
+    "payasos": "🤡 Payasos",
+    "luzSonido": "🔊 Luz y sonido",
+    "comida": "🍔 Comida",
+    "renta": "🪑 Renta (mesas, sillas, brincolines, carpas)",
+    "fotografos": "📸 Fotógrafos"
   }
 }

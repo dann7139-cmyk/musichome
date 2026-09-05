@@ -15,6 +15,7 @@
  */
 
 import { ArrowLeft, Download } from 'lucide-react-native';
+import type { TFunction } from 'i18next';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -29,6 +30,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
@@ -37,35 +39,44 @@ import {
 } from '../../components/reports';
 
 // ─── Rangos rápidos ───────────────────────────────────────────────────────────
-const RANGES = [
-  { key: '30d',  label: '30 días',  days: 30 },
-  { key: '90d',  label: '90 días',  days: 90 },
-  { key: 'year', label: 'Este año', days: 365 },
-  { key: 'all',  label: 'Todo',     days: 0 },
+const getRanges = (t: TFunction) => [
+  { key: '30d',  label: t('adminReportsScreen.ranges.d30'),  days: 30 },
+  { key: '90d',  label: t('adminReportsScreen.ranges.d90'),  days: 90 },
+  { key: 'year', label: t('adminReportsScreen.ranges.year'), days: 365 },
+  { key: 'all',  label: t('adminReportsScreen.ranges.all'),  days: 0 },
 ];
 
 // 📑 REGISTRO de pestañas — para crecer sin rediseñar
-const TAB_REGISTRY = [
-  { key: 'resumen',  label: 'Resumen' },
-  { key: 'finanzas', label: 'Finanzas' },
-  { key: 'eventos',  label: 'Eventos' },
-  { key: 'paises',   label: 'Países' },
-  { key: 'rankings', label: 'Rankings' },
-  { key: 'alertas',  label: 'Alertas' },
+const getTabRegistry = (t: TFunction) => [
+  { key: 'resumen',  label: t('adminReportsScreen.tabs.resumen') },
+  { key: 'finanzas', label: t('adminReportsScreen.tabs.finanzas') },
+  { key: 'eventos',  label: t('adminReportsScreen.tabs.eventos') },
+  { key: 'paises',   label: t('adminReportsScreen.tabs.paises') },
+  { key: 'rankings', label: t('adminReportsScreen.tabs.rankings') },
+  { key: 'alertas',  label: t('adminReportsScreen.tabs.alertas') },
 ];
 
-const MONTH_LABELS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
-const monthLabel = (yyyymm: string) =>
-  MONTH_LABELS[(parseInt(yyyymm?.split('-')[1] ?? '1', 10) - 1) % 12] ?? yyyymm;
-
-const CURRENCY_COUNTRY: Record<string, string> = {
-  MXN: '🇲🇽 México', USD: '🇺🇸 Estados Unidos', CAD: '🇨🇦 Canadá',
+const MONTH_KEYS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+const monthLabel = (t: TFunction, yyyymm: string) => {
+  const key = MONTH_KEYS[(parseInt(yyyymm?.split('-')[1] ?? '1', 10) - 1) % 12];
+  return key ? t(`adminReportsScreen.months.${key}`) : yyyymm;
 };
+
+const getCurrencyCountry = (t: TFunction): Record<string, string> => ({
+  MXN: `🇲🇽 ${t('adminReportsScreen.currencyCountry.MXN')}`,
+  USD: `🇺🇸 ${t('adminReportsScreen.currencyCountry.USD')}`,
+  CAD: `🇨🇦 ${t('adminReportsScreen.currencyCountry.CAD')}`,
+});
+// Claves de país en español — deben coincidir con los valores devueltos por la BD (no traducir).
 const CC_OF_COUNTRY: Record<string, string> = {
   'México': 'MX', 'Estados Unidos': 'US', 'Canadá': 'CA',
 };
 
 export default function AdminReportsScreen({ navigation }: any) {
+  const { t } = useTranslation();
+  const RANGES = getRanges(t);
+  const TAB_REGISTRY = getTabRegistry(t);
+  const CURRENCY_COUNTRY = getCurrencyCountry(t);
   const [tab,        setTab]        = useState('resumen');
   const [country,    setCountry]    = useState<string | null>(null);
   const [range,      setRange]      = useState('90d');
@@ -133,28 +144,28 @@ export default function AdminReportsScreen({ navigation }: any) {
         setPendItems(prev => prev.filter(x => x.id !== item.id));
         load();
       } else {
-        Alert.alert('Error', r?.error ?? 'No se pudo asignar');
+        Alert.alert(t('adminReportsScreen.pending.errorTitle'), r?.error ?? t('adminReportsScreen.pending.errorGeneric'));
       }
     };
-    Alert.alert(`🏳️ ${item.name}`, '¿A qué país pertenece?', [
-      { text: 'Cancelar', style: 'cancel' },
-      { text: '🇲🇽 México', onPress: () => doSet('México') },
-      { text: '🇺🇸 Estados Unidos', onPress: () => doSet('Estados Unidos') },
-      { text: '🇨🇦 Canadá', onPress: () => doSet('Canadá') },
+    Alert.alert(`🏳️ ${item.name}`, t('adminReportsScreen.pending.assignQuestion'), [
+      { text: t('adminReportsScreen.pending.cancel'), style: 'cancel' },
+      { text: `🇲🇽 ${t('adminReportsScreen.pending.mexico')}`, onPress: () => doSet('México') },
+      { text: `🇺🇸 ${t('adminReportsScreen.pending.unitedStates')}`, onPress: () => doSet('Estados Unidos') },
+      { text: `🇨🇦 ${t('adminReportsScreen.pending.canada')}`, onPress: () => doSet('Canadá') },
     ]);
   };
 
   // ── ⬇ Exportar — EXACTAMENTE lo que se está viendo ─────────────────────────
   const handleExport = () => {
-    const scope = country ? `${COUNTRY_FLAGS[country] ?? ''} ${country}` : '🌎 Todos';
+    const scope = country ? `${COUNTRY_FLAGS[country] ?? ''} ${country}` : `🌎 ${t('adminReportsScreen.export.allCountries')}`;
     const stateTx = stateFil ? ` · ${stateFil}` : '';
     Alert.alert(
-      '⬇ Exportar',
-      `Se exporta lo que estás viendo:\n${scope}${stateTx} · ${RANGES.find(r => r.key === range)?.label}`,
+      `⬇ ${t('adminReportsScreen.export.title')}`,
+      `${t('adminReportsScreen.export.message')}\n${scope}${stateTx} · ${RANGES.find(r => r.key === range)?.label}`,
       [
-        { text: 'Cancelar', style: 'cancel' },
-        { text: '📊 Excel (.xlsx)', onPress: () => runExport('xlsx') },
-        { text: '📄 PDF ejecutivo', onPress: () => runExport('pdf') },
+        { text: t('adminReportsScreen.export.cancel'), style: 'cancel' },
+        { text: `📊 ${t('adminReportsScreen.export.excel')}`, onPress: () => runExport('xlsx') },
+        { text: `📄 ${t('adminReportsScreen.export.pdf')}`, onPress: () => runExport('pdf') },
       ],
     );
   };
@@ -164,7 +175,7 @@ export default function AdminReportsScreen({ navigation }: any) {
     setExporting(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) throw new Error('Sesión expirada.');
+      if (!session) throw new Error(t('adminReportsScreen.export.sessionExpired'));
       const { data: res, error } = await supabase.functions.invoke('generate-report', {
         body: {
           mode: 'admin', format,
@@ -175,13 +186,13 @@ export default function AdminReportsScreen({ navigation }: any) {
         },
         headers: { Authorization: `Bearer ${session.access_token}` },
       });
-      if (error) throw new Error(error.message ?? 'Error de red');
+      if (error) throw new Error(error.message ?? t('adminReportsScreen.export.networkError'));
       if ((res as any)?.error) throw new Error((res as any).error);
       const url = (res as any)?.url as string | undefined;
-      if (!url) throw new Error('No se recibió el archivo');
+      if (!url) throw new Error(t('adminReportsScreen.export.noFile'));
       await Linking.openURL(url);
     } catch (e: any) {
-      Alert.alert('Error al exportar', e.message ?? 'Intenta de nuevo.');
+      Alert.alert(t('adminReportsScreen.export.errorTitle'), e.message ?? t('adminReportsScreen.export.tryAgain'));
     } finally {
       setExporting(false);
     }
@@ -194,13 +205,14 @@ export default function AdminReportsScreen({ navigation }: any) {
   const cancelRate = ev.total > 0 ? Math.round((ev.cancelados / ev.total) * 100) : 0;
   const trendCurrency = currencies.length === 1 ? currencies[0].moneda : 'MXN';
   const trendData = (data?.trend ?? [])
-    .filter((t: any) => t.moneda === trendCurrency)
-    .map((t: any) => ({ label: monthLabel(t.mes), value: Number(t.total) }));
+    .filter((row: any) => row.moneda === trendCurrency)
+    .map((row: any) => ({ label: monthLabel(t, row.mes), value: Number(row.total) }));
 
   const pendTotal = (compare?.pendientes?.grupos ?? 0) + (compare?.pendientes?.talentos ?? 0);
   const alertCount = alerts
     ? ['retiros_pendientes', 'fees_no_capturados', 'sin_pais', 'grupos_suspendidos',
-       'disputas_abiertas', 'reembolsos_pendientes', 'eventos_sin_cerrar', 'pagos_retenidos_viejos']
+       'disputas_abiertas', 'reembolsos_pendientes', 'eventos_sin_cerrar', 'pagos_retenidos_viejos',
+       'eventos_multi_grupo_revisar']
         .reduce((s, k) => s + (Number(alerts[k]) > 0 ? 1 : 0), 0)
     : 0;
 
@@ -214,29 +226,32 @@ export default function AdminReportsScreen({ navigation }: any) {
   // ── Bloques reutilizables ───────────────────────────────────────────────────
   const moneyBlock = (compact: boolean) => (
     currencies.length === 0
-      ? empty('Sin cobros en este rango y filtros.', 'Prueba el rango "Todo" o quita filtros.')
+      ? empty(t('adminReportsScreen.finance.emptyMsg'), t('adminReportsScreen.finance.emptyHint'))
       : currencies.map((cur: any) => (
         <View key={cur.moneda}>
           <SectionHeader
             title={`💰 ${CURRENCY_COUNTRY[cur.moneda] ?? cur.moneda} · ${cur.moneda}`}
-            note={currencies.length > 1 ? 'las monedas nunca se suman' : undefined}
+            note={currencies.length > 1 ? t('adminReportsScreen.finance.currenciesNote') : undefined}
           />
           <View style={s.grid}>
-            <KpiCard variant="hero" wide label={`¿Cuánto vendimos? · ${cur.moneda}`}
-              value={fmtMoney(cur.total_cobrado)} detail={`${cur.eventos_cobrados} eventos cobrados`} />
-            <KpiCard variant="gold" label="¿Cuánto ganó Daricefy?"
-              value={fmtMoney(cur.neto_estimado)} detail="comisión − procesadores" />
-            <KpiCard label="¿Cuánto debemos pagar?"
-              value={fmtMoney(cur.pendiente_grupos)} detail="retenido a grupos" />
-            <KpiCard label="¿Cuánto ya pagamos?" value={fmtMoney(cur.pagado_grupos)} />
+            <KpiCard variant="hero" wide label={`${t('adminReportsScreen.finance.soldLabel')} · ${cur.moneda}`}
+              value={fmtMoney(cur.total_cobrado)}
+              detail={t('adminReportsScreen.finance.eventsChargedDetail', { count: cur.eventos_cobrados })} />
+            <KpiCard variant="gold" label={t('adminReportsScreen.finance.earnedLabel')}
+              value={fmtMoney(cur.neto_estimado)} detail={t('adminReportsScreen.finance.earnedDetail')} />
+            <KpiCard label={t('adminReportsScreen.finance.oweLabel')}
+              value={fmtMoney(cur.pendiente_grupos)} detail={t('adminReportsScreen.finance.oweDetail')} />
+            <KpiCard label={t('adminReportsScreen.finance.paidLabel')} value={fmtMoney(cur.pagado_grupos)} />
             {!compact && (
               <>
-                <KpiCard label="Para grupos (total)" value={fmtMoney(cur.dinero_grupos)} />
-                <KpiCard label="Comisión procesadores" value={fmtMoney(cur.fees_reales)}
-                  detail={cur.fees_no_capturados > 0 ? `${cur.fees_no_capturados} no capturados` : 'todas reales'}
+                <KpiCard label={t('adminReportsScreen.finance.forGroupsLabel')} value={fmtMoney(cur.dinero_grupos)} />
+                <KpiCard label={t('adminReportsScreen.finance.processorFeeLabel')} value={fmtMoney(cur.fees_reales)}
+                  detail={cur.fees_no_capturados > 0
+                    ? t('adminReportsScreen.finance.feesNotCaptured', { count: cur.fees_no_capturados })
+                    : t('adminReportsScreen.finance.feesAllReal')}
                   detailColor={cur.fees_no_capturados > 0 ? COLORS.orange : COLORS.green} />
-                <KpiCard label="Reembolsos" value={fmtMoney(cur.reembolsado)}
-                  detail={`${cur.reembolsos} reembolsos`}
+                <KpiCard label={t('adminReportsScreen.finance.refundsLabel')} value={fmtMoney(cur.reembolsado)}
+                  detail={t('adminReportsScreen.finance.refundsDetail', { count: cur.reembolsos })}
                   detailColor={cur.reembolsos > 0 ? COLORS.red : undefined} />
               </>
             )}
@@ -247,7 +262,7 @@ export default function AdminReportsScreen({ navigation }: any) {
 
   const countryCompareBlock = () => (
     (compare?.countries ?? []).length === 0
-      ? empty('Sin datos de países todavía.')
+      ? empty(t('adminReportsScreen.countries.emptyMsg'))
       : (compare.countries as any[]).map((c: any) => (
         <View key={c.pais} style={s.countryCard}>
           <View style={s.countryHead}>
@@ -256,14 +271,14 @@ export default function AdminReportsScreen({ navigation }: any) {
             {c.rating != null && <Text style={s.countryRating}>★ {Number(c.rating).toFixed(1)}</Text>}
           </View>
           <View style={s.countryRow}>
-            <View style={s.countryStat}><Text style={s.countryVal}>{c.grupos}</Text><Text style={s.countryLb}>Grupos</Text></View>
-            <View style={s.countryStat}><Text style={s.countryVal}>{c.talentos}</Text><Text style={s.countryLb}>Talentos</Text></View>
-            <View style={s.countryStat}><Text style={s.countryVal}>{c.eventos}</Text><Text style={s.countryLb}>Eventos</Text></View>
+            <View style={s.countryStat}><Text style={s.countryVal}>{c.grupos}</Text><Text style={s.countryLb}>{t('adminReportsScreen.countries.groups')}</Text></View>
+            <View style={s.countryStat}><Text style={s.countryVal}>{c.talentos}</Text><Text style={s.countryLb}>{t('adminReportsScreen.countries.talents')}</Text></View>
+            <View style={s.countryStat}><Text style={s.countryVal}>{c.eventos}</Text><Text style={s.countryLb}>{t('adminReportsScreen.countries.events')}</Text></View>
             <View style={[s.countryStat, { flex: 1.6 }]}>
               <Text style={s.countryVal} numberOfLines={1} adjustsFontSizeToFit>
                 {fmtMoney(c.ingresos)}
               </Text>
-              <Text style={s.countryLb}>Ingresos {c.moneda}</Text>
+              <Text style={s.countryLb}>{t('adminReportsScreen.countries.income', { currency: c.moneda })}</Text>
             </View>
           </View>
         </View>
@@ -274,7 +289,7 @@ export default function AdminReportsScreen({ navigation }: any) {
     <View style={s.rankCard}>
       <Text style={s.rankTitle}>{title}</Text>
       {(!items || items.length === 0)
-        ? <Text style={s.emptyHint}>Sin datos en este rango.</Text>
+        ? <Text style={s.emptyHint}>{t('adminReportsScreen.rankings.noData')}</Text>
         : items.map((it: any, i: number) => (
           <View key={i} style={s.rankRow}>
             <Text style={s.rankNum}>{i + 1}</Text>
@@ -294,29 +309,34 @@ export default function AdminReportsScreen({ navigation }: any) {
     return (
       <Pressable key={label} onPress={onPress ?? (screen ? () => navigation.navigate(screen) : undefined)}>
         <MetricRow icon={icon} label={label} sub={sub} value={String(count)}
-          pill={{ kind: 'bad', label: 'atender' }} />
+          pill={{ kind: 'bad', label: t('adminReportsScreen.alerts.attendPill') }} />
       </Pressable>
     );
   };
 
   const alertsBlock = () => {
-    if (!alerts) return empty('Cargando alertas…');
+    if (!alerts) return empty(t('adminReportsScreen.alerts.loading'));
     const rows = [
-      alertRow(alerts.retiros_pendientes, '💸', 'Retiros pendientes', 'grupos esperando su pago', 'AdminFinancial'),
-      alertRow(alerts.pagos_retenidos_viejos, '⏳', 'Pagos retenidos +3 días', 'eventos completados sin liberar', 'AdminFinancial'),
-      alertRow(alerts.disputas_abiertas, '⚖️', 'Disputas abiertas', 'requieren resolución', 'AdminDisputes'),
-      alertRow(alerts.reembolsos_pendientes, '↩️', 'Reembolsos pendientes', 'transferencias manuales por enviar', 'AdminFinancial'),
-      alertRow(alerts.eventos_sin_cerrar, '🕐', 'Eventos sin cerrar', 'en curso con fecha pasada', 'AdminTicketSearch'),
-      alertRow(alerts.grupos_suspendidos, '🚫', 'Grupos suspendidos', 'revisar o reactivar', 'AdminGroups'),
-      alertRow(alerts.sin_pais, '🏳️', 'Registros sin país', 'clasifícalos uno por uno', undefined, openPending),
-      alertRow(alerts.fees_no_capturados, '🧾', 'Fees no capturados', 'cobros sin comisión de procesador registrada', 'AdminFinancial'),
+      alertRow(alerts.retiros_pendientes, '💸', t('adminReportsScreen.alerts.withdrawalsPending'), t('adminReportsScreen.alerts.withdrawalsPendingSub'), 'AdminFinancial'),
+      alertRow(alerts.pagos_retenidos_viejos, '⏳', t('adminReportsScreen.alerts.heldPayments'), t('adminReportsScreen.alerts.heldPaymentsSub'), 'AdminFinancial'),
+      alertRow(alerts.disputas_abiertas, '⚖️', t('adminReportsScreen.alerts.openDisputes'), t('adminReportsScreen.alerts.openDisputesSub'), 'AdminDisputes'),
+      alertRow(alerts.reembolsos_pendientes, '↩️', t('adminReportsScreen.alerts.refundsPending'), t('adminReportsScreen.alerts.refundsPendingSub'), 'AdminFinancial'),
+      alertRow(alerts.eventos_sin_cerrar, '🕐', t('adminReportsScreen.alerts.unclosedEvents'), t('adminReportsScreen.alerts.unclosedEventsSub'), 'AdminTicketSearch'),
+      // sql/589 (2026-09-01) — "este evento tiene 2+ proveedores y alguien
+      // declaró sonido/luz/escenario/led GRANDE" (nivel top únicamente,
+      // corregido por sql/590). Antes de esto no existía forma de que el
+      // admin DESCUBRIERA estos eventos sin ya saber qué folio buscar.
+      alertRow(alerts.eventos_multi_grupo_revisar, '🔊', t('adminReportsScreen.alerts.multiGroupReview'), t('adminReportsScreen.alerts.multiGroupReviewSub'), 'AdminEventsReview'),
+      alertRow(alerts.grupos_suspendidos, '🚫', t('adminReportsScreen.alerts.suspendedGroups'), t('adminReportsScreen.alerts.suspendedGroupsSub'), 'AdminGroups'),
+      alertRow(alerts.sin_pais, '🏳️', t('adminReportsScreen.alerts.noCountry'), t('adminReportsScreen.alerts.noCountrySub'), undefined, openPending),
+      alertRow(alerts.fees_no_capturados, '🧾', t('adminReportsScreen.alerts.uncapturedFees'), t('adminReportsScreen.alerts.uncapturedFeesSub'), 'AdminFinancial'),
     ].filter(Boolean);
     return rows.length > 0
       ? <>{rows}</>
       : (
         <View style={s.allGoodBox}>
-          <Text style={s.allGoodTx}>✅ Todo en orden</Text>
-          <Text style={s.emptyHint}>No hay nada que requiera tu atención ahora.</Text>
+          <Text style={s.allGoodTx}>✅ {t('adminReportsScreen.alerts.allGood')}</Text>
+          <Text style={s.emptyHint}>{t('adminReportsScreen.alerts.allGoodHint')}</Text>
         </View>
       );
   };
@@ -328,24 +348,24 @@ export default function AdminReportsScreen({ navigation }: any) {
           <ArrowLeft size={20} color={COLORS.text} />
         </Pressable>
         <View style={{ flex: 1 }}>
-          <Text style={s.headerTitle}>📊 Reportes</Text>
+          <Text style={s.headerTitle}>📊 {t('adminReportsScreen.header.title')}</Text>
           <Text style={s.headerSub}>{data ? `${data.from} — ${data.to}` : ' '}</Text>
         </View>
         <Pressable style={[s.exportBtn, exporting && { opacity: 0.6 }]} onPress={handleExport} disabled={exporting}>
           {exporting
             ? <ActivityIndicator size="small" color="#000" />
             : <Download size={14} color="#000" strokeWidth={2.5} />}
-          <Text style={s.exportTx}>Exportar</Text>
+          <Text style={s.exportTx}>{t('adminReportsScreen.header.export')}</Text>
         </Pressable>
       </SafeAreaView>
 
       {/* 📑 Pestañas (registro escalable) */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.tabBar}
         contentContainerStyle={s.tabBarContent}>
-        {TAB_REGISTRY.map(t => (
-          <Pressable key={t.key} style={[s.tabBtn, tab === t.key && s.tabBtnOn]} onPress={() => setTab(t.key)}>
-            <Text style={[s.tabTx, tab === t.key && s.tabTxOn]}>
-              {t.label}{t.key === 'alertas' && alertCount > 0 ? ` (${alertCount})` : ''}
+        {TAB_REGISTRY.map(tabItem => (
+          <Pressable key={tabItem.key} style={[s.tabBtn, tab === tabItem.key && s.tabBtnOn]} onPress={() => setTab(tabItem.key)}>
+            <Text style={[s.tabTx, tab === tabItem.key && s.tabTxOn]}>
+              {tabItem.label}{tabItem.key === 'alertas' && alertCount > 0 ? ` (${alertCount})` : ''}
             </Text>
           </Pressable>
         ))}
@@ -359,9 +379,23 @@ export default function AdminReportsScreen({ navigation }: any) {
           showsVerticalScrollIndicator={false}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.green} />}
         >
-          {/* ── Filtros (afectan a TODO, incluido Exportar) ── */}
-          <CountryTabs value={country} onChange={co => { setCountry(co); setStateFil(null); }} />
-          <StatePicker country={country} value={stateFil} onChange={setStateFil} />
+          {/* ── Filtros (afectan Resumen/Finanzas/Eventos/Rankings/Exportar) ──
+              HALLAZGO REAL (2026-09-01): "Países" usa admin_country_compare,
+              que SIEMPRE compara los 3 países a la vez — nunca recibió
+              p_country/p_state (no tendría sentido "comparar países"
+              filtrado a uno solo). El comentario viejo decía "afectan a
+              TODO", lo cual era falso ahí: el admin cambiaba el filtro y no
+              veía ningún cambio en esa pestaña. Se ocultan aquí para no
+              prometer un filtro que esa pestaña no puede cumplir. */}
+          {tab !== 'paises' && (
+            <>
+              <CountryTabs value={country} onChange={co => { setCountry(co); setStateFil(null); }} />
+              <StatePicker country={country} value={stateFil} onChange={setStateFil} />
+            </>
+          )}
+          {tab === 'paises' && (
+            <Text style={s.paisesNote}>{t('adminReportsScreen.paises.alwaysAllNote')}</Text>
+          )}
           <View style={s.rangeRow}>
             {RANGES.map(r => (
               <Pressable key={r.key} style={[s.rangeChip, range === r.key && s.rangeChipOn]}
@@ -378,24 +412,24 @@ export default function AdminReportsScreen({ navigation }: any) {
               {alertCount > 0 && (
                 <Pressable style={s.alertBand} onPress={() => setTab('alertas')}>
                   <Text style={s.alertBandTx}>
-                    🚨 {alertCount} tema{alertCount > 1 ? 's' : ''} requiere{alertCount > 1 ? 'n' : ''} tu atención — ver Alertas →
+                    🚨 {t('adminReportsScreen.summary.alertBand', { count: alertCount })}
                   </Text>
                 </Pressable>
               )}
               {pendTotal > 0 && (
                 <Pressable style={s.pendBand} onPress={openPending}>
                   <Text style={s.pendBandTx}>
-                    🏳️ {pendTotal} registro{pendTotal > 1 ? 's' : ''} pendiente{pendTotal > 1 ? 's' : ''} de clasificar por país — corregir →
+                    🏳️ {t('adminReportsScreen.summary.pendBand', { count: pendTotal })}
                   </Text>
                 </Pressable>
               )}
               {moneyBlock(true)}
-              <SectionHeader title="🌎 ¿Cómo va cada país?" note="nunca se mezclan" />
+              <SectionHeader title={`🌎 ${t('adminReportsScreen.summary.howCountryDoing')}`} note={t('adminReportsScreen.summary.mixNote')} />
               {countryCompareBlock()}
               {trendData.length > 1 && (
                 <>
-                  <SectionHeader title="📈 Tendencia" note={`ingreso bruto · ${trendCurrency}`} />
-                  <TrendBars title="Últimos 6 meses" right={trendCurrency} data={trendData} />
+                  <SectionHeader title={`📈 ${t('adminReportsScreen.summary.trendTitle')}`} note={t('adminReportsScreen.events.trendCurrencyNote', { currency: trendCurrency })} />
+                  <TrendBars title={t('adminReportsScreen.events.trendLast6Months')} right={trendCurrency} data={trendData} />
                 </>
               )}
             </>
@@ -407,22 +441,22 @@ export default function AdminReportsScreen({ navigation }: any) {
           {/* ══ EVENTOS ══ */}
           {tab === 'eventos' && (
             <>
-              <SectionHeader title="🗓 Eventos" />
-              <MetricRow icon="🗓" label="Total de eventos" sub="reservas creadas en el rango" value={String(ev.total ?? 0)} />
-              <MetricRow icon="✅" label="Completados" value={String(ev.completados ?? 0)}
+              <SectionHeader title={`🗓 ${t('adminReportsScreen.events.title')}`} />
+              <MetricRow icon="🗓" label={t('adminReportsScreen.events.total')} sub={t('adminReportsScreen.events.totalSub')} value={String(ev.total ?? 0)} />
+              <MetricRow icon="✅" label={t('adminReportsScreen.events.completed')} value={String(ev.completados ?? 0)}
                 pill={ev.total > 0 ? { kind: 'ok', label: `${Math.round(((ev.completados ?? 0) / ev.total) * 100)}%` } : undefined} />
-              <MetricRow icon="⏳" label="Próximos" sub="aceptados con fecha por venir" value={String(ev.proximos ?? 0)} />
-              <MetricRow icon="🚫" label="Cancelaciones"
-                sub={`${ev.cancel_cliente ?? 0} del cliente · ${ev.cancel_grupo ?? 0} del grupo`}
+              <MetricRow icon="⏳" label={t('adminReportsScreen.events.upcoming')} sub={t('adminReportsScreen.events.upcomingSub')} value={String(ev.proximos ?? 0)} />
+              <MetricRow icon="🚫" label={t('adminReportsScreen.events.cancellations')}
+                sub={t('adminReportsScreen.events.cancellationsSub', { client: ev.cancel_cliente ?? 0, group: ev.cancel_grupo ?? 0 })}
                 value={String(ev.cancelados ?? 0)}
                 pill={{ kind: cancelRate > 10 ? 'bad' : cancelRate > 5 ? 'warn' : 'ok', label: `${cancelRate}%` }} />
-              <MetricRow icon="👻" label="No-shows" value={String(ev.no_shows ?? 0)}
-                pill={(ev.no_shows ?? 0) > 0 ? { kind: 'bad', label: 'strikes' } : { kind: 'ok', label: 'limpio' }} />
-              <MetricRow icon="↩️" label="Reembolsados" value={String(ev.reembolsados ?? 0)} />
+              <MetricRow icon="👻" label={t('adminReportsScreen.events.noShows')} value={String(ev.no_shows ?? 0)}
+                pill={(ev.no_shows ?? 0) > 0 ? { kind: 'bad', label: t('adminReportsScreen.events.noShowsStrikes') } : { kind: 'ok', label: t('adminReportsScreen.events.noShowsClean') }} />
+              <MetricRow icon="↩️" label={t('adminReportsScreen.events.refunded')} value={String(ev.reembolsados ?? 0)} />
               {trendData.length > 1 && (
                 <>
-                  <SectionHeader title="📈 Tendencia mensual" note={`ingreso bruto · ${trendCurrency}`} />
-                  <TrendBars title="Últimos 6 meses" right={trendCurrency} data={trendData} />
+                  <SectionHeader title={`📈 ${t('adminReportsScreen.events.trendTitle')}`} note={t('adminReportsScreen.events.trendCurrencyNote', { currency: trendCurrency })} />
+                  <TrendBars title={t('adminReportsScreen.events.trendLast6Months')} right={trendCurrency} data={trendData} />
                 </>
               )}
             </>
@@ -609,6 +643,10 @@ const s = StyleSheet.create({
   },
   emptyTx: { fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.muted2 },
   emptyHint: { fontFamily: FONTS.body, fontSize: 11.5, color: COLORS.muted },
+  paisesNote: {
+    fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2,
+    marginBottom: SPACING.md,
+  },
   allGoodBox: {
     backgroundColor: COLORS.card, borderRadius: RADIUS.xl,
     borderWidth: 1, borderColor: 'rgba(0,230,118,0.35)',

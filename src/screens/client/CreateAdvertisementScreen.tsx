@@ -31,6 +31,8 @@ import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import Particles from '../../components/ui/Particles';
 import { normalizeCity } from '../../utils/cityUtils';
 import { startPromoConektaCheckout } from '../../utils/conektaCheckout';
+import { looksLikeHevc } from '../../utils/videoCodecCheck';
+import { LOCATION_MULT, calcAdPrice } from '../../constants/adPricing';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -56,53 +58,19 @@ const LOCATION_OPTIONS: { type: LocationType; emoji: string; label: string; desc
   { type: 'international', emoji: '🌍', label: 'Internacional',    desc: 'Alcance global · Máxima visibilidad · ×3.5 el precio',  color: '#8B5CF6' },
 ];
 
-// Multiplicador de alcance (para cálculo live en modo custom)
-const LOCATION_MULT: Record<LocationType, number> = {
-  city:          1.0,
-  multi_city:    1.5,
-  national:      2.0,
-  international: 3.5,
-};
-
-// Precio base por día para el modo personalizado (en MXN)
-const BASE_PER_DAY: Record<AdType, number> = {
-  banner_home:     65,
-  sponsored_group: 55,
-  profile_ad:      55,
-};
-
-// ── Precios tier banner_home (espejo de AdvertisingPackagesScreen) ────────────
-// Fuente de verdad: si pkg.tier está definido, este mapa toma precedencia sobre pkg.price.
-const BANNER_TIER_PRICES: Record<string, Record<number, number>> = {
-  top_1_3:  { 7: 699,  14: 1199, 30: 1999 },
-  top_4_10: { 7: 499,  14: 899,  30: 1499 },
-};
-
-function getBannerBasePrice(pkg: AdPackage): number {
-  if (pkg.type === 'banner_home' && pkg.tier && pkg.tier in BANNER_TIER_PRICES) {
-    return BANNER_TIER_PRICES[pkg.tier][pkg.duration_days] ?? pkg.price;
-  }
-  return pkg.price;
-}
-
-// ── Fuente única de verdad para precio final ─────────────────────────────────
-// Usar en: step 3 cards, step 4 resumen, step 4 botón pagar, handlePay.
-// dMult = demandInfo.multiplier, lMult = LOCATION_MULT[locationType],
-// cMult = cityStatus.price_multiplier
+// ── Fuente única de verdad para precio final — espejo exacto de
+//    calculate_ad_price() en la BD (sql/612). Usar en: step 3 cards,
+//    step 4 resumen, step 4 botón pagar, handlePay. Ya NO hay
+//    multiplicador de demanda/ciudad (se quitó por decisión explícita
+//    del usuario 2026-09-05 — precio fijo y predecible siempre) ni modo
+//    personalizado (se quitó también, 2026-09-05 — solo paquetes fijos).
 function calcFinalPrice(opts: {
-  pkg?: AdPackage | null;
-  adType?: AdType | null;
-  dMult: number;
-  lMult: number;
-  cMult: number;
-  customDays?: number;
+  pkg: AdPackage;
+  locationType: LocationType;
+  isVideo?: boolean;
 }): number {
-  const { pkg, adType, dMult, lMult, cMult, customDays = 1 } = opts;
-  if (pkg) {
-    return Math.ceil(getBannerBasePrice(pkg) * dMult * lMult * cMult);
-  }
-  const basePerDay = adType ? BASE_PER_DAY[adType] : 0;
-  return Math.ceil(basePerDay * Math.max(1, customDays) * dMult * lMult * cMult);
+  const { pkg, locationType, isVideo = false } = opts;
+  return Math.ceil(calcAdPrice(pkg.type, pkg.duration_days, locationType, isVideo));
 }
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
@@ -113,14 +81,14 @@ const AD_TYPES: { type: AdType; emoji: string; label: string; desc: string; colo
     type:  'banner_home',
     emoji: '📢',
     label: 'Banner en Inicio',
-    desc:  'Tu anuncio aparece en el carousel de la pantalla principal. Lo ven todos los usuarios al abrir la app.',
+    desc:  'Tu anuncio aparece en Explorador Y en Inicio. Lo ven todos los usuarios al abrir la app.',
     color: '#00E676',
   },
   {
     type:  'profile_ad',
     emoji: '👤',
     label: 'Publicidad en Perfiles',
-    desc:  'Tu anuncio aparece dentro de los perfiles de grupos musicales cuando los clientes los visitan.',
+    desc:  'Tu anuncio aparece en el perfil de proveedores de OTRA categoría (nunca en la tuya) cuando los clientes los visitan.',
     color: '#7C3AED',
   },
 ];
@@ -141,13 +109,6 @@ function containsContactInfo(text: string): boolean {
 const YOUTUBE_REGEX = /^https?:\/\/(www\.)?(youtube\.com\/watch\?v=|youtu\.be\/)[\w\-]+/;
 function isValidYoutubeUrl(url: string): boolean {
   return YOUTUBE_REGEX.test(url.trim());
-}
-
-// ── Texto de comparación según nivel de demanda ───────────────────────────────
-function getDemandComparisonText(demandLevel: string | null | undefined): string {
-  if (demandLevel === 'high') return 'Mayor que el promedio en tu ciudad';
-  if (demandLevel === 'medium') return 'Similar a otros grupos activos';
-  return 'Buen momento para posicionarte antes que otros';
 }
 
 // ─── Helper: tipos "simples" (sin media ni diseño de anuncio) ─────────────────
@@ -191,19 +152,17 @@ export default function CreateAdvertisementScreen({ navigation, route }: any) {
   const { profile: authProfile, role: authRole, safeCity } = useAuth();
   const { initPaymentSheet, presentPaymentSheet } = useStripe();
 
-  // Paquete pre-seleccionado desde AdvertisingPackagesScreen
+  // Paquete pre-seleccionado desde AdvertisingPackagesScreen — único punto
+  // de entrada a esta pantalla ahora (se quitó "Personalizar anuncio").
   const preSelected: AdPackage | null = route?.params?.preSelectedPackage ?? null;
-  // Tipo pre-definido cuando viene de "Personalizar anuncio" (customMode)
-  const routeAdType: AdType | null    = route?.params?.adType ?? null;
-  // Si viene con customMode=true desde AdvertisingPackagesScreen, abrir tab personalizado
-  const routeCustomMode: boolean      = route?.params?.customMode ?? false;
 
-  // Tipos de anuncio visibles según rol:
-  //   · groups    → solo banner_home (profile_ad no aplica para grupos)
-  //   · clients   → banner_home + profile_ad (sin sponsored_group, ese es interno)
-  const visibleAdTypes = AD_TYPES.filter(t =>
-    authRole === 'group' ? t.type !== 'profile_ad' : true
-  );
+  // 2026-09-04 (sql/607): profile_ad SÍ aplica para grupos ahora — solo
+  // se les oculta en el perfil de OTRO proveedor de su misma categoría
+  // (get_profile_ads), no se les bloquea la compra. AD_TYPES ya solo
+  // trae banner_home y profile_ad (sponsored_group es interno, se
+  // contrata aparte desde el panel del grupo) — clientes ya no llegan
+  // aquí en absoluto (tab quitado + bloqueado en el servidor, sql/608).
+  const visibleAdTypes = AD_TYPES;
 
   // ── Paso actual ──────────────────────────────────────────────────────────
   // Steps: 0=Tipo 1=Contenido 2=Ubicación 3=Paquete 4=Pago
@@ -211,7 +170,7 @@ export default function CreateAdvertisementScreen({ navigation, route }: any) {
   //   · Con paquete pre-seleccionado → paso 4 directo
   //   · Con tipo pero sin paquete    → paso 3 (selección de paquete)
   //   · Banner/sin tipo              → paso 1 (contenido) o paso 0 (selector)
-  const knownType = preSelected?.type ?? routeAdType;
+  const knownType = preSelected?.type ?? null;
   const simpleStart = isSimpleAdType(knownType ?? null);
   const startStep = !knownType ? 0 : simpleStart ? (preSelected ? 4 : 3) : 1;
   const [step, setStep] = useState(startStep);
@@ -255,10 +214,6 @@ export default function CreateAdvertisementScreen({ navigation, route }: any) {
   const [selectedPackage, setSelectedPackage] = useState<AdPackage | null>(preSelected ?? null);
   const [loadingPkgs,     setLoadingPkgs]     = useState(false);
 
-  // ── Paso 3: modo personalizado ────────────────────────────────────────────
-  const [pkgMode,    setPkgMode]    = useState<'packages' | 'custom'>(routeCustomMode ? 'custom' : 'packages');
-  const [customDays, setCustomDays] = useState('7');
-
   // ── Paso 4: pago ─────────────────────────────────────────────────────────
   const [paying,  setPaying]  = useState(false);
   const [success, setSuccess] = useState(false);
@@ -267,16 +222,6 @@ export default function CreateAdvertisementScreen({ navigation, route }: any) {
   const [titleError,    setTitleError]    = useState('');
   const [subtitleError, setSubtitleError] = useState('');
 
-  // ── Demanda dinámica ──────────────────────────────────────────────────────
-  const [demandInfo, setDemandInfo] = useState<{
-    demand_level: 'low' | 'medium' | 'high';
-    multiplier: number;
-    message: string;
-    demand_score: number;
-  } | null>(null);
-
-  // ── Estado de ciudad (seeding → precio ×0.7) ──────────────────────────────
-  const [cityStatus, setCityStatus] = useState<{ status: string; price_multiplier: number; is_seeding: boolean } | null>(null);
   // 📍 Espacios disponibles donde aparecerá el anuncio (sql/503)
   const [adAvail, setAdAvail] = useState<any | null>(null);
 
@@ -335,24 +280,10 @@ export default function CreateAdvertisementScreen({ navigation, route }: any) {
     setLocationCities([normalizedCity]);
   }, [adType, userGroups, safeCity]);
 
-  // ─── Fetch demanda al cambiar ubicación ───────────────────────────────────
-  useEffect(() => {
-    const city = locationType !== 'national' && locationCities.length > 0
-      ? locationCities[0]
-      : null;
-    supabase.rpc('get_demand_info', { p_city: city })
-      .then(({ data }) => { if (data) setDemandInfo(data as any); });
-  }, [locationType, locationCities]);
-
   const loadPackages = async () => {
     setLoadingPkgs(true);
-    const nCity = normalizeCity(safeCity);
-    const [{ data }, { data: csData }] = await Promise.all([
-      supabase.from('ad_packages').select('*').eq('type', adType).eq('is_active', true).order('price', { ascending: true }),
-      supabase.rpc('get_city_status', { p_city: nCity }),
-    ]);
+    const { data } = await supabase.from('ad_packages').select('*').eq('type', adType).eq('is_active', true).order('price', { ascending: true });
     setPackages((data as AdPackage[]) ?? []);
-    if ((csData as any)?.ok) setCityStatus(csData as any);
     setLoadingPkgs(false);
   };
 
@@ -374,6 +305,16 @@ export default function CreateAdvertisementScreen({ navigation, route }: any) {
 
       const asset = result.assets[0];
       const mime  = (asset.mimeType ?? (type === 'image' ? 'image/jpeg' : 'video/mp4')).toLowerCase();
+      // Hallazgo real (2026-09-02): cuando el picker no reporta mimeType,
+      // el default de arriba asume ciegamente 'video/mp4' — un .mov real
+      // (típico de iPhone) se colaría sin que el check de abajo lo note,
+      // porque solo mira `mime`, nunca la extensión real del archivo.
+      // Mismo bug que ya se corrigió en AdApprovalScreen.tsx (mov de
+      // iPhone sin reproducirse en Android) — aquí es peor porque esta
+      // pantalla es para anuncios PAGADOS. Se cruza con la extensión real
+      // del uri para no confiar solo en un mimeType que puede faltar.
+      const uriExt = asset.uri.split('.').pop()?.toLowerCase() ?? '';
+      const isRealMov = mime.includes('quicktime') || uriExt === 'mov';
 
       // ── Validaciones ──
       if (type === 'image') {
@@ -386,8 +327,13 @@ export default function CreateAdvertisementScreen({ navigation, route }: any) {
           return;
         }
       } else {
-        if (!mime.includes('mp4')) {
-          Alert.alert('Formato no válido', 'Solo se aceptan videos MP4.');
+        if (isRealMov || !mime.includes('mp4')) {
+          Alert.alert(
+            'Formato no válido',
+            isRealMov
+              ? 'Este video está en formato .mov (típico de iPhone) y puede NO reproducirse para otros usuarios. Conviértelo a MP4 antes de subirlo — muchas apps de edición/cámara tienen esa opción al exportar.'
+              : 'Solo se aceptan videos MP4.',
+          );
           return;
         }
         if (asset.fileSize && asset.fileSize > VIDEO_MAX_BYTES) {
@@ -396,6 +342,20 @@ export default function CreateAdvertisementScreen({ navigation, route }: any) {
         }
         if (asset.duration && asset.duration > VIDEO_MAX_MS) {
           Alert.alert('Video muy largo', `Dura ${Math.ceil(asset.duration/1000)}s. El máximo es 30 segundos.`);
+          return;
+        }
+        // Ampliado (2026-09-02, hallazgo real en producción): el problema
+        // de fondo no es la extensión .mov — es el códec HEVC/H.265 que
+        // puede venir DENTRO de un .mp4 correctamente etiquetado también,
+        // y ese caso no lo atrapaba el check de arriba. Mismo criterio
+        // estricto que ya tiene esta pantalla para anuncios pagados:
+        // rechazar, no solo avisar (a diferencia de AdApprovalScreen, que
+        // es para anuncios gratis/admin y sí permite continuar bajo aviso).
+        if (await looksLikeHevc(asset.uri, asset.fileSize)) {
+          Alert.alert(
+            'Formato no válido',
+            'Este video usa el códec HEVC/H.265 (común en iPhone) — muchos Android NO lo pueden reproducir. Expórtalo de nuevo en H.264 antes de subirlo (la mayoría de apps de edición tienen esa opción).',
+          );
           return;
         }
       }
@@ -471,19 +431,13 @@ export default function CreateAdvertisementScreen({ navigation, route }: any) {
       Alert.alert('Error', 'Selecciona el tipo de anuncio.');
       return;
     }
-    const isCustomMode = pkgMode === 'custom' && !preSelected;
-    if (!isCustomMode && !selectedPackage) {
+    if (!selectedPackage) {
       Alert.alert('Error', 'Selecciona un paquete.');
       return;
     }
     // Para tipos simples el título se auto-rellena; para banner_home es obligatorio
     if (!title.trim() && !isSimpleAdType(adType)) {
       Alert.alert('Error', 'Escribe un título para tu anuncio.');
-      return;
-    }
-    const customDaysNum = parseInt(customDays, 10);
-    if (isCustomMode && (isNaN(customDaysNum) || customDaysNum < 1)) {
-      Alert.alert('Error', 'Ingresa un número de días válido.');
       return;
     }
     // 📜 Declaración de derechos ANTES de pagar (Términos §6): la
@@ -530,18 +484,14 @@ export default function CreateAdvertisementScreen({ navigation, route }: any) {
         : (linkType === 'group' ? linkGroupId : null);
       const resolvedYoutube  = linkType === 'video' ? youtubeUrl.trim() || null : null;
 
-      const dMultPay = demandInfo?.multiplier ?? 1.0;
-      const lMultPay = LOCATION_MULT[locationType] ?? 1.0;
-      const cMultPay = cityStatus?.price_multiplier ?? 1.0;
+      const isVideoPay = mediaType === 'video';
 
-      // Precio final: fuente única — mismo valor que muestra la UI
+      // Precio final: fuente única — mismo valor que muestra la UI (y el
+      // que recalcula create_advertisement_order server-side, sql/612).
       const finalPrice = calcFinalPrice({
-        pkg:        isCustomMode ? null : selectedPackage,
-        adType:     isCustomMode ? adType : null,
-        dMult:      dMultPay,
-        lMult:      lMultPay,
-        cMult:      cMultPay,
-        customDays: isCustomMode ? customDaysNum : 1,
+        pkg: selectedPackage,
+        locationType,
+        isVideo: isVideoPay,
       });
 
       // Fallback de título para tipos simples (auto-rellenado por useEffect)
@@ -552,10 +502,8 @@ export default function CreateAdvertisementScreen({ navigation, route }: any) {
       console.log('[PAYMENT]', {
         type:       adType,
         finalPrice,
-        pkg:        selectedPackage ? { id: selectedPackage.id, tier: selectedPackage.tier, days: selectedPackage.duration_days } : null,
-        cityStatus: cityStatus ? { is_seeding: cityStatus.is_seeding, price_multiplier: cityStatus.price_multiplier } : null,
-        dMult: dMultPay, lMult: lMultPay, cMult: cMultPay,
-        customMode: isCustomMode, customDays: isCustomMode ? customDaysNum : null,
+        pkg:        { id: selectedPackage.id, days: selectedPackage.duration_days },
+        locationType, isVideoPay,
       });
 
       const { data: orderData, error: orderErr } = await supabase.rpc('create_advertisement_order', {
@@ -565,7 +513,7 @@ export default function CreateAdvertisementScreen({ navigation, route }: any) {
         p_button_text:      buttonText.trim() || 'Contratar',
         p_media_url:        mediaUrl ?? null,
         p_media_type:       mediaType,
-        p_package_id:       isCustomMode ? null : (selectedPackage?.id ?? null),
+        p_package_id:       selectedPackage.id,
         p_link_type:        resolvedLinkType,
         p_link_id:          resolvedLinkId,
         p_location_type:    locationType,
@@ -574,7 +522,7 @@ export default function CreateAdvertisementScreen({ navigation, route }: any) {
                               : null,
         p_duration_seconds: durationSeconds ?? null,
         p_youtube_url:      resolvedYoutube,
-        p_custom_days:      isCustomMode ? customDaysNum : null,
+        p_custom_days:      null,
         p_total_price:      finalPrice,
         p_target_states:    (adType === 'banner_home' || adType === 'profile_ad')
                               && locationType !== 'international'
@@ -582,6 +530,7 @@ export default function CreateAdvertisementScreen({ navigation, route }: any) {
                               ? targetStates
                               : null,
         p_target_country:   locationType === 'international' ? (targetCountry ?? 'global') : null,
+        p_is_video:         isVideoPay,
       } as any);
 
       console.log('[handlePay] order creada:', orderData, 'error:', orderErr);
@@ -597,16 +546,22 @@ export default function CreateAdvertisementScreen({ navigation, route }: any) {
         if (orderData?.error === 'price_below_minimum') {
           throw new Error(`El precio mínimo para esta publicidad es $${orderData?.minimum}.`);
         }
+        if (orderData?.error === 'phone_number_not_allowed') {
+          throw new Error('Por seguridad, no se permiten números de teléfono en el título ni en el subtítulo.');
+        }
+        if (orderData?.error === 'clients_cannot_advertise') {
+          throw new Error('Los clientes no pueden comprar publicidad en este momento.');
+        }
         throw new Error(orderData?.error ?? 'No se pudo crear el anuncio');
       }
 
       const adId = orderData.ad_id as string;
 
       // Paso 1.5: elegir método — Stripe (tarjeta), Conekta (OXXO/SPEI) o,
-      // para Destacados de 30 días, suscripción mensual que se renueva sola
+      // para el paquete más largo de Destacado (15 días, sql/612), una
+      // suscripción que se renueva sola.
       const offerSub = adType === 'sponsored_group'
-        && !isCustomMode
-        && selectedPackage?.duration_days === 30;
+        && selectedPackage.duration_days === 15;
       const payMode = await new Promise<'stripe' | 'conekta' | 'sub' | null>(resolve => {
         const buttons: any[] = [
           { text: 'Cancelar', style: 'cancel', onPress: () => resolve(null) },
@@ -733,7 +688,6 @@ export default function CreateAdvertisementScreen({ navigation, route }: any) {
       return locationCities.length > 0;
     }
     if (step === 3) {
-      if (pkgMode === 'custom') return parseInt(customDays, 10) >= 1;
       return selectedPackage !== null;
     }
     return false;
@@ -769,6 +723,29 @@ export default function CreateAdvertisementScreen({ navigation, route }: any) {
       navigation.goBack();
     }
   };
+
+  // ─── Clientes no pueden comprar publicidad (2026-09-04, sql/608) ─────────
+  // El tab "Publicidad" ya se quitó para clientes; esta pantalla también
+  // se reforzó por si llegan aquí desde un link viejo/directo — así no
+  // llenan todo el formulario para toparse con el error hasta el pago.
+  if (authRole === 'client') {
+    return (
+      <View style={s.container}>
+        <Particles />
+        <SafeAreaView style={s.successCenter}>
+          <View style={s.successCard}>
+            <Text style={s.successTitle}>No disponible</Text>
+            <Text style={s.successSub}>
+              La publicidad está disponible solo para grupos y talentos.
+            </Text>
+            <Pressable style={s.successBtn} onPress={() => navigation.goBack()}>
+              <Text style={s.successBtnText}>Volver</Text>
+            </Pressable>
+          </View>
+        </SafeAreaView>
+      </View>
+    );
+  }
 
   // ─── Pantalla de éxito ────────────────────────────────────────────────────
   if (success) {
@@ -1120,7 +1097,7 @@ export default function CreateAdvertisementScreen({ navigation, route }: any) {
                   return LOCATION_OPTIONS.map(opt => {
                     const label = opt.type === 'national' ? `Todo ${countryLabel}` : opt.label;
                     const pricePerDay = adType
-                      ? Math.ceil(BASE_PER_DAY[adType] * LOCATION_MULT[opt.type])
+                      ? Math.ceil(calcAdPrice(adType, 7, opt.type, false) / 7)
                       : null;
                     return (
                       <Pressable
@@ -1160,22 +1137,6 @@ export default function CreateAdvertisementScreen({ navigation, route }: any) {
                     );
                   });
                 })()}
-
-                {/* Badge de demanda */}
-                {demandInfo && demandInfo.demand_level !== 'medium' && (
-                  <View style={[
-                    s.demandBadge,
-                    demandInfo.demand_level === 'high' ? s.demandBadgeHigh : s.demandBadgeLow,
-                  ]}>
-                    <Text style={[
-                      s.demandBadgeText,
-                      demandInfo.demand_level === 'high' ? s.demandBadgeTextHigh : s.demandBadgeTextLow,
-                    ]}>
-                      {demandInfo.demand_level === 'high' ? '🔥' : '🟢'} {demandInfo.message}
-                      {demandInfo.demand_level === 'high' ? ' · Los precios se ajustan a la demanda' : ''}
-                    </Text>
-                  </View>
-                )}
 
                 {/* Info banner para internacional */}
                 {locationType === 'international' && (
@@ -1318,12 +1279,8 @@ export default function CreateAdvertisementScreen({ navigation, route }: any) {
                 PASO 3 — Seleccionar paquete
             ══════════════════════════════════════════════════════════ */}
             {step === 3 && (() => {
-              const dMult    = demandInfo?.multiplier ?? 1.0;
               const lMult    = LOCATION_MULT[locationType];
-              const cMult    = cityStatus?.price_multiplier ?? 1.0;
-              const perDay   = adType ? BASE_PER_DAY[adType] : 0;
-              const cDays    = Math.max(1, parseInt(customDays, 10) || 1);
-              const cPrice   = Math.ceil(perDay * cDays * dMult * lMult * cMult);
+              const isVideoStep = mediaType === 'video';
               return (
               <View>
                 <Text style={s.stepTitle}>
@@ -1331,54 +1288,13 @@ export default function CreateAdvertisementScreen({ navigation, route }: any) {
                 </Text>
                 <Text style={s.stepSub}>
                   {adType === 'banner_home'
-                    ? 'Tu anuncio aparecerá en el carousel del inicio durante el periodo elegido.'
+                    ? 'Tu anuncio aparecerá en Explorador y en Inicio durante el periodo elegido.'
                     : adType === 'sponsored_group'
                     ? 'Tu grupo aparecerá primero en "Destacados" durante el periodo elegido. Solo elige cuántos días.'
-                    : 'Tu anuncio aparecerá en los perfiles de grupos durante el periodo elegido. Solo elige cuántos días.'}
+                    : 'Tu anuncio aparecerá en perfiles de OTRA categoría durante el periodo elegido. Solo elige cuántos días.'}
                 </Text>
 
-                {/* Tabs Paquetes / Personalizar — oculto en tipos simples */}
-                {!isSimpleAdType(adType) && (
-                  <View style={s.pkgModeTabs}>
-                    <Pressable
-                      style={[s.pkgModeTab, pkgMode === 'packages' && s.pkgModeTabActive]}
-                      onPress={() => setPkgMode('packages')}
-                    >
-                      <Text style={[s.pkgModeTabText, pkgMode === 'packages' && s.pkgModeTabTextActive]}>
-                        📦 Paquetes
-                      </Text>
-                    </Pressable>
-                    <Pressable
-                      style={[s.pkgModeTab, pkgMode === 'custom' && s.pkgModeTabActive]}
-                      onPress={() => { setPkgMode('custom'); setSelectedPackage(null); }}
-                    >
-                      <Text style={[s.pkgModeTabText, pkgMode === 'custom' && s.pkgModeTabTextActive]}>
-                        ✏️ Personalizar
-                      </Text>
-                    </Pressable>
-                  </View>
-                )}
-
-                {/* Banner de demanda */}
-                {demandInfo && demandInfo.demand_level !== 'medium' && (
-                  <View style={[
-                    s.demandBadge,
-                    demandInfo.demand_level === 'high' ? s.demandBadgeHigh : s.demandBadgeLow,
-                    { marginBottom: 16 },
-                  ]}>
-                    <Text style={[
-                      s.demandBadgeText,
-                      demandInfo.demand_level === 'high' ? s.demandBadgeTextHigh : s.demandBadgeTextLow,
-                    ]}>
-                      {demandInfo.demand_level === 'high'
-                        ? `🔥 Alta demanda · ×${dMult}`
-                        : `🟢 Precio especial disponible`}
-                    </Text>
-                  </View>
-                )}
-
-                {/* ── MODO PAQUETES ── */}
-                {pkgMode === 'packages' && (
+                {(
                   loadingPkgs ? (
                     <ActivityIndicator color={COLORS.green} style={{ marginTop: 40 }} />
                   ) : packages.filter(p => !p.location_scope || p.location_scope === locationType).length === 0 ? (
@@ -1398,10 +1314,10 @@ export default function CreateAdvertisementScreen({ navigation, route }: any) {
                         ) === i
                       )
                       .map(pkg => {
-                      const finalPrice = calcFinalPrice({ pkg, dMult, lMult, cMult });
+                      const finalPrice = calcFinalPrice({ pkg, locationType, isVideo: isVideoStep });
                       const isSimple = isSimpleAdType(adType);
                       const est = isSimple
-                        ? calcSimpleEstimates(adType, pkg.duration_days, demandInfo?.demand_level)
+                        ? calcSimpleEstimates(adType, pkg.duration_days, null)
                         : null;
                       return (
                         <Pressable
@@ -1444,7 +1360,7 @@ export default function CreateAdvertisementScreen({ navigation, route }: any) {
                                 ${finalPrice.toLocaleString('es-MX', { minimumFractionDigits: 0 })}
                                 <Text style={s.pkgCurrency}> MXN</Text>
                               </Text>
-                              {(dMult > 1 || lMult > 1) && (
+                              {(lMult > 1 || isVideoStep) && (
                                 <Text style={s.pkgBasePrice}>
                                   base ${pkg.price.toLocaleString('es-MX', { minimumFractionDigits: 0 })}
                                 </Text>
@@ -1466,79 +1382,12 @@ export default function CreateAdvertisementScreen({ navigation, route }: any) {
                               <Text style={s.simpleValueSub}>
                                 La mayoría de los grupos activos reciben clientes en este rango
                               </Text>
-                              <Text style={s.simpleValueComparison}>
-                                {getDemandComparisonText(demandInfo?.demand_level)}
-                              </Text>
-                              {demandInfo?.demand_level === 'high' && (
-                                <Text style={s.simpleValueHigh}>
-                                  🔥 Otros grupos ya están aprovechando esta demanda
-                                </Text>
-                              )}
                             </View>
                           )}
                         </Pressable>
                       );
                     })
                   )
-                )}
-
-                {/* ── MODO PERSONALIZADO ── */}
-                {pkgMode === 'custom' && (
-                  <View style={s.customPanel}>
-                    <Text style={s.customPanelTitle}>Configura tu anuncio</Text>
-
-                    {/* Días */}
-                    <Text style={s.label}>Número de días</Text>
-                    <View style={s.customDaysRow}>
-                      {[3, 7, 14, 30].map(d => (
-                        <Pressable
-                          key={d}
-                          style={[s.customDayChip, customDays === String(d) && s.customDayChipActive]}
-                          onPress={() => setCustomDays(String(d))}
-                        >
-                          <Text style={[s.customDayChipText, customDays === String(d) && s.customDayChipTextActive]}>
-                            {d}d
-                          </Text>
-                        </Pressable>
-                      ))}
-                      <TextInput
-                        style={s.customDaysInput}
-                        value={customDays}
-                        onChangeText={v => setCustomDays(v.replace(/[^0-9]/g, ''))}
-                        keyboardType="numeric"
-                        placeholder="días"
-                        placeholderTextColor={COLORS.muted}
-                        maxLength={3}
-                      />
-                    </View>
-
-                    {/* Desglose de precio */}
-                    <View style={s.customPriceBox}>
-                      <View style={s.customPriceRow}>
-                        <Text style={s.customPriceLabel}>Base ({cDays} días × ${perDay}/día)</Text>
-                        <Text style={s.customPriceVal}>${(perDay * cDays).toLocaleString()}</Text>
-                      </View>
-                      {dMult > 1 && (
-                        <View style={s.customPriceRow}>
-                          <Text style={s.customPriceLabel}>Demanda</Text>
-                          <Text style={[s.customPriceVal, { color: '#ef4444' }]}>×{dMult}</Text>
-                        </View>
-                      )}
-                      <View style={s.customPriceRow}>
-                        <Text style={s.customPriceLabel}>
-                          Alcance ({locationType === 'city' ? 'ciudad'
-                            : locationType === 'multi_city' ? 'varias ciudades'
-                            : locationType === 'international' ? 'internacional'
-                            : 'nacional'})
-                        </Text>
-                        <Text style={[s.customPriceVal, lMult > 1 ? { color: '#F59E0B' } : {}]}>×{lMult}</Text>
-                      </View>
-                      <View style={[s.customPriceRow, s.customPriceTotalRow]}>
-                        <Text style={s.customPriceTotalLabel}>Total</Text>
-                        <Text style={s.customPriceTotalVal}>${cPrice.toLocaleString()} MXN</Text>
-                      </View>
-                    </View>
-                  </View>
                 )}
               </View>
               );
@@ -1609,37 +1458,25 @@ export default function CreateAdvertisementScreen({ navigation, route }: any) {
                   )}
                 </View>
 
-                {/* Resumen del paquete o plan personalizado */}
-                {(selectedPackage || pkgMode === 'custom') && (() => {
-                  const dMult    = demandInfo?.multiplier ?? 1.0;
+                {/* Resumen del paquete */}
+                {selectedPackage && (() => {
                   const lMult    = LOCATION_MULT[locationType];
-                  const cMult    = cityStatus?.price_multiplier ?? 1.0;
-                  const cDays    = Math.max(1, parseInt(customDays, 10) || 1);
-                  const isCustom = pkgMode === 'custom' && !selectedPackage;
+                  const isVideoSummary = mediaType === 'video';
                   const totalPrice = calcFinalPrice({
-                    pkg:        isCustom ? null : selectedPackage,
-                    adType:     isCustom ? adType : null,
-                    dMult, lMult, cMult,
-                    customDays: cDays,
+                    pkg: selectedPackage,
+                    locationType,
+                    isVideo: isVideoSummary,
                   });
                   return (
                     <View style={s.summaryCard}>
-                      <Text style={s.summarySection}>{isCustom ? 'Plan personalizado' : 'Paquete seleccionado'}</Text>
+                      <Text style={s.summarySection}>Paquete seleccionado</Text>
                       <View style={s.summaryRow}>
                         <Text style={s.summaryKey}>Plan</Text>
-                        <Text style={s.summaryVal}>
-                          {isCustom ? `${cDays} días personalizados` : selectedPackage!.name}
-                        </Text>
+                        <Text style={s.summaryVal}>{selectedPackage.name}</Text>
                       </View>
                       <View style={s.summaryRow}>
                         <Text style={s.summaryKey}>Duración</Text>
-                        <Text style={s.summaryVal}>
-                          {isCustom
-                            ? `${cDays} días`
-                            : selectedPackage!.duration_days >= 30
-                              ? `${Math.round(selectedPackage!.duration_days / 30)} mes${selectedPackage!.duration_days >= 60 ? 'es' : ''}`
-                              : `${selectedPackage!.duration_days} días`}
-                        </Text>
+                        <Text style={s.summaryVal}>{selectedPackage.duration_days} días</Text>
                       </View>
                       {lMult > 1 && (
                         <View style={s.summaryRow}>
@@ -1651,10 +1488,10 @@ export default function CreateAdvertisementScreen({ navigation, route }: any) {
                           </Text>
                         </View>
                       )}
-                      {dMult > 1 && (
+                      {isVideoSummary && (
                         <View style={s.summaryRow}>
-                          <Text style={s.summaryKey}>Demanda</Text>
-                          <Text style={[s.summaryVal, { color: '#ef4444' }]}>×{dMult} 🔥</Text>
+                          <Text style={s.summaryKey}>Video</Text>
+                          <Text style={[s.summaryVal, { color: '#F59E0B' }]}>+35%</Text>
                         </View>
                       )}
                       <View style={[s.summaryRow, s.summaryRowTotal]}>
@@ -1729,14 +1566,11 @@ export default function CreateAdvertisementScreen({ navigation, route }: any) {
                     <ActivityIndicator color="#000" />
                   ) : (
                     <Text style={s.payBtnText}>
-                      💳 Pagar ${calcFinalPrice({
-                        pkg:        (pkgMode !== 'custom' && selectedPackage) ? selectedPackage : null,
-                        adType:     (pkgMode === 'custom' || !selectedPackage) ? adType : null,
-                        dMult:      demandInfo?.multiplier ?? 1.0,
-                        lMult:      LOCATION_MULT[locationType],
-                        cMult:      cityStatus?.price_multiplier ?? 1.0,
-                        customDays: Math.max(1, parseInt(customDays, 10) || 1),
-                      }).toLocaleString('es-MX')} MXN
+                      💳 Pagar ${selectedPackage ? calcFinalPrice({
+                        pkg:      selectedPackage,
+                        locationType,
+                        isVideo:  mediaType === 'video',
+                      }).toLocaleString('es-MX') : 0} MXN
                     </Text>
                   )}
                 </Pressable>
@@ -2024,66 +1858,6 @@ const s = StyleSheet.create({
     fontFamily: FONTS.bodyMedium, fontSize: 10, color: '#F59E0B',
     marginLeft: 8, marginTop: 2,
   },
-
-  // Tabs paquetes / personalizar (paso 3)
-  pkgModeTabs: {
-    flexDirection: 'row', gap: 8, marginBottom: 16,
-  },
-  pkgModeTab: {
-    flex: 1, paddingVertical: 10, alignItems: 'center',
-    borderRadius: RADIUS.lg, borderWidth: 1.5, borderColor: COLORS.border,
-    backgroundColor: COLORS.card,
-  },
-  pkgModeTabActive: {
-    borderColor: COLORS.green,
-    backgroundColor: 'rgba(0,230,118,0.08)',
-  },
-  pkgModeTabText: {
-    fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.muted2,
-  },
-  pkgModeTabTextActive: { color: COLORS.green },
-
-  // Panel personalizado
-  customPanel: {
-    backgroundColor: COLORS.card, borderRadius: RADIUS.xl,
-    borderWidth: 1, borderColor: COLORS.border,
-    padding: 16, marginBottom: 12,
-  },
-  customPanelTitle: {
-    fontFamily: FONTS.bodyMedium, fontSize: 14, color: COLORS.text, marginBottom: 14,
-  },
-  customDaysRow: {
-    flexDirection: 'row', gap: 8, alignItems: 'center', marginBottom: 16, flexWrap: 'wrap' as const,
-  },
-  customDayChip: {
-    paddingHorizontal: 14, paddingVertical: 8,
-    borderRadius: RADIUS.lg, borderWidth: 1.5, borderColor: COLORS.border,
-    backgroundColor: COLORS.card2,
-  },
-  customDayChipActive: { borderColor: COLORS.green, backgroundColor: 'rgba(0,230,118,0.1)' },
-  customDayChipText:       { fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.muted2 },
-  customDayChipTextActive: { color: COLORS.green },
-  customDaysInput: {
-    flex: 1, minWidth: 60, height: 38,
-    backgroundColor: COLORS.card2, borderRadius: RADIUS.lg,
-    borderWidth: 1.5, borderColor: COLORS.border,
-    paddingHorizontal: 10,
-    fontFamily: FONTS.body, fontSize: 13, color: COLORS.text,
-    textAlign: 'center' as const,
-  },
-  customPriceBox: {
-    backgroundColor: COLORS.card2, borderRadius: RADIUS.lg,
-    borderWidth: 1, borderColor: COLORS.border,
-    padding: 12, gap: 8,
-  },
-  customPriceRow:      { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  customPriceLabel:    { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2 },
-  customPriceVal:      { fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.text },
-  customPriceTotalRow: {
-    borderTopWidth: 1, borderTopColor: COLORS.border, paddingTop: 8, marginTop: 4,
-  },
-  customPriceTotalLabel: { fontFamily: FONTS.bodyMedium, fontSize: 14, color: COLORS.text },
-  customPriceTotalVal:   { fontFamily: FONTS.title, fontSize: 18, color: COLORS.green },
 
   // Resumen (paso 4)
   summaryCard: {

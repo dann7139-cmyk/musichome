@@ -186,7 +186,7 @@ export default function MapAddressPicker({
         {/* ── Map ── */}
         <MapView
           ref={mapRef}
-          style={StyleSheet.absoluteFillObject}
+          style={StyleSheet.absoluteFill}
           provider={PROVIDER_GOOGLE}
           customMapStyle={EARTH_STYLE}
           userInterfaceStyle="dark"

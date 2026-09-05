@@ -29,6 +29,8 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import Badge from '../../components/ui/Badge';
@@ -39,7 +41,33 @@ const { width: SW } = Dimensions.get('window');
 
 const MONTH_SHORT = ['ENE','FEB','MAR','ABR','MAY','JUN','JUL','AGO','SEP','OCT','NOV','DIC'];
 
+// Textos de los chips de estado vienen de i18n (t) — la función se llama
+// dentro del componente, donde el hook useTranslation ya está disponible.
+const getStatusChips = (t: TFunction) => ([
+  { key: 'pending',     label: t('adminDashboardScreen.statusChips.pending'),     color: '#FF9800', bg: 'rgba(255,152,0,0.15)'     },
+  { key: 'confirmed',   label: t('adminDashboardScreen.statusChips.confirmed'),   color: '#00E676', bg: 'rgba(0,230,118,0.12)'     },
+  { key: 'in_progress', label: t('adminDashboardScreen.statusChips.inProgress'),  color: '#40C4FF', bg: 'rgba(64,196,255,0.12)'    },
+  { key: 'completed',   label: t('adminDashboardScreen.statusChips.completed'),   color: '#B0BEC5', bg: 'rgba(176,190,197,0.12)'   },
+  { key: 'cancelled',   label: t('adminDashboardScreen.statusChips.cancelled'),   color: '#FF5252', bg: 'rgba(255,82,82,0.12)'     },
+] as const);
+
+// Textos de las acciones rápidas vienen de i18n (t) — la función se llama
+// dentro del componente, donde el hook useTranslation ya está disponible.
+const getQuickActions = (t: TFunction) => ([
+  { icon: Shield,    label: t('adminDashboardScreen.quickActions.verifications'), colors: ['#0d2a5e','#061530'], ic: '#40C4FF',  screen: 'AdminVerifications' },
+  { icon: AlertCircle, label: t('adminDashboardScreen.quickActions.disputes'),    colors: ['#3d0d0d','#200606'], ic: COLORS.red, screen: 'AdminDisputes' },
+  { icon: Users,     label: t('adminDashboardScreen.quickActions.groups'),        colors: ['#3d2a00','#1a1200'], ic: COLORS.gold,   screen: 'AdminGroups' },
+  { icon: Briefcase, label: t('adminDashboardScreen.quickActions.talents'),       colors: ['#1a0d3d','#0d0617'], ic: '#CE93D8',     screen: 'Talentos'    },
+  { icon: BarChart2, label: t('adminDashboardScreen.quickActions.stats'),         colors: ['#1a0d2e','#0d0617'], ic: '#CE93D8',  screen: 'AdminStats' },
+  { icon: DollarSign, label: t('adminDashboardScreen.quickActions.finances'),     colors: ['#002213','#000f09'], ic: COLORS.green, screen: 'AdminFinancial' },
+  { icon: BarChart2, label: t('adminDashboardScreen.quickActions.reports'),       colors: ['#002213','#000f09'], ic: COLORS.green, screen: 'AdminReports' },
+  { icon: Map,       label: t('adminDashboardScreen.quickActions.liveMap'),       colors: ['#001a2e','#000d17'], ic: '#40C4FF',  screen: 'AdminMap' },
+  { icon: Wallet,    label: t('adminDashboardScreen.quickActions.withdrawals'),   colors: ['#002213','#000f09'], ic: COLORS.green, screen: 'AdminFinancial' },
+  { icon: Megaphone, label: t('adminDashboardScreen.quickActions.ads'),           colors: ['#001a1a','#000d0d'], ic: '#00C4B4',    screen: 'AdApproval' },
+]);
+
 export default function AdminDashboardScreen({ navigation }: any) {
+  const { t } = useTranslation();
   const [refreshing,    setRefreshing]    = useState(false);
   const [unreadNotif,   setUnreadNotif]   = useState(0);
 
@@ -113,7 +141,15 @@ export default function AdminDashboardScreen({ navigation }: any) {
       .from('groups')
       .select('id', { count: 'exact', head: true })
       .or('photo_status.eq.pending,video_status.eq.pending');
-    setPendingMedia(mediaData.count ?? 0);
+    const eventPostsData = await supabase
+      .from('group_event_posts')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'pending');
+    const carouselVideosData = await supabase
+      .from('group_videos')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'pending');
+    setPendingMedia((mediaData.count ?? 0) + (eventPostsData.count ?? 0) + (carouselVideosData.count ?? 0));
 
     const adsData = await supabase
       .from('advertisements')
@@ -208,13 +244,13 @@ export default function AdminDashboardScreen({ navigation }: any) {
         });
         const refundFailed = refundErr || (refundData as any)?.error;
         if (refundFailed) {
-          const detail = (refundData as any)?.error ?? refundErr?.message ?? 'No se pudo procesar el reembolso.';
+          const detail = (refundData as any)?.error ?? refundErr?.message ?? t('adminDashboardScreen.noShowResolve.refundErrorDefault');
           Alert.alert(
-            'Error en reembolso',
-            `${detail}\n\nPuedes reintentar sin riesgo — la operación es idempotente (no genera doble reembolso).`,
+            t('adminDashboardScreen.noShowResolve.refundErrorTitle'),
+            t('adminDashboardScreen.noShowResolve.refundErrorMessage', { detail }),
             [
-              { text: 'Cerrar', style: 'cancel' },
-              { text: 'Reintentar', onPress: () => resolveNoShow(reservationId, groupId, resolution, applyStrike) },
+              { text: t('adminDashboardScreen.common.close'), style: 'cancel' },
+              { text: t('adminDashboardScreen.common.retry'), onPress: () => resolveNoShow(reservationId, groupId, resolution, applyStrike) },
             ],
           );
           return;
@@ -226,8 +262,8 @@ export default function AdminDashboardScreen({ navigation }: any) {
           p_strike_type:    'no_show',
           p_reservation_id: reservationId,
           p_note:           resolution === 'no_refund'
-            ? 'Strike fuerte — sin reembolso al cliente'
-            : 'Strike por no presentación al evento',
+            ? t('adminDashboardScreen.noShowResolve.strikeNoteNoRefund')
+            : t('adminDashboardScreen.noShowResolve.strikeNoteNoShow'),
         });
       }
       await supabase.rpc('admin_resolve_no_show', {
@@ -235,10 +271,10 @@ export default function AdminDashboardScreen({ navigation }: any) {
         p_resolution:     resolution,
       });
       Alert.alert(
-        'Resuelto',
-        resolution === 'refunded_100' ? 'Reembolso procesado y strike aplicado.' :
-        resolution === 'no_refund'    ? 'Strike aplicado. Sin reembolso al cliente.' :
-                                        'No-show marcado como revisado.',
+        t('adminDashboardScreen.noShowResolve.resolvedTitle'),
+        resolution === 'refunded_100' ? t('adminDashboardScreen.noShowResolve.resolvedRefunded') :
+        resolution === 'no_refund'    ? t('adminDashboardScreen.noShowResolve.resolvedNoRefund') :
+                                        t('adminDashboardScreen.noShowResolve.resolvedReviewed'),
       );
       await fetchAll();
     } finally {
@@ -255,10 +291,10 @@ export default function AdminDashboardScreen({ navigation }: any) {
         p_reservation_id: reservationId,
       });
       if (error || (data as any)?.ok === false) {
-        Alert.alert('No se pudo forzar el inicio', (data as any)?.error ?? error?.message ?? 'Intenta de nuevo.');
+        Alert.alert(t('adminDashboardScreen.forceStart.errorTitle'), (data as any)?.error ?? error?.message ?? t('adminDashboardScreen.common.tryAgain'));
         return;
       }
-      Alert.alert('Evento iniciado', 'Se marcó como en curso y se notificó al grupo y al cliente. El pago se libera al finalizar; la llegada GPS sigue siendo obligatoria.');
+      Alert.alert(t('adminDashboardScreen.forceStart.successTitle'), t('adminDashboardScreen.forceStart.successMessage'));
       await fetchAll();
     } finally {
       setResolvingId(null);
@@ -269,9 +305,9 @@ export default function AdminDashboardScreen({ navigation }: any) {
   const handlePhone = (who: string, phone?: string | null) => {
     if (!phone) return;
     Alert.alert(who, phone, [
-      { text: '📞 Llamar', onPress: () => Linking.openURL(`tel:${phone}`) },
-      { text: '📋 Copiar / compartir', onPress: () => Share.share({ message: phone }) },
-      { text: 'Cerrar', style: 'cancel' },
+      { text: t('adminDashboardScreen.phone.call'), onPress: () => Linking.openURL(`tel:${phone}`) },
+      { text: t('adminDashboardScreen.phone.copyShare'), onPress: () => Share.share({ message: phone }) },
+      { text: t('adminDashboardScreen.common.close'), style: 'cancel' },
     ]);
   };
 
@@ -282,15 +318,15 @@ export default function AdminDashboardScreen({ navigation }: any) {
     return (
       <View style={s.phoneRow}>
         {row.group_phone && (
-          <Pressable style={s.phoneChip} onPress={() => handlePhone(`Grupo · ${row.group_name ?? ''}`, row.group_phone)}>
+          <Pressable style={s.phoneChip} onPress={() => handlePhone(t('adminDashboardScreen.phone.groupWho', { name: row.group_name ?? '' }), row.group_phone)}>
             <Phone size={12} color={COLORS.green} />
-            <Text style={s.phoneChipText}>Llamar al grupo</Text>
+            <Text style={s.phoneChipText}>{t('adminDashboardScreen.phone.callGroup')}</Text>
           </Pressable>
         )}
         {row.client_phone && (
-          <Pressable style={s.phoneChip} onPress={() => handlePhone(`Cliente · ${row.client_name ?? ''}`, row.client_phone)}>
+          <Pressable style={s.phoneChip} onPress={() => handlePhone(t('adminDashboardScreen.phone.clientWho', { name: row.client_name ?? '' }), row.client_phone)}>
             <Phone size={12} color={COLORS.green} />
-            <Text style={s.phoneChipText}>Llamar al cliente</Text>
+            <Text style={s.phoneChipText}>{t('adminDashboardScreen.phone.callClient')}</Text>
           </Pressable>
         )}
       </View>
@@ -305,7 +341,7 @@ export default function AdminDashboardScreen({ navigation }: any) {
     try {
       const { data, error } = await supabase.rpc('admin_mark_no_show', { p_reservation_id: ev.id });
       if (error || (data as any)?.ok === false) {
-        Alert.alert('No se pudo marcar no-show', (data as any)?.error ?? error?.message ?? 'Intenta de nuevo.');
+        Alert.alert(t('adminDashboardScreen.stuckMenu.markNoShowErrorTitle'), (data as any)?.error ?? error?.message ?? t('adminDashboardScreen.common.tryAgain'));
         return;
       }
       // resolveNoShow maneja su propio estado/errores (reembolso idempotente + strike + notif)
@@ -317,46 +353,52 @@ export default function AdminDashboardScreen({ navigation }: any) {
 
   const handleStuckMenu = (ev: any) => {
     const precio = `$${(ev.total_price ?? 0).toLocaleString('es-MX', { maximumFractionDigits: 0 })}`;
-    const late   = ev.minutes_late != null ? `  ·  ${ev.minutes_late} min tarde` : '';
+    const late   = ev.minutes_late != null ? t('adminDashboardScreen.stuckMenu.lateSuffix', { minutes: ev.minutes_late }) : '';
     Alert.alert(
-      '¿Cómo resolver este evento atorado?',
-      `${ev.group_name ?? 'Grupo'} · ${ev.folio ?? ev.id.substring(0, 8)}\nCliente: ${ev.client_name ?? '—'} · ${precio}${late}`,
+      t('adminDashboardScreen.stuckMenu.title'),
+      t('adminDashboardScreen.stuckMenu.message', {
+        group: ev.group_name ?? t('adminDashboardScreen.stuckMenu.groupFallback'),
+        folio: ev.folio ?? ev.id.substring(0, 8),
+        client: ev.client_name ?? '—',
+        price: precio,
+        late,
+      }),
       [
         {
-          text: '▶️ Forzar inicio del evento',
+          text: t('adminDashboardScreen.stuckMenu.forceStartOption'),
           onPress: () => Alert.alert(
-            'Forzar inicio',
-            'Marca el evento como iniciado (GPS roto o grupo que sí llegó pero no pudo registrar). La llegada GPS del grupo sigue siendo obligatoria; el pago se libera al finalizar.',
+            t('adminDashboardScreen.stuckMenu.forceStartTitle'),
+            t('adminDashboardScreen.stuckMenu.forceStartMessage'),
             [
-              { text: 'Cancelar', style: 'cancel' },
-              { text: 'Forzar inicio', onPress: () => forceStartEvent(ev.id) },
+              { text: t('adminDashboardScreen.common.cancel'), style: 'cancel' },
+              { text: t('adminDashboardScreen.stuckMenu.forceStartButton'), onPress: () => forceStartEvent(ev.id) },
             ]
           ),
         },
         {
-          text: '💚 Grupo no irá — Reembolsar 100% + Strike',
+          text: t('adminDashboardScreen.stuckMenu.refundOption'),
           onPress: () => Alert.alert(
-            'Confirmar reembolso',
-            `Se cancelará el evento como no-show, se reembolsarán ${precio} al cliente y se aplicará un strike al grupo.`,
+            t('adminDashboardScreen.stuckMenu.refundConfirmTitle'),
+            t('adminDashboardScreen.stuckMenu.refundConfirmMessage', { price: precio }),
             [
-              { text: 'Cancelar', style: 'cancel' },
-              { text: 'Confirmar', onPress: () => markStuckNoShow(ev, 'refunded_100') },
+              { text: t('adminDashboardScreen.common.cancel'), style: 'cancel' },
+              { text: t('adminDashboardScreen.common.confirm'), onPress: () => markStuckNoShow(ev, 'refunded_100') },
             ]
           ),
         },
         {
-          text: '⛔ Grupo no irá — Sin reembolso + Strike',
+          text: t('adminDashboardScreen.stuckMenu.noRefundOption'),
           style: 'destructive',
           onPress: () => Alert.alert(
-            'Confirmar sin reembolso',
-            'Se cancelará el evento como no-show y se aplicará un strike al grupo. El cliente NO recibirá reembolso.',
+            t('adminDashboardScreen.stuckMenu.noRefundConfirmTitle'),
+            t('adminDashboardScreen.stuckMenu.noRefundConfirmMessage'),
             [
-              { text: 'Cancelar', style: 'cancel' },
-              { text: 'Aplicar', style: 'destructive', onPress: () => markStuckNoShow(ev, 'no_refund') },
+              { text: t('adminDashboardScreen.common.cancel'), style: 'cancel' },
+              { text: t('adminDashboardScreen.common.apply'), style: 'destructive', onPress: () => markStuckNoShow(ev, 'no_refund') },
             ]
           ),
         },
-        { text: 'Cerrar', style: 'cancel' },
+        { text: t('adminDashboardScreen.common.close'), style: 'cancel' },
       ]
     );
   };
@@ -367,13 +409,13 @@ export default function AdminDashboardScreen({ navigation }: any) {
       const { data, error } = await supabase.rpc('admin_verify_arrival_and_release', { p_reservation_id: ev.id });
       const rel = (data as any)?.release;
       if (error || (data as any)?.ok === false) {
-        Alert.alert('No se pudo liberar', (data as any)?.error ?? error?.message ?? 'Intenta de nuevo.');
+        Alert.alert(t('adminDashboardScreen.unverifiedPayouts.releaseErrorTitle'), (data as any)?.error ?? error?.message ?? t('adminDashboardScreen.common.tryAgain'));
         return;
       }
       if (rel && rel.ok && rel.skipped) {
-        Alert.alert('No se liberó', `El pago no se pudo liberar (motivo: ${rel.reason ?? 'desconocido'}). Revisa disputa o estado del pago.`);
+        Alert.alert(t('adminDashboardScreen.unverifiedPayouts.notReleasedTitle'), t('adminDashboardScreen.unverifiedPayouts.notReleasedMessage', { reason: rel.reason ?? t('adminDashboardScreen.unverifiedPayouts.unknownReason') }));
       } else {
-        Alert.alert('Pago liberado', 'Se marcó la llegada como verificada y se liberó el pago al grupo.');
+        Alert.alert(t('adminDashboardScreen.unverifiedPayouts.releasedTitle'), t('adminDashboardScreen.unverifiedPayouts.releasedMessage'));
       }
       await fetchAll();
     } finally {
@@ -386,10 +428,10 @@ export default function AdminDashboardScreen({ navigation }: any) {
     try {
       const { data, error } = await supabase.rpc('admin_block_unverified_payout', { p_reservation_id: ev.id });
       if (error || (data as any)?.ok === false) {
-        Alert.alert('No se pudo bloquear', (data as any)?.error ?? error?.message ?? 'Intenta de nuevo.');
+        Alert.alert(t('adminDashboardScreen.unverifiedPayouts.blockErrorTitle'), (data as any)?.error ?? error?.message ?? t('adminDashboardScreen.common.tryAgain'));
         return;
       }
-      Alert.alert('Pago bloqueado', 'El pago quedó bloqueado — no se libera al grupo.');
+      Alert.alert(t('adminDashboardScreen.unverifiedPayouts.blockedTitle'), t('adminDashboardScreen.unverifiedPayouts.blockedMessage'));
       await fetchAll();
     } finally {
       setResolvingId(null);
@@ -399,29 +441,34 @@ export default function AdminDashboardScreen({ navigation }: any) {
   const handleUnverifiedMenu = (ev: any) => {
     const precio = `$${(ev.total_price ?? 0).toLocaleString('es-MX', { maximumFractionDigits: 0 })}`;
     Alert.alert(
-      'Verificar llegada del grupo',
-      `${ev.group_name ?? 'Grupo'} · ${ev.folio ?? ev.id.substring(0, 8)}\nCliente: ${ev.client_name ?? '—'} · ${precio}\n\nEl grupo nunca marcó llegada GPS. Llama para confirmar si tocó el evento antes de liberar.`,
+      t('adminDashboardScreen.unverifiedPayouts.menuTitle'),
+      t('adminDashboardScreen.unverifiedPayouts.menuMessage', {
+        group: ev.group_name ?? t('adminDashboardScreen.stuckMenu.groupFallback'),
+        folio: ev.folio ?? ev.id.substring(0, 8),
+        client: ev.client_name ?? '—',
+        price: precio,
+      }),
       [
         {
-          text: '💚 Sí llegó — Liberar pago',
-          onPress: () => Alert.alert('Confirmar liberación',
-            'Se marcará la llegada como verificada y se liberará el pago al grupo.',
+          text: t('adminDashboardScreen.unverifiedPayouts.arrivedOption'),
+          onPress: () => Alert.alert(t('adminDashboardScreen.unverifiedPayouts.releaseConfirmTitle'),
+            t('adminDashboardScreen.unverifiedPayouts.releaseConfirmMessage'),
             [
-              { text: 'Cancelar', style: 'cancel' },
-              { text: 'Liberar', onPress: () => verifyAndReleasePayout(ev) },
+              { text: t('adminDashboardScreen.common.cancel'), style: 'cancel' },
+              { text: t('adminDashboardScreen.unverifiedPayouts.releaseButton'), onPress: () => verifyAndReleasePayout(ev) },
             ]),
         },
         {
-          text: '⛔ No llegó — Bloquear pago',
+          text: t('adminDashboardScreen.unverifiedPayouts.notArrivedOption'),
           style: 'destructive',
-          onPress: () => Alert.alert('Confirmar bloqueo',
-            'El pago quedará bloqueado (no se paga al grupo). Si procede reembolso al cliente, hazlo desde la cola de No-Shows.',
+          onPress: () => Alert.alert(t('adminDashboardScreen.unverifiedPayouts.blockConfirmTitle'),
+            t('adminDashboardScreen.unverifiedPayouts.blockConfirmMessage'),
             [
-              { text: 'Cancelar', style: 'cancel' },
-              { text: 'Bloquear', style: 'destructive', onPress: () => blockUnverifiedPayout(ev) },
+              { text: t('adminDashboardScreen.common.cancel'), style: 'cancel' },
+              { text: t('adminDashboardScreen.unverifiedPayouts.blockButton'), style: 'destructive', onPress: () => blockUnverifiedPayout(ev) },
             ]),
         },
-        { text: 'Cerrar', style: 'cancel' },
+        { text: t('adminDashboardScreen.common.close'), style: 'cancel' },
       ]
     );
   };
@@ -429,29 +476,34 @@ export default function AdminDashboardScreen({ navigation }: any) {
   const handleNoShowMenu = (ns: any) => {
     const precio = `$${(ns.total_price ?? 0).toLocaleString('es-MX', { maximumFractionDigits: 0 })}`;
     Alert.alert(
-      '¿Cómo resolver este no-show?',
-      `${ns.group_name ?? 'Grupo'} · ${ns.folio ?? ns.id.substring(0, 8)}\nCliente: ${ns.client_name ?? '—'} · ${precio}`,
+      t('adminDashboardScreen.noShowMenu.title'),
+      t('adminDashboardScreen.noShowMenu.message', {
+        group: ns.group_name ?? t('adminDashboardScreen.stuckMenu.groupFallback'),
+        folio: ns.folio ?? ns.id.substring(0, 8),
+        client: ns.client_name ?? '—',
+        price: precio,
+      }),
       [
         {
-          text: '✅ Reembolsar 100% + Strike',
+          text: t('adminDashboardScreen.noShowMenu.refundOption'),
           onPress: () => Alert.alert(
-            'Confirmar reembolso',
-            `Se reembolsarán ${precio} al cliente y se aplicará un strike al grupo.`,
+            t('adminDashboardScreen.stuckMenu.refundConfirmTitle'),
+            t('adminDashboardScreen.noShowMenu.refundConfirmMessage', { price: precio }),
             [
-              { text: 'Cancelar', style: 'cancel' },
-              { text: 'Confirmar', onPress: () => resolveNoShow(ns.id, ns.group_id, 'refunded_100', true) },
+              { text: t('adminDashboardScreen.common.cancel'), style: 'cancel' },
+              { text: t('adminDashboardScreen.common.confirm'), onPress: () => resolveNoShow(ns.id, ns.group_id, 'refunded_100', true) },
             ]
           ),
         },
         {
-          text: '⛔ Sin reembolso + Strike',
+          text: t('adminDashboardScreen.noShowMenu.noRefundOption'),
           style: 'destructive',
           onPress: () => Alert.alert(
-            'Confirmar sin reembolso',
-            'Se aplicará un strike al grupo. El cliente NO recibirá reembolso.',
+            t('adminDashboardScreen.stuckMenu.noRefundConfirmTitle'),
+            t('adminDashboardScreen.noShowMenu.noRefundConfirmMessage'),
             [
-              { text: 'Cancelar', style: 'cancel' },
-              { text: 'Aplicar', style: 'destructive', onPress: () => resolveNoShow(ns.id, ns.group_id, 'no_refund', true) },
+              { text: t('adminDashboardScreen.common.cancel'), style: 'cancel' },
+              { text: t('adminDashboardScreen.common.apply'), style: 'destructive', onPress: () => resolveNoShow(ns.id, ns.group_id, 'no_refund', true) },
             ]
           ),
         },
@@ -459,17 +511,17 @@ export default function AdminDashboardScreen({ navigation }: any) {
           // Archivar SÍ resuelve (lo saca de la cola al historial) — con
           // confirmación, porque antes "Cerrar sin acción" archivaba en
           // silencio y parecía que solo cerraba la ventana.
-          text: '📁 Archivar (revisado, sin acción)',
+          text: t('adminDashboardScreen.noShowMenu.archiveOption'),
           onPress: () => Alert.alert(
-            'Archivar no-show',
-            'Se marcará como revisado y pasará al historial. No habrá reembolso ni strike.',
+            t('adminDashboardScreen.noShowMenu.archiveConfirmTitle'),
+            t('adminDashboardScreen.noShowMenu.archiveConfirmMessage'),
             [
-              { text: 'Cancelar', style: 'cancel' },
-              { text: 'Archivar', onPress: () => resolveNoShow(ns.id, ns.group_id, 'reviewed', false) },
+              { text: t('adminDashboardScreen.common.cancel'), style: 'cancel' },
+              { text: t('adminDashboardScreen.noShowMenu.archiveButton'), onPress: () => resolveNoShow(ns.id, ns.group_id, 'reviewed', false) },
             ]
           ),
         },
-        { text: 'Cerrar', style: 'cancel' },
+        { text: t('adminDashboardScreen.common.close'), style: 'cancel' },
       ]
     );
   };
@@ -481,6 +533,9 @@ export default function AdminDashboardScreen({ navigation }: any) {
 
   const today = new Date();
   const dateStr = today.toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long' });
+
+  const STATUS_CHIPS = getStatusChips(t);
+  const QUICK_ACTIONS = getQuickActions(t);
 
   return (
     <View style={s.root}>
@@ -507,7 +562,7 @@ export default function AdminDashboardScreen({ navigation }: any) {
               <Pressable style={s.iconBtn} onPress={() => navigation.navigate('Notifications')}>
                 <Bell size={16} color={COLORS.muted2} />
                 {unreadNotif > 0 && (
-                  <View style={s.notifDot}><Text style={s.notifDotText}>{unreadNotif > 9 ? '9+' : unreadNotif}</Text></View>
+                  <View style={s.notifDot}><Text style={s.notifDotText}>{unreadNotif > 99 ? '99+' : unreadNotif}</Text></View>
                 )}
               </Pressable>
             </View>
@@ -517,7 +572,7 @@ export default function AdminDashboardScreen({ navigation }: any) {
           <Pressable style={s.walletWidget} onPress={() => navigation.navigate('Wallet')}>
             <LinearGradient
               colors={['rgba(0,230,118,0.10)', 'rgba(0,200,83,0.04)']}
-              style={StyleSheet.absoluteFillObject}
+              style={StyleSheet.absoluteFill}
               start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
             />
             <View style={s.walletLeft}>
@@ -534,7 +589,7 @@ export default function AdminDashboardScreen({ navigation }: any) {
               </View>
             </View>
             <View style={s.walletRight}>
-              <Pressable style={s.walletWithdrawBtn} onPress={() => navigation.navigate('Withdraw')}>
+              <Pressable style={s.walletWithdrawBtn} onPress={() => navigation.navigate('Withdraw', { available: walletBalance })}>
                 <Text style={s.walletWithdrawText}>Retirar →</Text>
               </Pressable>
             </View>
@@ -1046,6 +1101,7 @@ export default function AdminDashboardScreen({ navigation }: any) {
                 { icon: Map,       label: 'Mapa en vivo',   colors: ['#001a2e','#000d17'], ic: '#40C4FF',  screen: 'AdminMap' },
                 { icon: Wallet,    label: 'Retiros',        colors: ['#002213','#000f09'], ic: COLORS.green, screen: 'AdminFinancial' },
                 { icon: Megaphone, label: 'Anuncios',       colors: ['#001a1a','#000d0d'], ic: '#00C4B4',    screen: 'AdApproval' },
+                { icon: Phone,     label: 'Interés sin proveedor', colors: ['#3d2200','#1a0f00'], ic: '#FFB300', screen: 'AdminCategoryInterest' },
               ]).map(({ icon: Icon, label, colors, ic, screen }) => (
                 <Pressable key={label} style={s.actionBtnWrap} onPress={() => navigation.navigate(screen)}>
                   <LinearGradient colors={colors as any} style={s.actionBtn} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>

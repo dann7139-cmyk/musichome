@@ -38,6 +38,7 @@ async function verifyConektaPayment(orderId: string): Promise<{
   paid: boolean; amountCentavos: number; reservationId: string | null; methodType: string | null;
   feeCentavos: number | null; plusGroupId: string | null;
   promoKind: string | null; promoId: string | null;
+  giftOrderId: string | null;
   chargeId: string | null; currency: string;
 }> {
   const auth = btoa(`${PRIVATE_KEY}:`);
@@ -49,7 +50,7 @@ async function verifyConektaPayment(orderId: string): Promise<{
   });
   if (!res.ok) {
     console.error('[conekta-webhook] verify: no se pudo consultar la orden', orderId, res.status);
-    return { paid: false, amountCentavos: 0, reservationId: null, methodType: null, feeCentavos: null, plusGroupId: null, promoKind: null, promoId: null, chargeId: null, currency: 'MXN' };
+    return { paid: false, amountCentavos: 0, reservationId: null, methodType: null, feeCentavos: null, plusGroupId: null, promoKind: null, promoId: null, giftOrderId: null, chargeId: null, currency: 'MXN' };
   }
   const order = await res.json() as any;
 
@@ -80,6 +81,8 @@ async function verifyConektaPayment(orderId: string): Promise<{
     // 📣 Orden de publicidad (create-promo-conekta-order): ad | bid | rec
     promoKind:     order?.metadata?.promo_kind ?? null,
     promoId:       order?.metadata?.promo_id ?? null,
+    // 🎁 Orden de regalo/donación a un grupo (create-gift-order)
+    giftOrderId:   order?.metadata?.gift_order_id ?? null,
     // F2.2: identidad normalizada — provider_payment_id del gate = el
     // CHARGE (no la orden). charge.id existe aun sin fee capturado.
     chargeId:      charge?.id ?? null,
@@ -123,6 +126,45 @@ async function confirmPromoPayment(
     return false;  // 500 → Conekta reintenta (RPCs idempotentes)
   }
   console.log(`[conekta-webhook] 📣 Publicidad activada kind=${kind} id=${id} order=${orderId}`);
+  return true;
+}
+
+// ── 🎁 Confirmar regalo pagado con Conekta ───────────────────────────
+// Mismo patrón que confirmPromoPayment: verifica que lo COBRADO cubra
+// el monto de la orden (tolerancia $1) antes de acreditar, y llama a
+// confirm_gift_payment (idempotente, sql/567).
+async function confirmGiftPayment(
+  orderId: string, giftOrderId: string, paidCentavos: number,
+): Promise<boolean> {
+  const paidAmount = paidCentavos / 100;
+
+  const rowRes = await fetch(
+    `${SUPABASE_URL}/rest/v1/group_gifts?id=eq.${giftOrderId}&select=amount,status`,
+    { headers: serviceHeaders },
+  );
+  const rows = await rowRes.json().catch(() => []) as any[];
+  const row = rows?.[0];
+  const expected = Number(row?.amount);
+
+  if (row?.status === 'paid') {
+    console.log('[conekta-webhook] gift: ya estaba pagado (idempotente)', giftOrderId);
+    return true;
+  }
+
+  if (!Number.isFinite(expected) || paidAmount < expected - 1) {
+    console.error(`[conekta-webhook] ⚠️ MISMATCH gift ${giftOrderId}: cobrado=${paidAmount} orden=${expected} — NO se acredita`);
+    return true;  // ack sin acreditar (queda en logs); no reintentar algo que no cuadra
+  }
+
+  const rpcRes = await fetch(`${SUPABASE_URL}/rest/v1/rpc/confirm_gift_payment`, {
+    method: 'POST', headers: serviceHeaders,
+    body: JSON.stringify({ p_group_gift_id: giftOrderId, p_conekta_order_id: orderId }),
+  });
+  if (!rpcRes.ok) {
+    console.error('[conekta-webhook] gift: confirm_gift_payment falló', await rpcRes.text().catch(() => ''));
+    return false;  // 500 → Conekta reintenta (RPC idempotente)
+  }
+  console.log(`[conekta-webhook] 🎁 Regalo acreditado gift_order=${giftOrderId} order=${orderId}`);
   return true;
 }
 
@@ -202,6 +244,15 @@ Deno.serve(async (req) => {
     if (v.paid && v.promoKind && v.promoId) {
       const ok = await confirmPromoPayment(orderId, v.promoKind, v.promoId, v.amountCentavos);
       return new Response(JSON.stringify({ ok, promo_kind: v.promoKind, promo_id: v.promoId }), {
+        status: ok ? 200 : 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // 🎁 Orden de regalo/donación a un grupo — NO es una reserva: acredita y sale.
+    if (v.paid && v.giftOrderId) {
+      const ok = await confirmGiftPayment(orderId, v.giftOrderId, v.amountCentavos);
+      return new Response(JSON.stringify({ ok, gift_order_id: v.giftOrderId }), {
         status: ok ? 200 : 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });

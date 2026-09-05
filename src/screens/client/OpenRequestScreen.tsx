@@ -26,6 +26,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import { analyzeMessage, PHONE_WARNING } from '../../utils/phoneFilter';
+import { getClientActiveEvents, resolveEventContext } from '../../utils/eventBuilder';
+import { useTranslation } from 'react-i18next';
 import TimePickerModal from '../../components/ui/TimePickerModal';
 
 // ─── Datos ────────────────────────────────────────────────────────────────────
@@ -142,6 +144,11 @@ function fmtDate(d: string) {
 }
 
 export default function OpenRequestScreen({ navigation, route }: any) {
+  // NOTA: esta pantalla no tiene i18n (hueco preexistente, no se agregó
+  // ahora) — `t` solo se usa para el texto nuevo del constructor de
+  // evento (sql/585), el resto de la pantalla se queda en español fijo
+  // tal como ya estaba, sin tocarlo.
+  const { t } = useTranslation();
   // ── Tabs ──────────────────────────────────────────────────────────────────
   const initialTab = route?.params?.tab === 'mine' ? 'mine' : 'new';
   const [activeTab, setActiveTab] = useState<'new' | 'mine'>(initialTab);
@@ -267,8 +274,28 @@ export default function OpenRequestScreen({ navigation, route }: any) {
       }
     } catch {} // non-fatal — client_accept_proposal will catch mismatches
     try {
+      // sql/585 (Fase 1, pendiente de autorización de producción) —
+      // resuelve si esta reserva (nacida de una solicitud Express) se
+      // agrega a un evento existente. Decisión SIEMPRE explícita — nunca
+      // se infiere. Mientras sql/585 no esté aplicado, getClientActiveEvents()
+      // devuelve [] siempre → comportamiento idéntico al actual.
+      const activeEvents = await getClientActiveEvents();
+      const resolvedEventId = await resolveEventContext({ t, activeEvents });
+
       // 1. Crear reserva vía RPC
-      const { data, error } = await supabase.rpc('client_accept_proposal', { p_request_id: reqId });
+      // sql/585 (no aplicado) — client_accept_proposal en producción TODAVÍA
+      // NO tiene el parámetro p_event_id (confirmado por introspección
+      // directa 2026-08-31). Mandarlo siempre, aunque sea null, rompe el RPC
+      // completo con PGRST202 porque PostgREST resuelve la función por el
+      // conjunto exacto de nombres de parámetro — hallazgo real de esta
+      // ronda. Solo se incluye si hay un event_id real, con reintento
+      // defensivo sin él si el RPC de producción lo rechaza igual.
+      const acceptParams: Record<string, any> = { p_request_id: reqId };
+      if (resolvedEventId) acceptParams.p_event_id = resolvedEventId;
+      let { data, error } = await supabase.rpc('client_accept_proposal', acceptParams);
+      if (error?.code === 'PGRST202' && 'p_event_id' in acceptParams) {
+        ({ data, error } = await supabase.rpc('client_accept_proposal', { p_request_id: reqId }));
+      }
 
       if (error || !data?.ok) {
         const code = data?.error ?? error?.message ?? '';

@@ -25,15 +25,27 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 
-const STATUS_ES: Record<string, string> = {
-  completed: '🏁 Completado', in_progress: '🔴 En curso', accepted: '✅ Pagado',
-  confirmed: '✅ Confirmado', cancelled: '❌ Cancelado', rejected: '🚫 Rechazado',
-  pending: '⏳ Pendiente', pending_payment: '⏳ Por pagar', expired: '⌛ Expirado',
+// Textos de estatus vienen de i18n (t) — la función se llama dentro del
+// componente, donde el hook useTranslation ya está disponible.
+const getStLabel = (t: TFunction) => {
+  const STATUS_MAP: Record<string, string> = {
+    completed: t('adminTicketSearchScreen.status.completed'),
+    in_progress: t('adminTicketSearchScreen.status.inProgress'),
+    accepted: t('adminTicketSearchScreen.status.accepted'),
+    confirmed: t('adminTicketSearchScreen.status.confirmed'),
+    cancelled: t('adminTicketSearchScreen.status.cancelled'),
+    rejected: t('adminTicketSearchScreen.status.rejected'),
+    pending: t('adminTicketSearchScreen.status.pending'),
+    pending_payment: t('adminTicketSearchScreen.status.pendingPayment'),
+    expired: t('adminTicketSearchScreen.status.expired'),
+  };
+  return (s?: string | null) => STATUS_MAP[s ?? ''] ?? (s ?? '—');
 };
-const stLabel = (s?: string | null) => STATUS_ES[s ?? ''] ?? (s ?? '—');
 const money = (n: any, cur = 'MXN') =>
   `$${Number(n ?? 0).toLocaleString('es-MX', { maximumFractionDigits: 0 })} ${cur}`;
 const fecha = (d?: string | null) =>
@@ -46,6 +58,8 @@ const hora = (t?: string | null) => {
 const call = (phone?: string | null) => { if (phone) Linking.openURL(`tel:${phone}`); };
 
 export default function AdminTicketSearchScreen({ navigation, route }: any) {
+  const { t } = useTranslation();
+  const stLabel = getStLabel(t);
   const [query,    setQuery]    = useState('');
   const [loading,  setLoading]  = useState(false);
   const [results,  setResults]  = useState<any[] | null>(null);
@@ -69,7 +83,7 @@ export default function AdminTicketSearchScreen({ navigation, route }: any) {
         .limit(100);
       if (error) {
         console.error('[tickets-queue]', error.message);
-        Alert.alert('No se pudo cargar la cola de tickets', error.message);
+        Alert.alert(t('adminTicketSearchScreen.alerts.ticketsLoadFailed'), error.message);
       }
       setTickets(data ?? []);
     })();
@@ -89,7 +103,7 @@ export default function AdminTicketSearchScreen({ navigation, route }: any) {
     });
     setLoading(false);
     if (error || (data as any)?.ok === false) {
-      Alert.alert('Error', (data as any)?.error ?? error?.message ?? 'No se pudo cargar el expediente.');
+      Alert.alert(t('adminTicketSearchScreen.alerts.errorTitle'), (data as any)?.error ?? error?.message ?? t('adminTicketSearchScreen.alerts.detailLoadFailed'));
       return;
     }
     setDetail(data);
@@ -103,13 +117,13 @@ export default function AdminTicketSearchScreen({ navigation, route }: any) {
 
   const search = async () => {
     const q = query.trim();
-    if (q.length < 3) { Alert.alert('Escribe al menos 3 letras o números'); return; }
+    if (q.length < 3) { Alert.alert(t('adminTicketSearchScreen.alerts.searchMinChars')); return; }
     setLoading(true);
     setDetail(null);
     const { data, error } = await supabase.rpc('admin_search_expediente', { p_query: q });
     setLoading(false);
     if (error || (data as any)?.ok === false) {
-      Alert.alert('Error', (data as any)?.error ?? error?.message ?? 'No se pudo buscar.');
+      Alert.alert(t('adminTicketSearchScreen.alerts.errorTitle'), (data as any)?.error ?? error?.message ?? t('adminTicketSearchScreen.alerts.searchFailed'));
       return;
     }
     setResults((data as any)?.items ?? []);
@@ -129,7 +143,11 @@ export default function AdminTicketSearchScreen({ navigation, route }: any) {
         >
           <ArrowLeft size={22} color={COLORS.text} />
         </Pressable>
-        <Text style={s.headerTitle}>{detail ? `📂 ${r?.folio ?? 'Expediente'}` : '📂 Expediente'}</Text>
+        <Text style={s.headerTitle}>
+          {detail
+            ? t('adminTicketSearchScreen.header.folioTitle', { folio: r?.folio ?? t('adminTicketSearchScreen.header.defaultFolio') })
+            : t('adminTicketSearchScreen.header.title')}
+        </Text>
         <View style={{ width: 30 }} />
       </View>
 
@@ -138,7 +156,7 @@ export default function AdminTicketSearchScreen({ navigation, route }: any) {
         <View style={s.searchRow}>
           <TextInput
             style={s.input}
-            placeholder="Folio, cliente, grupo o teléfono"
+            placeholder={t('adminTicketSearchScreen.search.placeholder')}
             placeholderTextColor={COLORS.muted}
             value={query}
             onChangeText={setQuery}
@@ -159,7 +177,7 @@ export default function AdminTicketSearchScreen({ navigation, route }: any) {
         {/* ── 🎫 Tickets por descargar (vista inicial, sin búsqueda) ── */}
         {!detail && results === null && (
           <>
-            <Text style={s.giftTitle}>🎫 Tickets por descargar</Text>
+            <Text style={s.giftTitle}>{t('adminTicketSearchScreen.tickets.title')}</Text>
             {/* DOS botones separados por país */}
             <View style={s.countryBtnRow}>
               <Pressable
@@ -167,7 +185,7 @@ export default function AdminTicketSearchScreen({ navigation, route }: any) {
                 onPress={() => setTicketCountry(ticketCountry === 'MXN' ? null : 'MXN')}
               >
                 <Text style={s.countryBtnFlag}>🇲🇽</Text>
-                <Text style={[s.countryBtnTx, ticketCountry === 'MXN' && s.countryBtnTxOn]}>México</Text>
+                <Text style={[s.countryBtnTx, ticketCountry === 'MXN' && s.countryBtnTxOn]}>{t('adminTicketSearchScreen.tickets.countryMx')}</Text>
                 <Text style={s.countryBtnCount}>{ticketsMX.length}</Text>
               </Pressable>
               <Pressable
@@ -175,7 +193,7 @@ export default function AdminTicketSearchScreen({ navigation, route }: any) {
                 onPress={() => setTicketCountry(ticketCountry === 'USD' ? null : 'USD')}
               >
                 <Text style={s.countryBtnFlag}>🇺🇸</Text>
-                <Text style={[s.countryBtnTx, ticketCountry === 'USD' && s.countryBtnTxOn]}>EE.UU.</Text>
+                <Text style={[s.countryBtnTx, ticketCountry === 'USD' && s.countryBtnTxOn]}>{t('adminTicketSearchScreen.tickets.countryUs')}</Text>
                 <Text style={s.countryBtnCount}>{ticketsUS.length}</Text>
               </Pressable>
               <Pressable
@@ -183,7 +201,7 @@ export default function AdminTicketSearchScreen({ navigation, route }: any) {
                 onPress={() => setTicketCountry(ticketCountry === 'CAD' ? null : 'CAD')}
               >
                 <Text style={s.countryBtnFlag}>🇨🇦</Text>
-                <Text style={[s.countryBtnTx, ticketCountry === 'CAD' && s.countryBtnTxOn]}>Canadá</Text>
+                <Text style={[s.countryBtnTx, ticketCountry === 'CAD' && s.countryBtnTxOn]}>{t('adminTicketSearchScreen.tickets.countryCa')}</Text>
                 <Text style={s.countryBtnCount}>{ticketsCA.length}</Text>
               </Pressable>
             </View>
@@ -191,10 +209,10 @@ export default function AdminTicketSearchScreen({ navigation, route }: any) {
             {ticketCountry !== null && (
               <>
                 <Text style={s.giftHint}>
-                  🎁 = regalo · 🎫 = normal. Toca uno → "Ver ticket completo" → Descargar (el de regalo sale con su destinatario).
+                  {t('adminTicketSearchScreen.tickets.hint')}
                 </Text>
                 {ticketsShown.length === 0 && (
-                  <Text style={s.emptyText}>Sin eventos próximos pagados en este país.</Text>
+                  <Text style={s.emptyText}>{t('adminTicketSearchScreen.tickets.emptyCountry')}</Text>
                 )}
                 {ticketsShown.map((g: any) => (
                   <Pressable key={g.id} style={s.rowCard} onPress={() => openDetail(g.id)}>
@@ -203,8 +221,8 @@ export default function AdminTicketSearchScreen({ navigation, route }: any) {
                       <Text style={s.rowFolio}>{g.folio ?? g.id.substring(0, 8)}</Text>
                       <Text style={s.rowLine} numberOfLines={1}>
                         {g.is_gift
-                          ? `Para: ${g.gift_recipient_name ?? '—'} · ${g.group?.name ?? '—'}`
-                          : `${g.client?.full_name ?? '—'} · ${g.group?.name ?? '—'}`}
+                          ? t('adminTicketSearchScreen.tickets.giftFor', { name: g.gift_recipient_name ?? '—', group: g.group?.name ?? '—' })
+                          : t('adminTicketSearchScreen.tickets.clientGroup', { client: g.client?.full_name ?? '—', group: g.group?.name ?? '—' })}
                       </Text>
                       <Text style={s.rowMeta}>
                         {fecha(g.event_date)}{hora(g.event_time) ? ` · ${hora(g.event_time)}` : ''} · {money(g.total_price, g.currency_code ?? 'MXN')}
@@ -225,12 +243,12 @@ export default function AdminTicketSearchScreen({ navigation, route }: any) {
         {/* ── Resultados compactos ── */}
         {!detail && results !== null && (
           <Pressable hitSlop={8} onPress={() => { setResults(null); setQuery(''); }}>
-            <Text style={s.backToQueue}>← Volver a tickets por descargar</Text>
+            <Text style={s.backToQueue}>{t('adminTicketSearchScreen.results.backToQueue')}</Text>
           </Pressable>
         )}
         {!detail && results !== null && (
           results.length === 0
-            ? <Text style={s.emptyText}>Sin resultados — prueba con otra parte del folio, nombre o teléfono.</Text>
+            ? <Text style={s.emptyText}>{t('adminTicketSearchScreen.results.empty')}</Text>
             : results.map((it: any) => (
                 <Pressable key={it.id} style={s.rowCard} onPress={() => openDetail(it.id)}>
                   <View style={{ flex: 1 }}>
@@ -267,27 +285,27 @@ export default function AdminTicketSearchScreen({ navigation, route }: any) {
               {!!r.address && <Text style={s.detailLine}>📍 {r.address}</Text>}
               {r.event_lat != null && (
                 <Pressable hitSlop={6} onPress={() => Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${r.event_lat},${r.event_lng}`)}>
-                  <Text style={s.mapLink}>🗺️ Ver dirección en el mapa</Text>
+                  <Text style={s.mapLink}>{t('adminTicketSearchScreen.detail.mapLink')}</Text>
                 </Pressable>
               )}
               <Text style={s.detailLine}>
-                💰 {money(r.total_price, r.currency)} · {r.payment_method_type ? `${r.payment_method_type} · ` : ''}pago: {r.payment_status ?? '—'} · payout: {r.payout_status ?? '—'}
+                💰 {money(r.total_price, r.currency)} · {r.payment_method_type ? `${r.payment_method_type} · ` : ''}{t('adminTicketSearchScreen.detail.paymentLabel')}: {r.payment_status ?? '—'} · {t('adminTicketSearchScreen.detail.payoutLabel')}: {r.payout_status ?? '—'}
               </Text>
               {r.status === 'cancelled' && (
                 <Text style={[s.detailLine, { color: '#EF5350' }]}>
-                  ❌ Cancelado por: {r.cancelled_by ?? '—'}{r.cancel_reason ? ` · ${r.cancel_reason}` : ''}
+                  {t('adminTicketSearchScreen.detail.cancelledByPrefix')} {r.cancelled_by ?? '—'}{r.cancel_reason ? ` · ${r.cancel_reason}` : ''}
                 </Text>
               )}
               {/* Evidencia GPS */}
               <Text style={s.evidence}>
-                🚐 En camino: {r.group_en_route_at ? '✅' : '✖️'}
-                {'  ·  '}🔢 PIN: {r.event_started_at ? '✅' : '✖️'}
-                {'  ·  '}📍 Llegada: {r.group_arrived_at ? (r.arrival_gps_verified ? '✅ GPS' : '⚠️ sin GPS') : '✖️'}
-                {'  ·  '}🏁 Fin: {r.event_ended_at ? '✅' : '✖️'}
+                {t('adminTicketSearchScreen.detail.evidence.enRoute')} {r.group_en_route_at ? '✅' : '✖️'}
+                {'  ·  '}{t('adminTicketSearchScreen.detail.evidence.pin')} {r.event_started_at ? '✅' : '✖️'}
+                {'  ·  '}{t('adminTicketSearchScreen.detail.evidence.arrival')} {r.group_arrived_at ? (r.arrival_gps_verified ? t('adminTicketSearchScreen.detail.evidence.gpsVerified') : t('adminTicketSearchScreen.detail.evidence.gpsMissing')) : '✖️'}
+                {'  ·  '}{t('adminTicketSearchScreen.detail.evidence.end')} {r.event_ended_at ? '✅' : '✖️'}
               </Text>
               {r.transit_lat != null && r.event_lat != null && (
                 <Pressable hitSlop={6} onPress={() => Linking.openURL(`https://www.google.com/maps/dir/?api=1&origin=${r.transit_lat},${r.transit_lng}&destination=${r.event_lat},${r.event_lng}`)}>
-                  <Text style={s.mapLink}>⚖️ Comparar rastro del grupo → evento</Text>
+                  <Text style={s.mapLink}>{t('adminTicketSearchScreen.detail.compareTrack')}</Text>
                 </Pressable>
               )}
               <Pressable
@@ -300,8 +318,19 @@ export default function AdminTicketSearchScreen({ navigation, route }: any) {
                   if (data) navigation.navigate('Ticket', { reservation: data });
                 }}
               >
-                <Text style={s.ticketBtnText}>🎟 Ver ticket completo</Text>
+                <Text style={s.ticketBtnText}>{t('adminTicketSearchScreen.detail.viewTicketBtn')}</Text>
               </Pressable>
+              {/* sql/588 (no aplicado) — event_id todavía no viene en admin_expediente_detail
+                  en producción; el botón solo aparece cuando el campo existe, así que hoy
+                  no se muestra (cero riesgo) y aparecerá solo cuando sql/588 se autorice. */}
+              {!!r.event_id && (
+                <Pressable
+                  style={s.eventBtn}
+                  onPress={() => navigation.navigate('AdminEventDetail', { eventId: r.event_id })}
+                >
+                  <Text style={s.eventBtnText}>{t('adminTicketSearchScreen.detail.viewEventBtn')}</Text>
+                </Pressable>
+              )}
             </View>
 
             {/* Cliente */}
@@ -480,4 +509,9 @@ const s = StyleSheet.create({
     borderRadius: RADIUS.md, paddingVertical: 11, alignItems: 'center',
   },
   ticketBtnText: { fontFamily: FONTS.bodySemiBold, fontSize: 13.5, color: COLORS.bg },
+  eventBtn: {
+    marginTop: 8, backgroundColor: 'transparent', borderWidth: 1, borderColor: COLORS.green,
+    borderRadius: RADIUS.md, paddingVertical: 10, alignItems: 'center',
+  },
+  eventBtnText: { fontFamily: FONTS.bodySemiBold, fontSize: 13.5, color: COLORS.green },
 });

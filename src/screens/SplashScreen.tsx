@@ -1,9 +1,11 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import React, { useEffect, useRef } from 'react';
-import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
+import { Animated, Easing, Image, StyleSheet, Text, View } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { COLORS, FONTS } from '../config/theme';
 
 export default function SplashScreen() {
+  const { t } = useTranslation();
   const logoOpacity  = useRef(new Animated.Value(0)).current;
   const logoScale    = useRef(new Animated.Value(0.82)).current;
   const glowOpacity  = useRef(new Animated.Value(0)).current;
@@ -56,6 +58,9 @@ export default function SplashScreen() {
 
       {/* Logo block */}
       <Animated.View style={{ alignItems: 'center', opacity: logoOpacity, transform: [{ scale: logoScale }] }}>
+        {/* Marca (2026-09-04) — el logo real, arriba del wordmark */}
+        <Image source={require('../../assets/images/icon.png')} style={s.mark} resizeMode="contain" />
+
         {/* Live dot */}
         <Animated.View style={[s.liveDot, { transform: [{ scale: dotPulse }] }]} />
 
@@ -75,7 +80,7 @@ export default function SplashScreen() {
       <Animated.Text
         style={[s.tagline, { opacity: taglineOp, transform: [{ translateY: taglineY }] }]}
       >
-        Música para tu evento, en minutos
+        {t('splashScreen.tagline')}
       </Animated.Text>
     </View>
   );
@@ -99,6 +104,11 @@ const s = StyleSheet.create({
     left: '50%',
     marginTop: -140,
     marginLeft: -140,
+  },
+  mark: {
+    width: 88,
+    height: 88,
+    marginBottom: 14,
   },
   liveDot: {
     width: 8,

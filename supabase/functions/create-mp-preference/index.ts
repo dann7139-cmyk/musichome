@@ -21,8 +21,23 @@ function jsonRes(body: Record<string, unknown>) {
   });
 }
 
-Deno.serve(async (req) => {
+// Mercado Pago desactivado (auditoría 2026-08-08) — Stripe y Conekta son
+// los únicos proveedores activos de Daricefy. Tipado como `boolean` (no
+// literal `false`) a propósito: evita que TypeScript marque el resto de
+// esta función como código muerto y pierda el narrowing de tipos.
+const MERCADOPAGO_ACTIVE: boolean = false;
+
+// Exportado además de registrado con Deno.serve más abajo, únicamente
+// para poder importarlo desde pruebas locales sin desplegar ni levantar
+// un servidor HTTP real — cero cambio de comportamiento en producción.
+export async function handleRequest(req: Request): Promise<Response> {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+
+  // Corte explícito ANTES de leer MERCADOPAGO_ACCESS_TOKEN o crear
+  // cualquier preferencia de pago: cero llamada a la API de Mercado Pago.
+  if (!MERCADOPAGO_ACTIVE) {
+    return jsonRes({ error: 'Mercado Pago ya no es un proveedor activo de Daricefy.', code: 'provider_disabled' });
+  }
 
   // Env vars y cliente dentro del handler (evita crash al inicializar módulo)
   const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
@@ -193,4 +208,8 @@ Deno.serve(async (req) => {
     console.error('[create-mp-preference] Error:', msg);
     return jsonRes({ error: msg });
   }
-});
+}
+
+if (import.meta.main) {
+  Deno.serve(handleRequest);
+}

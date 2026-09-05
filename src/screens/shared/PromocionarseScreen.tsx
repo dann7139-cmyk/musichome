@@ -63,7 +63,7 @@ const PROMO_CARDS: PromoCard[] = [
     gradient:    ['#1F1008', '#3D1F00'],
     accent:      '#FF6D00',
     description: 'Aparece como grupo recomendado en los resultados de búsqueda de tu ciudad durante el tiempo que elijas.',
-    price:       'Desde $79 · 1 día',
+    price:       'Desde $199 · 3 días',
     badge:       '⚡ Alta conversión',
     screen:      'Recommendation',
     roles:       ['group'],
@@ -75,7 +75,7 @@ const PROMO_CARDS: PromoCard[] = [
     gradient:    ['#1A1500', '#2E2200'],
     accent:      '#C9A84C',
     description: 'Tu grupo aparece en la sección "Destacados" del inicio — la columna dorada, primera a la vista. Visibilidad máxima en tu zona.',
-    price:       'Desde $499 · 7 días',
+    price:       'Desde $169 · 3 días',
     badge:       '⭐ Premium',
     screen:      'AdvertisingPackages',
     screenParams: { initialType: 'sponsored_group' },
@@ -87,12 +87,15 @@ const PROMO_CARDS: PromoCard[] = [
     icon:        <Megaphone size={28} color="#00E676" />,
     gradient:    ['#001A0D', '#003319'],
     accent:      '#00E676',
-    description: 'Un banner de imagen o video que aparece en el carousel del inicio de TODOS los usuarios de la app.',
-    price:       'Desde $499 · 7 días',
+    description: 'Un banner de imagen o video que aparece en Explorador Y en Inicio — lo ven TODOS los usuarios de la app.',
+    price:       'Desde $229 · 3 días',
     badge:       '📢 Mayor alcance',
     screen:      'AdvertisingPackages',
     screenParams: { initialType: 'banner_home' },
-    roles:       ['group', 'client', 'talent'],
+    // Petición real (2026-09-04): "mejor que el cliente no pague
+    // anuncios porque van a querer poner números y brincarme" — cliente
+    // quitado, reforzado también en el servidor (sql/608).
+    roles:       ['group', 'talent'],
   },
   {
     key:         'profile_ad',
@@ -100,11 +103,11 @@ const PROMO_CARDS: PromoCard[] = [
     icon:        <User size={28} color="#4285F4" />,
     gradient:    ['#050D1F', '#0A1A3D'],
     accent:      '#4285F4',
-    description: 'Tu anuncio aparece en la parte inferior del perfil de grupos. Impacta a usuarios que ya están listos para contratar.',
-    price:       'Desde $299 · 7 días',
+    description: 'Tu anuncio aparece en la parte inferior del perfil de proveedores de OTRA categoría (nunca en la tuya, cero competencia directa). Impacta a usuarios que ya están listos para contratar.',
+    price:       'Desde $129 · 3 días',
     screen:      'AdvertisingPackages',
     screenParams: { initialType: 'profile_ad' },
-    roles:       ['group', 'client', 'talent'],
+    roles:       ['group', 'talent'],
   },
 ];
 
@@ -113,23 +116,30 @@ const PROMO_CARDS: PromoCard[] = [
 export default function PromocionarseScreen({ navigation }: any) {
   const { role } = useAuth();
 
+  // Petición real (2026-09-03, corregida sql/607): CUALQUIERA puede
+  // comprar "Anuncio de perfil" — la restricción ya no es de quién
+  // compra, es de DÓNDE se muestra (get_profile_ads solo lo enseña en
+  // perfiles de categoría distinta a la del anunciante, así un músico
+  // nunca sale en el perfil de otro músico, pero sí en el de Comida/
+  // Payasos/Renta/Fotógrafos, y viceversa). Nada que filtrar aquí.
   const visibleCards = PROMO_CARDS.filter(c =>
     c.roles.includes((role ?? 'client') as any)
   );
 
   const isGroup  = role === 'group';
-  const title    = isGroup ? 'Promocionarse' : 'Publicidad';
   const subtitle = isGroup
     ? 'Elige cómo quieres que te encuentren más clientes'
     : 'Llega a más personas con tu anuncio';
 
   return (
     <SafeAreaView edges={['top']} style={s.container}>
-      {/* Header */}
+      {/* Header — petición real (2026-09-03): el tab de abajo ya dice
+          "Publicidad"/"Promocionarse", repetirlo arriba era redundante.
+          Se deja el subtítulo porque sí aporta algo (explica qué hace la
+          pantalla, no solo repite dónde estás). */}
       <View style={s.header}>
         <View>
-          <Text style={s.title}>{isGroup ? '🚀' : '📢'} {title}</Text>
-          <Text style={s.subtitle}>{subtitle}</Text>
+          <Text style={s.subtitle}>{isGroup ? '🚀' : '📢'} {subtitle}</Text>
         </View>
       </View>
 

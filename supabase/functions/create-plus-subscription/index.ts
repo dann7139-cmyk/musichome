@@ -142,6 +142,11 @@ Deno.serve(async (req) => {
       customer:                           stripeCustomerId,
       'items[0][price]':                  priceId,
       payment_behavior:                   'default_incomplete',
+      // Forzado explícito: si queda en 'send_invoice' (por default de la
+      // cuenta o del customer), Stripe finaliza la factura sin generar
+      // NINGÚN payment_intent/confirmation_secret para tarjeta — encaja
+      // exacto con "invoice=open pero sin pi ni confSecret" que se vio.
+      collection_method:                  'charge_automatically',
       'payment_settings[save_default_payment_method]': 'on_subscription',
       'metadata[group_id]':               group_id,
       'metadata[owner_id]':               user.id,
@@ -171,14 +176,124 @@ Deno.serve(async (req) => {
       return jsonRes({ error: sub?.error?.message ?? 'Error al crear suscripción en Stripe' });
     }
 
-    const setupIntentClientSecret: string | null =
-      sub.pending_setup_intent?.client_secret ?? null;
-    const paymentIntentClientSecret: string | null =
-      sub.latest_invoice?.payment_intent?.client_secret ?? null;
+    // 🆕 Stripe reemplazó invoice.payment_intent por invoice.confirmation_secret
+    // en versiones recientes de la API de Billing — el campo viejo ya no se
+    // llena (por eso salía "invoice=object(open) pi=undefined": la factura
+    // sí existe, solo que ya no expone payment_intent directo). Cuando
+    // confirmation_secret.type='payment_intent', su client_secret es
+    // exactamente el mismo formato que necesita el PaymentSheet.
+    const extractSecrets = (s: any) => ({
+      setupSecret: s.pending_setup_intent?.client_secret ?? null,
+      paySecret:
+        s.latest_invoice?.payment_intent?.client_secret ??
+        (s.latest_invoice?.confirmation_secret?.type === 'payment_intent'
+          ? s.latest_invoice.confirmation_secret.client_secret
+          : null) ?? null,
+    });
+
+    let { setupSecret: setupIntentClientSecret, paySecret: paymentIntentClientSecret } = extractSecrets(sub);
+    let diagSource: any = sub;
+
+    // 🔁 Reintento de respaldo por si Stripe sí tarda en generar el invoice
+    // en algún caso — no debería hacer falta con confirmation_secret, pero
+    // se deja como red de seguridad.
+    if (!setupIntentClientSecret && !paymentIntentClientSecret) {
+      console.warn('[Plus] Sin client_secret en la respuesta inicial — reintentando con espera.', {
+        subscription_id: sub.id,
+        hadTrial,
+        latest_invoice: sub.latest_invoice,
+        pending_setup_intent: sub.pending_setup_intent,
+        status: sub.status,
+      });
+
+      const expandParams = new URLSearchParams();
+      expandParams.append('expand[]', 'latest_invoice.payment_intent');
+      expandParams.append('expand[]', 'pending_setup_intent');
+
+      for (const delayMs of [1500, 2500, 3000]) {
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+
+        const refetchRes = await fetch(
+          `https://api.stripe.com/v1/subscriptions/${sub.id}?${expandParams.toString()}`,
+          { headers: { Authorization: `Bearer ${STRIPE_KEY}` } },
+        );
+        const refetched = await refetchRes.json();
+
+        if (!refetchRes.ok) {
+          console.error('[Plus] Reintento GET falló:', JSON.stringify(refetched));
+          continue;
+        }
+
+        diagSource = refetched;
+        const secrets = extractSecrets(refetched);
+        setupIntentClientSecret = secrets.setupSecret;
+        paymentIntentClientSecret = secrets.paySecret;
+
+        if (setupIntentClientSecret || paymentIntentClientSecret) {
+          console.log(`[Plus] client_secret recuperado tras espera de ${delayMs}ms — sub=${sub.id}`);
+          break;
+        }
+      }
+    }
+
+    // 🛠️ Último recurso: esta cuenta de Stripe no está generando el
+    // payment_intent/confirmation_secret automático de la factura (se
+    // descartó send_invoice y confirmation_secret — sigue sin aparecer por
+    // razones de la cuenta que no controlamos desde aquí). En vez de
+    // seguir dependiendo de eso, se crea el cobro EXPLÍCITAMENTE nosotros
+    // mismos por el monto exacto de la factura, y se le avisa a Stripe que
+    // esa factura quedó pagada (paid_out_of_band) en cuanto el cliente
+    // pague — eso dispara customer.subscription.updated → activate_plus,
+    // la MISMA ruta que ya usan las renovaciones automáticas.
+    if (!setupIntentClientSecret && !paymentIntentClientSecret && diagSource.latest_invoice?.id && diagSource.latest_invoice?.amount_due > 0) {
+      console.warn('[Plus] Invoice sin payment_intent/confirmation_secret — creando PaymentIntent manual.', {
+        subscription_id: sub.id, invoice_id: diagSource.latest_invoice.id, amount_due: diagSource.latest_invoice.amount_due,
+      });
+
+      const piRes = await fetch('https://api.stripe.com/v1/payment_intents', {
+        method: 'POST',
+        headers: {
+          Authorization:  `Bearer ${STRIPE_KEY}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({
+          amount:   String(diagSource.latest_invoice.amount_due),
+          currency: currency,
+          customer: stripeCustomerId,
+          'automatic_payment_methods[enabled]': 'true',
+          setup_future_usage: 'off_session',
+          'metadata[plus_group_id]':        group_id,
+          'metadata[plus_invoice_id]':       diagSource.latest_invoice.id,
+          'metadata[plus_subscription_id]':  sub.id,
+        }),
+      });
+      const pi = await piRes.json();
+
+      if (piRes.ok && pi.client_secret) {
+        paymentIntentClientSecret = pi.client_secret;
+        console.log(`[Plus] PaymentIntent manual creado: ${pi.id} para invoice=${diagSource.latest_invoice.id}`);
+      } else {
+        console.error('[Plus] Error creando PaymentIntent manual:', JSON.stringify(pi));
+      }
+    }
 
     if (!setupIntentClientSecret && !paymentIntentClientSecret) {
-      console.error('[Plus] Sin client_secret en subscription:', sub.id, 'hadTrial:', hadTrial);
-      return jsonRes({ error: 'No se recibió el token de configuración de pago' });
+      console.error('[Plus] Sin client_secret tras reintento — subscription:', sub.id, 'hadTrial:', hadTrial,
+        'latest_invoice:', JSON.stringify(diagSource.latest_invoice), 'pending_setup_intent:', JSON.stringify(diagSource.pending_setup_intent));
+
+      // 🔎 Diagnóstico temporal en el propio mensaje de error — no tenemos
+      // acceso a los logs del servidor desde aquí, así que el Alert que ve
+      // el usuario ya trae lo necesario para encontrar la causa exacta.
+      const invType = typeof diagSource.latest_invoice;
+      const invStatus = invType === 'object' ? (diagSource.latest_invoice?.status ?? 'sin status') : diagSource.latest_invoice ?? 'null';
+      const piType = invType === 'object' ? typeof diagSource.latest_invoice?.payment_intent : 'n/a';
+      const confSecretType = invType === 'object' ? (diagSource.latest_invoice?.confirmation_secret?.type ?? 'ausente') : 'n/a';
+      const setupType = typeof diagSource.pending_setup_intent;
+      const collMethod = diagSource.collection_method ?? 'n/a';
+      const amountDue = invType === 'object' ? (diagSource.latest_invoice?.amount_due ?? 'n/a') : 'n/a';
+      const diag = `sub=${diagSource.status} coll=${collMethod} hadTrial=${hadTrial} invoice=${invType}(${invStatus}) due=${amountDue} pi=${piType} confSecret=${confSecretType} setup=${setupType}`;
+
+      return jsonRes({ error: `No se recibió el token de configuración de pago. [${diag}]` });
     }
 
     // ── Guardar en plus_subscriptions ─────────────────────────────────

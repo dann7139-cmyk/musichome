@@ -1,12 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  Alert, Animated, Image, KeyboardAvoidingView, Platform, Pressable,
+  Alert, Animated, Image, KeyboardAvoidingView, Linking, Platform, Pressable,
   ScrollView, StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import MapView, { Circle as MapCircle, Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import * as Location from 'expo-location';
 import {
-  CheckCircle, Clock, DollarSign, MapPin, Scale, Truck, XCircle,
+  CheckCircle, Clock, DollarSign, MapPin, Phone, Scale, Truck, XCircle,
 } from 'lucide-react-native';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import { EARTH_STYLE } from '../../constants/mapStyle';
@@ -297,6 +297,22 @@ const STAGE_LABELS: Record<string, string> = {
 const LED_LABELS: Record<string, string> = {
   no: 'No necesita', medium: 'Mediana', large: 'Grande', xl: 'XL boda',
 };
+// sql/591 — a qué se refiere el banner de coordinación entre grupos
+const COORD_MISSING_LABELS: Record<string, string> = {
+  sound: '🎵 El sonido grande', lighting: '💡 La luz premium',
+  stage: '🎭 El escenario grande', led: '📺 La pantalla LED grande',
+};
+// Pronombre para "ya LO/LA tiene" — concuerda con el género de cada cosa
+// (el sonido/escenario → "lo", la luz/pantalla → "la").
+const COORD_PRONOUN: Record<string, string> = {
+  sound: 'lo', lighting: 'la', stage: 'lo', led: 'la',
+};
+// "prestártelo/prestártela" ya conjugado — evitar armar la palabra a pedazos
+// (concatenar "prestár" + pronombre daba "prestárlo", mal acentuado y sin
+// el "te" de "a ti").
+const COORD_PRESTA: Record<string, string> = {
+  sound: 'prestártelo', lighting: 'prestártela', stage: 'prestártelo', led: 'prestártela',
+};
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -350,6 +366,14 @@ export interface QuoteFormSharedProps {
   needsLighting?: string | null;
   needsStage?: string | null;
   needsLed?: string | null;
+  /** sql/591 — otro proveedor del mismo evento YA cubre lo que este grupo
+   *  no tiene (ej. sonido grande); null/undefined = no aplica, no mostrar nada. */
+  soundCoordination?: {
+    needed: boolean;
+    missing?: 'sound' | 'lighting' | 'stage' | 'led';
+    partner_name?: string;
+    partner_phone?: string | null;
+  } | null;
 
   // Client card (mode='quote')
   clientName?: string;
@@ -647,6 +671,33 @@ export default function QuoteFormShared(p: QuoteFormSharedProps) {
               {p.needsLed && p.needsLed !== 'no'
                 ? <DetailRow label="📺 Pantalla LED" value={LED_LABELS[p.needsLed] ?? p.needsLed} />
                 : null}
+            </View>
+          ) : null}
+
+          {/* sql/591 — otro grupo del mismo evento YA tiene el equipo grande
+              que a este le falta. Nunca bloquea responder sin contactar —
+              es solo una sugerencia para que se coordinen entre ellos y no
+              se dupliquen (o falten) equipo en el mismo evento. */}
+          {p.soundCoordination?.needed ? (
+            <View style={[s.section, s.coordBox]}>
+              <Text style={s.coordTitle}>
+                🤝 Coordina con el otro proveedor
+              </Text>
+              <Text style={s.coordText}>
+                {COORD_MISSING_LABELS[p.soundCoordination.missing ?? 'sound']} ya {COORD_PRONOUN[p.soundCoordination.missing ?? 'sound']} tiene{' '}
+                <Text style={s.coordName}>{p.soundCoordination.partner_name}</Text>. Pregúntale cuánto te
+                cobra por {COORD_PRESTA[p.soundCoordination.missing ?? 'sound']} — así lo sumas a tu precio
+                para el cliente, en vez de rentarlo aparte.
+              </Text>
+              {!!p.soundCoordination.partner_phone && (
+                <Pressable
+                  style={s.coordCallBtn}
+                  onPress={() => Linking.openURL(`tel:${p.soundCoordination!.partner_phone}`)}
+                >
+                  <Phone size={15} color={COLORS.bg} />
+                  <Text style={s.coordCallBtnText}>Llamar a {p.soundCoordination.partner_name}</Text>
+                </Pressable>
+              )}
             </View>
           ) : null}
 
@@ -1116,6 +1167,19 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: COLORS.border, padding: 12,
   },
   commentText: { fontFamily: FONTS.body, fontSize: 14, color: COLORS.text, lineHeight: 22, fontStyle: 'italic' },
+
+  coordBox: {
+    backgroundColor: 'rgba(0,230,118,0.08)', borderRadius: RADIUS.lg,
+    borderWidth: 1, borderColor: COLORS.green + '50', padding: 14, gap: 8,
+  },
+  coordTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: COLORS.green },
+  coordText:  { fontFamily: FONTS.body, fontSize: 13, color: COLORS.text, lineHeight: 19 },
+  coordName:  { fontFamily: FONTS.bodySemiBold, color: COLORS.text },
+  coordCallBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    backgroundColor: COLORS.green, borderRadius: RADIUS.md, paddingVertical: 10, marginTop: 2,
+  },
+  coordCallBtnText: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.bg },
 
   fieldLabel: {
     fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.muted2,

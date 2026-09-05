@@ -808,7 +808,7 @@ export default function GroupEventsScreen({ navigation }: any) {
             <Bell size={18} color={COLORS.muted2} />
             {unreadCount > 0 && (
               <View style={st.badgeDot}>
-                <Text style={st.badgeDotText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
+                <Text style={st.badgeDotText}>{unreadCount > 99 ? '99+' : unreadCount}</Text>
               </View>
             )}
           </Pressable>

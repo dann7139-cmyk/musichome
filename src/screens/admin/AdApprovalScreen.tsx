@@ -1,13 +1,14 @@
-import { Audio } from 'expo-av';
+import { setAudioModeAsync } from 'expo-audio';
 import * as ImagePicker from 'expo-image-picker';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import VideoPlayer from '../../components/ui/VideoPlayer';
 import { LinearGradient } from 'expo-linear-gradient';
-import { AlertCircle, Check, Clock, Eye, Image as ImageIcon, Pause, Play, Trash2, Video as VideoIcon, X } from 'lucide-react-native';
+import { AlertCircle, Check, Clock, Eye, Image as ImageIcon, Pause, Pencil, Play, Trash2, Video as VideoIcon, X } from 'lucide-react-native';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Dimensions,
   GestureResponderEvent,
   Image,
   Modal,
@@ -20,27 +21,31 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import { checkMediaSize, uploadMediaToStorage } from '../../utils/uploadMediaToStorage';
+import { looksLikeHevc } from '../../utils/videoCodecCheck';
 import { COUNTRY_LIST, STATES_BY_COUNTRY } from '../../utils/locationUtils';
+import { PROVIDER_CATEGORIES, categoryKeyForGenre } from '../../constants/providerCategories';
 
-const STATUS_TABS = [
-  { key: 'all',            label: 'Todos',      color: '#94A3B8' },
-  { key: 'active',         label: 'Activos',    color: COLORS.green },
-  { key: 'pending_review', label: 'Pendientes', color: '#F59E0B' },
-  { key: 'paused',         label: 'Pausados',   color: COLORS.muted2 },
-  { key: 'rejected',       label: 'Rechazados', color: '#EF4444' },
-  { key: 'expired',        label: 'Expirados',  color: '#6B7280' },
+const getStatusTabs = (t: TFunction) => [
+  { key: 'all',            label: t('adminAdApprovalScreen.statusTabs.all'),           color: '#94A3B8' },
+  { key: 'active',         label: t('adminAdApprovalScreen.statusTabs.active'),        color: COLORS.green },
+  { key: 'pending_review', label: t('adminAdApprovalScreen.statusTabs.pendingReview'), color: '#F59E0B' },
+  { key: 'paused',         label: t('adminAdApprovalScreen.statusTabs.paused'),        color: COLORS.muted2 },
+  { key: 'rejected',       label: t('adminAdApprovalScreen.statusTabs.rejected'),      color: '#EF4444' },
+  { key: 'expired',        label: t('adminAdApprovalScreen.statusTabs.expired'),       color: '#6B7280' },
 ] as const;
 
-const TYPE_LABELS: Record<string, string> = {
-  banner_home:       'Banner Home',
-  sponsored_group:   'Grupo Destacado',
-  profile_ad:        'Anuncio en Perfil',
-  bid_order:         'Bidding',
-  recommendation_ad: 'Recomendado',
-};
+const getTypeLabels = (t: TFunction): Record<string, string> => ({
+  banner_home:       t('adminAdApprovalScreen.typeLabels.bannerHome'),
+  sponsored_group:   t('adminAdApprovalScreen.typeLabels.sponsoredGroup'),
+  profile_ad:        t('adminAdApprovalScreen.typeLabels.profileAd'),
+  bid_order:         t('adminAdApprovalScreen.typeLabels.bidOrder'),
+  recommendation_ad: t('adminAdApprovalScreen.typeLabels.recommendationAd'),
+});
 
 const TYPE_COLORS: Record<string, string> = {
   banner_home:       '#00E676',
@@ -50,32 +55,32 @@ const TYPE_COLORS: Record<string, string> = {
   recommendation_ad: '#FF6D00',
 };
 
-const TYPE_FILTERS = [
-  { key: null,                label: 'Todos' },
-  { key: 'banner_home',       label: '📢 Banner' },
-  { key: 'sponsored_group',   label: '⭐ Destacado' },
-  { key: 'profile_ad',        label: '👤 Perfil' },
-  { key: 'bid_order',         label: '⬆️ Bidding' },
-  { key: 'recommendation_ad', label: '🔥 Reco.' },
+const getTypeFilters = (t: TFunction) => [
+  { key: null,                label: t('adminAdApprovalScreen.typeFilters.all') },
+  { key: 'banner_home',       label: t('adminAdApprovalScreen.typeFilters.banner') },
+  { key: 'sponsored_group',   label: t('adminAdApprovalScreen.typeFilters.sponsored') },
+  { key: 'profile_ad',        label: t('adminAdApprovalScreen.typeFilters.profile') },
+  { key: 'bid_order',         label: t('adminAdApprovalScreen.typeFilters.bidding') },
+  { key: 'recommendation_ad', label: t('adminAdApprovalScreen.typeFilters.recommendation') },
 ];
 
 // ── Tipos para el modal de creación ─────────────────────────────────────────
-const IMAGE_AD_TYPES = [
-  { key: 'banner_home', label: 'Banner', icon: '📢', color: '#00E676' },
-  { key: 'profile_ad',  label: 'Perfil', icon: '👤', color: '#4285F4' },
+const getImageAdTypes = (t: TFunction) => [
+  { key: 'banner_home', label: t('adminAdApprovalScreen.imageAdTypes.banner'), icon: '📢', color: '#00E676' },
+  { key: 'profile_ad',  label: t('adminAdApprovalScreen.imageAdTypes.profile'), icon: '👤', color: '#4285F4' },
 ];
 
-const GROUP_PROMO_TYPES = [
-  { key: 'sponsored'      as const, label: 'Destacado',   icon: '⭐', color: '#C9A84C' },
-  { key: 'recommendation' as const, label: 'Recomendado', icon: '🔥', color: '#FF6D00' },
-  { key: 'bidding'        as const, label: 'Bidding',      icon: '⬆️', color: '#A78BFA' },
+const getGroupPromoTypes = (t: TFunction) => [
+  { key: 'sponsored'      as const, label: t('adminAdApprovalScreen.groupPromoTypes.sponsored'),      icon: '⭐', color: '#C9A84C' },
+  { key: 'recommendation' as const, label: t('adminAdApprovalScreen.groupPromoTypes.recommendation'), icon: '🔥', color: '#FF6D00' },
+  { key: 'bidding'        as const, label: t('adminAdApprovalScreen.groupPromoTypes.bidding'),        icon: '⬆️', color: '#A78BFA' },
 ];
 
-const FREE_DURATIONS = [
-  { days: 7,  label: '7 días' },
-  { days: 30, label: '30 días' },
-  { days: 60, label: '60 días' },
-  { days: 0,  label: 'Sin límite' },
+const getFreeDurations = (t: TFunction) => [
+  { days: 7,  label: t('adminAdApprovalScreen.freeDurations.days7') },
+  { days: 30, label: t('adminAdApprovalScreen.freeDurations.days30') },
+  { days: 60, label: t('adminAdApprovalScreen.freeDurations.days60') },
+  { days: 0,  label: t('adminAdApprovalScreen.freeDurations.unlimited') },
 ];
 
 function isExpired(ad: any) {
@@ -107,6 +112,13 @@ function sortAds(list: any[], tabKey: string) {
 }
 
 export default function AdApprovalScreen({ navigation }: any) {
+  const { t } = useTranslation();
+  const STATUS_TABS       = getStatusTabs(t);
+  const TYPE_LABELS       = getTypeLabels(t);
+  const TYPE_FILTERS      = getTypeFilters(t);
+  const IMAGE_AD_TYPES    = getImageAdTypes(t);
+  const GROUP_PROMO_TYPES = getGroupPromoTypes(t);
+  const FREE_DURATIONS    = getFreeDurations(t);
   const [ads, setAds]               = useState<any[]>([]);
   const [tab, setTab]               = useState<string>('all');
   const [typeFilter, setTypeFilter] = useState<string | null>(null);
@@ -129,7 +141,7 @@ export default function AdApprovalScreen({ navigation }: any) {
   const [freeTitle, setFreeTitle]       = useState('');
   const [freeSub, setFreeSub]           = useState('');
   const [freeShowBtn, setFreeShowBtn]   = useState(true);
-  const [freeBtnText, setFreeBtnText]   = useState('Ver más');
+  const [freeBtnText, setFreeBtnText]   = useState(t('adminAdApprovalScreen.createModal.buttonTextDefault'));
   const [freeLinkUrl, setFreeLinkUrl]   = useState(''); // enlace que abre el botón
   const [freeImageUrl, setFreeImageUrl] = useState('');
   const [freeMediaType, setFreeMediaType] = useState<'image' | 'video'>('image');
@@ -149,6 +161,7 @@ export default function AdApprovalScreen({ navigation }: any) {
   const [freeGroupId, setFreeGroupId]   = useState<string | null>(null);
   const [freeGroupSearch, setFreeGroupSearch] = useState('');
   const [freeGroupSearchDisplay, setFreeGroupSearchDisplay] = useState('');
+  const [freeGroupCategory, setFreeGroupCategory] = useState<string | null>(null); // filtro por categoría (sql/610: 5 plazas por categoría)
   const [searchLoading, setSearchLoading] = useState(false);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Refs del trimmer de video (evitan closure stale en gestos)
@@ -165,6 +178,9 @@ export default function AdApprovalScreen({ navigation }: any) {
   // Duración compartida
   const [freeDays, setFreeDays]         = useState(30);
   const [freeCreating, setFreeCreating] = useState(false);
+  // ── Editar anuncio gratis ya publicado (sql/583) — reusa el mismo modal
+  // y los mismos campos "free*" de arriba; solo cambia qué RPC se llama.
+  const [editingAdId, setEditingAdId]   = useState<string | null>(null);
 
   useEffect(() => { fetchAds(); }, []);
 
@@ -187,11 +203,25 @@ export default function AdApprovalScreen({ navigation }: any) {
   useEffect(() => { vdRef.current = freeVideoDurationSecs; }, [freeVideoDurationSecs]);
   useEffect(() => { vtRef.current = freeVideoTotalSecs; },    [freeVideoTotalSecs]);
 
-  // Cargar video en trimPlayer cuando se sube
+  // Cargar video en trimPlayer cuando se sube (o al editar un anuncio que
+  // ya tenía uno). Al editar no sabemos la duración TOTAL del video
+  // original — solo se guarda el recorte elegido (duration_seconds) — así
+  // que se toma del reproductor en cuanto carga los metadatos reales,
+  // igual que si acabara de subirse. Sin esto la barra de recorte nunca
+  // se dibuja al editar (necesita freeVideoTotalSecs > 0).
   useEffect(() => {
-    if (freeMediaType === 'video' && freeImageUrl) {
-      trimPlayer.replace({ uri: freeImageUrl, useCaching: true });
-    }
+    if (freeMediaType !== 'video' || !freeImageUrl) return;
+    trimPlayer.replace({ uri: freeImageUrl, useCaching: true });
+    const sub = trimPlayer.addListener('statusChange', ({ status }) => {
+      if (status === 'readyToPlay' && trimPlayer.duration > 0) {
+        const total = Math.max(1, Math.round(trimPlayer.duration));
+        setFreeVideoTotalSecs(prev => (prev > 0 ? prev : total));
+        // Si no había un recorte guardado (video completo, sin trim), que
+        // el recorte por default sea el video entero — no un rango de 0s.
+        setFreeVideoDurationSecs(prev => (prev > 0 ? prev : total));
+      }
+    });
+    return () => sub.remove();
   }, [freeImageUrl, freeMediaType]);
 
   const fetchAds = async () => {
@@ -313,24 +343,28 @@ export default function AdApprovalScreen({ navigation }: any) {
 
   // ── Actions ────────────────────────────────────────────────────────────────
   const handleApprove = async (id: string, title: string) => {
-    Alert.alert('Aprobar anuncio', `¿Aprobar "${title}"?`, [
-      { text: 'Cancelar', style: 'cancel' },
-      {
-        text: 'Aprobar', style: 'default',
-        onPress: async () => {
-          const { data, error } = await supabase.rpc('approve_ad', { p_id: id, p_duration_days: null });
-          if (error) { Alert.alert('Error', error.message); return; }
-          if (data?.ok === false) {
-            const msg = data.error === 'limit_reached'
-              ? `Límite alcanzado: ya hay ${data.count} anuncios activos de tipo "${data.type}" (máx ${data.limit}).`
-              : (data.error ?? 'No se pudo aprobar');
-            Alert.alert('No se puede aprobar', msg);
-            return;
-          }
-          fetchAds();
+    Alert.alert(
+      t('adminAdApprovalScreen.alerts.approve.title'),
+      t('adminAdApprovalScreen.alerts.approve.message', { title }),
+      [
+        { text: t('adminAdApprovalScreen.alerts.approve.cancel'), style: 'cancel' },
+        {
+          text: t('adminAdApprovalScreen.alerts.approve.confirm'), style: 'default',
+          onPress: async () => {
+            const { data, error } = await supabase.rpc('approve_ad', { p_id: id, p_duration_days: null });
+            if (error) { Alert.alert(t('adminAdApprovalScreen.alerts.error'), error.message); return; }
+            if (data?.ok === false) {
+              const msg = data.error === 'limit_reached'
+                ? t('adminAdApprovalScreen.alerts.approve.limitReached', { count: data.count, type: data.type, limit: data.limit })
+                : (data.error ?? t('adminAdApprovalScreen.alerts.approve.genericFail'));
+              Alert.alert(t('adminAdApprovalScreen.alerts.approve.cannotApproveTitle'), msg);
+              return;
+            }
+            fetchAds();
+          },
         },
-      },
-    ]);
+      ]
+    );
   };
 
   const handleReject = async () => {
@@ -338,21 +372,23 @@ export default function AdApprovalScreen({ navigation }: any) {
     const { error } = await supabase.rpc('reject_ad', {
       p_id: rejectModal.id, p_reason: rejectReason.trim() || null,
     });
-    if (error) { Alert.alert('Error', error.message); return; }
+    if (error) { Alert.alert(t('adminAdApprovalScreen.alerts.error'), error.message); return; }
     setRejectModal(null);
     setRejectReason('');
     fetchAds();
   };
 
   const handleToggle = async (id: string, title: string, status: string) => {
-    const action = status === 'active' ? 'pausar' : 'reactivar';
-    Alert.alert(`¿${action} anuncio?`, title, [
-      { text: 'Cancelar', style: 'cancel' },
+    const action = status === 'active'
+      ? t('adminAdApprovalScreen.alerts.toggle.pauseVerb')
+      : t('adminAdApprovalScreen.alerts.toggle.reactivateVerb');
+    Alert.alert(t('adminAdApprovalScreen.alerts.toggle.title', { action }), title, [
+      { text: t('adminAdApprovalScreen.alerts.approve.cancel'), style: 'cancel' },
       {
         text: action.charAt(0).toUpperCase() + action.slice(1), style: 'default',
         onPress: async () => {
           const { error } = await supabase.rpc('toggle_ad', { p_id: id });
-          if (error) { Alert.alert('Error', error.message); return; }
+          if (error) { Alert.alert(t('adminAdApprovalScreen.alerts.error'), error.message); return; }
           fetchAds();
         },
       },
@@ -361,16 +397,16 @@ export default function AdApprovalScreen({ navigation }: any) {
 
   const handleDelete = (id: string, title: string) => {
     Alert.alert(
-      'Eliminar anuncio',
-      `¿Eliminar permanentemente "${title}"?`,
+      t('adminAdApprovalScreen.alerts.delete.title'),
+      t('adminAdApprovalScreen.alerts.delete.message', { title }),
       [
-        { text: 'Cancelar', style: 'cancel' },
+        { text: t('adminAdApprovalScreen.alerts.delete.cancel'), style: 'cancel' },
         {
-          text: 'Eliminar', style: 'destructive',
+          text: t('adminAdApprovalScreen.alerts.delete.confirm'), style: 'destructive',
           onPress: async () => {
             const { data, error } = await supabase.rpc('delete_ad', { p_id: id });
-            if (error) { Alert.alert('Error', error.message); return; }
-            if (data?.ok === false) { Alert.alert('Error', data.error ?? 'No se pudo eliminar'); return; }
+            if (error) { Alert.alert(t('adminAdApprovalScreen.alerts.error'), error.message); return; }
+            if (data?.ok === false) { Alert.alert(t('adminAdApprovalScreen.alerts.error'), data.error ?? t('adminAdApprovalScreen.alerts.delete.genericFail')); return; }
             fetchAds();
           },
         },
@@ -380,7 +416,7 @@ export default function AdApprovalScreen({ navigation }: any) {
 
   // ── Crear anuncio gratis ───────────────────────────────────────────────────
   const resetCreateForm = () => {
-    setFreeTitle(''); setFreeSub(''); setFreeShowBtn(true); setFreeBtnText('Ver más'); setFreeLinkUrl('');
+    setFreeTitle(''); setFreeSub(''); setFreeShowBtn(true); setFreeBtnText(t('adminAdApprovalScreen.createModal.buttonTextDefault')); setFreeLinkUrl('');
     setFreeImageUrl(''); setFreeMediaType('image');
     setFreeVideoStartSecs(0); setFreeVideoDurationSecs(0); setFreeVideoTotalSecs(0);
     if (playTimerRef.current) clearTimeout(playTimerRef.current);
@@ -388,10 +424,49 @@ export default function AdApprovalScreen({ navigation }: any) {
     setFreeTargetScope('all'); setFreeTargetCountry('');
     setFreeState(''); setFreeDays(30);
     setFreeType('banner_home'); setFreeSegment(0);
-    setFreeGroupId(null); setFreeGroupSearch(''); setFreeGroupSearchDisplay('');
+    setFreeGroupId(null); setFreeGroupSearch(''); setFreeGroupSearchDisplay(''); setFreeGroupCategory(null);
     setFreeGroupPromoType('sponsored'); setFreeBidAmount(100);
     setSearchLoading(false);
     if (searchTimer.current) clearTimeout(searchTimer.current);
+    setEditingAdId(null);
+  };
+
+  // ── Abrir el modal ya lleno con los datos de un anuncio gratis existente ───
+  const openEditModal = (ad: any) => {
+    setEditingAdId(ad.id);
+    setFreeSegment(0);
+    setFreeType(ad.type ?? 'banner_home');
+    setFreeTitle(ad.title ?? '');
+    setFreeSub(ad.subtitle ?? '');
+    setFreeShowBtn(!!ad.button_text);
+    setFreeBtnText(ad.button_text ?? t('adminAdApprovalScreen.createModal.buttonTextDefault'));
+    setFreeLinkUrl(ad.link_url ?? '');
+    setFreeImageUrl(ad.media_url ?? '');
+    setFreeMediaType(ad.media_type === 'video' ? 'video' : 'image');
+    setFreeVideoStartSecs(ad.video_start_seconds ?? 0);
+    setFreeVideoDurationSecs(ad.duration_seconds ?? 0);
+    // freeVideoTotalSecs NO se llena aquí — la duración total del video
+    // original nunca se guarda en BD (solo el recorte elegido). La llena
+    // el efecto de arriba en cuanto el reproductor carga el video real.
+    setFreeVideoTotalSecs(0);
+    if (ad.target_state) {
+      setFreeTargetScope('state');
+      setFreeState(ad.target_state);
+      setFreeTargetCountry(ad.target_country ?? '');
+    } else if (ad.target_country && ad.target_country !== 'global') {
+      setFreeTargetScope('country');
+      setFreeTargetCountry(ad.target_country);
+      setFreeState('');
+    } else {
+      setFreeTargetScope('all');
+      setFreeTargetCountry(''); setFreeState('');
+    }
+    // Duración total original (para no "resetear" cuándo se publicó al editar)
+    const startsMs = ad.starts_at ? new Date(ad.starts_at).getTime() : Date.now();
+    const endsMs   = ad.ends_at ? new Date(ad.ends_at).getTime() : null;
+    setFreeDays(endsMs ? Math.max(1, Math.round((endsMs - startsMs) / 86400000)) : 30);
+    setCreateModal(true);
+    if (groups.length === 0) fetchGroups();
   };
 
   // ── Subir imagen/video al bucket de anuncios (streaming, no memoria) ────────
@@ -410,7 +485,7 @@ export default function AdApprovalScreen({ navigation }: any) {
 
     // Validar tamaño ANTES de subir — error claro en vez de timeout
     const sizeError = checkMediaSize(asset.fileSize, isVideo);
-    if (sizeError) { Alert.alert('Archivo muy pesado', sizeError); return; }
+    if (sizeError) { Alert.alert(t('adminAdApprovalScreen.alerts.heavyFile.title'), sizeError); return; }
 
     // Usar el MIME y extensión REALES del archivo — un .mov de iPhone subido
     // como "video/mp4" puede no reproducirse en el banner.
@@ -421,6 +496,39 @@ export default function AdApprovalScreen({ navigation }: any) {
       ? (mime.includes('quicktime') || uriExt === 'mov' ? 'mov' : 'mp4')
       : (mime.includes('png') ? 'png' : mime.includes('webp') ? 'webp' : 'jpg');
     const contentType = mime;
+
+    // Hallazgo real (2026-09-02): un .mov subido con la etiqueta CORRECTA
+    // igual falló en reproducirse para un cliente Android — el contenedor
+    // .mov en sí es propenso a fallar ahí en expo-video/ExoPlayer, sin
+    // importar que el MIME esté bien puesto. No hay forma de convertir el
+    // archivo aquí (no hay pipeline de transcodificación), así que se
+    // avisa ANTES de subir para que el admin pueda elegir un .mp4 en vez.
+    //
+    // Ampliado (2026-09-02, hallazgo real en producción): el problema de
+    // fondo NO es la extensión .mov — es el CÓDEC HEVC/H.265 que trae
+    // adentro. Un video HEVC dentro de un .mp4 tendría el mismo problema
+    // y el aviso de arriba no lo habría detectado. `looksLikeHevc` revisa
+    // el códec real del archivo (nunca bloquea si falla la lectura).
+    if (isVideo) {
+      const isMov = ext === 'mov';
+      const isHevc = await looksLikeHevc(asset.uri, asset.fileSize);
+      if (isMov || isHevc) {
+        const proceed = await new Promise<boolean>(resolve => {
+          Alert.alert(
+            isHevc ? '⚠️ Video en códec HEVC/H.265' : '⚠️ Video en formato .mov',
+            isHevc
+              ? 'Este video usa el códec HEVC/H.265 (común en iPhone) — muchos Android NO lo pueden reproducir, sin importar el formato del archivo. Si tienes el mismo video exportado en H.264, es más seguro usarlo. ¿Subir de todos modos?'
+              : 'Este video viene en formato .mov (típico de iPhone). Puede NO reproducirse para usuarios de Android — se ha visto fallar antes. Si tienes el mismo video en .mp4, es más seguro usarlo. ¿Subir de todos modos?',
+            [
+              { text: 'Cancelar', style: 'cancel', onPress: () => resolve(false) },
+              { text: 'Subir de todos modos', style: 'destructive', onPress: () => resolve(true) },
+            ],
+            { cancelable: true, onDismiss: () => resolve(false) },
+          );
+        });
+        if (!proceed) return;
+      }
+    }
     // Carpeta del uid — mismo patrón que CreateAdvertisementScreen, compatible
     // con policies de storage restringidas por carpeta del usuario.
     const { data: sd } = await supabase.auth.getSession();
@@ -456,7 +564,7 @@ export default function AdApprovalScreen({ navigation }: any) {
   // ── Play/pause del preview de trim ─────────────────────────────────────────
   const handlePreviewPlay = () => {
     if (playTimerRef.current) clearTimeout(playTimerRef.current);
-    Audio.setAudioModeAsync({ playsInSilentModeIOS: true, staysActiveInBackground: false }).catch(() => {});
+    setAudioModeAsync({ playsInSilentMode: true, shouldPlayInBackground: false }).catch(() => {});
     trimPlayer.currentTime = vsRef.current;
     trimPlayer.play();
     setPreviewPlaying(true);
@@ -507,7 +615,9 @@ export default function AdApprovalScreen({ navigation }: any) {
           Alert.alert('Título requerido', 'Escribe un título para el anuncio.');
           return;
         }
-        const { data, error } = await supabase.rpc('create_free_ad', {
+        const rpcName = editingAdId ? 'update_free_ad' : 'create_free_ad';
+        const rpcArgs: Record<string, any> = {
+          ...(editingAdId ? { p_id: editingAdId } : {}),
           p_type:          freeType,
           p_title:         freeTitle.trim(),
           p_subtitle:      freeSub.trim() || null,
@@ -520,9 +630,10 @@ export default function AdApprovalScreen({ navigation }: any) {
           p_link_url:           freeLinkUrl.trim() || null,
           p_duration_seconds:   freeMediaType === 'video' && freeVideoDurationSecs > 0 ? freeVideoDurationSecs : null,
           p_video_start_seconds: freeMediaType === 'video' ? freeVideoStartSecs : 0,
-        });
+        };
+        const { data, error } = await supabase.rpc(rpcName, rpcArgs);
         if (error || data?.ok === false) {
-          Alert.alert('Error', error?.message ?? data?.error ?? 'No se pudo crear');
+          Alert.alert('Error', error?.message ?? data?.error ?? (editingAdId ? 'No se pudo guardar' : 'No se pudo crear'));
           return;
         }
       } else {
@@ -566,21 +677,28 @@ export default function AdApprovalScreen({ navigation }: any) {
   const fetchGroups = async () => {
     setGroupsLoading(true);
     const now = new Date().toISOString();
-    const [grpRes, sponRes, recRes, bidRes] = await Promise.all([
-      supabase.from('groups').select('id, name, city, state').eq('is_active', true).order('name'),
+    const [grpRes, sponRes, recRes] = await Promise.all([
+      // bid_amount/bid_ends_at directo de groups: es lo único que el
+      // Explorador (HomeScreen) de verdad lee para el ranking/insignia
+      // "🔥 Top X" — hallazgo real (sql/613): bid_orders puede estar vacío
+      // aunque el grupo SÍ esté pujando (place_bid nunca inserta ahí), así
+      // que sacar la insignia de bid_orders mentía. Se corrige a la fuente real.
+      supabase.from('groups').select('id, name, city, state, genre, bid_amount, bid_ends_at').eq('is_active', true).order('name'),
       supabase.from('sponsored_groups').select('group_id, ends_at').eq('is_active', true),
       supabase.from('recommendation_orders').select('group_id, ends_at').eq('status', 'paid').or(`ends_at.is.null,ends_at.gt.${now}`),
-      supabase.from('bid_orders').select('group_id, ends_at').eq('status', 'paid').or(`ends_at.is.null,ends_at.gt.${now}`),
     ]);
     const sponMap = new Map((sponRes.data ?? []).map((s: any) => [s.group_id, s.ends_at]));
     const recMap  = new Map((recRes.data ?? []).map((r: any) => [r.group_id, r.ends_at]));
-    const bidMap  = new Map((bidRes.data ?? []).map((b: any) => [b.group_id, b.ends_at]));
-    setGroups((grpRes.data ?? []).map((g: any) => ({
-      ...g,
-      sponsored: sponMap.has(g.id),   sponsoredEndsAt: sponMap.get(g.id) ?? null,
-      recommended: recMap.has(g.id),  recommendedEndsAt: recMap.get(g.id) ?? null,
-      bidding: bidMap.has(g.id),      biddingEndsAt: bidMap.get(g.id) ?? null,
-    })));
+    setGroups((grpRes.data ?? []).map((g: any) => {
+      const biddingActive = (g.bid_amount ?? 0) > 0 && g.bid_ends_at && new Date(g.bid_ends_at) > new Date();
+      return {
+        ...g,
+        categoryKey: categoryKeyForGenre(g.genre),
+        sponsored: sponMap.has(g.id),   sponsoredEndsAt: sponMap.get(g.id) ?? null,
+        recommended: recMap.has(g.id),  recommendedEndsAt: recMap.get(g.id) ?? null,
+        bidding: biddingActive,         biddingEndsAt: biddingActive ? g.bid_ends_at : null,
+      };
+    }));
     setGroupsLoading(false);
   };
 
@@ -602,9 +720,10 @@ export default function AdApprovalScreen({ navigation }: any) {
     return ((clicks / impressions) * 100).toFixed(1);
   };
 
-  // Grupos filtrados para el buscador del modal
+  // Grupos filtrados para el buscador del modal (nombre + categoría)
   const modalFilteredGroups = groups
     .filter(g => !freeGroupSearch || g.name.toLowerCase().includes(freeGroupSearch.toLowerCase()))
+    .filter(g => !freeGroupCategory || g.categoryKey === freeGroupCategory)
     .slice(0, 8);
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -852,6 +971,13 @@ export default function AdApprovalScreen({ navigation }: any) {
                         <Eye size={14} color={COLORS.muted2} />
                         <Text style={s.actionBtnText}>Ver</Text>
                       </Pressable>
+                      {/* ✏️ Editar — solo anuncios gratis del admin (sql/583), nunca los pagados */}
+                      {!ad._source && ad.is_free && (
+                        <Pressable style={s.actionBtn} onPress={() => openEditModal(ad)}>
+                          <Pencil size={14} color={COLORS.muted2} />
+                          <Text style={s.actionBtnText}>Editar</Text>
+                        </Pressable>
+                      )}
                       {!ad._source && !ad.is_free && effectiveStatus === 'pending_review' && (
                         <>
                           <Pressable style={[s.actionBtn, s.actionApprove]} onPress={() => handleApprove(ad.id, ad.title)}>
@@ -895,31 +1021,35 @@ export default function AdApprovalScreen({ navigation }: any) {
           ════════════════════════════════════════════════════════════════════ */}
       <Modal visible={createModal} transparent animationType="slide" onRequestClose={() => { setCreateModal(false); resetCreateForm(); }}>
         <Pressable style={s.overlay} onPress={() => { setCreateModal(false); resetCreateForm(); }}>
-          <Pressable style={[s.sheet, { maxHeight: '92%' }]} onPress={() => {}}>
-            <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+          <Pressable style={[s.sheet, { height: Dimensions.get('window').height * 0.92 }]} onPress={() => {}}>
+            <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
               <View style={s.sheetHandle} />
-              <Text style={s.sheetTitle}>Crear anuncio gratis</Text>
-              <Text style={s.sheetSub}>Se activa inmediatamente sin cobro</Text>
+              <Text style={s.sheetTitle}>{editingAdId ? 'Editar anuncio' : 'Crear anuncio gratis'}</Text>
+              <Text style={s.sheetSub}>{editingAdId ? 'Los cambios se aplican de inmediato' : 'Se activa inmediatamente sin cobro'}</Text>
 
-              {/* ── SegmentedControl ─────────────────────────────────────── */}
-              <View style={s.segmentRow}>
-                <Pressable
-                  style={[s.segmentBtn, freeSegment === 0 && s.segmentBtnActive]}
-                  onPress={() => setFreeSegment(0)}
-                >
-                  <Text style={[s.segmentBtnText, freeSegment === 0 && s.segmentBtnTextActive]}>
-                    📷 Anuncios de Imagen
-                  </Text>
-                </Pressable>
-                <Pressable
-                  style={[s.segmentBtn, freeSegment === 1 && s.segmentBtnActive]}
-                  onPress={() => setFreeSegment(1)}
-                >
-                  <Text style={[s.segmentBtnText, freeSegment === 1 && s.segmentBtnTextActive]}>
-                    👥 Promociones de Grupo
-                  </Text>
-                </Pressable>
-              </View>
+              {/* ── SegmentedControl — oculto al editar: solo aplica a anuncios
+                  de imagen ya publicados, cambiar a "Promoción de grupo"
+                  a medio editar no tendría sentido. ──────────────────── */}
+              {!editingAdId && (
+                <View style={s.segmentRow}>
+                  <Pressable
+                    style={[s.segmentBtn, freeSegment === 0 && s.segmentBtnActive]}
+                    onPress={() => setFreeSegment(0)}
+                  >
+                    <Text style={[s.segmentBtnText, freeSegment === 0 && s.segmentBtnTextActive]}>
+                      📷 Anuncios de Imagen
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    style={[s.segmentBtn, freeSegment === 1 && s.segmentBtnActive]}
+                    onPress={() => setFreeSegment(1)}
+                  >
+                    <Text style={[s.segmentBtnText, freeSegment === 1 && s.segmentBtnTextActive]}>
+                      👥 Promociones de Grupo
+                    </Text>
+                  </Pressable>
+                </View>
+              )}
 
               {/* ── SEGMENTO 0: Imagen (Banner / Perfil) ─────────────────── */}
               {freeSegment === 0 && (<>
@@ -1011,6 +1141,15 @@ export default function AdApprovalScreen({ navigation }: any) {
                           contentFit="cover"
                           nativeControls={false}
                         />
+                        {/* Mientras no se sabe la duración total real (recién
+                            cargando metadatos del video), avisar en vez de
+                            dejar la vista pelada sin explicar por qué tarda. */}
+                        {freeVideoTotalSecs === 0 && (
+                          <View style={s.freeMediaLoading} pointerEvents="none">
+                            <ActivityIndicator color="#fff" />
+                            <Text style={s.freeMediaLoadingText}>Cargando video…</Text>
+                          </View>
+                        )}
                         <Pressable
                           style={s.previewPlayBtn}
                           onPress={previewPlaying ? handlePreviewPause : handlePreviewPlay}
@@ -1245,6 +1384,45 @@ export default function AdApprovalScreen({ navigation }: any) {
                   ))}
                 </View>
 
+                <Text style={s.sheetLabel}>Categoría (sql/610: 5 plazas por categoría por estado)</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
+                  <View style={{ flexDirection: 'row', gap: 6, paddingRight: 8 }}>
+                    <Pressable
+                      style={[
+                        s.typeChip,
+                        !freeGroupCategory
+                          ? { backgroundColor: COLORS.green + '22', borderColor: COLORS.green }
+                          : { borderColor: COLORS.muted2 + '44' },
+                      ]}
+                      onPress={() => { setFreeGroupCategory(null); }}
+                    >
+                      <Text style={[s.typeChipText, { color: !freeGroupCategory ? COLORS.green : COLORS.muted2 }]}>
+                        Todas
+                      </Text>
+                    </Pressable>
+                    {PROVIDER_CATEGORIES.map(cat => (
+                      <Pressable
+                        key={cat.key}
+                        style={[
+                          s.typeChip,
+                          freeGroupCategory === cat.key
+                            ? { backgroundColor: COLORS.green + '22', borderColor: COLORS.green }
+                            : { borderColor: COLORS.muted2 + '44' },
+                        ]}
+                        onPress={() => {
+                          setFreeGroupCategory(cat.key);
+                          if (selectedGroup && selectedGroup.categoryKey !== cat.key) setFreeGroupId(null);
+                        }}
+                      >
+                        <Text style={{ fontSize: 14 }}>{cat.emoji}</Text>
+                        <Text style={[s.typeChipText, { color: freeGroupCategory === cat.key ? COLORS.green : COLORS.muted2 }]}>
+                          {t(cat.labelKey)}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </ScrollView>
+
                 <Text style={s.sheetLabel}>Buscar grupo</Text>
                 <TextInput
                   style={[s.sheetInput, { minHeight: 44, marginBottom: 8 }]}
@@ -1362,9 +1540,11 @@ export default function AdApprovalScreen({ navigation }: any) {
                   <Text style={[s.sheetBtnText, { color: freeSegment === 1 && groupPromoActive ? '#fff' : '#000' }]}>
                     {freeCreating
                       ? 'Procesando...'
-                      : freeSegment === 1 && groupPromoActive
-                        ? '✕ Desactivar promoción'
-                        : '✓ Crear gratis'}
+                      : editingAdId
+                        ? '✓ Guardar cambios'
+                        : freeSegment === 1 && groupPromoActive
+                          ? '✕ Desactivar promoción'
+                          : '✓ Crear gratis'}
                   </Text>
                 </Pressable>
               </View>
@@ -1750,6 +1930,12 @@ const s = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.55)',
     alignItems: 'center', justifyContent: 'center',
   },
+  freeMediaLoading: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    alignItems: 'center', justifyContent: 'center', gap: 6,
+  },
+  freeMediaLoadingText: { fontFamily: FONTS.bodyMedium, fontSize: 12, color: '#fff' },
   uploadBarTrack: {
     width: '80%', height: 4, borderRadius: 2,
     backgroundColor: COLORS.border, overflow: 'hidden',

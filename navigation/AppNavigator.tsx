@@ -15,7 +15,7 @@ import {
   View,
 } from 'react-native';
 import { initialWindowMetrics } from 'react-native-safe-area-context';
-import { Briefcase, Calendar, CalendarDays, Compass, LayoutDashboard, Megaphone, User, Users } from 'lucide-react-native';
+import { Briefcase, Calendar, CalendarDays, Compass, Home, LayoutDashboard, Megaphone, User, Users } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 import Reanimated, {
   useSharedValue,
@@ -36,6 +36,7 @@ import Particles from '../src/components/ui/Particles';
 // Auth
 import IntroScreen    from '../src/screens/auth/IntroScreen';
 import LoginScreen    from '../src/screens/auth/LoginScreen';
+import NewPasswordScreen from '../src/screens/auth/NewPasswordScreen';
 import RegisterScreen         from '../src/screens/auth/RegisterScreen';
 import LocationRequestScreen from '../src/screens/auth/LocationRequestScreen';
 
@@ -45,6 +46,8 @@ import GroupDetailScreen from '../src/screens/client/GroupDetailScreen';
 import BookingScreen from '../src/screens/client/BookingScreen';
 import ClientReservationsScreen from '../src/screens/client/ReservationsScreen';
 import LiveEventScreen from '../src/screens/client/LiveEventScreen';
+import FollowedGroupsScreen from '../src/screens/client/FollowedGroupsScreen';
+import FeedScreen from '../src/screens/client/FeedScreen';
 
 // Talent
 import TalentJobBoardScreen from '../src/screens/talent/JobBoardScreen';
@@ -71,6 +74,7 @@ import ScheduledQuotesCarousel, { openScheduledQuotes } from '../src/components/
 import { openForRequestNotification } from '../src/utils/notificationRouting';
 import GroupStatsScreen from '../src/screens/group/StatsScreen';
 import QuoteFormScreen from '../src/screens/client/QuoteFormScreen';
+import EventCategoryPickerScreen from '../src/screens/client/EventCategoryPickerScreen';
 import ClientQuoteDetailScreen from '../src/screens/client/ClientQuoteDetailScreen';
 import QuotePaymentScreen from '../src/screens/client/QuotePaymentScreen';
 import OpenRequestScreen from '../src/screens/client/OpenRequestScreen';
@@ -95,6 +99,7 @@ import AdminDashboardScreen from '../src/screens/admin/DashboardScreen';
 import AdminMapScreen from '../src/screens/admin/AdminMapScreen';
 import AdminVerificationsScreen from '../src/screens/admin/VerificationsScreen';
 import AdminDisputesScreen from '../src/screens/admin/DisputesScreen';
+import AdminCategoryInterestScreen from '../src/screens/admin/CategoryInterestScreen';
 import AdminGroupsScreen from '../src/screens/admin/GroupsScreen';
 import AdminTalentsScreen from '../src/screens/admin/TalentsScreen';
 import AdminPromotionsScreen from '../src/screens/admin/PromotionsScreen';
@@ -134,7 +139,10 @@ import EventPayoutsScreen from '../src/screens/shared/EventPayoutsScreen';
 import AdminMediaReviewScreen from '../src/screens/admin/MediaReviewScreen';
 import AdApprovalScreen from '../src/screens/admin/AdApprovalScreen';
 import TicketScreen from '../src/screens/shared/TicketScreen';
+import GiftRevealScreen from '../src/screens/shared/GiftRevealScreen';
 import AdminTicketSearchScreen from '../src/screens/admin/AdminTicketSearchScreen';
+import AdminEventDetailScreen from '../src/screens/admin/EventDetailScreen';
+import AdminEventsReviewScreen from '../src/screens/admin/EventsReviewScreen';
 
 const Stack = createNativeStackNavigator();
 const Tab   = createBottomTabNavigator();
@@ -314,7 +322,7 @@ function SplashLoader() {
     <View style={splash.container}>
 
       {/* ── Energy vortex background ── */}
-      <View style={[StyleSheet.absoluteFillObject, { alignItems: 'center', justifyContent: 'center' }]} pointerEvents="none">
+      <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center' }]} pointerEvents="none">
         <View style={splash.glowBlob} />
         <Animated.View style={[splash.ring, { width: 370, height: 370, borderRadius: 185, opacity: 0.10, transform: [{ rotate: spin }] }]} />
         <View           style={[splash.ring, { width: 275, height: 275, borderRadius: 138, opacity: 0.17 }]} />
@@ -465,6 +473,17 @@ const TAB_SCREEN_OPTIONS = {
   tabBarIconStyle: { marginBottom: -2 },
 };
 
+// Grupo y talento tienen 6 tabs (una más que cliente/admin) — versión más
+// compacta para que quepan bien sin verse apretadas.
+const TAB_SCREEN_OPTIONS_COMPACT = {
+  ...TAB_SCREEN_OPTIONS,
+  tabBarLabelStyle: {
+    ...TAB_SCREEN_OPTIONS.tabBarLabelStyle,
+    fontSize: 9.5,
+  },
+  tabBarItemStyle: { paddingHorizontal: 0 },
+};
+
 // ─── Stacks / Tabs ────────────────────────────────────────────────────────────
 
 /** Stack compartido para la pestaña "Explorar" (group y admin también lo usan) */
@@ -479,6 +498,13 @@ function ExploreStack() {
         options={{ animation: 'slide_from_bottom' }}
       />
       <Stack.Screen name="ClientReservations" component={ClientReservationsScreen} />
+      {/* Auditoría 2026-09-05: faltaba — Booking y ClientReservations de
+          este mismo stack navegan a "EventCategoryPicker" desde "Agregar
+          otro proveedor". Sigue el mismo patrón de doble registro que ya
+          usa el resto de estas pantallas (aquí + en el Stack.Navigator raíz
+          por rol), en vez de depender de que la navegación suba sola al
+          padre. */}
+      <Stack.Screen name="EventCategoryPicker" component={EventCategoryPickerScreen} />
       <Stack.Screen name="OpenRequest"         component={OpenRequestScreen} />
       <Stack.Screen name="GroupsMap"           component={GroupsMapScreen} />
       <Stack.Screen name="QuoteForm"           component={QuoteFormScreen} />
@@ -488,13 +514,20 @@ function ExploreStack() {
   );
 }
 
-/** Tabs del cliente: Explorar | Mis Eventos | Publicidad | Perfil */
+/** Tabs del cliente: Inicio | Explorar | Mis Eventos | Perfil (sin
+    Publicidad — 2026-09-04, el cliente ya no puede comprar anuncios) */
 function ClientTabsInner() {
   const { t } = useTranslation();
   const { pendingQuotesCount } = useClientBadges();
   const { hasLiveEvent } = useLiveEvent();
   return (
-    <Tab.Navigator screenOptions={TAB_SCREEN_OPTIONS}>
+    // Pedido 2026-09-05: el cliente entra directo a Explorador, no a Inicio (feed).
+    <Tab.Navigator screenOptions={TAB_SCREEN_OPTIONS} initialRouteName="Explorar">
+      <Tab.Screen
+        name="Inicio"
+        component={FeedScreen}
+        options={{ tabBarLabel: t('tabs.home'), tabBarIcon: ({ color }) => <Home size={20} color={color} /> }}
+      />
       <Tab.Screen
         name="Explorar"
         component={HomeScreen}
@@ -514,11 +547,11 @@ function ClientTabsInner() {
           tabBarBadge: pendingQuotesCount > 0 ? pendingQuotesCount : undefined,
         }}
       />
-      <Tab.Screen
-        name="Publicidad"
-        component={PromocionarseScreen}
-        options={{ tabBarLabel: t('tabs.ads'), tabBarIcon: ({ color }) => <Megaphone size={20} color={color} /> }}
-      />
+      {/* Petición real (2026-09-04): "quita los anuncios para los
+          clientes" — el cliente ya no puede comprar publicidad (reforzado
+          también en el servidor, sql/608), así que el tab "Publicidad"
+          se quita para él. Grupo y talento la conservan en sus propios
+          tabs, sin tocar. */}
       <Tab.Screen
         name="Perfil"
         component={ProfileScreen}
@@ -541,21 +574,27 @@ function TalentTabs() {
   const { t } = useTranslation();
   const { hasLiveEvent } = useLiveEvent();
   return (
-    <Tab.Navigator screenOptions={TAB_SCREEN_OPTIONS}>
+    // Pedido 2026-09-05: el talento entra directo a Eventos, no a Inicio (feed).
+    <Tab.Navigator screenOptions={TAB_SCREEN_OPTIONS_COMPACT} initialRouteName="Eventos">
+      <Tab.Screen
+        name="Inicio"
+        component={FeedScreen}
+        options={{ tabBarLabel: t('tabs.home'), tabBarIcon: ({ color }) => <Home size={18} color={color} /> }}
+      />
       <Tab.Screen
         name="Panel"
         component={TalentStatsScreen}
-        options={{ tabBarLabel: t('tabs.dashboard'), tabBarIcon: ({ color }) => <LayoutDashboard size={20} color={color} /> }}
+        options={{ tabBarLabel: t('tabs.dashboard'), tabBarIcon: ({ color }) => <LayoutDashboard size={18} color={color} /> }}
       />
       <Tab.Screen
         name="Bolsa"
         component={TalentJobBoardScreen}
-        options={{ tabBarLabel: t('tabs.jobs'), tabBarIcon: ({ color }) => <Briefcase size={20} color={color} /> }}
+        options={{ tabBarLabel: t('tabs.jobs'), tabBarIcon: ({ color }) => <Briefcase size={18} color={color} /> }}
       />
       <Tab.Screen
         name="Explorar"
         component={HomeScreen}
-        options={{ tabBarLabel: t('tabs.explore'), tabBarIcon: ({ color }) => <Compass size={20} color={color} /> }}
+        options={{ tabBarLabel: t('tabs.explore'), tabBarIcon: ({ color }) => <Compass size={18} color={color} /> }}
       />
       <Tab.Screen
         name="Eventos"
@@ -564,7 +603,7 @@ function TalentTabs() {
           tabBarLabel: t('tabs.events'),
           tabBarIcon: ({ color }) => (
             <LiveTabIcon
-              icon={<CalendarDays size={20} color={color} />}
+              icon={<CalendarDays size={18} color={color} />}
               hasLiveEvent={hasLiveEvent}
             />
           ),
@@ -573,7 +612,7 @@ function TalentTabs() {
       <Tab.Screen
         name="Perfil"
         component={ProfileScreen}
-        options={{ tabBarLabel: t('tabs.profile'), tabBarIcon: ({ color }) => <User size={20} color={color} /> }}
+        options={{ tabBarLabel: t('tabs.profile'), tabBarIcon: ({ color }) => <User size={18} color={color} /> }}
       />
     </Tab.Navigator>
   );
@@ -585,11 +624,18 @@ function GroupTabsInner() {
   const { pendingQuotesCount } = useGroupBadges();
   const { hasLiveEvent } = useLiveEvent();
   return (
-    <Tab.Navigator screenOptions={TAB_SCREEN_OPTIONS}>
+    // Pedido 2026-09-05: el grupo entra directo a Eventos, no a Inicio (feed).
+    <Tab.Navigator screenOptions={TAB_SCREEN_OPTIONS_COMPACT} initialRouteName="Eventos">
+      <Tab.Screen
+        name="Inicio"
+        component={FeedScreen}
+        initialParams={{ canPost: true }}
+        options={{ tabBarLabel: t('tabs.home'), tabBarIcon: ({ color }) => <Home size={18} color={color} /> }}
+      />
       <Tab.Screen
         name="Panel"
         component={GroupDashboardScreen}
-        options={{ tabBarLabel: t('tabs.dashboard'), tabBarIcon: ({ color }) => <LayoutDashboard size={20} color={color} /> }}
+        options={{ tabBarLabel: t('tabs.dashboard'), tabBarIcon: ({ color }) => <LayoutDashboard size={18} color={color} /> }}
       />
       <Tab.Screen
         name="Eventos"
@@ -598,7 +644,7 @@ function GroupTabsInner() {
           tabBarLabel: t('tabs.events'),
           tabBarIcon: ({ color }) => (
             <LiveTabIcon
-              icon={<CalendarDays size={20} color={color} />}
+              icon={<CalendarDays size={18} color={color} />}
               hasLiveEvent={hasLiveEvent}
             />
           ),
@@ -608,17 +654,17 @@ function GroupTabsInner() {
       <Tab.Screen
         name="Explorar"
         component={HomeScreen}
-        options={{ tabBarLabel: t('tabs.explore'), tabBarIcon: ({ color }) => <Compass size={20} color={color} /> }}
+        options={{ tabBarLabel: t('tabs.explore'), tabBarIcon: ({ color }) => <Compass size={18} color={color} /> }}
       />
       <Tab.Screen
         name="Publicidad"
         component={PromocionarseScreen}
-        options={{ tabBarLabel: t('tabs.ads'), tabBarIcon: ({ color }) => <Megaphone size={20} color={color} /> }}
+        options={{ tabBarLabel: t('tabs.ads'), tabBarIcon: ({ color }) => <Megaphone size={18} color={color} /> }}
       />
       <Tab.Screen
         name="Perfil"
         component={ProfileScreen}
-        options={{ tabBarLabel: t('tabs.profile'), tabBarIcon: ({ color }) => <User size={20} color={color} /> }}
+        options={{ tabBarLabel: t('tabs.profile'), tabBarIcon: ({ color }) => <User size={18} color={color} /> }}
       />
     </Tab.Navigator>
   );
@@ -707,7 +753,7 @@ function AdminTabs() {
 // ─── Root Navigator ───────────────────────────────────────────────────────────
 
 export default function AppNavigator() {
-  const { session, role, loading, error, signOut, refetchProfile, user, profile } = useAuth();
+  const { session, role, loading, error, signOut, refetchProfile, user, profile, passwordRecovery } = useAuth();
   const navigationRef = useNavigationContainerRef();
 
   // Registra el push token cuando hay sesión activa
@@ -878,6 +924,14 @@ export default function AppNavigator() {
     return <SplashLoader />;
   }
 
+  // ── 1.5. Link de "recuperar contraseña" tocado (2026-09-05) ────────────────
+  // Una sesión de recuperación SÍ cuenta como `session` no-nula, así que
+  // este check va ANTES del de sesión normal — si no, el usuario entraría
+  // derecho a su cuenta con solo tocar el link del correo, sin contraseña.
+  if (passwordRecovery) {
+    return <NewPasswordScreen />;
+  }
+
   // ── 2. Sin sesión → pantallas de autenticación ────────────────────────────
   if (!session) {
     // Deep link: daricefy://g/:referralCode → abre RegisterScreen con código pre-relleno
@@ -972,6 +1026,7 @@ export default function AppNavigator() {
             <Stack.Screen name="AdminHome"          component={AdminTabs} />
             <Stack.Screen name="AdminVerifications" component={AdminVerificationsScreen} />
             <Stack.Screen name="AdminDisputes"      component={AdminDisputesScreen} />
+            <Stack.Screen name="AdminCategoryInterest" component={AdminCategoryInterestScreen} />
             <Stack.Screen name="AdminGroups"        component={AdminGroupsScreen} />
             <Stack.Screen name="AdminStats"         component={AdminStatsScreen} />
             <Stack.Screen name="AdminFinancial"     component={AdminFinancialScreen} />
@@ -983,6 +1038,8 @@ export default function AppNavigator() {
             <Stack.Screen name="AdApproval"          component={AdApprovalScreen} />
             <Stack.Screen name="Ticket"              component={TicketScreen} />
             <Stack.Screen name="AdminTicketSearch"   component={AdminTicketSearchScreen} />
+            <Stack.Screen name="AdminEventDetail"    component={AdminEventDetailScreen} />
+            <Stack.Screen name="AdminEventsReview"   component={AdminEventsReviewScreen} />
             <Stack.Screen name="Wallet"             component={WalletScreen} />
             <Stack.Screen name="Withdraw"           component={WithdrawScreen} />
             <Stack.Screen name="Notifications"      component={NotificationsScreen} />
@@ -1013,6 +1070,7 @@ export default function AppNavigator() {
             <Stack.Screen name="TalentProfile"        component={TalentProfileScreen} />
             <Stack.Screen name="Wallet"               component={WalletScreen} />
             <Stack.Screen name="Withdraw"             component={WithdrawScreen} />
+            <Stack.Screen name="GiftReveal"           component={GiftRevealScreen} options={{ presentation: 'modal' }} />
             <Stack.Screen name="Chat"                 component={ChatScreen} />
             <Stack.Screen name="GroupChat"            component={GroupChatScreen} />
             <Stack.Screen name="CancellationPolicy"   component={CancellationPolicyScreen} />
@@ -1021,6 +1079,7 @@ export default function AppNavigator() {
             <Stack.Screen name="Notifications"          component={NotificationsScreen} />
             <Stack.Screen name="Profile"               component={ProfileScreen} />
             <Stack.Screen name="EventPayouts"          component={EventPayoutsScreen} />
+            <Stack.Screen name="FollowedGroups"        component={FollowedGroupsScreen} />
             <Stack.Screen name="GroupPerformance"      component={GroupPerformanceScreen} />
             <Stack.Screen name="Promocionarse"         component={PromocionarseScreen} />
             <Stack.Screen name="PromotionPolicy"       component={PromotionPolicyScreen} />
@@ -1033,6 +1092,13 @@ export default function AppNavigator() {
             {/* ── Explorar / B2B: grupo contrata a otro grupo ── */}
             <Stack.Screen name="GroupDetail"           component={GroupDetailScreen} />
             <Stack.Screen name="Booking"               component={BookingScreen} options={{ animation: 'slide_from_bottom' }} />
+            {/* Auditoría 2026-09-04: faltaba aquí — BookingScreen y
+                ClientReservationsScreen (ambos ya compartidos con este rol
+                para su flujo B2B) navegan a "EventCategoryPicker" desde
+                "Agregar otro proveedor". Sin este registro, un grupo/talento
+                que reserva a otro grupo y toca ese botón hacía crashear la
+                navegación (ruta inexistente en este stack). */}
+            <Stack.Screen name="EventCategoryPicker"   component={EventCategoryPickerScreen} />
             <Stack.Screen name="ClientReservations"    component={ClientReservationsScreen} />
             <Stack.Screen name="GuidedRequest"         component={GuidedRequestScreen} />
             <Stack.Screen name="GroupsMap"             component={GroupsMapScreen} />
@@ -1053,6 +1119,10 @@ export default function AppNavigator() {
               component={BookingScreen}
               options={{ animation: 'slide_from_bottom' }}
             />
+            {/* Auditoría 2026-09-04: mismo hallazgo que en el stack de
+                'group' — faltaba para que "Agregar otro proveedor" no
+                truene cuando un talento reserva a otro proveedor. */}
+            <Stack.Screen name="EventCategoryPicker"     component={EventCategoryPickerScreen} />
             <Stack.Screen name="ClientReservations"      component={ClientReservationsScreen} />
             <Stack.Screen name="GroupReservationDetail"  component={GroupConfirmBookingScreen} />
             <Stack.Screen name="EventTimer"              component={EventTimerScreen} />
@@ -1064,6 +1134,7 @@ export default function AppNavigator() {
             <Stack.Screen name="GroupQuoteDetail"        component={GroupQuoteDetailScreen} />
             <Stack.Screen name="Profile"                 component={ProfileScreen} />
             <Stack.Screen name="Notifications"           component={NotificationsScreen} />
+            <Stack.Screen name="GiftReveal"              component={GiftRevealScreen} options={{ presentation: 'modal' }} />
             <Stack.Screen name="CreateAdvertisement"    component={CreateAdvertisementScreen} />
             <Stack.Screen name="AdvertisingPackages"    component={AdvertisingPackagesScreen} />
             <Stack.Screen name="MyAds"                  component={MyAdsScreen} />
@@ -1072,6 +1143,7 @@ export default function AppNavigator() {
             <Stack.Screen name="GroupsMap"              component={GroupsMapScreen} />
             <Stack.Screen name="QuoteForm"              component={QuoteFormScreen} />
             <Stack.Screen name="ClientQuoteDetail"      component={ClientQuoteDetailScreen} />
+            <Stack.Screen name="FollowedGroups"         component={FollowedGroupsScreen} />
           </>
         )}
 
@@ -1079,6 +1151,8 @@ export default function AppNavigator() {
           <>
             <Stack.Screen name="Home"               component={ClientHomeWithProposals} />
             <Stack.Screen name="GroupDetail"        component={GroupDetailScreen} />
+            <Stack.Screen name="EventCategoryPicker" component={EventCategoryPickerScreen} />
+            <Stack.Screen name="FollowedGroups"     component={FollowedGroupsScreen} />
             <Stack.Screen
               name="Booking"
               component={BookingScreen}

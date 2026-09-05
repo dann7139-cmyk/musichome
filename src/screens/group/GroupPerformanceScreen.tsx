@@ -22,16 +22,18 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import {
   fmtMoney, KpiCard, MetricRow, SectionHeader, TrendBars,
 } from '../../components/reports';
 
-const RANGES = [
-  { key: '90d',  label: '90 días',  days: 90 },
-  { key: 'year', label: 'Este año', days: 365 },
-  { key: 'all',  label: 'Todo',     days: 0 },
+const getRanges = (t: TFunction) => [
+  { key: '90d',  label: t('groupPerformanceScreen.ranges.d90'),  days: 90 },
+  { key: 'year', label: t('groupPerformanceScreen.ranges.year'), days: 365 },
+  { key: 'all',  label: t('groupPerformanceScreen.ranges.all'),  days: 0 },
 ];
 
 const MONTH_LABELS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
@@ -44,6 +46,8 @@ function fmtDate(iso: string | null): string {
 }
 
 export default function GroupPerformanceScreen({ navigation }: any) {
+  const { t } = useTranslation();
+  const RANGES = getRanges(t);
   const [range,      setRange]      = useState('all');
   const [data,       setData]       = useState<any | null>(null);
   const [loading,    setLoading]    = useState(true);
@@ -73,10 +77,10 @@ export default function GroupPerformanceScreen({ navigation }: any) {
 
   // ── Exportar mi reporte (Excel o PDF — solo SUS datos) ──────────────────────
   const handleExport = () => {
-    Alert.alert('⬇ Exportar mi reporte', '¿En qué formato?', [
-      { text: 'Cancelar', style: 'cancel' },
-      { text: '📊 Excel (.xlsx)', onPress: () => runExport('xlsx') },
-      { text: '📄 PDF', onPress: () => runExport('pdf') },
+    Alert.alert(t('groupPerformanceScreen.export.sheetTitle'), t('groupPerformanceScreen.export.sheetMessage'), [
+      { text: t('groupPerformanceScreen.export.cancel'), style: 'cancel' },
+      { text: t('groupPerformanceScreen.export.excel'), onPress: () => runExport('xlsx') },
+      { text: t('groupPerformanceScreen.export.pdf'), onPress: () => runExport('pdf') },
     ]);
   };
 
@@ -89,18 +93,18 @@ export default function GroupPerformanceScreen({ navigation }: any) {
         ? new Date(Date.now() - r.days * 86_400_000).toISOString().slice(0, 10)
         : '2000-01-01';
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) throw new Error('Sesión expirada.');
+      if (!session) throw new Error(t('groupPerformanceScreen.export.sessionExpired'));
       const { data: res, error } = await supabase.functions.invoke('generate-report', {
         body: { mode: 'group', format, from, to: new Date().toISOString().slice(0, 10) },
         headers: { Authorization: `Bearer ${session.access_token}` },
       });
-      if (error) throw new Error(error.message ?? 'Error de red');
+      if (error) throw new Error(error.message ?? t('groupPerformanceScreen.export.networkError'));
       if ((res as any)?.error) throw new Error((res as any).error);
       const url = (res as any)?.url as string | undefined;
-      if (!url) throw new Error('No se recibió el archivo');
+      if (!url) throw new Error(t('groupPerformanceScreen.export.noFile'));
       await Linking.openURL(url);
     } catch (e: any) {
-      Alert.alert('Error al exportar', e.message ?? 'Intenta de nuevo.');
+      Alert.alert(t('groupPerformanceScreen.export.errorTitle'), e.message ?? t('groupPerformanceScreen.export.errorDefault'));
     } finally {
       setExporting(false);
     }
@@ -120,14 +124,14 @@ export default function GroupPerformanceScreen({ navigation }: any) {
           <ArrowLeft size={20} color={COLORS.text} />
         </Pressable>
         <View style={{ flex: 1 }}>
-          <Text style={s.headerTitle}>📈 Mi desempeño</Text>
+          <Text style={s.headerTitle}>{t('groupPerformanceScreen.header.title')}</Text>
           <Text style={s.headerSub}>{data ? `${data.from} — ${data.to}` : ' '}</Text>
         </View>
         <Pressable style={[s.exportBtn, exporting && { opacity: 0.6 }]} onPress={handleExport} disabled={exporting}>
           {exporting
             ? <ActivityIndicator size="small" color="#000" />
             : <Download size={14} color="#000" strokeWidth={2.5} />}
-          <Text style={s.exportTx}>Exportar</Text>
+          <Text style={s.exportTx}>{t('groupPerformanceScreen.export.button')}</Text>
         </Pressable>
       </SafeAreaView>
 
@@ -156,22 +160,22 @@ export default function GroupPerformanceScreen({ navigation }: any) {
           <View style={s.grid}>
             <KpiCard
               variant="hero" wide
-              label="Calificación promedio"
+              label={t('groupPerformanceScreen.kpi.avgRating')}
               value={`${Number(rt.promedio ?? 0).toFixed(1)} ★`}
-              detail={`${rt.resenas ?? 0} reseñas de clientes`}
+              detail={t('groupPerformanceScreen.kpi.reviewsCount', { count: rt.resenas ?? 0 })}
             />
-            <KpiCard label="Eventos realizados" value={String(ev.realizados ?? 0)} />
-            <KpiCard label="Próximos" value={String(ev.proximos ?? 0)} />
+            <KpiCard label={t('groupPerformanceScreen.kpi.eventsRealized')} value={String(ev.realizados ?? 0)} />
+            <KpiCard label={t('groupPerformanceScreen.kpi.upcoming')} value={String(ev.proximos ?? 0)} />
             <KpiCard
-              label="Cancelados"
+              label={t('groupPerformanceScreen.kpi.cancelled')}
               value={String(ev.cancelados ?? 0)}
-              detail={`${ev.cancel_tuyos ?? 0} tuyos · ${ev.cancel_cliente ?? 0} del cliente`}
+              detail={t('groupPerformanceScreen.kpi.cancelledDetail', { yours: ev.cancel_tuyos ?? 0, client: ev.cancel_cliente ?? 0 })}
               detailColor={(ev.cancel_tuyos ?? 0) > 0 ? COLORS.orange : undefined}
             />
             <KpiCard
-              label="No-shows"
+              label={t('groupPerformanceScreen.kpi.noShows')}
               value={String(ev.no_shows ?? 0)}
-              detail={(ev.no_shows ?? 0) === 0 ? 'historial limpio ✅' : 'afecta tu visibilidad'}
+              detail={(ev.no_shows ?? 0) === 0 ? t('groupPerformanceScreen.kpi.noShowsClean') : t('groupPerformanceScreen.kpi.noShowsAffects')}
               detailColor={(ev.no_shows ?? 0) === 0 ? COLORS.green : COLORS.red}
             />
           </View>
@@ -179,11 +183,11 @@ export default function GroupPerformanceScreen({ navigation }: any) {
           {/* ── 💵 Tus ganancias ── */}
           {money.map((m: any) => (
             <View key={m.moneda}>
-              <SectionHeader title="💵 Tus ganancias" note={m.moneda} />
+              <SectionHeader title={t('groupPerformanceScreen.earnings.sectionTitle')} note={m.moneda} />
               <View style={s.grid}>
-                <KpiCard variant="hero" wide label={`Ganancia total · ${m.moneda}`} value={fmtMoney(m.total)} />
-                <KpiCard label="Pendiente" value={fmtMoney(m.pendiente)} detail="se libera al finalizar" />
-                <KpiCard label="Pagado" value={fmtMoney(m.pagado)} />
+                <KpiCard variant="hero" wide label={t('groupPerformanceScreen.earnings.totalLabel', { currency: m.moneda })} value={fmtMoney(m.total)} />
+                <KpiCard label={t('groupPerformanceScreen.earnings.pending')} value={fmtMoney(m.pendiente)} detail={t('groupPerformanceScreen.earnings.pendingDetail')} />
+                <KpiCard label={t('groupPerformanceScreen.earnings.paid')} value={fmtMoney(m.pagado)} />
               </View>
             </View>
           ))}
@@ -191,15 +195,15 @@ export default function GroupPerformanceScreen({ navigation }: any) {
           {/* ── 📈 Tendencia ── */}
           {trendData.length > 1 && (
             <>
-              <SectionHeader title="📈 Tendencia mensual" note="tu ganancia" />
-              <TrendBars title="Últimos 6 meses" data={trendData} />
+              <SectionHeader title={t('groupPerformanceScreen.trend.sectionTitle')} note={t('groupPerformanceScreen.trend.note')} />
+              <TrendBars title={t('groupPerformanceScreen.trend.last6Months')} data={trendData} />
             </>
           )}
 
           {/* ── 📍 Ciudades ── */}
           {(data?.cities ?? []).length > 0 && (
             <>
-              <SectionHeader title="📍 Dónde has trabajado" />
+              <SectionHeader title={t('groupPerformanceScreen.cities.sectionTitle')} />
               <View style={s.cityWrap}>
                 {(data.cities as any[]).map((c: any) => (
                   <View key={c.ciudad} style={s.cityChip}>
@@ -213,7 +217,7 @@ export default function GroupPerformanceScreen({ navigation }: any) {
           {/* ── 🧾 Historial de pagos ── */}
           {(data?.payments ?? []).length > 0 && (
             <>
-              <SectionHeader title="🧾 Historial de pagos" note="últimos" />
+              <SectionHeader title={t('groupPerformanceScreen.payments.sectionTitle')} note={t('groupPerformanceScreen.payments.note')} />
               {(data.payments as any[]).map((p: any, i: number) => (
                 <MetricRow
                   key={i}
@@ -223,9 +227,9 @@ export default function GroupPerformanceScreen({ navigation }: any) {
                   value={fmtMoney(p.amount)}
                   pill={
                     p.estado === 'released' || p.estado === 'paid' || p.estado === 'completed'
-                      ? { kind: 'ok', label: p.tipo === 'retiro' ? 'Pagado' : 'Liberado' }
+                      ? { kind: 'ok', label: p.tipo === 'retiro' ? t('groupPerformanceScreen.payments.paidStatus') : t('groupPerformanceScreen.payments.releasedStatus') }
                       : p.estado === 'held' || p.estado === 'pending'
-                        ? { kind: 'warn', label: 'Pendiente' }
+                        ? { kind: 'warn', label: t('groupPerformanceScreen.payments.pendingStatus') }
                         : { kind: 'warn', label: p.estado }
                   }
                 />
@@ -236,7 +240,7 @@ export default function GroupPerformanceScreen({ navigation }: any) {
           {/* ── 💬 Comentarios recientes ── */}
           {(data?.reviews ?? []).length > 0 && (
             <>
-              <SectionHeader title="💬 Comentarios recientes" />
+              <SectionHeader title={t('groupPerformanceScreen.reviews.sectionTitle')} />
               {(data.reviews as any[]).map((rv: any, i: number) => (
                 <View key={i} style={s.revCard}>
                   <View style={s.revHead}>

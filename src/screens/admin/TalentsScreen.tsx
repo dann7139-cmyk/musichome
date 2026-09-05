@@ -37,6 +37,7 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
@@ -72,6 +73,7 @@ interface Talent {
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function AdminTalentsScreen({ navigation }: any) {
+  const { t } = useTranslation();
   const { width: screenW } = useWindowDimensions();
   const CARD_W = Math.floor((screenW - SPACING.xl * 2 - 6 * 3) / 4);
 
@@ -144,7 +146,7 @@ export default function AdminTalentsScreen({ navigation }: any) {
     tProfs.forEach((p: any) => {
       map.set(p.id, {
         id: p.id, user_id: p.id,
-        full_name: p.full_name ?? 'Sin nombre',
+        full_name: p.full_name ?? t('adminTalentsScreen.defaults.noName'),
         avatar_url: p.avatar_url ?? null,
         instrument_or_role: '—', bio: null,
         experience_years: null, rating: 0, total_jobs: 0,
@@ -160,12 +162,14 @@ export default function AdminTalentsScreen({ navigation }: any) {
       });
     });
 
-    // Solo incluir job_board_profiles de usuarios con role='talent' o role='group'.
-    // Los clientes (role='client') no deben aparecer aunque tengan perfil en la bolsa.
-    jbps.filter((j: any) => j.profile?.role !== 'client' && j.profile?.role !== 'group').forEach((j: any) => {
+    // Incluye job_board_profiles de role='talent' Y role='group' (dueños de grupo que
+    // también se anuncian como talento individual, sql/245) — así el admin ve exactamente
+    // lo mismo que search_talents() ya muestra a los clientes. Los clientes (role='client')
+    // siguen excluidos: nunca deben aparecer aunque tengan una fila huérfana en la bolsa.
+    jbps.filter((j: any) => j.profile?.role !== 'client').forEach((j: any) => {
       map.set(j.user_id, {
         id: j.id, user_id: j.user_id,
-        full_name: j.profile?.full_name ?? 'Sin nombre',
+        full_name: j.profile?.full_name ?? t('adminTalentsScreen.defaults.noName'),
         avatar_url: j.profile?.avatar_url ?? null,
         instrument_or_role: j.instrument_or_role ?? '—',
         bio: j.bio ?? null,
@@ -272,7 +276,10 @@ export default function AdminTalentsScreen({ navigation }: any) {
   const handleVerify = async (verify: boolean) => {
     if (!selected) return;
     if (!verify && !moderateNote.trim()) {
-      Alert.alert('Nota requerida', 'Agrega una nota explicando por qué se quita la verificación.');
+      Alert.alert(
+        t('adminTalentsScreen.alerts.noteRequiredTitle'),
+        t('adminTalentsScreen.alerts.noteRequiredMessage')
+      );
       return;
     }
     setActionLoading(true);
@@ -284,7 +291,10 @@ export default function AdminTalentsScreen({ navigation }: any) {
     setActionLoading(false);
 
     if (error || !data?.ok) {
-      Alert.alert('Error', error?.message ?? data?.error ?? 'No se pudo actualizar.');
+      Alert.alert(
+        t('adminTalentsScreen.alerts.errorTitle'),
+        error?.message ?? data?.error ?? t('adminTalentsScreen.alerts.genericUpdateError')
+      );
       return;
     }
 
@@ -297,10 +307,10 @@ export default function AdminTalentsScreen({ navigation }: any) {
     ));
     setModerateNote('');
     Alert.alert(
-      verify ? '✅ Verificado' : '✓ Listo',
+      verify ? t('adminTalentsScreen.alerts.verifiedTitle') : t('adminTalentsScreen.alerts.doneTitle'),
       verify
-        ? `${selected.full_name} ahora está verificado.`
-        : 'Verificación removida correctamente.'
+        ? t('adminTalentsScreen.alerts.verifiedMessage', { name: selected.full_name })
+        : t('adminTalentsScreen.alerts.unverifiedMessage')
     );
   };
 
@@ -315,7 +325,7 @@ export default function AdminTalentsScreen({ navigation }: any) {
             <Pressable style={s.backBtn} onPress={() => navigation.goBack()}>
               <ArrowLeft size={20} color={COLORS.text} />
             </Pressable>
-            <Text style={s.headerTitle}>Talentos registrados</Text>
+            <Text style={s.headerTitle}>{t('adminTalentsScreen.list.title')}</Text>
             <View style={s.countBadge}>
               <Text style={s.countBadgeText}>{talents.length}</Text>
             </View>
@@ -326,7 +336,7 @@ export default function AdminTalentsScreen({ navigation }: any) {
             <Search size={14} color={COLORS.muted} />
             <TextInput
               style={s.searchInput}
-              placeholder="Buscar por nombre, instrumento o ciudad..."
+              placeholder={t('adminTalentsScreen.list.searchPlaceholder')}
               placeholderTextColor={COLORS.muted}
               value={search}
               onChangeText={setSearch}

@@ -199,7 +199,7 @@ export default function GroupConfirmBookingScreen({ route, navigation }: any) {
         type: 'reservation',
         title: '✅ ¡Reserva aceptada!',
         message: reservation.total_price
-          ? `Tu reserva fue aceptada 🎉 Completa el pago de $${reservation.total_price.toLocaleString()} MXN para confirmarla.`
+          ? `Tu reserva fue aceptada 🎉 Completa el pago de $${reservation.total_price.toLocaleString()} ${reservation.currency_code === 'USD' ? 'USD' : 'MXN'} para confirmarla.`
           : 'Tu reserva fue aceptada. Completa el pago para confirmarla.',
         reference_id: reservation.id,
       }]);
@@ -587,7 +587,7 @@ export default function GroupConfirmBookingScreen({ route, navigation }: any) {
               <Text style={styles.clientPriceTitle}>Tu ganancia</Text>
               <View style={styles.clientPriceTotalRow}>
                 <Text style={styles.clientPriceTotalLabel}>Ganarás</Text>
-                <Text style={styles.clientPriceTotalValue}>${(reservation.group_earnings ?? 0).toLocaleString()} MXN</Text>
+                <Text style={styles.clientPriceTotalValue}>${(reservation.group_earnings ?? 0).toLocaleString()} {reservation.currency_code === 'USD' ? 'USD' : 'MXN'}</Text>
               </View>
             </View>
           )}

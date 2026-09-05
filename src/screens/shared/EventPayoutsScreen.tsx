@@ -64,6 +64,7 @@ export default function EventPayoutsScreen({ navigation, route }: any) {
   const groupNet          = Number(reservation?.group_earnings ?? calcGroupEarnings(Number(reservation?.total_price ?? 0)));
   const participantCount  = payouts.length > 0 ? payouts.length : 1;
   const suggestedPerPerson = Math.round((groupNet / participantCount) * 100) / 100;
+  const payoutCurrency    = reservation?.currency_code === 'USD' ? 'USD' : 'MXN';
 
   const parts    = reservation?.event_date?.split('-') ?? [];
   const day      = parts[2] ?? '—';
@@ -97,7 +98,7 @@ export default function EventPayoutsScreen({ navigation, route }: any) {
             <View style={[st.summaryCard, { borderColor: `${COLORS.green}50` }]}>
               <Text style={st.summaryLabel}>Tu ganancia</Text>
               <Text style={[st.summaryValue, { color: COLORS.green, fontSize: 22 }]}>
-                ${groupNet.toLocaleString('es-MX', { minimumFractionDigits: 0 })}
+                ${groupNet.toLocaleString('es-MX', { minimumFractionDigits: 0 })} {payoutCurrency}
               </Text>
             </View>
           </View>
@@ -130,7 +131,7 @@ export default function EventPayoutsScreen({ navigation, route }: any) {
                     </Text>
                   </View>
                   <Text style={st.payoutAmount}>
-                    ${suggestedPerPerson.toLocaleString('es-MX', { minimumFractionDigits: 0 })} MXN
+                    ${suggestedPerPerson.toLocaleString('es-MX', { minimumFractionDigits: 0 })} {payoutCurrency}
                   </Text>
                 </View>
               );

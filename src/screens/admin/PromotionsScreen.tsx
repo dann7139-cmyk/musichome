@@ -16,9 +16,11 @@ import {
   X,
 } from 'lucide-react-native';
 import React, { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   ActivityIndicator,
   Alert,
+  Dimensions,
   Image,
   Modal,
   Pressable,
@@ -100,6 +102,7 @@ const fmtDate = (iso: string | null): string => {
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function AdminPromotionsScreen() {
+  const { t } = useTranslation();
   const [tab, setTab]               = useState<Tab>('anuncios');
   const [promos, setPromos]         = useState<Promotion[]>([]);
   const [messages, setMessages]     = useState<AdMessage[]>([]);
@@ -191,7 +194,7 @@ export default function AdminPromotionsScreen() {
   };
 
   const handleSave = async () => {
-    if (!form.title.trim()) { Alert.alert('Error', 'El título es obligatorio'); return; }
+    if (!form.title.trim()) { Alert.alert(t('adminPromotionsScreen.alerts.error'), t('adminPromotionsScreen.alerts.titleRequired')); return; }
     setSaving(true);
     const payload = {
       title:        form.title.trim(),
@@ -222,9 +225,9 @@ export default function AdminPromotionsScreen() {
   };
 
   const handleDelete = (p: Promotion) => {
-    Alert.alert('Eliminar anuncio', `¿Eliminar "${p.title}"?`, [
-      { text: 'Cancelar', style: 'cancel' },
-      { text: 'Eliminar', style: 'destructive', onPress: async () => {
+    Alert.alert(t('adminPromotionsScreen.alerts.deleteTitle'), t('adminPromotionsScreen.alerts.deleteMessage', { title: p.title }), [
+      { text: t('adminPromotionsScreen.alerts.cancel'), style: 'cancel' },
+      { text: t('adminPromotionsScreen.alerts.delete'), style: 'destructive', onPress: async () => {
         await supabase.from('promotions').delete().eq('id', p.id);
         fetchPromos();
       }},
@@ -303,7 +306,7 @@ export default function AdminPromotionsScreen() {
         video_total_seconds: totalSeconds,
       }));
     } catch (err: any) {
-      Alert.alert('Error', err?.message ?? 'No se pudo subir el archivo.');
+      Alert.alert(t('adminPromotionsScreen.alerts.error'), err?.message ?? t('adminPromotionsScreen.alerts.uploadError'));
     }
 
     setUploadProgress(0);
@@ -343,7 +346,7 @@ export default function AdminPromotionsScreen() {
         {/* Header */}
         <View style={s.header}>
           <Megaphone size={20} color={COLORS.green} />
-          <Text style={s.headerTitle}>Publicidad</Text>
+          <Text style={s.headerTitle}>{t('adminPromotionsScreen.header.title')}</Text>
           {tab === 'anuncios' && (
             <Pressable style={s.addBtn} onPress={openCreate}>
               <Plus size={18} color={COLORS.green} />
@@ -353,16 +356,16 @@ export default function AdminPromotionsScreen() {
 
         {/* Tabs */}
         <View style={s.tabRow}>
-          {(['anuncios', 'mensajes'] as Tab[]).map(t => (
-            <Pressable key={t} style={[s.tabBtn, tab === t && s.tabBtnActive]} onPress={() => setTab(t)}>
-              {t === 'anuncios'
-                ? <Megaphone size={13} color={tab === t ? COLORS.green : COLORS.muted} />
-                : <MessageSquare size={13} color={tab === t ? COLORS.green : COLORS.muted} />
+          {(['anuncios', 'mensajes'] as Tab[]).map(tabKey => (
+            <Pressable key={tabKey} style={[s.tabBtn, tab === tabKey && s.tabBtnActive]} onPress={() => setTab(tabKey)}>
+              {tabKey === 'anuncios'
+                ? <Megaphone size={13} color={tab === tabKey ? COLORS.green : COLORS.muted} />
+                : <MessageSquare size={13} color={tab === tabKey ? COLORS.green : COLORS.muted} />
               }
-              <Text style={[s.tabText, tab === t && s.tabTextActive]}>
-                {t === 'anuncios' ? 'Anuncios' : 'Mensajes'}
+              <Text style={[s.tabText, tab === tabKey && s.tabTextActive]}>
+                {tabKey === 'anuncios' ? t('adminPromotionsScreen.tabs.ads') : t('adminPromotionsScreen.tabs.messages')}
               </Text>
-              {t === 'mensajes' && unreadCount > 0 && (
+              {tabKey === 'mensajes' && unreadCount > 0 && (
                 <View style={s.badge}><Text style={s.badgeText}>{unreadCount}</Text></View>
               )}
             </Pressable>
@@ -379,10 +382,10 @@ export default function AdminPromotionsScreen() {
             promos.length === 0 ? (
               <View style={s.empty}>
                 <Text style={{ fontSize: 40, marginBottom: 14 }}>📢</Text>
-                <Text style={s.emptyTitle}>Sin anuncios</Text>
-                <Text style={s.emptyHint}>Crea tu primer anuncio para mostrarlo en Explorar</Text>
+                <Text style={s.emptyTitle}>{t('adminPromotionsScreen.empty.adsTitle')}</Text>
+                <Text style={s.emptyHint}>{t('adminPromotionsScreen.empty.adsHint')}</Text>
                 <View style={{ marginTop: 16, width: '100%' }}>
-                  <Button label="+ Crear anuncio" onPress={openCreate} />
+                  <Button label={t('adminPromotionsScreen.empty.createButton')} onPress={openCreate} />
                 </View>
               </View>
             ) : (
@@ -484,7 +487,7 @@ export default function AdminPromotionsScreen() {
               </Pressable>
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+            <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
 
               {/* ── Media ── */}
               <Text style={s.fieldLabel}>Imagen o Video</Text>
@@ -914,7 +917,7 @@ const s = StyleSheet.create({
   modalOverlay: { flex: 1, backgroundColor: COLORS.overlay, justifyContent: 'flex-end' },
   modal: {
     backgroundColor: COLORS.card2, borderTopLeftRadius: 24, borderTopRightRadius: 24,
-    padding: SPACING.xl, maxHeight: '95%',
+    padding: SPACING.xl, height: Dimensions.get('window').height * 0.95,
   },
   modalHeader: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18,

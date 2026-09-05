@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { StyleSheet, Text, TextInput, TextInputProps, View } from 'react-native';
+import { Pressable, StyleSheet, Text, TextInput, TextInputProps, View } from 'react-native';
+import { Eye, EyeOff } from 'lucide-react-native';
 import { COLORS, FONTS, RADIUS } from '../../config/theme';
 
 interface Props extends TextInputProps {
@@ -8,8 +9,15 @@ interface Props extends TextInputProps {
   icon?: React.ReactNode;
 }
 
-export default function Input({ label, error, icon, style, ...props }: Props) {
+// 🔒 Ojito para ver/ocultar la contraseña — petición real (2026-09-05):
+// "que cuando estén poniendo la contraseña tenga el ojo para poder ver
+// si está bien". Se agrega aquí (no en cada pantalla) para que aplique
+// en Login/Registro/Intro de una sola vez. Mismo ícono Eye/EyeOff que ya
+// usaba ProfileScreen.tsx en su propio modal de cambiar contraseña.
+export default function Input({ label, error, icon, style, secureTextEntry, ...props }: Props) {
   const [focused, setFocused] = useState(false);
+  const [visible, setVisible] = useState(false);
+  const isPassword = !!secureTextEntry;
 
   return (
     <View style={styles.wrapper}>
@@ -21,8 +29,16 @@ export default function Input({ label, error, icon, style, ...props }: Props) {
           placeholderTextColor={COLORS.muted}
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
+          secureTextEntry={isPassword && !visible}
           {...props}
         />
+        {isPassword && (
+          <Pressable onPress={() => setVisible(v => !v)} hitSlop={10} style={styles.eyeBtn}>
+            {visible
+              ? <EyeOff size={18} color={COLORS.muted2} />
+              : <Eye size={18} color={COLORS.muted2} />}
+          </Pressable>
+        )}
       </View>
       {error && <Text style={styles.error}>{error}</Text>}
     </View>
@@ -53,6 +69,7 @@ const styles = StyleSheet.create({
     borderColor: COLORS.red,
   },
   icon: { marginRight: 10 },
+  eyeBtn: { marginLeft: 8, padding: 4 },
   input: {
     flex: 1,
     paddingVertical: 14,

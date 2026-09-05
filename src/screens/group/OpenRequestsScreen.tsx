@@ -33,6 +33,7 @@ import * as Location from 'expo-location';
 import MapView, { Circle, Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
+import { useTranslation } from 'react-i18next';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import { EARTH_STYLE } from '../../constants/mapStyle';
@@ -263,6 +264,7 @@ function ZoneMapModal({
   request: EventRequest | null;
   onClose: () => void;
 }) {
+  const { t } = useTranslation();
   const scaleAnims = useRef(
     Array.from({ length: 4 }, () => new Animated.Value(1.0))
   ).current;
@@ -357,13 +359,13 @@ function ZoneMapModal({
           {/* Header */}
           <View style={ms.header}>
             <View style={{ flex: 1 }}>
-              <Text style={ms.title}>{isPaid ? '📍 Ubicación exacta' : '📍 Zona del evento'}</Text>
+              <Text style={ms.title}>{isPaid ? t('openRequestsScreen.zoneMap.exactLocation') : t('openRequestsScreen.zoneMap.eventZone')}</Text>
               <Text style={ms.sub}>
                 {request.location_city}, {request.location_estado}
                 {!isPaid && (
                   <>
                     {'  ·  '}
-                    <Text style={{ color: COLORS.muted }}>Zona aproximada</Text>
+                    <Text style={{ color: COLORS.muted }}>{t('openRequestsScreen.zoneMap.approxZone')}</Text>
                   </>
                 )}
               </Text>

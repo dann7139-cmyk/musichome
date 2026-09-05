@@ -7,6 +7,7 @@ import { useIsFocused } from '@react-navigation/native';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Animated,
   Dimensions,
   FlatList,
@@ -34,6 +35,7 @@ import { stateToCountry } from '../../utils/locationUtils';
 import { useBackgroundLocation } from '../../hooks/useBackgroundLocation';
 import LocationBanner from '../../components/ui/LocationBanner';
 import { reviveClientProposals } from '../../context/ClientProposalContext';
+import { PROVIDER_CATEGORIES, NON_MUSICIAN_GENRES } from '../../constants/providerCategories';
 
 interface Promotion {
   id: string;
@@ -51,22 +53,26 @@ interface Promotion {
 }
 
 const { width } = Dimensions.get('window');
-const CARD_W = width - SPACING.xl * 2;
+// Petición real (2026-09-03): "está más reducido... que esté un poco más
+// casi a la orilla" (bajado primero a 16) — "lo puedes hacer un poco más
+// a la orilla también" (segunda vuelta, bajado a 14) — margen de pantalla
+// del Explorador, antes SPACING.xl (24px cada lado). Local a esta
+// pantalla, no se toca el token global SPACING.xl (eso afectaría TODAS
+// las demás pantallas de la app).
+const H_PAD = 14;
+const CARD_W = width - H_PAD * 2;
 const FEAT_W = Math.round(width * 0.46);   // tarjetas del carrusel (con peek del siguiente)
 const FEAT_H = Math.round(FEAT_W * 0.92);
 
 
 
 
-const CATEGORY_ICONS: Record<string, string> = {
-  music:         '🎵',
-  entertainment: '🎪',
-  service:       '🎛️',
-  rental:        '🏕️',
-  audio:         '💡',
-  decoration:    '🎨',
-  multimedia:    '📸',
-};
+// NON_MUSICIAN_GENRES y PROVIDER_CATEGORIES ahora vienen de
+// src/constants/providerCategories.ts (2026-09-03) — misma lista que usa
+// "agregar otro proveedor", para que Explorador nunca vuelva a mostrar
+// categorías distintas. CATEGORY_ICONS ya no hace falta: los chips ahora
+// muestran el emoji + label de PROVIDER_CATEGORIES, no el `type` de la
+// tabla `categories`.
 
 // 🎁 Selector de regalo: País → todos sus estados. El filtro de grupos es por
 // estado (los nombres no chocan entre MX y US), así que basta con el estado.
@@ -99,8 +105,8 @@ const GIFT_STATES: Record<string, string[]> = {
   ],
 };
 
-export default function HomeScreen({ navigation }: any) {
-  const { t } = useTranslation();
+export default function HomeScreen({ navigation, route }: any) {
+  const { t, i18n } = useTranslation();
   const { detectedCity, safeState, safeCountry, detectedState: gpsState } = useAuth();
   useBackgroundLocation(); // GPS en vivo — actualiza client_locations en background
   const hour = new Date().getHours();
@@ -111,10 +117,27 @@ export default function HomeScreen({ navigation }: any) {
     : t('home.greeting_evening');
   const [groups, setGroups] = useState<any[]>([]);
   const [filtered, setFiltered] = useState<any[]>([]);
-  const [categories, setCategories] = useState<{ id: string; name: string; type: string }[]>([]);
-  const [subcatNames, setSubcatNames] = useState<Record<string, string[]>>({});
+  // 2026-09-03 — antes se leían de la tabla `categories` en vivo (raíces
+  // desordenadas/duplicadas, "Comida" ni existía como fila) — ahora usa
+  // PROVIDER_CATEGORIES, la MISMA lista que "agregar otro proveedor"
+  // (src/constants/providerCategories.ts), para que nunca se desincronicen.
+  // selectedCategoryId guarda el `key` de PROVIDER_CATEGORIES, no un uuid.
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
+  // sql/585 (Fase 1) — contexto de "agregar otro proveedor a mi evento":
+  // llega vía route.params desde EventCategoryPickerScreen. presetGenres es
+  // un filtro EXACTO (nombres reales de categories.name), independiente del
+  // sistema de chips por categoría raíz — no lo reemplaza, solo tiene prioridad
+  // cuando está presente.
+  const [eventCtx, setEventCtx] = useState<{ eventId: string; eventDate: string | null; eventAddress: string | null } | null>(null);
+  const [presetGenres, setPresetGenres] = useState<string[] | null>(null);
+  const [presetCategoryLabel, setPresetCategoryLabel] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  // sql/605 — petición real (2026-09-03): cuando una categoría (Payasos,
+  // Comida, etc.) no tiene proveedores todavía, botón "avísame" que crea
+  // un lead para el admin (con el teléfono del cliente) en vez de dejar
+  // al cliente en una pantalla vacía sin nada que hacer.
+  const [interestSentFor, setInterestSentFor] = useState<string | null>(null);
+  const [sendingInterest, setSendingInterest] = useState(false);
   const [profile, setProfile] = useState<any>(null);
   const [locationMode, setLocationMode] = useState<'home' | 'here'>('home');
   // 🎁 Modo regalo: explorar grupos de otra ciudad para regalar (o contratar a distancia).
@@ -124,20 +147,6 @@ export default function HomeScreen({ navigation }: any) {
   const [giftCity,    setGiftCity]    = useState<string | null>(null);
   const [citySelOpen,    setCitySelOpen]    = useState(false);
   const [citySelCountry, setCitySelCountry] = useState<string>('México');
-  // 🎁 se sacude un poco (el 🌎 queda estático)
-  const giftWiggle = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    Animated.loop(
-      Animated.sequence([
-        Animated.delay(1400),
-        Animated.timing(giftWiggle, { toValue: 1,  duration: 110, useNativeDriver: true }),
-        Animated.timing(giftWiggle, { toValue: -1, duration: 110, useNativeDriver: true }),
-        Animated.timing(giftWiggle, { toValue: 1,  duration: 110, useNativeDriver: true }),
-        Animated.timing(giftWiggle, { toValue: 0,  duration: 110, useNativeDriver: true }),
-      ]),
-    ).start();
-  }, []);
-  const giftRotate = giftWiggle.interpolate({ inputRange: [-1, 1], outputRange: ['-16deg', '16deg'] });
   const [groupHasActiveAds, setGroupHasActiveAds] = useState(false);
   const [nearbyCity, setNearbyCity] = useState<string | null>(null);
   const [locationLoading, setLocationLoading] = useState(false);
@@ -157,25 +166,86 @@ export default function HomeScreen({ navigation }: any) {
   const [cityDemand, setCityDemand] = useState<any>(null);
   const [topRecs,          setTopRecs]          = useState<any[]>([]);
   const [refreshing, setRefreshing] = useState(false);
-  const [msiVisible, setMsiVisible] = useState(true);
   const [demandVisible, setDemandVisible] = useState(true);
   const demandShown     = useRef(false);
   const headerOpacity   = useRef(new Animated.Value(0)).current;
   const adFade          = useRef(new Animated.Value(1)).current;
-  const msiFade         = useRef(new Animated.Value(1)).current;
   const demandFade      = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     fetchData();
-    fetchCategories();
     fetchPromotions();
     Animated.timing(headerOpacity, { toValue: 1, duration: 500, useNativeDriver: true }).start();
-    // Banner MSI: visible 4 s y luego desaparece
-    const t = setTimeout(() => {
-      Animated.timing(msiFade, { toValue: 0, duration: 500, useNativeDriver: true }).start(() => setMsiVisible(false));
-    }, 4000);
-    return () => clearTimeout(t);
   }, []);
+
+  // sql/585 (Fase 1) — llega desde EventCategoryPickerScreen (o directo desde
+  // BookingScreen "agregar otro proveedor"). Puramente aditivo: si no hay
+  // params, eventCtx/presetGenres quedan null y el Home se comporta idéntico
+  // a como se comportaba antes de esta fase.
+  useEffect(() => {
+    const p = route?.params;
+    if (p?.eventId) {
+      setEventCtx({ eventId: p.eventId, eventDate: p.eventDate ?? null, eventAddress: p.eventAddress ?? null });
+    }
+    if (p?.categoryGenres) {
+      setPresetGenres(p.categoryGenres);
+      setPresetCategoryLabel(p.categoryLabel ?? null);
+      setSelectedCategoryId(null);
+    }
+    // Hallazgo real de auditoría (2026-09-04): React Navigation FUSIONA
+    // params nuevos con los existentes en vez de reemplazarlos — sin este
+    // setParams, eventId/categoryGenres quedarían pegados en route.params
+    // para siempre después del primer uso, y el banner "Agregando a tu
+    // evento" reaparecería en cualquier visita normal futura a Explorar
+    // (incluso sin venir de "agregar otro proveedor"). Se limpian los
+    // params ya consumidos, dejando el estado local (eventCtx/presetGenres)
+    // como única fuente de verdad durante esta sesión de pantalla.
+    if (p?.eventId || p?.categoryGenres) {
+      navigation.setParams({ eventId: undefined, eventDate: undefined, eventAddress: undefined, categoryGenres: undefined, categoryLabel: undefined });
+    }
+  }, [route?.params?.eventId, route?.params?.categoryGenres, route?.params?.categoryLabel]);
+
+  const clearPresetCategory = () => { setPresetGenres(null); setPresetCategoryLabel(null); };
+  // Mismo hallazgo: sin esto, el banner de evento nunca se podía cerrar —
+  // quedaba visible el resto de la sesión de la app una vez usado.
+  const clearEventCtx = () => { setEventCtx(null); clearPresetCategory(); };
+
+  // sql/605 — categoría activa (chip normal o preset de "agregar otro
+  // proveedor"), null si se está viendo "Todos" o buscando por texto.
+  // Se usa para decidir cuándo mostrar el botón "avísame" en resultados
+  // vacíos, y qué mandar a la fila de interés.
+  const activeCategoryContext = (): { label: string; genres: string[] } | null => {
+    if (presetGenres && presetCategoryLabel) return { label: presetCategoryLabel, genres: presetGenres };
+    if (selectedCategoryId) {
+      const cat = PROVIDER_CATEGORIES.find(c => c.key === selectedCategoryId);
+      if (cat) return { label: t(cat.labelKey), genres: cat.genres };
+    }
+    return null;
+  };
+
+  const handleRequestCategoryInterest = async () => {
+    const ctx = activeCategoryContext();
+    if (!ctx || sendingInterest) return;
+    setSendingInterest(true);
+    try {
+      const activeState = giftMode && giftState ? giftState : (locationMode === 'here' && gpsState ? gpsState : safeState);
+      const { data, error } = await supabase.rpc('request_category_interest', {
+        p_category_label: ctx.label,
+        p_genres: ctx.genres,
+        p_city: nearbyCity ?? null,
+        p_state: activeState ?? null,
+      });
+      if (!error && (data as any)?.ok) {
+        setInterestSentFor(ctx.label);
+      } else {
+        Alert.alert(t('common.error'), t('home.interestErrorBody'));
+      }
+    } catch {
+      Alert.alert(t('common.error'), t('home.interestErrorBody'));
+    } finally {
+      setSendingInterest(false);
+    }
+  };
 
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', () => {
@@ -268,9 +338,15 @@ export default function HomeScreen({ navigation }: any) {
 
   useEffect(() => {
     let result = groups;
-    if (selectedCategoryId) {
-      const names = subcatNames[selectedCategoryId] ?? [];
-      result = result.filter(g => names.includes(g.genre));
+    if (presetGenres) {
+      // Filtro de categoría real (sql/585, "agregar otro proveedor") — nombre
+      // exacto de groups.genre, tiene prioridad sobre el chip raíz.
+      result = result.filter(g => presetGenres.includes(g.genre));
+    } else if (selectedCategoryId) {
+      // 2026-09-03 — mismas categorías que "agregar otro proveedor"
+      // (PROVIDER_CATEGORIES), ya no se leen de la tabla `categories`.
+      const cat = PROVIDER_CATEGORIES.find(c => c.key === selectedCategoryId);
+      if (cat) result = result.filter(g => cat.genres.includes(g.genre));
     }
     if (search) result = result.filter(g =>
       g.name?.toLowerCase().includes(search.toLowerCase()) ||
@@ -284,7 +360,7 @@ export default function HomeScreen({ navigation }: any) {
       return cityMatch || serviceMatch;
     });
     setFiltered(result);
-  }, [groups, selectedCategoryId, subcatNames, search, nearbyCity]);
+  }, [groups, selectedCategoryId, presetGenres, search, nearbyCity]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -456,21 +532,6 @@ export default function HomeScreen({ navigation }: any) {
     setTopRecs(paid);
   };
 
-  const fetchCategories = async () => {
-    const { data } = await supabase
-      .from('categories')
-      .select('id, name, type, parent_id')
-      .eq('active', true);
-    if (!data) return;
-    const roots = data.filter(c => !c.parent_id);
-    const map: Record<string, string[]> = {};
-    for (const root of roots) {
-      map[root.id] = data.filter(c => c.parent_id === root.id).map(c => c.name);
-    }
-    setCategories(roots);
-    setSubcatNames(map);
-  };
-
   const fetchUnreadCount = async () => {
     const { data: sessionData } = await supabase.auth.getSession();
     if (!sessionData.session) return;
@@ -569,7 +630,7 @@ export default function HomeScreen({ navigation }: any) {
   }, [filtered]);
 
   // ── Anti-saturation: interleave organic groups so max 2 promoted in a row ──
-  const interleavedGroups = useMemo(() => {
+  const interleave = (list: any[]) => {
     const now = Date.now();
     const isBidActive = (g: any) =>
       (g.bid_amount ?? 0) > 0 && g.bid_ends_at && new Date(g.bid_ends_at).getTime() > now;
@@ -577,7 +638,7 @@ export default function HomeScreen({ navigation }: any) {
 
     const promoted: any[] = [];
     const organic: any[] = [];
-    for (const g of filtered) {
+    for (const g of list) {
       if (isPromoted(g)) promoted.push(g);
       else organic.push(g);
     }
@@ -597,6 +658,23 @@ export default function HomeScreen({ navigation }: any) {
       }
     }
     return result;
+  };
+
+  const interleavedGroups = useMemo(() => {
+    // Petición real (2026-09-03): "que salga todo... pero primero los
+    // músicos" — en la vista "Todos los grupos" (sin filtro de categoría),
+    // los grupos musicales/solista/DJ/luz-sonido van primero, y el resto
+    // (Comediante, Payasos, Comida, Renta, Fotógrafos) después — cada
+    // bloque conserva su propio intercalado de pagado/orgánico, así que
+    // un anuncio pagado de un Comida no compite por posición contra un
+    // grupo musical orgánico. Constante NON_MUSICIAN_GENRES a nivel de
+    // módulo (arriba) — la reutiliza también el deck de Destacados abajo.
+    const musicians: any[] = [];
+    const others: any[] = [];
+    for (const g of filtered) {
+      (NON_MUSICIAN_GENRES.has(g.genre) ? others : musicians).push(g);
+    }
+    return [...interleave(musicians), ...interleave(others)];
   }, [filtered]);
 
   return (
@@ -612,7 +690,7 @@ export default function HomeScreen({ navigation }: any) {
             <Bell size={18} color={COLORS.muted2} />
             {unreadCount > 0 && (
               <View style={styles.notifDot}>
-                <Text style={styles.notifDotText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
+                <Text style={styles.notifDotText}>{unreadCount > 99 ? '99+' : unreadCount}</Text>
               </View>
             )}
           </Pressable>
@@ -626,7 +704,7 @@ export default function HomeScreen({ navigation }: any) {
           >
             <LinearGradient
               colors={['rgba(0,230,118,0.15)', 'rgba(0,200,83,0.05)']}
-              style={StyleSheet.absoluteFillObject}
+              style={StyleSheet.absoluteFill}
               start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
             />
             <View style={styles.liveDot} />
@@ -649,7 +727,7 @@ export default function HomeScreen({ navigation }: any) {
           >
             <LinearGradient
               colors={['rgba(239,83,80,0.20)', 'rgba(239,83,80,0.05)']}
-              style={StyleSheet.absoluteFillObject}
+              style={StyleSheet.absoluteFill}
               start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
             />
             <Text style={styles.failedChargeIcon}>💳</Text>
@@ -673,7 +751,7 @@ export default function HomeScreen({ navigation }: any) {
           >
             <LinearGradient
               colors={['rgba(255,152,0,0.18)', 'rgba(255,152,0,0.05)']}
-              style={StyleSheet.absoluteFillObject}
+              style={StyleSheet.absoluteFill}
               start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
             />
             <Text style={styles.payBannerIcon}>⚡</Text>
@@ -689,55 +767,41 @@ export default function HomeScreen({ navigation }: any) {
           </Pressable>
         )}
 
-        {/* MSI BANNER — aparece 4 s y se desvanece */}
-        {msiVisible && !liveEvent && (
-          <Animated.View style={{ opacity: msiFade }}>
-            <Pressable
-              style={styles.msiBanner}
-              onPress={() => navigation.navigate('ClientReservations')}
-            >
-              <LinearGradient
-                colors={['rgba(0,230,118,0.13)', 'rgba(66,133,244,0.07)']}
-                style={StyleSheet.absoluteFillObject}
-                start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-              />
-              <View style={styles.msiBannerRow}>
-                <Text style={styles.msiBannerEmoji}>💳</Text>
-                <Text style={styles.msiBannerTitle}>Hasta 12 cuotas mensuales</Text>
-                <View style={styles.msiBannerPills}>
-                  {['3x', '6x', '12x'].map(m => (
-                    <View key={m} style={styles.msiBannerPill}>
-                      <Text style={styles.msiBannerPillText}>{m}</Text>
-                    </View>
-                  ))}
-                </View>
-              </View>
-              <Text style={styles.msiBannerSub}>Con tarjeta de crédito participante</Text>
-            </Pressable>
-          </Animated.View>
-        )}
-
         {/* QUOTE BANNER — acumulativo */}
         {pendingQuotes.length > 0 && !liveEvent && (() => {
           const first = pendingQuotes[0];
           const count = pendingQuotes.length;
           const hasResponse = pendingQuotes.some(q => q.status === 'quoted');
           const title = hasResponse ? '¡Cotización recibida!' : 'Cotización en espera';
+          // Hallazgo real con captura (2026-09-03): con 2+ solicitudes SIEMPRE
+          // decía "han cotizado" (pasado, como si el proveedor ya hubiera
+          // respondido) aunque ninguna tuviera status='quoted' todavía — es
+          // decir, el título decía "en espera" pero el texto de abajo decía
+          // lo contrario. Ahora el texto también distingue si de verdad ya
+          // respondieron o siguen en espera, igual que ya hacía el título.
           const groupText = count === 1
             ? `${first.group?.name ?? 'Grupo'} · ${first.duration_hours}h`
-            : `${first.group?.name ?? 'Grupo'} y ${count - 1} más han cotizado`;
+            : hasResponse
+              ? `${first.group?.name ?? 'Grupo'} y ${count - 1} más han cotizado`
+              : `${first.group?.name ?? 'Grupo'} y ${count - 1} más — esperando respuesta`;
           // Con respuesta → abrir el CARRUSEL tipo Uber (2026-07-11); sin
           // respuesta aún → detalle/lista como antes.
           const onPress = hasResponse
             ? () => { void reviveClientProposals(); }
             : count === 1
               ? () => navigation.navigate('ClientQuoteDetail', { quoteId: first.id })
-              : () => navigation.navigate('ClientReservations', { initialTab: 'quotes' });
+              // Hallazgo real (2026-09-03): ReservationsScreen solo reconoce
+              // initialTab === 'pendientes' (ver línea `const initialTab =
+              // route?.params?.initialTab === 'pendientes' ? ...`) — 'quotes'
+              // no calzaba con nada y caía siempre al tab por defecto
+              // ("eventos"), aunque las cotizaciones en espera viven en
+              // "pendientes". "Ver todas" mandaba al lugar equivocado.
+              : () => navigation.navigate('ClientReservations', { initialTab: 'pendientes' });
           return (
             <Pressable style={styles.quoteBanner} onPress={onPress}>
               <LinearGradient
                 colors={['rgba(66,133,244,0.18)', 'rgba(66,133,244,0.05)']}
-                style={StyleSheet.absoluteFillObject}
+                style={StyleSheet.absoluteFill}
                 start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
               />
               <Text style={styles.quoteBannerIcon}>{hasResponse ? '📋' : '⏳'}</Text>
@@ -767,7 +831,7 @@ export default function HomeScreen({ navigation }: any) {
             >
               <LinearGradient
                 colors={['rgba(255,107,53,0.18)', 'rgba(255,107,53,0.05)']}
-                style={StyleSheet.absoluteFillObject}
+                style={StyleSheet.absoluteFill}
                 start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
               />
               <Text style={styles.myRequestBannerIcon}>📡</Text>
@@ -853,8 +917,8 @@ export default function HomeScreen({ navigation }: any) {
                 </View>
                 <Text style={styles.actionSub}>Recibe propuestas de grupos hoy mismo</Text>
                 <View style={styles.actionCta}>
-                  <Text style={[styles.actionCtaTx, { color: COLORS.gold }]}>Solicitar</Text>
-                  <ChevronRight size={15} color={COLORS.gold} />
+                  <Text style={styles.actionCtaTx}>Solicitar</Text>
+                  <ChevronRight size={15} color={COLORS.text} />
                 </View>
               </Pressable>
 
@@ -868,9 +932,8 @@ export default function HomeScreen({ navigation }: any) {
                 </View>
                 <Text style={styles.actionSub}>Explora o regala en otro estado</Text>
                 <View style={styles.actionCta}>
-                  <Animated.Text style={[styles.actionGiftEmoji, { transform: [{ rotate: giftRotate }] }]}>🎁</Animated.Text>
-                  <Text style={[styles.actionCtaTx, { color: COLORS.green }]}>Explorar</Text>
-                  <ChevronRight size={15} color={COLORS.green} />
+                  <Text style={styles.actionCtaTx}>Explorar</Text>
+                  <ChevronRight size={15} color={COLORS.text} />
                 </View>
               </Pressable>
             </View>
@@ -927,13 +990,34 @@ export default function HomeScreen({ navigation }: any) {
             </View>
           </Modal>
 
-          {/* DESTACADOS · RECOMENDADOS · POPULARES — carruseles del estado del cliente */}
-          {!search && !selectedCategoryId && !nearbyCity && (() => {
-            const real = groups.filter((g: any) => !g._is_mock);
+          {/* DESTACADOS · RECOMENDADOS · POPULARES — carruseles del estado del
+              cliente. Petición real (2026-09-03): "cuando cambio de
+              categorías se quitan porque solo aparecen los de los grupos...
+              cada proveedor si paga aparecerá en su categoría" — antes
+              dependía de `!selectedCategoryId` y usaba `groups` (sin
+              filtrar), así que al elegir una categoría (Comida, Payasos,
+              etc.) esta fila desaparecía por completo — un Comida que
+              pagara por patrocinio/boost nunca se veía destacado dentro de
+              su propia categoría, solo en "Todos". Ahora usa `filtered`
+              (ya trae aplicado el chip de categoría O el preset de
+              "agregar otro proveedor") y también escala `topRecs` (pagado,
+              sql/170) al mismo filtro de genre — así si el cliente entra a
+              Comida, ve destacados/recomendados/populares SOLO de Comida.
+              2026-09-03 (aclaración del mismo pedido): en "Todos" (sin
+              categoría) esta fila muestra SOLO músicos — el resto de
+              categorías ya tiene su propio Destacados/Recomendados al
+              entrar a esa categoría específica, no hace falta mezclarlos
+              aquí también. El grid de abajo ("Todos los grupos") sigue
+              mostrando TODAS las categorías, eso no cambia. */}
+          {!search && !nearbyCity && (() => {
+            const activeGenres = presetGenres ?? (selectedCategoryId ? (PROVIDER_CATEGORIES.find(c => c.key === selectedCategoryId)?.genres ?? null) : null);
+            const real = filtered.filter((g: any) => !g._is_mock && (activeGenres || !NON_MUSICIAN_GENRES.has(g.genre)));
             const byRating = [...real].sort((a: any, b: any) => (b.rating ?? 0) - (a.rating ?? 0));
 
             const sponsored = real.filter((g: any) => g.is_sponsored || (g.boost_score ?? 0) > 0);
-            const recReal   = topRecs.filter((r: any) => !!r.id);
+            const recReal   = topRecs.filter((r: any) =>
+              !!r.id && (activeGenres ? activeGenres.includes(r.genre) : !NON_MUSICIAN_GENRES.has(r.genre))
+            );
 
             let destacados: any[], recomendados: any[], populares: any[];
 
@@ -960,8 +1044,15 @@ export default function HomeScreen({ navigation }: any) {
 
             if (sections.length === 0) return null;
 
+            // Hallazgo real con captura (2026-09-03): "sigue grande" — el
+            // ancho de columna se dividía entre `sections.length` (cuántas
+            // de las 3 traían datos), así que con una sola categoría con 1
+            // solo grupo (ej. DJ), al haber solo 1 sección con datos, esa
+            // columna se estiraba a TODO el ancho de pantalla. El tamaño de
+            // tarjeta debe ser fijo (como si siempre hubiera 3 columnas),
+            // no repartirse entre las que de casualidad tengan contenido.
             const deckGap = 10;
-            const colW = Math.floor((width - SPACING.xl * 2 - deckGap * (sections.length - 1)) / sections.length);
+            const colW = Math.floor((width - H_PAD * 2 - deckGap * 2) / 3);
 
             return (
               <View style={styles.deckRow}>
@@ -1101,6 +1192,40 @@ export default function HomeScreen({ navigation }: any) {
           })()}
 
 
+          {/* sql/585 (Fase 1) — banner "agregando a mi evento existente".
+              Solo aparece si se llegó con eventId (desde EventCategoryPicker
+              o "agregar otro proveedor"); en el uso normal del Home no se
+              muestra nada de esto. */}
+          {!!eventCtx && (
+            <View style={styles.eventCtxBanner}>
+              <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
+                <Text style={[styles.eventCtxBannerText, { flex: 1 }]}>
+                  {t('home.eventCtxBanner', {
+                    date: eventCtx.eventDate
+                      ? new Date(eventCtx.eventDate + 'T12:00:00').toLocaleDateString(i18n.language?.startsWith('en') ? 'en-US' : 'es-MX', { day: 'numeric', month: 'long' })
+                      : '—',
+                    address: eventCtx.eventAddress ?? '',
+                  })}
+                </Text>
+                {/* Hallazgo de auditoría: sin esto, el banner no se podía
+                    cerrar y quedaba pegado en cualquier visita futura al
+                    explorador, aunque el cliente ya no estuviera agregando
+                    un proveedor. */}
+                <Pressable onPress={clearEventCtx} hitSlop={8}>
+                  <X size={16} color={COLORS.green} />
+                </Pressable>
+              </View>
+              {!!presetCategoryLabel && (
+                <View style={styles.eventCtxChipRow}>
+                  <Text style={styles.eventCtxCategoryChip}>{presetCategoryLabel}</Text>
+                  <Pressable onPress={clearPresetCategory} hitSlop={8}>
+                    <Text style={styles.eventCtxClear}>{t('home.eventCtxClearFilter')}</Text>
+                  </Pressable>
+                </View>
+              )}
+            </View>
+          )}
+
           {/* HEADER — SECCIÓN PROGRAMADA */}
           <View style={styles.scheduledHeader}>
             <Text style={styles.scheduledTag}>FECHA PROGRAMADA</Text>
@@ -1120,14 +1245,14 @@ export default function HomeScreen({ navigation }: any) {
             >
               <Text style={[styles.genreText, selectedCategoryId === null && styles.genreTextActive]}>{t('common.all')}</Text>
             </Pressable>
-            {categories.map((cat) => (
+            {PROVIDER_CATEGORIES.map((cat) => (
               <Pressable
-                key={cat.id}
-                style={[styles.genreChip, selectedCategoryId === cat.id && styles.genreChipActive]}
-                onPress={() => setSelectedCategoryId(cat.id)}
+                key={cat.key}
+                style={[styles.genreChip, selectedCategoryId === cat.key && styles.genreChipActive]}
+                onPress={() => setSelectedCategoryId(cat.key)}
               >
-                <Text style={[styles.genreText, selectedCategoryId === cat.id && styles.genreTextActive]}>
-                  {CATEGORY_ICONS[cat.type] ?? '📋'} {cat.name}
+                <Text style={[styles.genreText, selectedCategoryId === cat.key && styles.genreTextActive]}>
+                  {t(cat.labelKey)}
                 </Text>
               </Pressable>
             ))}
@@ -1143,13 +1268,40 @@ export default function HomeScreen({ navigation }: any) {
             </View>
           </View>
 
-          {interleavedGroups.length === 0 ? (
-            <View style={styles.empty}>
-              <Text style={styles.emptyEmoji}>🔍</Text>
-              <Text style={styles.emptyText}>{t('common.no_results')}</Text>
-              <Text style={styles.emptySub}>{t('common.try_again')}</Text>
-            </View>
-          ) : (() => {
+          {interleavedGroups.length === 0 ? (() => {
+            const ctx = !search ? activeCategoryContext() : null;
+            const alreadySent = !!ctx && interestSentFor === ctx.label;
+            return (
+              <View style={styles.empty}>
+                <Text style={styles.emptyEmoji}>🔍</Text>
+                <Text style={styles.emptyText}>
+                  {ctx ? t('home.noProvidersYet', { category: ctx.label }) : t('common.no_results')}
+                </Text>
+                <Text style={styles.emptySub}>
+                  {ctx ? t('home.noProvidersYetSub') : t('common.try_again')}
+                </Text>
+                {ctx && (
+                  alreadySent ? (
+                    <View style={styles.interestSentPill}>
+                      <Bell size={13} color={COLORS.green} />
+                      <Text style={styles.interestSentText}>{t('home.interestSent')}</Text>
+                    </View>
+                  ) : (
+                    <Pressable
+                      style={[styles.interestBtn, sendingInterest && { opacity: 0.6 }]}
+                      onPress={handleRequestCategoryInterest}
+                      disabled={sendingInterest}
+                    >
+                      {sendingInterest
+                        ? <ActivityIndicator size="small" color={COLORS.bg} />
+                        : <Bell size={14} color={COLORS.bg} />}
+                      <Text style={styles.interestBtnText}>{t('home.notifyMe')}</Text>
+                    </Pressable>
+                  )
+                )}
+              </View>
+            );
+          })() : (() => {
             const rows: React.ReactNode[] = [];
             for (let i = 0; i < interleavedGroups.length; i += 4) {
               const rowGroups = interleavedGroups.slice(i, i + 4);
@@ -1163,6 +1315,7 @@ export default function HomeScreen({ navigation }: any) {
                       index={i + ri}
                       navigation={navigation}
                       bidRank={bidRankMap.get(group.id) ?? null}
+                      eventCtx={eventCtx}
                     />
                   ))}
                   {/* Relleno si la fila no está completa */}
@@ -1214,8 +1367,11 @@ function MiniDeck({ items, navigation, isGift, variant, colWidth }: any) {
 
   if (n === 0) return null;
 
-  // 💎 El Destacado (columna central, la más cara) es MÁS GRANDE y brilla
-  const scale = variant === 'dest' ? 0.92 : 0.80;
+  // Petición real (2026-09-03): "quiero que esté el mismo tamaño como
+  // aparecen los demás" — el Destacado ya no se agranda (0.92 vs 0.80),
+  // las 3 columnas usan el mismo tamaño de tarjeta. Se distingue solo por
+  // su marco dorado con brillo (ver estilos más abajo), no por tamaño.
+  const scale = 0.80;
   const cardW = Math.round(colWidth * scale);
   const cardH = Math.round(cardW * 1.32);
   const peek  = Math.round(cardW * 0.22);   // asoman poco → no invaden la columna vecina
@@ -1288,6 +1444,13 @@ function DeckCard({ group, w, h, variant }: any) {
         locations={[0.42, 1]}
         style={styles.featGradient}
       />
+      {group.is_verified && (
+        <VerifiedBadge
+          size={16}
+          style={{ position: 'absolute', top: 6, right: 6 }}
+          tier={group.is_plus_active ? 'plus' : 'free'}
+        />
+      )}
       <View style={styles.deckOverlay}>
         <Text style={styles.deckName} numberOfLines={1}>{group.name}</Text>
         <View style={styles.deckMeta}>
@@ -1303,10 +1466,10 @@ function DeckCard({ group, w, h, variant }: any) {
 
 const GRID_COLS = 4;
 const GRID_GAP  = 6;
-const GRID_W    = (width - SPACING.xl * 2 - GRID_GAP * (GRID_COLS - 1)) / GRID_COLS;
+const GRID_W    = (width - H_PAD * 2 - GRID_GAP * (GRID_COLS - 1)) / GRID_COLS;
 const GRID_IMG  = Math.round(GRID_W * 0.78);
 
-function GroupGridCard({ group, index, navigation, bidRank, isGift = false }: any) {
+function GroupGridCard({ group, index, navigation, bidRank, isGift = false, eventCtx }: any) {
   const fade = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     Animated.timing(fade, { toValue: 1, duration: 300, delay: (index % 9) * 40, useNativeDriver: true }).start();
@@ -1324,7 +1487,10 @@ function GroupGridCard({ group, index, navigation, bidRank, isGift = false }: an
     <Animated.View style={[styles.gridCell, { opacity: fade }]}>
       <Pressable
         style={styles.gridCard}
-        onPress={() => navigation.navigate('GroupDetail', { group, isGift })}
+        onPress={() => navigation.navigate('GroupDetail', {
+          group, isGift,
+          ...(eventCtx ? { eventId: eventCtx.eventId, eventDate: eventCtx.eventDate, eventAddress: eventCtx.eventAddress } : {}),
+        })}
       >
         {/* Foto */}
         <View style={styles.gridImgBox}>
@@ -1481,12 +1647,26 @@ function GroupCard({ group, index, navigation, bidRank }: any) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.bg },
 
+  eventCtxBanner: {
+    backgroundColor: 'rgba(0,230,118,0.08)', borderWidth: 1, borderColor: 'rgba(0,230,118,0.25)',
+    borderRadius: RADIUS.lg, padding: 12, marginHorizontal: H_PAD, marginBottom: 14, gap: 8,
+  },
+  eventCtxBannerText: { fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.green, lineHeight: 18 },
+  eventCtxChipRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  eventCtxCategoryChip: {
+    fontFamily: FONTS.bodySemiBold, fontSize: 12, color: COLORS.text,
+    backgroundColor: COLORS.card2, borderRadius: RADIUS.full, paddingHorizontal: 10, paddingVertical: 4,
+  },
+  eventCtxClear: { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2, textDecorationLine: 'underline' },
+
   // Header
   header: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingHorizontal: SPACING.xl, paddingTop: 6, paddingBottom: 6,
+    paddingHorizontal: H_PAD, paddingTop: 6, paddingBottom: 6,
   },
-  logoText: { fontFamily: FONTS.title, fontSize: 22, color: COLORS.text },
+  // Petición real (2026-09-03): "lo de Daricefy sí déjalo, pero un poco
+  // más chico" — bajado de 22 a 18.
+  logoText: { fontFamily: FONTS.title, fontSize: 18, color: COLORS.text },
   logoGreen: { color: COLORS.green },
   subGreeting: { fontFamily: FONTS.body, fontSize: 13, color: COLORS.muted2, marginTop: 2 },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
@@ -1512,7 +1692,7 @@ const styles = StyleSheet.create({
   // Live banner
   liveBanner: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
-    marginHorizontal: SPACING.xl, marginBottom: 12,
+    marginHorizontal: H_PAD, marginBottom: 12,
     backgroundColor: COLORS.card, borderRadius: RADIUS.xl,
     borderWidth: 1.5, borderColor: COLORS.green,
     padding: 14, overflow: 'hidden',
@@ -1530,7 +1710,7 @@ const styles = StyleSheet.create({
   // Pending payment banner
   payBanner: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
-    marginHorizontal: SPACING.xl, marginBottom: 12,
+    marginHorizontal: H_PAD, marginBottom: 12,
     backgroundColor: COLORS.card, borderRadius: RADIUS.xl,
     borderWidth: 1.5, borderColor: COLORS.orange,
     padding: 14, overflow: 'hidden',
@@ -1547,7 +1727,7 @@ const styles = StyleSheet.create({
   // Quote banner
   quoteBanner: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
-    marginHorizontal: SPACING.xl, marginBottom: 10,
+    marginHorizontal: H_PAD, marginBottom: 10,
     borderRadius: RADIUS.xl, overflow: 'hidden',
     borderWidth: 1, borderColor: 'rgba(66,133,244,0.35)',
     paddingHorizontal: 16, paddingVertical: 12,
@@ -1564,7 +1744,7 @@ const styles = StyleSheet.create({
   // My open requests banner
   myRequestBanner: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
-    marginHorizontal: SPACING.xl, marginBottom: 10,
+    marginHorizontal: H_PAD, marginBottom: 10,
     borderRadius: RADIUS.xl, overflow: 'hidden',
     borderWidth: 1.5, borderColor: 'rgba(255,107,53,0.6)',
     paddingHorizontal: 16, paddingVertical: 12,
@@ -1578,30 +1758,11 @@ const styles = StyleSheet.create({
   },
   myRequestBannerBtnText: { fontFamily: FONTS.bodySemiBold, fontSize: 12, color: '#FF6B35' },
 
-  // MSI banner
-  msiBanner: {
-    marginHorizontal: SPACING.xl, marginBottom: 10,
-    borderRadius: RADIUS.xl, overflow: 'hidden',
-    borderWidth: 1, borderColor: 'rgba(0,230,118,0.25)',
-    paddingHorizontal: 14, paddingVertical: 12,
-  },
-  msiBannerRow:  { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 3 },
-  msiBannerEmoji: { fontSize: 17 },
-  msiBannerTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.text, flex: 1 },
-  msiBannerSub:   { fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted2, paddingLeft: 25 },
-  msiBannerPills: { flexDirection: 'row', gap: 4 },
-  msiBannerPill: {
-    paddingHorizontal: 7, paddingVertical: 3,
-    borderRadius: 8, backgroundColor: 'rgba(0,230,118,0.15)',
-    borderWidth: 1, borderColor: 'rgba(0,230,118,0.3)',
-  },
-  msiBannerPillText: { fontFamily: FONTS.bodySemiBold, fontSize: 11, color: COLORS.green },
-
   // Solicitar ahora banner
   // ── Botón Propuestas (hero) ──
   expressCtaBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
-    marginHorizontal: SPACING.xl, marginBottom: 10,
+    marginHorizontal: H_PAD, marginBottom: 10,
     backgroundColor: 'rgba(0,230,118,0.11)',
     borderWidth: 1, borderColor: 'rgba(0,230,118,0.45)',
     borderRadius: RADIUS.lg,
@@ -1620,7 +1781,7 @@ const styles = StyleSheet.create({
   // ── Botón Mapa ──
   groupsMapBanner: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
-    marginHorizontal: SPACING.xl, marginBottom: 12,
+    marginHorizontal: H_PAD, marginBottom: 12,
     backgroundColor: COLORS.card,
     borderWidth: 1, borderColor: COLORS.border,
     borderRadius: 18, padding: 13,
@@ -1669,7 +1830,7 @@ const styles = StyleSheet.create({
   // 🎁 Regalar evento / modo regalo
   giftEntry: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
-    marginHorizontal: SPACING.xl, marginBottom: 14,
+    marginHorizontal: H_PAD, marginBottom: 14,
     backgroundColor: 'rgba(0,230,118,0.06)', borderRadius: RADIUS.lg,
     borderWidth: 1, borderColor: 'rgba(0,230,118,0.25)',
     paddingHorizontal: 16, paddingVertical: 13,
@@ -1681,18 +1842,18 @@ const styles = StyleSheet.create({
   giftEntryGiftEmoji: { fontSize: 14 },
 
   // ── ⚡/🌎 Tarjetas de acción (Express + Otra ciudad) ──
-  actionRow: { flexDirection: 'row', gap: 10, marginHorizontal: SPACING.xl, marginBottom: 14 },
+  actionRow: { flexDirection: 'row', gap: 10, marginHorizontal: H_PAD, marginBottom: 14 },
   actionCard: {
     flex: 1, backgroundColor: COLORS.card, borderRadius: RADIUS.lg,
     borderWidth: 1, borderColor: COLORS.border, padding: 14, minHeight: 96,
   },
-  actionCardExpress: { borderColor: 'rgba(255,179,0,0.35)', backgroundColor: 'rgba(255,179,0,0.06)' },
-  actionCardCity:    { borderColor: 'rgba(0,230,118,0.35)', backgroundColor: 'rgba(0,230,118,0.06)' },
+  actionCardExpress: { borderColor: 'rgba(255,255,255,0.14)', backgroundColor: 'rgba(255,255,255,0.03)' },
+  actionCardCity:    { borderColor: 'rgba(255,255,255,0.14)', backgroundColor: 'rgba(255,255,255,0.03)' },
   actionCardPressed: { opacity: 0.6, transform: [{ scale: 0.98 }] },
   actionCardTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, minHeight: 22 },
   actionTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginBottom: 6, minHeight: 22 },
   actionCta: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 6 },
-  actionCtaTx: { fontFamily: FONTS.bodySemiBold, fontSize: 12 },
+  actionCtaTx: { fontFamily: FONTS.bodySemiBold, fontSize: 12, color: COLORS.text },
   actionChipGold: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
     backgroundColor: 'rgba(255,179,0,0.12)', borderRadius: RADIUS.full,
@@ -1700,12 +1861,11 @@ const styles = StyleSheet.create({
   },
   actionChipGoldTx: { fontFamily: FONTS.bodySemiBold, fontSize: 9, color: COLORS.gold, letterSpacing: 1 },
   actionEmoji:      { fontSize: 20 },
-  actionGiftEmoji:  { fontSize: 15 },
   actionTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 15, color: COLORS.text },
   actionSub:   { fontFamily: FONTS.body, fontSize: 11.5, color: COLORS.muted2, marginTop: 2, lineHeight: 15 },
   giftBanner: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
-    marginHorizontal: SPACING.xl, marginBottom: 14,
+    marginHorizontal: H_PAD, marginBottom: 14,
     backgroundColor: 'rgba(0,230,118,0.10)', borderRadius: RADIUS.lg,
     borderWidth: 1.5, borderColor: COLORS.green,
     paddingHorizontal: 16, paddingVertical: 12,
@@ -1739,7 +1899,7 @@ const styles = StyleSheet.create({
   },
   cityRowText: { fontFamily: FONTS.bodyMedium, fontSize: 15, color: COLORS.text },
 
-  listContent: { paddingHorizontal: SPACING.xl, paddingBottom: 32 },
+  listContent: { paddingHorizontal: H_PAD, paddingBottom: 32 },
 
   // Promo banner — imagen dominante con texto sobrepuesto
   promoBanner: {
@@ -1799,7 +1959,7 @@ const styles = StyleSheet.create({
   sectionCount: { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2 },
 
   // Event type quick actions
-  eventTypeList: { gap: 10, paddingRight: SPACING.xl },
+  eventTypeList: { gap: 10, paddingRight: H_PAD },
   eventTypeChip: {
     alignItems: 'center', gap: 6,
     backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border,
@@ -1809,13 +1969,13 @@ const styles = StyleSheet.create({
   eventTypeLabel: { fontFamily: FONTS.bodyMedium, fontSize: 11, color: COLORS.muted2 },
 
   // Featured horizontal
-  featuredList: { gap: 12, paddingLeft: SPACING.xl, paddingRight: SPACING.xl },
+  featuredList: { gap: 12, paddingLeft: H_PAD, paddingRight: H_PAD },
   featCard: {
     width: FEAT_W, height: FEAT_H,
     borderRadius: RADIUS.xl, overflow: 'hidden', position: 'relative',
     backgroundColor: COLORS.card2, borderWidth: 1, borderColor: COLORS.border,
   },
-  featImage: { ...StyleSheet.absoluteFillObject, width: '100%', height: '100%' },
+  featImage: { ...StyleSheet.absoluteFill, width: '100%', height: '100%' },
   featImagePlaceholder: { backgroundColor: COLORS.card2, alignItems: 'center', justifyContent: 'center' },
   featGradient: { position: 'absolute', left: 0, right: 0, bottom: 0, height: '80%' },
   featBadgePill: {
@@ -1825,7 +1985,7 @@ const styles = StyleSheet.create({
   featBadgePillTx: { fontFamily: FONTS.bodySemiBold, fontSize: 8, color: '#000', letterSpacing: 0.6 },
 
   // ── Mini baraja (3 columnas: Destacados · Recomendados · Populares) ──
-  deckRow: { flexDirection: 'row', justifyContent: 'center', gap: 10, paddingHorizontal: SPACING.xl, marginBottom: 24 },
+  deckRow: { flexDirection: 'row', justifyContent: 'center', gap: 10, paddingHorizontal: H_PAD, marginBottom: 24 },
   deckLabelChip: {
     alignSelf: 'center', maxWidth: '100%', marginBottom: 11,
     paddingHorizontal: 8, paddingVertical: 4.5,
@@ -1902,7 +2062,7 @@ const styles = StyleSheet.create({
   featPriceSurge:  { color: '#FF6D00', marginTop: 0 },
 
   // Category chips
-  genreList: { gap: 8, flexDirection: 'row', paddingRight: SPACING.xl },
+  genreList: { gap: 8, flexDirection: 'row', paddingRight: H_PAD },
   genreChip: {
     paddingHorizontal: 16, paddingVertical: 8, borderRadius: RADIUS.full,
     backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border,
@@ -2071,7 +2231,17 @@ const styles = StyleSheet.create({
   empty: { alignItems: 'center', paddingTop: 60, paddingBottom: 40 },
   emptyEmoji: { fontSize: 42, marginBottom: 14 },
   emptyText: { fontFamily: FONTS.bodySemiBold, color: COLORS.muted2, fontSize: 16, marginBottom: 6 },
-  emptySub: { fontFamily: FONTS.body, color: COLORS.muted, fontSize: 13 },
+  emptySub: { fontFamily: FONTS.body, color: COLORS.muted, fontSize: 13, textAlign: 'center', paddingHorizontal: 24 },
+  interestBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 18,
+    backgroundColor: COLORS.green, borderRadius: RADIUS.full, paddingVertical: 11, paddingHorizontal: 22,
+  },
+  interestBtnText: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.bg },
+  interestSentPill: {
+    flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 18,
+    backgroundColor: COLORS.greenMuted, borderRadius: RADIUS.full, paddingVertical: 10, paddingHorizontal: 18,
+  },
+  interestSentText: { fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.green },
 
   // Recent completions indicators
   featCompletions: {
@@ -2164,7 +2334,7 @@ const styles = StyleSheet.create({
   // ── Demanda ciudad ─────────────────────────────────────────────────────────
   demandBanner: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
-    marginHorizontal: SPACING.xl, marginBottom: 12,
+    marginHorizontal: H_PAD, marginBottom: 12,
     backgroundColor: 'rgba(0,230,118,0.07)', borderRadius: RADIUS.lg,
     borderWidth: 1, borderColor: 'rgba(0,230,118,0.3)',
     paddingHorizontal: 14, paddingVertical: 12,
@@ -2179,7 +2349,7 @@ const styles = StyleSheet.create({
   // ── Compact promo block (group sin ads activos, tras 3er grupo) ──────────────
   compactPromoBlock: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    marginHorizontal: SPACING.xl, marginBottom: 10,
+    marginHorizontal: H_PAD, marginBottom: 10,
     backgroundColor: COLORS.card, borderRadius: RADIUS.lg,
     borderWidth: 1, borderColor: 'rgba(0,230,118,0.25)',
     paddingHorizontal: 14, paddingVertical: 12,
@@ -2198,7 +2368,7 @@ const styles = StyleSheet.create({
   // Banner: pago fallido post-evento (50% restante declinado)
   failedChargeBanner: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
-    marginHorizontal: SPACING.xl, marginBottom: 10,
+    marginHorizontal: H_PAD, marginBottom: 10,
     borderRadius: RADIUS.lg, overflow: 'hidden',
     borderWidth: 1, borderColor: 'rgba(239,83,80,0.35)',
     paddingHorizontal: 14, paddingVertical: 12,

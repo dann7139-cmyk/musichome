@@ -11,6 +11,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { captureRef } from 'react-native-view-shot';
 import * as MediaLibrary from 'expo-media-library';
 import { ArrowLeft, Calendar, Clock, CreditCard, Download, Gift, Music2, Share2 } from 'lucide-react-native';
+import { useTranslation } from 'react-i18next';
 import { FONTS } from '../../config/theme';
 
 // ── Tokens de diseño ──────────────────────────────────────────────────────────
@@ -25,13 +26,13 @@ const GOLD_DIM    = 'rgba(0,184,217,0.10)';
 const GOLD_BORDER = 'rgba(0,184,217,0.30)';
 // Tornasol premium (brief 2026): verde → turquesa → azul, sin exagerar
 const HOLO_FRAME  = ['#00D26A', '#00D9FF', '#2563FF'] as const;
-const HOLO_STOPS  = ['#00A651', '#00B8A9', '#0891B2', '#2563EB'];   // texto holo (legible en blanco)
-// ✨ FOIL PLATEADO (hot stamping holográfico) — EL acabado del ticket
-// para todos (2026-07-15): plata metálica con bandas iridiscentes bien
-// marcadas, como el foil real que brilla de todos los colores.
-const FOIL_FRAME  = ['#7E8BA0', '#F4F7FB', '#D9C7F0', '#AFE8CC', '#FFFFFF', '#A9C4EE', '#8E99AB'] as const;
-const FOIL_STOPS  = ['#6B7688', '#8F7BAF', '#5F9377', '#5C7BAE'];   // texto foil (legible en blanco)
-const FOIL_BRIGHT = ['#F2F6FB', '#E3C9F5', '#BFF2D8', '#C3DBFF'];   // dígitos sobre oscuro
+// ✨ FOIL VIVO (refresh 2026-08-09) — marco holográfico teal → esmeralda
+// → azul marino profundo, look elegante y profesional (sin violetas).
+const FOIL_FRAME  = ['#12909A', '#1A9E78', '#0E7C6B', '#1B3A4B', '#0E7C6B', '#1A9E78', '#12909A'] as const;
+const FOIL_TAG    = '#0E6B7A';    // tagline "TU CONTRATACIÓN MUSICAL"
+const FOLIO_COLOR = '#2A6FB0';    // folio — azul sólido, monoespaciado
+const TOTAL_COLOR = '#1F8A5A';    // total — verde sólido
+const DIGIT_GRAD  = ['#1C2320', '#12909A'] as const;   // fondo de las cajas del código
 const TEXT_MAIN   = '#E8EDF5';   // texto fuera del ticket
 const TEXT_MUTED  = '#5A6A8A';
 const TEXT_MUTED2 = '#8096B8';
@@ -46,6 +47,7 @@ const T_BORDER  = '#E5E7EB';
 const T_GREEN   = '#00A651';     // verde más oscuro para legibilidad en blanco
 const T_GREEN2  = 'rgba(0,166,81,0.10)';
 const T_NAVY    = '#1E3A8A';     // código de barras
+const PERF_DOT  = '#C2CBC6';     // puntitos redondos de la perforación
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function fmtDate(d: string) {
@@ -67,14 +69,16 @@ function fmtDuration(r: any) {
   return `${h === 5 ? '+4' : h} hora${h !== 1 ? 's' : ''}`;
 }
 
-const GENRE_MAP: Record<string, string> = {
-  mariachi:    '🎺 Mariachi',    banda:       '🥁 Banda',
-  norteño:     '🎵 Norteño',     norterio:    '🎵 Norteño',
-  jazz:        '🎷 Jazz',        tropical:    '🌴 Tropical',
-  pop:         '🎤 Pop',         rock:        '🎸 Rock',
-  clasica:     '🎻 Clásica',     clasico:     '🎻 Clásica',
-  folclorico:  '🪗 Folclórico',  electronica: '🎛️ Electrónica',
-};
+type TFn = (key: string, options?: Record<string, any>) => string;
+
+const getGenreMap = (t: TFn): Record<string, string> => ({
+  mariachi:    `🎺 ${t('ticketScreen.genres.mariachi')}`,    banda:       `🥁 ${t('ticketScreen.genres.banda')}`,
+  norteño:     `🎵 ${t('ticketScreen.genres.norteño')}`,     norterio:    `🎵 ${t('ticketScreen.genres.norteño')}`,
+  jazz:        `🎷 ${t('ticketScreen.genres.jazz')}`,        tropical:    `🌴 ${t('ticketScreen.genres.tropical')}`,
+  pop:         `🎤 ${t('ticketScreen.genres.pop')}`,         rock:        `🎸 ${t('ticketScreen.genres.rock')}`,
+  clasica:     `🎻 ${t('ticketScreen.genres.clasica')}`,     clasico:     `🎻 ${t('ticketScreen.genres.clasica')}`,
+  folclorico:  `🪗 ${t('ticketScreen.genres.folclorico')}`,  electronica: `🎛️ ${t('ticketScreen.genres.electronica')}`,
+});
 
 // ── Sub-componentes ───────────────────────────────────────────────────────────
 
@@ -82,7 +86,7 @@ function DashedLine() {
   return (
     <View style={{ flex: 1, flexDirection: 'row', overflow: 'hidden', alignItems: 'center' }}>
       {Array.from({ length: 60 }, (_, i) => (
-        <View key={i} style={{ width: 4, height: 1, backgroundColor: T_BORDER, marginRight: 4 }} />
+        <View key={i} style={{ width: 3, height: 3, borderRadius: 1.5, backgroundColor: PERF_DOT, marginRight: 6 }} />
       ))}
     </View>
   );
@@ -96,51 +100,17 @@ function Perforation() {
   );
 }
 
-// ✂️ Silueta de boleto REAL — recorta el marco holográfico completo:
-// muesca grande arriba y abajo al centro + mordidas de estampilla en los
-// lados izquierdo y derecho (el overflow:hidden del marco las convierte
-// en medios círculos que dejan ver el fondo oscuro).
-function TicketCutout() {
-  const dots = Array.from({ length: 22 }, (_, i) => <View key={i} style={s.cutDot} />);
+// Caja del código de inicio — fondo en degradado oscuro→teal, dígito
+// blanco. Las 4 cajas son idénticas (sin variación de color por dígito).
+function DigitBox({ digit }: { digit: string }) {
   return (
-    <>
-      <View pointerEvents="none" style={s.cutNotchTop} />
-      <View pointerEvents="none" style={s.cutNotchBottom} />
-      <View pointerEvents="none" style={[s.cutSide, { left: -7 }]}>{dots}</View>
-      <View pointerEvents="none" style={[s.cutSide, { right: -7 }]}>{dots}</View>
-    </>
-  );
-}
-
-// 🌈 Texto "holográfico": cada carácter interpola verde → cian → azul.
-// (Sin masked-view: el degradado por carácter da el efecto iridiscente
-// y sobrevive perfecto a la captura de imagen y a la imprenta.)
-function HoloText({ text, style, stops = HOLO_STOPS }: { text: string; style?: any; stops?: string[] }) {
-  const chars = String(text).split('');
-  const n = Math.max(1, chars.length - 1);
-  return (
-    <View style={{ flexDirection: 'row', justifyContent: 'center' }}>
-      {chars.map((c, i) => (
-        <Text
-          key={i}
-          style={[style, { color: stops[Math.min(stops.length - 1, Math.round((i / n) * (stops.length - 1)))] }]}
-        >
-          {c}
-        </Text>
-      ))}
-    </View>
-  );
-}
-
-// Sobre fondo oscuro los tonos van BRILLANTES (verde → cian → azul)
-const HOLO_BRIGHT = ['#00E676', '#00D9FF', '#22A7FF', '#5B8CFF'];
-
-function DigitBox({ digit, index, bright = HOLO_BRIGHT }: { digit: string; index?: number; bright?: string[] }) {
-  const holo = bright[Math.min(bright.length - 1, (index ?? 0))];
-  return (
-    <View style={[s.digitBox, { borderColor: `${holo}55` }]}>
-      <Text style={[s.digitText, { color: holo }]}>{digit}</Text>
-    </View>
+    <LinearGradient
+      colors={DIGIT_GRAD}
+      start={{ x: 0, y: 0 }} end={{ x: 0.6, y: 1 }}
+      style={s.digitBox}
+    >
+      <Text style={s.digitText}>{digit}</Text>
+    </LinearGradient>
   );
 }
 
@@ -155,10 +125,16 @@ function InfoRow({ icon, value, gold }: { icon: string; value: string; gold?: bo
 
 // ── Pantalla principal ────────────────────────────────────────────────────────
 export default function TicketScreen({ navigation, route }: any) {
+  const { t } = useTranslation();
+  const GENRE_MAP = getGenreMap(t);
   // senderName (opcional): nombre del comprador para "De:" (lo pasa QuotePayment).
   const { reservation: r, senderName } = route.params as { reservation: any; senderName?: string };
 
   const ticketRef = useRef<View>(null);
+  // Canvas oculto usado solo para exportar: mismo ticket, renderizado dentro
+  // de un cuadro 1:1 con margen blanco, para poder capturarlo a 10×10 cm
+  // @ 300dpi sin alterar el diseño angosto que se ve en pantalla.
+  const exportRef = useRef<View>(null);
   // Caja de regalo: si la reserva ES regalo (el cliente lo marcó al comprar),
   // el ticket sale ARMADO — De/Para/mensaje reales, sin nada que editar
   // (el admin solo lo descarga). El toggle manual queda solo para
@@ -168,15 +144,23 @@ export default function TicketScreen({ navigation, route }: any) {
   const [giftFrom, setGiftFrom] = useState(senderName ?? r.client?.full_name ?? '');
   const [giftTo,   setGiftTo]   = useState(r.gift_recipient_name ?? '');
   const [saving,   setSaving]   = useState(false);
+  // Lado del cuadro de exportación — se mide del ticket real (medidas fijas
+  // en px, no %), así el cuadro siempre queda genuinamente 1:1 sin recortar
+  // ni comprimir nada. El valor inicial es solo una estimación mientras
+  // llega el primer onLayout (invisible: el cuadro está fuera de pantalla).
+  const [exportSide, setExportSide] = useState(460);
+  const handleExportLayout = (e: any) => {
+    const { width, height } = e.nativeEvent.layout;
+    const side = Math.ceil(Math.max(width, height)) + 48; // margen blanco
+    setExportSide(prev => (Math.abs(prev - side) > 1 ? side : prev));
+  };
 
   const giftMsg  = r.gift_message ?? '';
   const location = r.event_city ?? r.city ?? r.event_municipio ?? r.address ?? null;
 
-  // ✨ Acabado ÚNICO del ticket: foil plateado holográfico (lo ven igual
+  // ✨ Acabado ÚNICO del ticket: marco holográfico vivo (lo ven igual
   // cliente y admin — es la identidad del boleto Daricefy)
   const frameColors = FOIL_FRAME;
-  const textStops   = FOIL_STOPS;
-  const digitStops  = FOIL_BRIGHT;
   const cornerColor = '#8E99AB';
 
   // ✨ Entrada premium: fade in + slide up 350 ms (brief 2026)
@@ -212,22 +196,29 @@ export default function TicketScreen({ navigation, route }: any) {
     : null;
 
   // ── Descargar imagen ────────────────────────────────────────────────────────
+  // Formato de impresión: JPG cuadrado 10×10 cm a 300dpi = 1181×1181 px
+  // (10 / 2.54 * 300 = 1181.1). Se captura el canvas oculto (exportRef),
+  // no el ticket que se ve en pantalla — ese conserva su forma de boleto.
+  const EXPORT_PX = 1181;
   const handleDownload = async () => {
     setSaving(true);
     try {
       const { status } = await MediaLibrary.requestPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permiso requerido', 'Necesitamos acceso a tu galería para guardar el ticket.');
+        Alert.alert(t('ticketScreen.alerts.permissionTitle'), t('ticketScreen.alerts.permissionMessage'));
         setSaving(false);
         return;
       }
-      // PNG en alta resolución (~1170px de ancho ≈ 300 dpi en tamaño boleto)
-      // — calidad de imprenta para el foil holográfico
-      const uri = await captureRef(ticketRef, { format: 'png', quality: 1, width: 1170 } as any);
+      const uri = await captureRef(exportRef, {
+        format: 'jpg',
+        quality: 1,
+        width: EXPORT_PX,
+        height: EXPORT_PX,
+      } as any);
       await MediaLibrary.saveToLibraryAsync(uri);
-      Alert.alert('✅ Guardado', 'Tu ticket se guardó en la galería en alta calidad (PNG, listo para imprenta).');
+      Alert.alert(t('ticketScreen.alerts.savedTitle'), t('ticketScreen.alerts.savedMessage'));
     } catch {
-      Alert.alert('Error', 'No se pudo guardar el ticket. Intenta de nuevo.');
+      Alert.alert(t('common.error'), t('ticketScreen.alerts.saveErrorMessage'));
     } finally {
       setSaving(false);
     }
@@ -239,10 +230,10 @@ export default function TicketScreen({ navigation, route }: any) {
       const uri = await captureRef(ticketRef, { format: 'jpg', quality: 0.9 });
       await Share.share({
         url:     uri,
-        message: `🎵 Mi ticket Daricefy | ${groupName} | ${r.event_date ?? ''} | Folio: ${folio}`,
+        message: t('ticketScreen.share.message', { group: groupName, date: r.event_date ?? '', folio }),
       });
     } catch {
-      await Share.share({ message: `🎵 Ticket Daricefy\nFolio: ${folio}\n${groupName} — ${date}` });
+      await Share.share({ message: t('ticketScreen.share.fallbackMessage', { folio, group: groupName, date }) });
     }
   };
 
@@ -255,7 +246,7 @@ export default function TicketScreen({ navigation, route }: any) {
           <Pressable onPress={() => navigation.goBack()} style={s.headerBtn}>
             <ArrowLeft size={20} color={TEXT_MAIN} />
           </Pressable>
-          <Text style={s.headerTitle}>Tu ticket</Text>
+          <Text style={s.headerTitle}>{t('ticketScreen.header.title')}</Text>
           <Pressable onPress={handleShare} style={s.headerBtn}>
             <Share2 size={20} color={GOLD} />
           </Pressable>
@@ -275,7 +266,7 @@ export default function TicketScreen({ navigation, route }: any) {
           <>
           <View style={s.giftToggle}>
             <Gift size={16} color={giftMode ? GOLD : TEXT_MUTED} />
-            <Text style={[s.giftToggleLabel, giftMode && { color: GOLD }]}>Modo regalo</Text>
+            <Text style={[s.giftToggleLabel, giftMode && { color: GOLD }]}>{t('ticketScreen.giftToggle.label')}</Text>
             <Switch
               value={giftMode}
               onValueChange={setGiftMode}
@@ -288,22 +279,22 @@ export default function TicketScreen({ navigation, route }: any) {
           {giftMode && (
             <View style={s.giftFields}>
               <View style={s.giftFieldRow}>
-                <Text style={s.giftFieldKey}>De</Text>
+                <Text style={s.giftFieldKey}>{t('ticketScreen.giftFields.fromLabel')}</Text>
                 <TextInput
                   style={s.giftFieldInput}
                   value={giftFrom}
                   onChangeText={setGiftFrom}
-                  placeholder="Tu nombre"
+                  placeholder={t('ticketScreen.giftFields.fromPlaceholder')}
                   placeholderTextColor={TEXT_MUTED}
                 />
               </View>
               <View style={s.giftFieldRow}>
-                <Text style={s.giftFieldKey}>Para</Text>
+                <Text style={s.giftFieldKey}>{t('ticketScreen.giftFields.toLabel')}</Text>
                 <TextInput
                   style={s.giftFieldInput}
                   value={giftTo}
                   onChangeText={setGiftTo}
-                  placeholder="Nombre del festejado"
+                  placeholder={t('ticketScreen.giftFields.toPlaceholder')}
                   placeholderTextColor={TEXT_MUTED}
                 />
               </View>
@@ -335,7 +326,7 @@ export default function TicketScreen({ navigation, route }: any) {
             <View style={s.ticketHead}>
               <Text style={s.appLogo}>DARICEFY</Text>
               <Text style={s.appSub}>
-                {giftMode ? 'UN REGALO MUSICAL PARA TI' : 'TU CONTRATACIÓN MUSICAL'}
+                {giftMode ? t('ticketScreen.ticketHead.subGift') : t('ticketScreen.ticketHead.subNormal')}
               </Text>
               {/* País discreto — no roba espacio */}
               <Text style={s.countryMini}>{isUS ? '🇺🇸 USD' : '🇲🇽 MXN'}</Text>
@@ -396,7 +387,7 @@ export default function TicketScreen({ navigation, route }: any) {
               <View style={s.infoCell}>
                 <View style={s.infoLabelRow}>
                   <Calendar size={11} color="#2563FF" strokeWidth={2.2} />
-                  <Text style={s.infoLabel}>FECHA</Text>
+                  <Text style={s.infoLabel}>{t('ticketScreen.infoLabels.date')}</Text>
                 </View>
                 <Text style={s.infoBig}>{dateShort}</Text>
               </View>
@@ -404,7 +395,7 @@ export default function TicketScreen({ navigation, route }: any) {
               <View style={s.infoCell}>
                 <View style={s.infoLabelRow}>
                   <Clock size={11} color="#00A651" strokeWidth={2.2} />
-                  <Text style={s.infoLabel}>HORA DE INICIO</Text>
+                  <Text style={s.infoLabel}>{t('ticketScreen.infoLabels.startTime')}</Text>
                 </View>
                 <Text style={s.infoBig}>{time}</Text>
               </View>
@@ -415,7 +406,7 @@ export default function TicketScreen({ navigation, route }: any) {
                   <View style={s.infoCell}>
                     <View style={s.infoLabelRow}>
                       <Music2 size={11} color="#00A651" strokeWidth={2.2} />
-                      <Text style={s.infoLabel}>HORAS DE TOCADA</Text>
+                      <Text style={s.infoLabel}>{t('ticketScreen.infoLabels.duration')}</Text>
                     </View>
                     <Text style={s.infoBig}>{duration}</Text>
                   </View>
@@ -426,9 +417,9 @@ export default function TicketScreen({ navigation, route }: any) {
                     <View style={s.infoCell}>
                       <View style={s.infoLabelRow}>
                         <CreditCard size={11} color="#2563FF" strokeWidth={2.2} />
-                        <Text style={s.infoLabel}>TOTAL</Text>
+                        <Text style={s.infoLabel}>{t('ticketScreen.infoLabels.total')}</Text>
                       </View>
-                      <HoloText text={price} style={s.infoBigHolo} stops={textStops} />
+                      <Text style={[s.infoBigHolo, { color: TOTAL_COLOR }]}>{price}</Text>
                     </View>
                   </>
                 )}
@@ -440,31 +431,177 @@ export default function TicketScreen({ navigation, route }: any) {
 
             {/* Folio con efecto holo */}
             <View style={s.folioBlock}>
-              <Text style={s.folioLabel}>FOLIO DE RESERVACIÓN</Text>
-              <HoloText text={folio} style={s.folioValue} stops={textStops} />
+              <Text style={s.folioLabel}>{t('ticketScreen.folio.label')}</Text>
+              <Text style={[s.folioValue, { color: FOLIO_COLOR }]}>{folio}</Text>
             </View>
 
             {/* Código de inicio */}
             <View style={s.codeSection}>
-              <Text style={s.codeLabel}>CÓDIGO DE INICIO</Text>
+              <Text style={s.codeLabel}>{t('ticketScreen.code.label')}</Text>
               <View style={s.digitsRow}>
-                {digits.map((d: string, i: number) => <DigitBox key={i} digit={d} index={i} bright={digitStops} />)}
+                {digits.map((d: string, i: number) => <DigitBox key={i} digit={d} />)}
               </View>
-              <Text style={s.codeHint}>Muéstralo al grupo al llegar al evento</Text>
+              <Text style={s.codeHint}>{t('ticketScreen.code.hint')}</Text>
             </View>
 
             {/* Perforación */}
             <Perforation />
 
             <View style={s.ticketFoot}>
-              <Text style={s.footerMain}>Daricefy — La música está en tus manos</Text>
-              <Text style={s.footerSub}>daricefy.com  ·  ✅ Reservación confirmada</Text>
+              <Text style={s.footerMain}>{t('ticketScreen.footer.main')}</Text>
+              <Text style={s.footerSub}>daricefy.com  ·  {t('ticketScreen.footer.confirmed')}</Text>
             </View>
           </LinearGradient>
-          {/* ✂️ Recorte de la silueta (muescas + mordidas sobre el marco) */}
-          <TicketCutout />
           </LinearGradient>
           {/* ════════ fin ticket ════════ */}
+
+          {/* ════════ CANVAS OCULTO DE EXPORTACIÓN (10×10 cm @ 300dpi) ════════
+              Mismo ticket, mismo contenido — solo para handleDownload. No se
+              ve en pantalla (fuera del viewport), así el diseño angosto de
+              arriba no cambia para nadie. Fondo blanco tipo "foto cuadrada". */}
+          <View
+            style={[s.exportWrap, { width: exportSide, height: exportSide }]}
+            pointerEvents="none"
+          >
+            <View ref={exportRef as any} collapsable={false} style={s.exportSquare}>
+            <View onLayout={handleExportLayout}>
+              <LinearGradient
+                colors={frameColors as any}
+                start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+                style={[s.holoFrame, s.exportHoloFrame]}
+                collapsable={false}
+              >
+              <LinearGradient
+                colors={[T_BG, T_BG, T_BG2]}
+                style={s.ticket}
+                collapsable={false}
+              >
+                <View style={[s.corner, { borderColor: cornerColor, top: 12, left: 12, borderRightWidth: 0, borderBottomWidth: 0, borderTopLeftRadius: 4 }]} />
+                <View style={[s.corner, { borderColor: cornerColor, top: 12, right: 12, borderLeftWidth: 0, borderBottomWidth: 0, borderTopRightRadius: 4 }]} />
+                <View style={[s.corner, { borderColor: cornerColor, bottom: 12, left: 12, borderRightWidth: 0, borderTopWidth: 0, borderBottomLeftRadius: 4 }]} />
+                <View style={[s.corner, { borderColor: cornerColor, bottom: 12, right: 12, borderLeftWidth: 0, borderTopWidth: 0, borderBottomRightRadius: 4 }]} />
+
+                <View style={s.ticketHead}>
+                  <Text style={s.appLogo}>DARICEFY</Text>
+                  <Text style={s.appSub}>
+                    {giftMode ? t('ticketScreen.ticketHead.subGift') : t('ticketScreen.ticketHead.subNormal')}
+                  </Text>
+                  <Text style={s.countryMini}>{isUS ? '🇺🇸 USD' : '🇲🇽 MXN'}</Text>
+                  {giftMode && (giftFrom || giftTo) && (
+                    <View style={s.giftNames}>
+                      {!!giftFrom && (
+                        <Text style={s.giftNamesText}>
+                          {t('ticketScreen.giftNames.from')} <Text style={{ color: T_GREEN }}>{giftFrom}</Text>
+                        </Text>
+                      )}
+                      {!!giftTo && (
+                        <Text style={s.giftNamesText}>
+                          {t('ticketScreen.giftNames.to')} <Text style={{ color: T_GREEN }}>{giftTo}</Text>
+                        </Text>
+                      )}
+                    </View>
+                  )}
+                </View>
+
+                <View style={s.goldRule} />
+
+                <View style={s.photoWrap}>
+                  <LinearGradient
+                    colors={frameColors as any}
+                    start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+                    style={s.photoGradRing}
+                  >
+                    <View style={s.photoInner}>
+                      {photoUri ? (
+                        <Image source={{ uri: photoUri }} style={s.photo} />
+                      ) : (
+                        <View style={s.photoPlaceholder}>
+                          <Text style={{ fontSize: 40 }}>🎵</Text>
+                        </View>
+                      )}
+                    </View>
+                  </LinearGradient>
+                </View>
+
+                <Text style={s.groupName}>{groupName}</Text>
+                {!!genre && (
+                  <View style={s.genrePill}>
+                    <Text style={s.genreText}>
+                      {GENRE_MAP[genre.toLowerCase()] ?? genre}
+                    </Text>
+                  </View>
+                )}
+
+                <View style={s.infoGrid}>
+                  <View style={s.infoCell}>
+                    <View style={s.infoLabelRow}>
+                      <Calendar size={11} color="#2563FF" strokeWidth={2.2} />
+                      <Text style={s.infoLabel}>{t('ticketScreen.infoLabels.date')}</Text>
+                    </View>
+                    <Text style={s.infoBig}>{dateShort}</Text>
+                  </View>
+                  <View style={s.infoDivV} />
+                  <View style={s.infoCell}>
+                    <View style={s.infoLabelRow}>
+                      <Clock size={11} color="#00A651" strokeWidth={2.2} />
+                      <Text style={s.infoLabel}>{t('ticketScreen.infoLabels.startTime')}</Text>
+                    </View>
+                    <Text style={s.infoBig}>{time}</Text>
+                  </View>
+                </View>
+                {(!!duration || (!giftMode && !!price)) && (
+                  <View style={[s.infoGrid, { marginTop: 10 }]}>
+                    {!!duration && (
+                      <View style={s.infoCell}>
+                        <View style={s.infoLabelRow}>
+                          <Music2 size={11} color="#00A651" strokeWidth={2.2} />
+                          <Text style={s.infoLabel}>{t('ticketScreen.infoLabels.duration')}</Text>
+                        </View>
+                        <Text style={s.infoBig}>{duration}</Text>
+                      </View>
+                    )}
+                    {!giftMode && !!price && (
+                      <>
+                        <View style={s.infoDivV} />
+                        <View style={s.infoCell}>
+                          <View style={s.infoLabelRow}>
+                            <CreditCard size={11} color="#2563FF" strokeWidth={2.2} />
+                            <Text style={s.infoLabel}>{t('ticketScreen.infoLabels.total')}</Text>
+                          </View>
+                          <Text style={[s.infoBigHolo, { color: TOTAL_COLOR }]}>{price}</Text>
+                        </View>
+                      </>
+                    )}
+                  </View>
+                )}
+
+                <Perforation />
+
+                <View style={s.folioBlock}>
+                  <Text style={s.folioLabel}>{t('ticketScreen.folio.label')}</Text>
+                  <Text style={[s.folioValue, { color: FOLIO_COLOR }]}>{folio}</Text>
+                </View>
+
+                <View style={s.codeSection}>
+                  <Text style={s.codeLabel}>{t('ticketScreen.code.label')}</Text>
+                  <View style={s.digitsRow}>
+                    {digits.map((d: string, i: number) => <DigitBox key={`ex-${i}`} digit={d} />)}
+                  </View>
+                  <Text style={s.codeHint}>{t('ticketScreen.code.hint')}</Text>
+                </View>
+
+                <Perforation />
+
+                <View style={s.ticketFoot}>
+                  <Text style={s.footerMain}>{t('ticketScreen.footer.main')}</Text>
+                  <Text style={s.footerSub}>daricefy.com  ·  {t('ticketScreen.footer.confirmed')}</Text>
+                </View>
+              </LinearGradient>
+              </LinearGradient>
+            </View>
+            </View>
+          </View>
+          {/* ════════ fin canvas de exportación ════════ */}
 
           {/* Botón descargar */}
           <Pressable
@@ -482,7 +619,7 @@ export default function TicketScreen({ navigation, route }: any) {
                 : (
                   <>
                     <Download size={18} color={CARD_BG} />
-                    <Text style={s.dlText}>Descargar como imagen</Text>
+                    <Text style={s.dlText}>{t('ticketScreen.buttons.download')}</Text>
                   </>
                 )
               }
@@ -492,7 +629,7 @@ export default function TicketScreen({ navigation, route }: any) {
           {/* Botón compartir */}
           <Pressable style={s.shareBtn} onPress={handleShare}>
             <Share2 size={18} color={GOLD} />
-            <Text style={s.shareText}>Compartir ticket</Text>
+            <Text style={s.shareText}>{t('ticketScreen.buttons.share')}</Text>
           </Pressable>
 
           </Animated.View>
@@ -521,6 +658,26 @@ const s = StyleSheet.create({
   },
 
   scroll: { padding: 20, paddingBottom: 48 },
+
+  // 🖼️ Canvas oculto para exportar el ticket en cuadro 10×10cm @300dpi.
+  // Fuera del viewport (top negativo grande) — nunca visible ni afecta el
+  // scroll; captureRef igual puede leerlo porque sigue montado y con layout.
+  // El lado (width/height) se fija en runtime (exportSide) según el tamaño
+  // real medido del ticket, así el cuadro capturado siempre es 1:1 de
+  // verdad — nunca se comprime ni se recorta nada.
+  exportWrap: {
+    position: 'absolute', top: -4000, left: 0,
+  },
+  // El ref que se captura: mismo tamaño que exportWrap, fondo blanco,
+  // ticket centrado adentro.
+  exportSquare: {
+    width: '100%', height: '100%',
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  // Ancho fijo (no %) para que el ticket exportado siempre tenga el mismo
+  // tamaño natural sin depender del ancho del contenedor que lo mide.
+  exportHoloFrame: { width: 360, maxWidth: 360, marginBottom: 0 },
 
   // Gift toggle
   giftToggle: {
@@ -560,21 +717,6 @@ const s = StyleSheet.create({
     paddingHorizontal: 16, paddingTop: 14, paddingBottom: 12, overflow: 'hidden',
   },
 
-  // ✂️ Silueta de boleto sobre el MARCO holográfico completo
-  cutNotchTop: {
-    position: 'absolute', top: -18, left: '50%', marginLeft: -19,
-    width: 38, height: 38, borderRadius: 19, backgroundColor: OUTER_BG, zIndex: 6,
-  },
-  cutNotchBottom: {
-    position: 'absolute', bottom: -18, left: '50%', marginLeft: -19,
-    width: 38, height: 38, borderRadius: 19, backgroundColor: OUTER_BG, zIndex: 6,
-  },
-  cutSide: {
-    position: 'absolute', top: 10, bottom: 10, width: 14,
-    justifyContent: 'space-between', alignItems: 'center', zIndex: 6,
-  },
-  cutDot: { width: 12, height: 12, borderRadius: 6, backgroundColor: OUTER_BG },
-
   // Esquinas minimalistas tipo escáner — muy delgadas, verdes
   corner: {
     position: 'absolute', width: 18, height: 18,
@@ -588,7 +730,7 @@ const s = StyleSheet.create({
     letterSpacing: 5, includeFontPadding: false,
   },
   appSub: {
-    fontFamily: FONTS.bodyMedium, fontSize: 10.5, color: T_MUTED,
+    fontFamily: FONTS.bodyMedium, fontSize: 10.5, color: FOIL_TAG,
     letterSpacing: 2.5, marginTop: 4,
   },
   countryChip: {
@@ -706,21 +848,18 @@ const s = StyleSheet.create({
     letterSpacing: 4, textTransform: 'uppercase', marginBottom: 7,
   },
   digitsRow: { flexDirection: 'row', gap: 10, marginBottom: 6 },
-  // Teclas premium del PIN: cuadros oscuros, dígito degradado con brillo
+  // Teclas del PIN: cuadro en degradado oscuro→teal, dígito blanco
   digitBox: {
     width: 48, height: 48, borderRadius: 12,
-    backgroundColor: '#111827', borderWidth: 1,
     alignItems: 'center', justifyContent: 'center',
-    shadowColor: '#00D9FF', shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25, shadowRadius: 6, elevation: 4,
+    shadowColor: '#12909A', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3, shadowRadius: 6, elevation: 4,
   },
   // Dígito centrado y limpio (sin lineHeight que lo empuje hacia abajo)
   digitText: {
-    fontFamily: FONTS.bodySemiBold, fontSize: 24,
+    fontFamily: FONTS.bodySemiBold, fontSize: 24, color: '#FFFFFF',
     includeFontPadding: false, textAlign: 'center', textAlignVertical: 'center',
     fontVariant: ['tabular-nums'],
-    textShadowColor: 'rgba(244,247,251,0.5)',
-    textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 7,
   },
   codeHint: {
     fontFamily: FONTS.body, fontSize: 9, color: T_MUTED, textAlign: 'center',

@@ -19,6 +19,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
+import { Alert, Linking } from 'react-native';
 import { supabase } from '../config/supabase';
 import type { Profile, UserRole } from '../types/models';
 import { isoToCountryName } from '../utils/locationUtils';
@@ -55,6 +56,14 @@ export interface AuthState {
    * Se llena siempre que el GPS funcione.
    */
   detectedCountry: string | null;
+  /**
+   * true cuando la sesión activa viene de un link de "recuperar
+   * contraseña" (2026-09-05) — mientras sea true, AppNavigator muestra
+   * SOLO la pantalla de nueva contraseña, nunca deja pasar al usuario a
+   * su cuenta con solo tocar el link del correo (sería un hueco de
+   * seguridad: cualquiera con acceso al correo entraría sin contraseña).
+   */
+  passwordRecovery: boolean;
 }
 
 export interface AuthContextValue extends AuthState {
@@ -62,6 +71,11 @@ export interface AuthContextValue extends AuthState {
   signOut: () => Promise<void>;
   /** Recarga el perfil desde Supabase (útil tras editar datos) */
   refetchProfile: () => Promise<void>;
+  /**
+   * Cierra la sesión especial de recuperación y regresa al login normal —
+   * la llama NewPasswordScreen después de guardar la contraseña nueva.
+   */
+  clearPasswordRecovery: () => Promise<void>;
   /**
    * Ciudad segura siempre definida:
    *   profile.city  →  detectedCity  →  'Guadalajara'
@@ -100,6 +114,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     detectedCity: null,
     detectedState: null,
     detectedCountry: null,
+    passwordRecovery: false,
   });
 
   // Evitar setState después de unmount
@@ -191,6 +206,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const handleSession = useCallback(async (session: Session | null, event?: string) => {
     console.log('[AuthContext] handleSession → session:', session ? 'presente' : 'null', '| event:', event);
 
+    // 🔑 Recuperar contraseña (2026-09-05): el link del correo establece
+    // una sesión especial. NUNCA debe seguir el flujo normal (fetchProfile
+    // + rol) — eso dejaría entrar a la cuenta a cualquiera con el correo,
+    // sin pedir la contraseña. AppNavigator muestra solo NewPasswordScreen
+    // mientras esta bandera esté prendida.
+    if (event === 'PASSWORD_RECOVERY') {
+      console.log('[AuthContext] PASSWORD_RECOVERY — sesión especial, no se carga el perfil');
+      patch({ session, user: session?.user ?? null, passwordRecovery: true, loading: false, error: null });
+      return;
+    }
+
     if (!session) {
       // Signed out — limpia todo
       console.log('[AuthContext] Sin sesión → limpiando estado');
@@ -201,6 +227,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         role: null,
         loading: false,
         error: null,
+        passwordRecovery: false,
       });
       return;
     }
@@ -285,6 +312,59 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => subscription.unsubscribe();
   }, [handleSession]);
 
+  // ── Link de "recuperar contraseña" (daricefy://reset-password) ────────────
+  // React Native (Hermes) NO trae URLSearchParams/URL por default y este
+  // proyecto no tiene ningún polyfill instalado (revisado) — se saca cada
+  // parámetro a mano con regex en vez de arriesgar un crash en producción.
+  const extractParam = (url: string, key: string): string | null => {
+    const match = url.match(new RegExp(`[?#&]${key}=([^&]+)`));
+    return match ? decodeURIComponent(match[1]) : null;
+  };
+
+  const handleRecoveryUrl = useCallback(async (url: string | null) => {
+    if (!url || !url.includes('reset-password')) return;
+    console.log('[AuthContext] Link de recuperación detectado');
+
+    // Bandera propia ANTES de intercambiar el código — así, incluso si el
+    // evento PASSWORD_RECOVERY de Supabase no llegara a disparar por
+    // algún motivo, esto ya evita caer en el flujo normal de login.
+    patch({ passwordRecovery: true, loading: false, error: null });
+
+    try {
+      const code = extractParam(url, 'code');
+      if (code) {
+        // Flujo PKCE — el que usa este proyecto por default (sin
+        // flowType explícito en src/config/supabase.ts).
+        const { error } = await supabase.auth.exchangeCodeForSession(url);
+        if (error) throw error;
+        return;
+      }
+      // Respaldo: flujo implícito (access_token/refresh_token en la URL),
+      // por si algún día cambia la configuración de Supabase.
+      const access_token  = extractParam(url, 'access_token');
+      const refresh_token = extractParam(url, 'refresh_token');
+      if (access_token && refresh_token) {
+        const { error } = await supabase.auth.setSession({ access_token, refresh_token });
+        if (error) throw error;
+        return;
+      }
+      throw new Error('El link no trae ni "code" ni tokens — revisar redirectTo/Supabase.');
+    } catch (err: any) {
+      console.error('[AuthContext] Link de recuperación inválido:', err?.message ?? err);
+      patch({ passwordRecovery: false });
+      Alert.alert(
+        'Link no válido',
+        'El link de recuperación ya se usó, ya expiró, o algunos correos lo abren solos por seguridad antes de que lo toques. Pide uno nuevo desde "¿Olvidaste tu contraseña?".',
+      );
+    }
+  }, [patch]);
+
+  useEffect(() => {
+    Linking.getInitialURL().then(handleRecoveryUrl);
+    const sub = Linking.addEventListener('url', ({ url }) => { handleRecoveryUrl(url); });
+    return () => sub.remove();
+  }, [handleRecoveryUrl]);
+
   // ── GPS — detección silenciosa de estado y país (solo lectura) ─────────────
   // Detecta la ubicación del dispositivo y la guarda SOLO EN MEMORIA como
   // detectedState/detectedCountry. NUNCA escribe a la DB automáticamente.
@@ -356,6 +436,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       role: null,
       loading: false,
       error: null,
+      passwordRecovery: false,
+    });
+    await supabase.auth.signOut();
+  }, [patch]);
+
+  // Cierra la sesión especial de recuperación y regresa al login normal.
+  const clearPasswordRecovery = useCallback(async () => {
+    patch({
+      session: null,
+      user: null,
+      profile: null,
+      role: null,
+      loading: false,
+      error: null,
+      passwordRecovery: false,
     });
     await supabase.auth.signOut();
   }, [patch]);
@@ -375,7 +470,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const safeCountry = state.profile?.country ?? state.detectedCountry ?? null;
 
   return (
-    <AuthContext.Provider value={{ ...state, signOut, refetchProfile, safeCity, safeState, safeCountry }}>
+    <AuthContext.Provider value={{ ...state, signOut, refetchProfile, clearPasswordRecovery, safeCity, safeState, safeCountry }}>
       {children}
     </AuthContext.Provider>
   );

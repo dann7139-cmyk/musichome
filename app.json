@@ -4,9 +4,9 @@
     "slug": "daricefy",
     "version": "1.0.0",
     "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
     "scheme": "daricefy",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.daricefy.app",
@@ -17,11 +17,13 @@
         "NSLocationWhenInUseUsageDescription": "Daricefy necesita tu ubicación para mostrarte grupos cerca de donde estás.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "Daricefy necesita tu ubicación en todo momento para actualizar tu posición en el mapa aunque la app esté en segundo plano.",
         "NSLocationAlwaysUsageDescription": "Daricefy necesita tu ubicación en segundo plano para compartir tu posición con el mapa del admin.",
-        "UIBackgroundModes": ["location", "fetch"]
+        "UIBackgroundModes": [
+          "location",
+          "fetch"
+        ]
       }
     },
     "android": {
-      "edgeToEdgeEnabled": true,
       "package": "com.daricefy.app",
       "config": {
         "googleMaps": {
@@ -39,7 +41,7 @@
       ]
     },
     "web": {
-      "output": "static"
+      "output": "single"
     },
     "plugins": [
       [
@@ -58,6 +60,8 @@
       [
         "expo-splash-screen",
         {
+          "image": "./assets/images/icon.png",
+          "imageWidth": 180,
           "backgroundColor": "#000000"
         }
       ],
@@ -76,7 +80,14 @@
           "color": "#00E676",
           "defaultChannel": "default"
         }
-      ]
+      ],
+      "expo-font",
+      "expo-image",
+      "expo-localization",
+      "expo-web-browser",
+      "expo-status-bar",
+      "expo-audio",
+      "expo-asset"
     ]
   }
 }

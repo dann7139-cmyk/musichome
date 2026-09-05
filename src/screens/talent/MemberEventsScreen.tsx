@@ -270,7 +270,7 @@ export default function MemberEventsScreen({ navigation }: any) {
             <Bell size={18} color={COLORS.muted2} />
             {unreadCount > 0 && (
               <View style={styles.badgeDot}>
-                <Text style={styles.badgeDotText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
+                <Text style={styles.badgeDotText}>{unreadCount > 99 ? '99+' : unreadCount}</Text>
               </View>
             )}
           </Pressable>

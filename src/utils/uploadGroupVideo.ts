@@ -1,12 +1,12 @@
 import * as ImagePicker from 'expo-image-picker';
-import { Alert } from 'react-native';
 import { supabase } from '../config/supabase';
 
 const MAX_BYTES = 50 * 1024 * 1024; // 50 MB
 
 const ALLOWED_TYPES: Record<string, string> = {
-  'video/mp4':  'mp4',
-  'video/webm': 'webm',
+  'video/mp4':       'mp4',
+  'video/webm':      'webm',
+  'video/quicktime': 'mov', // iPhone (.mov) — se acepta tal cual, sin pedir que cambien su cámara
 };
 
 /**
@@ -28,15 +28,8 @@ export async function pickAndUploadGroupVideoMulti(groupId: string): Promise<boo
     throw new Error(`El video pesa ${(asset.fileSize / 1024 / 1024).toFixed(1)} MB. El límite es 50 MB.`);
   }
   const mimeType = asset.mimeType ?? 'video/mp4';
-  if (mimeType === 'video/quicktime') {
-    Alert.alert(
-      '❌ Formato no compatible',
-      'Tu video está en formato .mov (iPhone). Súbelo en MP4 (Configuración → Cámara → Formatos → "Más compatible").',
-    );
-    return false;
-  }
   const ext = ALLOWED_TYPES[mimeType];
-  if (!ext) throw new Error('Formato no válido. Solo se aceptan MP4 y WebM.');
+  if (!ext) throw new Error('Formato de video no reconocido. Intenta con otro archivo.');
 
   const path = `${groupId}/video-${Date.now()}.${ext}`;
   const arrayBuffer = await fetch(asset.uri).then(r => r.arrayBuffer());
@@ -74,17 +67,9 @@ export async function pickAndUploadGroupVideo(groupId: string): Promise<string |
 
   const mimeType = asset.mimeType ?? 'video/mp4';
 
-  if (mimeType === 'video/quicktime') {
-    Alert.alert(
-      '❌ Formato no compatible',
-      'Tu video está en formato .mov (iPhone).\n\nPara que TODOS puedan verlo (iPhone, Android, Web), súbelo en formato MP4.\n\n📱 PARA TU iPHONE — Cambia el formato de grabación:\n1. Configuración\n2. Cámara\n3. Formatos\n4. Selecciona "Más compatible"\n\nDespués graba un video nuevo y súbelo.\n\n🌐 PARA CONVERTIR uno que ya tienes:\n- cloudconvert.com (gratis)\n- O usa cualquier conversor online',
-    );
-    return null;
-  }
-
   const ext = ALLOWED_TYPES[mimeType];
   if (!ext) {
-    throw new Error('Formato no válido. Solo se aceptan MP4 y WebM.');
+    throw new Error('Formato de video no reconocido. Intenta con otro archivo.');
   }
 
   const path = `${groupId}/promo-video.${ext}`;

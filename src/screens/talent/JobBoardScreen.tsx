@@ -88,6 +88,7 @@ interface Invitation {
     members_count: number | null;
     // Campos nuevos (sql/250) — opcionales para backward compat
     is_verified?: boolean;
+    is_plus_active?: boolean;
     created_at?: string | null;
     completed_events?: number;
   } | null;
@@ -490,7 +491,7 @@ export default function TalentJobBoardScreen({ navigation }: any) {
             <Bell size={18} color={COLORS.text} />
             {unread > 0 && (
               <View style={s.notifDot}>
-                <Text style={s.notifDotText}>{unread > 9 ? '9+' : unread}</Text>
+                <Text style={s.notifDotText}>{unread > 99 ? '99+' : unread}</Text>
               </View>
             )}
           </Pressable>
@@ -534,9 +535,9 @@ export default function TalentJobBoardScreen({ navigation }: any) {
             {/* Imagen / Placeholder */}
             <View style={s.heroImgBg}>
               {avatar ? (
-                <Image source={{ uri: avatar }} style={StyleSheet.absoluteFillObject} resizeMode="cover" />
+                <Image source={{ uri: avatar }} style={StyleSheet.absoluteFill} resizeMode="cover" />
               ) : (
-                <View style={[StyleSheet.absoluteFillObject, s.heroImgPlaceholder]}>
+                <View style={[StyleSheet.absoluteFill, s.heroImgPlaceholder]}>
                   <Text style={s.heroImgInitial}>{fullName?.charAt(0)?.toUpperCase() ?? '?'}</Text>
                 </View>
               )}
@@ -545,7 +546,7 @@ export default function TalentJobBoardScreen({ navigation }: any) {
               <LinearGradient
                 colors={['rgba(0,0,0,0.68)', 'transparent', 'rgba(0,0,0,0.88)']}
                 locations={[0, 0.42, 1]}
-                style={StyleSheet.absoluteFillObject}
+                style={StyleSheet.absoluteFill}
                 start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }}
                 pointerEvents="none"
               />

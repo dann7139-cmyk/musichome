@@ -27,6 +27,7 @@ import {
   X,
 } from 'lucide-react-native';
 import React, { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   ActivityIndicator,
   Alert,
@@ -53,6 +54,7 @@ type AdminView = 'list' | 'profile' | 'moderate';
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function AdminGroupsScreen({ navigation }: any) {
+  const { t } = useTranslation();
   const { width: screenW } = useWindowDimensions();
   const CARD_W = Math.floor((screenW - SPACING.xl * 2 - 6 * 3) / 4);
 
@@ -199,7 +201,10 @@ export default function AdminGroupsScreen({ navigation }: any) {
   const handleVerify = async (verified: boolean) => {
     if (!selected) return;
     if (!verified && !moderateNote.trim()) {
-      Alert.alert('Nota requerida', 'Agrega una nota explicando por qué se quita la verificación.');
+      Alert.alert(
+        t('adminGroupsScreen.alerts.noteRequiredTitle'),
+        t('adminGroupsScreen.alerts.noteRequiredMessage')
+      );
       return;
     }
     setActionLoading(true);
@@ -211,7 +216,10 @@ export default function AdminGroupsScreen({ navigation }: any) {
     setActionLoading(false);
 
     if (error || !data?.ok) {
-      Alert.alert('Error', error?.message ?? data?.error ?? 'No se pudo actualizar.');
+      Alert.alert(
+        t('adminGroupsScreen.alerts.genericErrorTitle'),
+        error?.message ?? data?.error ?? t('adminGroupsScreen.alerts.updateFailed')
+      );
       return;
     }
 
@@ -239,10 +247,12 @@ export default function AdminGroupsScreen({ navigation }: any) {
     setVerificationHistory(hist ?? []);
 
     Alert.alert(
-      verified ? '✅ Verificado' : '✓ Listo',
       verified
-        ? `${selected.name} ahora está verificado.`
-        : 'Verificación removida correctamente.'
+        ? t('adminGroupsScreen.alerts.verifiedTitle')
+        : t('adminGroupsScreen.alerts.doneTitle'),
+      verified
+        ? t('adminGroupsScreen.alerts.groupNowVerified', { name: selected.name })
+        : t('adminGroupsScreen.alerts.verificationRemoved')
     );
   };
 
@@ -250,12 +260,16 @@ export default function AdminGroupsScreen({ navigation }: any) {
     if (!selected || actionLoading) return;
     const newVal = !selected.is_active;
     Alert.alert(
-      newVal ? 'Activar grupo' : 'Suspender grupo',
-      `¿${newVal ? 'Activar' : 'Suspender'} a ${selected.name}?`,
+      newVal
+        ? t('adminGroupsScreen.alerts.activateGroupTitle')
+        : t('adminGroupsScreen.alerts.suspendGroupTitle'),
+      newVal
+        ? t('adminGroupsScreen.alerts.confirmActivateMessage', { name: selected.name })
+        : t('adminGroupsScreen.alerts.confirmSuspendMessage', { name: selected.name }),
       [
-        { text: 'Cancelar', style: 'cancel' },
+        { text: t('adminGroupsScreen.alerts.cancel'), style: 'cancel' },
         {
-          text: newVal ? 'Activar' : 'Suspender',
+          text: newVal ? t('adminGroupsScreen.alerts.activate') : t('adminGroupsScreen.alerts.suspend'),
           style: newVal ? 'default' : 'destructive',
           onPress: async () => {
             setActionLoading(true);
@@ -264,7 +278,10 @@ export default function AdminGroupsScreen({ navigation }: any) {
               .eq('id', selected.id);
             setActionLoading(false);
             if (error) {
-              Alert.alert('Error', 'No se pudo actualizar el estado. Intenta de nuevo.');
+              Alert.alert(
+                t('adminGroupsScreen.alerts.genericErrorTitle'),
+                t('adminGroupsScreen.alerts.updateStatusFailed')
+              );
               return;
             }
             const updated = { ...selected, is_active: newVal };
@@ -286,38 +303,52 @@ export default function AdminGroupsScreen({ navigation }: any) {
     !!g?.plus_subscription_id &&
     !String(g.plus_subscription_id).startsWith('admin_grant_');
 
+  const grantPlusFor = async (months: number) => {
+    if (!selected || actionLoading) return;
+    setActionLoading(true);
+    const expiresAt = new Date();
+    expiresAt.setMonth(expiresAt.getMonth() + months);
+    const { data, error } = await supabase.rpc('admin_grant_plus', {
+      p_group_id:   selected.id,
+      p_expires_at: expiresAt.toISOString(),
+      p_notes:      moderateNote.trim() || null,
+    });
+    setActionLoading(false);
+    if (error || !data?.ok) {
+      Alert.alert(
+        t('adminGroupsScreen.alerts.genericErrorTitle'),
+        error?.message ?? data?.error ?? t('adminGroupsScreen.alerts.grantPlusFailed')
+      );
+      return;
+    }
+    const updated = {
+      ...selected,
+      is_plus_active: true,
+      plus_expires_at: data.expires_at,
+      plus_subscription_id: data.sub_id,
+    };
+    setSelected(updated);
+    setGroups(prev => prev.map(g => (g.id === selected.id ? { ...g, ...updated } : g)));
+    setModerateNote('');
+    Alert.alert(
+      t('adminGroupsScreen.alerts.plusActivatedTitle'),
+      t('adminGroupsScreen.alerts.plusActivatedMessage', {
+        name: selected.name,
+        date: new Date(data.expires_at).toLocaleDateString('es-MX'),
+      })
+    );
+  };
+
   const handleGrantPlus = () => {
     if (!selected || actionLoading) return;
     Alert.alert(
-      '✨ Activar Plus (cortesía)',
-      `${selected.name} tendrá Plus gratis por 1 año, sin pasar por Stripe. ¿Confirmas?`,
+      t('adminGroupsScreen.alerts.grantPlusTitle'),
+      t('adminGroupsScreen.alerts.grantPlusMessage', { name: selected.name }),
       [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Activar Plus',
-          onPress: async () => {
-            setActionLoading(true);
-            const { data, error } = await supabase.rpc('admin_grant_plus', {
-              p_group_id: selected.id,
-              p_notes:    moderateNote.trim() || null,
-            });
-            setActionLoading(false);
-            if (error || !data?.ok) {
-              Alert.alert('Error', error?.message ?? data?.error ?? 'No se pudo activar Plus.');
-              return;
-            }
-            const updated = {
-              ...selected,
-              is_plus_active: true,
-              plus_expires_at: data.expires_at,
-              plus_subscription_id: data.sub_id,
-            };
-            setSelected(updated);
-            setGroups(prev => prev.map(g => (g.id === selected.id ? { ...g, ...updated } : g)));
-            setModerateNote('');
-            Alert.alert('✨ Plus activado', `${selected.name} tiene Plus hasta ${new Date(data.expires_at).toLocaleDateString('es-MX')}.`);
-          },
-        },
+        { text: t('adminGroupsScreen.alerts.cancel'), style: 'cancel' },
+        { text: t('adminGroupsScreen.alerts.oneMonth'),  onPress: () => grantPlusFor(1) },
+        { text: t('adminGroupsScreen.alerts.twoMonths'), onPress: () => grantPlusFor(2) },
+        { text: t('adminGroupsScreen.alerts.oneYear'),   onPress: () => grantPlusFor(12) },
       ],
     );
   };
@@ -325,15 +356,15 @@ export default function AdminGroupsScreen({ navigation }: any) {
   const handleRevokePlus = () => {
     if (!selected || actionLoading) return;
     const stripeWarning = isStripePlus(selected)
-      ? '\n\n⚠️ Este grupo tiene una suscripción Stripe DE PAGO. Revocar aquí solo lo desactiva en la app — cancela también la suscripción en Stripe para que no se le siga cobrando.'
+      ? t('adminGroupsScreen.alerts.stripeWarning')
       : '';
     Alert.alert(
-      'Quitar Plus',
-      `${selected.name} perderá los beneficios Plus.${stripeWarning}`,
+      t('adminGroupsScreen.alerts.revokePlusTitle'),
+      t('adminGroupsScreen.alerts.revokePlusMessage', { name: selected.name, warning: stripeWarning }),
       [
-        { text: 'Cancelar', style: 'cancel' },
+        { text: t('adminGroupsScreen.alerts.cancel'), style: 'cancel' },
         {
-          text: 'Quitar Plus',
+          text: t('adminGroupsScreen.alerts.revokePlusTitle'),
           style: 'destructive',
           onPress: async () => {
             setActionLoading(true);
@@ -343,7 +374,10 @@ export default function AdminGroupsScreen({ navigation }: any) {
             });
             setActionLoading(false);
             if (error || !data?.ok) {
-              Alert.alert('Error', error?.message ?? data?.error ?? 'No se pudo revocar Plus.');
+              Alert.alert(
+                t('adminGroupsScreen.alerts.genericErrorTitle'),
+                error?.message ?? data?.error ?? t('adminGroupsScreen.alerts.revokePlusFailed')
+              );
               return;
             }
             const updated = {
@@ -355,7 +389,10 @@ export default function AdminGroupsScreen({ navigation }: any) {
             setSelected(updated);
             setGroups(prev => prev.map(g => (g.id === selected.id ? { ...g, ...updated } : g)));
             setModerateNote('');
-            Alert.alert('✓ Listo', 'Plus revocado correctamente.');
+            Alert.alert(
+              t('adminGroupsScreen.alerts.doneTitle'),
+              t('adminGroupsScreen.alerts.plusRevoked')
+            );
           },
         },
       ],
@@ -375,7 +412,10 @@ export default function AdminGroupsScreen({ navigation }: any) {
         ));
       }
     } catch (e: any) {
-      Alert.alert('Error', e.message ?? 'No se pudo subir la imagen');
+      Alert.alert(
+        t('adminGroupsScreen.alerts.genericErrorTitle'),
+        e.message ?? t('adminGroupsScreen.alerts.photoUploadFailed')
+      );
     } finally {
       setPhotoLoading(false);
     }
@@ -392,7 +432,7 @@ export default function AdminGroupsScreen({ navigation }: any) {
             <Pressable style={s.backBtn} onPress={() => navigation.goBack()}>
               <ArrowLeft size={20} color={COLORS.text} />
             </Pressable>
-            <Text style={s.headerTitle}>Grupos registrados</Text>
+            <Text style={s.headerTitle}>{t('adminGroupsScreen.list.title')}</Text>
             <View style={s.countBadge}>
               <Text style={s.countBadgeText}>{groups.length}</Text>
             </View>
@@ -403,7 +443,7 @@ export default function AdminGroupsScreen({ navigation }: any) {
             <Search size={14} color={COLORS.muted} />
             <TextInput
               style={s.searchInput}
-              placeholder="Buscar por nombre, ciudad o estado..."
+              placeholder={t('adminGroupsScreen.list.searchPlaceholder')}
               placeholderTextColor={COLORS.muted}
               value={search}
               onChangeText={setSearch}
@@ -849,7 +889,7 @@ export default function AdminGroupsScreen({ navigation }: any) {
               ) : (
                 <>
                   <Text style={s.moderateCardHint}>
-                    Activa Plus gratis (1 año) para patrocinios, embajadores o alianzas — sin pasar por Stripe.
+                    Activa Plus gratis (1, 2 meses o 1 año) para patrocinios, embajadores o alianzas — sin pasar por Stripe.
                     La nota interna de arriba se guarda como motivo.
                   </Text>
                   <Pressable
@@ -862,7 +902,7 @@ export default function AdminGroupsScreen({ navigation }: any) {
                       : <>
                           <Sparkles size={16} color={COLORS.bg} />
                           <Text style={[s.modActionBtnText, { color: COLORS.bg }]}>
-                            Activar Plus (cortesía 1 año)
+                            Activar Plus (cortesía)
                           </Text>
                         </>}
                   </Pressable>

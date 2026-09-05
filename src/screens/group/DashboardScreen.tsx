@@ -41,11 +41,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import LevelBadge from '../../components/ui/LevelBadge';
+import type { GroupLevel } from '../../types/models';
 import Particles from '../../components/ui/Particles';
 import VerifiedBadge from '../../components/ui/VerifiedBadge';
 import PlusDashboardCard from '../../components/ui/PlusDashboardCard';
 import { pickAndUploadGroupImage } from '../../utils/uploadGroupImage';
 import { pickAndUploadGroupVideo, pickAndUploadGroupVideoMulti } from '../../utils/uploadGroupVideo';
+import { pickAndUploadGroupEventPost } from '../../utils/uploadGroupEventPhoto';
 import { normalizeCity } from '../../utils/cityUtils';
 import { stateToCountry } from '../../utils/locationUtils';
 import { validatePublicText } from '../../utils/textValidation';
@@ -71,7 +73,7 @@ interface Group {
   profile_image: string | null;
   promo_video: string | null;
   owner_id: string;
-  nivel?: string | null;
+  nivel?: GroupLevel | null;
   photo_status?: 'none' | 'pending' | 'approved' | 'rejected';
   video_status?: 'none' | 'pending' | 'approved' | 'rejected';
   photo_reject_reason?: string | null;
@@ -133,6 +135,22 @@ function toggleItem(arr: string[], item: string): string[] {
   return arr.includes(item) ? arr.filter(x => x !== item) : [...arr, item];
 }
 
+// 📸 "Hace N días" para fotos de eventos (sql/558) — mismo criterio que
+// getTimeAgo de NotificationsScreen.tsx, sin depender de ese archivo.
+function formatPhotoTimeAgo(timestamp: string): string {
+  const diffMs = Date.now() - new Date(timestamp).getTime();
+  const diffMins  = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays  = Math.floor(diffMs / 86400000);
+  if (diffMins < 1) return 'Subida ahora';
+  if (diffMins < 60) return `Subida hace ${diffMins} min`;
+  if (diffHours < 24) return `Subida hace ${diffHours}h`;
+  if (diffDays === 1) return 'Subida ayer';
+  if (diffDays < 30) return `Subida hace ${diffDays} días`;
+  const months = Math.floor(diffDays / 30);
+  return `Subida hace ${months} mes${months !== 1 ? 'es' : ''}`;
+}
+
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
 export default function GroupDashboardScreen({ navigation }: any) {
@@ -168,6 +186,9 @@ export default function GroupDashboardScreen({ navigation }: any) {
   const [videoLoading, setVideoLoading] = useState(false);
   const [multiVideoLoading, setMultiVideoLoading] = useState(false);
   const [myVideos, setMyVideos] = useState<any[]>([]);
+  const [myEventPosts, setMyEventPosts] = useState<any[]>([]);
+  const [eventPhotoLoading, setEventPhotoLoading] = useState(false);
+  const [newPhotoCaption, setNewPhotoCaption] = useState('');
   const [videoSuccessMsg, setVideoSuccessMsg] = useState(false);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [ownerArtist, setOwnerArtist] = useState<any | null>(null);
@@ -601,6 +622,12 @@ export default function GroupDashboardScreen({ navigation }: any) {
       supabase.from('group_videos').select('id, url, status, created_at')
         .eq('group_id', grp.id).order('created_at', { ascending: true })
         .then(({ data: vids }) => setMyVideos(vids ?? []));
+
+      // 📸 Publicaciones de eventos del perfil (sql/561, varias fotos por post)
+      supabase.from('group_event_posts')
+        .select('id, caption, status, review_note, created_at, photos:group_event_photos(id, url, position)')
+        .eq('group_id', grp.id).order('created_at', { ascending: false })
+        .then(({ data: posts }) => setMyEventPosts(posts ?? []));
 
       // Leer availability directo desde el grupo ya cargado (get_my_group retorna SETOF groups)
       if ((grp as any).availability) {
@@ -1121,7 +1148,7 @@ export default function GroupDashboardScreen({ navigation }: any) {
                   <Bell size={17} color={COLORS.text} />
                   {unreadNotifications > 0 && (
                     <View style={s.notifBadge}>
-                      <Text style={s.notifBadgeText}>{unreadNotifications > 9 ? '9+' : unreadNotifications}</Text>
+                      <Text style={s.notifBadgeText}>{unreadNotifications > 99 ? '99+' : unreadNotifications}</Text>
                     </View>
                   )}
                 </Pressable>
@@ -1138,17 +1165,17 @@ export default function GroupDashboardScreen({ navigation }: any) {
             <View style={s.moneyCard}>
               <View style={s.moneyItem}>
                 <Text style={s.moneyLabel}>Saldo disponible</Text>
-                <Text style={s.moneyValue}>${fmt(walletBalance)}</Text>
+                <Text style={s.moneyValue}>${fmt(walletBalance)} MXN</Text>
               </View>
               <View style={s.moneyDivider} />
               <View style={s.moneyItem}>
                 <Text style={s.moneyLabel}>Este mes</Text>
-                <Text style={[s.moneyValue, { color: COLORS.green }]}>${fmt(stats.monthNetEarnings)}</Text>
+                <Text style={[s.moneyValue, { color: COLORS.green }]}>${fmt(stats.monthNetEarnings)} MXN</Text>
               </View>
               <View style={s.moneyDivider} />
               <View style={s.moneyItem}>
                 <Text style={s.moneyLabel}>Total ganado</Text>
-                <Text style={s.moneyValue}>${fmt(stats.netEarnings)}</Text>
+                <Text style={s.moneyValue}>${fmt(stats.netEarnings)} MXN</Text>
               </View>
             </View>
 
@@ -1440,24 +1467,6 @@ export default function GroupDashboardScreen({ navigation }: any) {
                 placeholder="Norteño, Pop, Rock, Banda..."
                 placeholderTextColor={COLORS.muted} autoCapitalize="words" maxLength={60} />
 
-              <Text style={s.label}>Descripción</Text>
-              <TextInput
-                style={[s.input, s.inputMulti, !!descriptionError && s.inputError]}
-                value={editForm.description}
-                onChangeText={v => {
-                  setEditForm(f => ({ ...f, description: v }));
-                  const r = validatePublicText(v);
-                  setDescriptionError(r.valid ? null : r.error!);
-                }}
-                placeholder="Describe a tu grupo, experiencia, estilo..."
-                placeholderTextColor={COLORS.muted}
-                multiline numberOfLines={4} textAlignVertical="top" maxLength={500}
-              />
-              {descriptionError && (
-                <Text style={s.errorText}>⚠️ {descriptionError}</Text>
-              )}
-              <Text style={s.charCount}>{editForm.description.length}/500</Text>
-
               {/* ── Video promocional ─────────────────────────────────────────── */}
               <Text style={s.label}>Video promocional</Text>
 
@@ -1608,6 +1617,11 @@ export default function GroupDashboardScreen({ navigation }: any) {
                         .eq('group_id', gid).order('created_at', { ascending: true });
                       setMyVideos(vids ?? []);
                       Alert.alert('✅ Video subido', 'Quedó en revisión — se publica en tu perfil al aprobarse.');
+                    } else {
+                      // Antes esto se quedaba en silencio — el usuario no sabía si
+                      // canceló el picker o si algo falló, y creía que había subido
+                      // un video que en realidad nunca llegó al servidor.
+                      Alert.alert('No se subió nada', 'No se seleccionó ningún video (¿se canceló el selector?). Intenta de nuevo.');
                     }
                   } catch (e: any) {
                     const msg = e?.message ?? 'No se pudo subir el video.';
@@ -1636,6 +1650,110 @@ export default function GroupDashboardScreen({ navigation }: any) {
                 <Pressable style={s.plusUpsell} onPress={() => navigation.navigate('Plus')}>
                   <Text style={s.plusUpsellTx}>
                     🏆 Con la insignia Plus desbloqueas <Text style={{ color: COLORS.gold }}>2 videos más</Text> en tu perfil (hasta 3) →
+                  </Text>
+                </Pressable>
+              )}
+
+              {/* ── 📸 TUS PUBLICACIONES (sql/561) ────────────────────────────
+                    Hasta 6 publicaciones activas por grupo, cada una con
+                    varias fotos (carrusel). Exclusivo de Plus vigente
+                    (sql/571) — mismo candado que recibir regalos. Cada
+                    publicación pasa por revisión del admin, igual que los
+                    videos. */}
+              <Text style={s.equipSectionTitle}>
+                📸 Tus publicaciones · {myEventPosts.filter(p => p.status !== 'rejected').length}/6
+              </Text>
+              {myEventPosts.map((p, i) => (
+                <View key={p.id} style={s.myVideoRow}>
+                  {p.photos?.[0]?.url && (
+                    <Image source={{ uri: p.photos[0].url }} style={s.myPhotoRowThumb} resizeMode="cover" />
+                  )}
+                  <Text style={s.myVideoName} numberOfLines={1}>
+                    {p.caption || `Publicación ${i + 1}`}
+                    {p.photos?.length > 1 ? ` · ${p.photos.length} fotos` : ''} · {formatPhotoTimeAgo(p.created_at)}
+                  </Text>
+                  <Text style={[
+                    s.myVideoStatus,
+                    p.status === 'approved' && { color: COLORS.green },
+                    p.status === 'pending'  && { color: '#FFC107' },
+                    p.status === 'rejected' && { color: '#EF5350' },
+                  ]}>
+                    {p.status === 'approved' ? '✅ Publicada' : p.status === 'pending' ? '⏳ En revisión' : '❌ Rechazada'}
+                  </Text>
+                  <Pressable
+                    hitSlop={8}
+                    onPress={() => Alert.alert('Eliminar publicación', '¿Quitar esta publicación de tu perfil?', [
+                      { text: 'Cancelar', style: 'cancel' },
+                      {
+                        text: 'Eliminar', style: 'destructive',
+                        onPress: async () => {
+                          await supabase.from('group_event_posts').delete().eq('id', p.id);
+                          setMyEventPosts(prev => prev.filter(x => x.id !== p.id));
+                        },
+                      },
+                    ])}
+                  >
+                    <Text style={{ fontSize: 14 }}>🗑️</Text>
+                  </Pressable>
+                </View>
+              ))}
+              <TextInput
+                style={[s.input, { marginBottom: 8 }]}
+                value={newPhotoCaption}
+                onChangeText={setNewPhotoCaption}
+                placeholder="Descripción corta (ej. Boda de Ana y Luis)"
+                placeholderTextColor={COLORS.muted}
+                maxLength={60}
+              />
+              <Pressable
+                style={[s.videoBtnOutline, eventPhotoLoading && { opacity: 0.5 }]}
+                disabled={eventPhotoLoading}
+                onPress={async () => {
+                  const gid = groupIdRef.current;
+                  if (!gid) return;
+                  if (!plusOn) {
+                    Alert.alert(
+                      '🏆 Exclusivo de Plus',
+                      'Subir fotos de tus eventos es un beneficio de la insignia Plus — también desbloqueas ganar dinero con regalos de tus fans.',
+                      [
+                        { text: 'Ahora no', style: 'cancel' },
+                        { text: 'Ver Plus', onPress: () => navigation.navigate('Plus') },
+                      ],
+                    );
+                    return;
+                  }
+                  const activas = myEventPosts.filter(p => p.status !== 'rejected').length;
+                  if (activas >= 6) {
+                    Alert.alert('📸 Límite alcanzado', 'Ya tienes 6 publicaciones (el máximo). Elimina una para subir otra.');
+                    return;
+                  }
+                  try {
+                    setEventPhotoLoading(true);
+                    const post = await pickAndUploadGroupEventPost(gid, newPhotoCaption);
+                    if (post) {
+                      setMyEventPosts(prev => [post, ...prev]);
+                      setNewPhotoCaption('');
+                      Alert.alert('✅ Publicación subida', 'Quedó en revisión — se publica en tu perfil al aprobarse.');
+                    }
+                  } catch (e: any) {
+                    Alert.alert('Error', e?.message ?? 'No se pudo subir la publicación.');
+                  } finally {
+                    setEventPhotoLoading(false);
+                  }
+                }}
+              >
+                {eventPhotoLoading
+                  ? <ActivityIndicator size="small" color={COLORS.green} />
+                  : <Camera size={15} color={COLORS.green} />}
+                <Text style={s.videoBtnOutlineText}>
+                  {eventPhotoLoading ? 'Subiendo…' : '➕ Subir publicación (hasta 6 fotos)'}
+                </Text>
+              </Pressable>
+              <Text style={s.videoHint}>JPG · máx. 6 fotos · se publican al aprobarse</Text>
+              {!plusOn && (
+                <Pressable style={s.plusUpsell} onPress={() => navigation.navigate('Plus')}>
+                  <Text style={s.plusUpsellTx}>
+                    🏆 Con <Text style={{ color: COLORS.gold }}>Plus</Text> desbloqueas subir fotos de tus eventos y ganar dinero con regalos de tus fans →
                   </Text>
                 </Pressable>
               )}
@@ -2144,7 +2262,7 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: COLORS.border,
     overflow: 'hidden',
   },
-  finGradient: { ...StyleSheet.absoluteFillObject },
+  finGradient: { ...StyleSheet.absoluteFill },
   finMain: {
     padding: SPACING.lg, borderBottomWidth: 1, borderBottomColor: COLORS.border,
   },
@@ -2382,6 +2500,11 @@ const s = StyleSheet.create({
     backgroundColor: '#060c06', borderWidth: 1.5, borderColor: 'rgba(0,230,118,0.35)',
   },
   myVideoStatus: { fontFamily: FONTS.bodySemiBold, fontSize: 11 },
+  // 📸 Gestor de publicaciones de eventos (sql/561)
+  myPhotoRowThumb: {
+    width: 40, height: 40, borderRadius: 8,
+    backgroundColor: '#060c06', borderWidth: 1, borderColor: 'rgba(0,230,118,0.35)',
+  },
   plusUpsell: {
     marginTop: 8, marginBottom: 4, padding: 12,
     backgroundColor: 'rgba(201,168,76,0.08)', borderRadius: RADIUS.md,

@@ -1,5 +1,7 @@
 import { AlertCircle, ArrowLeft, CheckCircle, Clock, Scale, XCircle } from 'lucide-react-native';
+import type { TFunction } from 'i18next';
 import React, { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   ActivityIndicator,
   Alert,
@@ -35,14 +37,17 @@ interface DisputeRow {
 
 type StatusChip = 'open' | 'under_review' | 'resolved' | 'all';
 
-const STATUS_BADGE: Record<DisputeRow['status'], { label: string; variant: 'red' | 'orange' | 'green' }> = {
-  open:            { label: 'Abierta',        variant: 'red' },
-  under_review:    { label: 'En revisión',    variant: 'orange' },
-  resolved_client: { label: 'Ganó cliente',   variant: 'green' },
-  resolved_group:  { label: 'Ganó grupo',     variant: 'green' },
-};
+const getStatusBadge = (
+  t: TFunction,
+): Record<DisputeRow['status'], { label: string; variant: 'red' | 'orange' | 'green' }> => ({
+  open:            { label: t('adminDisputesScreen.status.open'),           variant: 'red' },
+  under_review:    { label: t('adminDisputesScreen.status.underReview'),    variant: 'orange' },
+  resolved_client: { label: t('adminDisputesScreen.status.resolvedClient'), variant: 'green' },
+  resolved_group:  { label: t('adminDisputesScreen.status.resolvedGroup'),  variant: 'green' },
+});
 
 export default function AdminDisputesScreen({ navigation }: any) {
+  const { t } = useTranslation();
   const [disputes, setDisputes] = useState<DisputeRow[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [chip, setChip] = useState<StatusChip>('open');
@@ -58,7 +63,7 @@ export default function AdminDisputesScreen({ navigation }: any) {
       p_status: 'all', p_limit: 100, p_offset: 0,
     });
     if (error) {
-      Alert.alert('Error al cargar disputas', error.message);
+      Alert.alert(t('adminDisputesScreen.errors.loadTitle'), error.message);
       return;
     }
     setDisputes((data ?? []) as DisputeRow[]);
@@ -89,45 +94,51 @@ export default function AdminDisputesScreen({ navigation }: any) {
     });
     setResolving(false);
     if (error || !data?.ok) {
-      Alert.alert('No se pudo resolver', error?.message ?? 'Intenta de nuevo.');
+      Alert.alert(
+        t('adminDisputesScreen.errors.resolveTitle'),
+        error?.message ?? t('adminDisputesScreen.errors.resolveDefault'),
+      );
       return;
     }
     setSelectedId(null);
     setNote('');
-    Alert.alert('Disputa resuelta ✅', 'Se notificó el veredicto al cliente y al grupo.');
+    Alert.alert(
+      t('adminDisputesScreen.resolveSuccess.title'),
+      t('adminDisputesScreen.resolveSuccess.message'),
+    );
     fetchDisputes();
   };
 
   const confirmResolve = (dispute: DisputeRow, resolution: 'resolved_client' | 'resolved_group') => {
     if (resolution === 'resolved_group') {
       Alert.alert(
-        'Resolver a favor del GRUPO',
-        'Se liberará el pago del evento al grupo y se notificará el veredicto a ambas partes.\n\n¿Confirmas?',
+        t('adminDisputesScreen.confirmGroup.title'),
+        t('adminDisputesScreen.confirmGroup.message'),
         [
-          { text: 'Cancelar', style: 'cancel' },
-          { text: 'Confirmar', onPress: () => doResolve(dispute, resolution) },
+          { text: t('adminDisputesScreen.actions.cancel'), style: 'cancel' },
+          { text: t('adminDisputesScreen.actions.confirm'), onPress: () => doResolve(dispute, resolution) },
         ],
       );
     } else {
       Alert.alert(
-        'Resolver a favor del CLIENTE',
-        'Se revertirá el saldo pendiente del grupo y se notificará el veredicto a ambas partes.\n\n' +
-        '⚠️ IMPORTANTE: revisa manualmente el reembolso al cliente y cualquier pago ya liberado al grupo ' +
-        '— no se procesan automáticamente todavía.\n\n¿Confirmas?',
+        t('adminDisputesScreen.confirmClient.title'),
+        t('adminDisputesScreen.confirmClient.message'),
         [
-          { text: 'Cancelar', style: 'cancel' },
-          { text: 'Confirmar', style: 'destructive', onPress: () => doResolve(dispute, resolution) },
+          { text: t('adminDisputesScreen.actions.cancel'), style: 'cancel' },
+          { text: t('adminDisputesScreen.actions.confirm'), style: 'destructive', onPress: () => doResolve(dispute, resolution) },
         ],
       );
     }
   };
 
   const chips: { key: StatusChip; label: string }[] = [
-    { key: 'open',         label: `Abiertas (${openCount})` },
-    { key: 'under_review', label: `En revisión (${reviewCount})` },
-    { key: 'resolved',     label: `Resueltas (${resolvedCount})` },
-    { key: 'all',          label: 'Todas' },
+    { key: 'open',         label: t('adminDisputesScreen.chips.open', { count: openCount }) },
+    { key: 'under_review', label: t('adminDisputesScreen.chips.underReview', { count: reviewCount }) },
+    { key: 'resolved',     label: t('adminDisputesScreen.chips.resolved', { count: resolvedCount }) },
+    { key: 'all',          label: t('adminDisputesScreen.chips.all') },
   ];
+
+  const statusBadge = getStatusBadge(t);
 
   return (
     <View style={styles.container}>
@@ -137,7 +148,7 @@ export default function AdminDisputesScreen({ navigation }: any) {
           <Pressable style={styles.backBtn} onPress={() => navigation.goBack()}>
             <ArrowLeft size={20} color={COLORS.text} />
           </Pressable>
-          <Text style={styles.headerTitle}>Disputas</Text>
+          <Text style={styles.headerTitle}>{t('adminDisputesScreen.title')}</Text>
           <View style={{ width: 40 }} />
         </View>
 
@@ -146,17 +157,17 @@ export default function AdminDisputesScreen({ navigation }: any) {
           <View style={styles.summaryCard}>
             <AlertCircle size={20} color={COLORS.red} />
             <Text style={[styles.summaryNum, { color: COLORS.red }]}>{openCount}</Text>
-            <Text style={styles.summaryLabel}>Abiertas</Text>
+            <Text style={styles.summaryLabel}>{t('adminDisputesScreen.summary.open')}</Text>
           </View>
           <View style={styles.summaryCard}>
             <Clock size={20} color={COLORS.orange} />
             <Text style={[styles.summaryNum, { color: COLORS.orange }]}>{reviewCount}</Text>
-            <Text style={styles.summaryLabel}>En revisión</Text>
+            <Text style={styles.summaryLabel}>{t('adminDisputesScreen.summary.underReview')}</Text>
           </View>
           <View style={styles.summaryCard}>
             <CheckCircle size={20} color={COLORS.green} />
             <Text style={[styles.summaryNum, { color: COLORS.green }]}>{resolvedCount}</Text>
-            <Text style={styles.summaryLabel}>Resueltas</Text>
+            <Text style={styles.summaryLabel}>{t('adminDisputesScreen.summary.resolved')}</Text>
           </View>
         </View>
 
@@ -181,16 +192,16 @@ export default function AdminDisputesScreen({ navigation }: any) {
           {visible.length === 0 ? (
             <View style={styles.empty}>
               <Scale size={48} color={COLORS.muted} />
-              <Text style={styles.emptyTitle}>Sin disputas aquí</Text>
+              <Text style={styles.emptyTitle}>{t('adminDisputesScreen.empty.title')}</Text>
               <Text style={styles.emptyText}>
-                {chip === 'open' ? 'No hay disputas abiertas en este momento' : 'Nada en este filtro'}
+                {chip === 'open' ? t('adminDisputesScreen.empty.open') : t('adminDisputesScreen.empty.other')}
               </Text>
             </View>
           ) : (
             visible.map(d => {
               const isOpen = selectedId === d.dispute_id;
               const canResolve = d.status === 'open' || d.status === 'under_review';
-              const badge = STATUS_BADGE[d.status] ?? { label: d.status, variant: 'red' as const };
+              const badge = statusBadge[d.status] ?? { label: d.status, variant: 'red' as const };
               return (
                 <View key={d.dispute_id} style={styles.card}>
                   <Pressable
@@ -199,14 +210,19 @@ export default function AdminDisputesScreen({ navigation }: any) {
                   >
                     <View style={styles.cardLeft}>
                       <Text style={styles.groupName}>{d.group_name ?? '—'}</Text>
-                      <Text style={styles.clientName}>Abierta por: {d.opener_email ?? '—'}</Text>
+                      <Text style={styles.clientName}>
+                        {t('adminDisputesScreen.card.openedBy', { email: d.opener_email ?? '—' })}
+                      </Text>
                       {!!d.reason && (
                         <Text style={styles.reason} numberOfLines={isOpen ? undefined : 2}>
                           “{d.reason}”
                         </Text>
                       )}
                       <Text style={styles.date}>
-                        Evento: {d.event_date ?? '—'} • ${d.total_price?.toLocaleString() ?? '—'}
+                        {t('adminDisputesScreen.card.event', {
+                          date: d.event_date ?? '—',
+                          price: d.total_price?.toLocaleString() ?? '—',
+                        })}
                       </Text>
                     </View>
                     <Badge label={badge.label} variant={badge.variant} />
@@ -219,10 +235,10 @@ export default function AdminDisputesScreen({ navigation }: any) {
 
                       {canResolve && (
                         <>
-                          <Text style={styles.panelLabel}>Resolución / notas (se envía a ambas partes)</Text>
+                          <Text style={styles.panelLabel}>{t('adminDisputesScreen.panel.label')}</Text>
                           <TextInput
                             style={styles.textArea}
-                            placeholder="Describe la resolución..."
+                            placeholder={t('adminDisputesScreen.panel.placeholder')}
                             placeholderTextColor={COLORS.muted}
                             value={note}
                             onChangeText={setNote}
@@ -237,7 +253,7 @@ export default function AdminDisputesScreen({ navigation }: any) {
                             >
                               {resolving
                                 ? <ActivityIndicator size="small" color={COLORS.text} />
-                                : <Text style={styles.btnClientText}>A favor del cliente</Text>}
+                                : <Text style={styles.btnClientText}>{t('adminDisputesScreen.panel.favorClient')}</Text>}
                             </Pressable>
                             <Pressable
                               style={[styles.resolveBtn, styles.btnGroup, resolving && { opacity: 0.5 }]}
@@ -246,7 +262,7 @@ export default function AdminDisputesScreen({ navigation }: any) {
                             >
                               {resolving
                                 ? <ActivityIndicator size="small" color={COLORS.black} />
-                                : <Text style={styles.btnGroupText}>A favor del grupo</Text>}
+                                : <Text style={styles.btnGroupText}>{t('adminDisputesScreen.panel.favorGroup')}</Text>}
                             </Pressable>
                             <Pressable style={styles.closeBtn} onPress={() => setSelectedId(null)}>
                               <XCircle size={16} color={COLORS.muted2} />

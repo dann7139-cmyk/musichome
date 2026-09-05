@@ -34,12 +34,12 @@ export default function FinancialBreakdown({
 
       <View style={styles.divider} />
 
-      <Row label="Total del evento" value={formatCurrency(totalPrice, currencySymbol)} />
+      <Row label="Total del evento" value={formatCurrency(totalPrice, undefined, currencySymbol)} />
 
       {commissionAmount != null && durationHours != null && (
         <Row
           label={`Comisión de gestión ($200 × ${durationHours}h)`}
-          value={`−${formatCurrency(commissionAmount, currencySymbol)}`}
+          value={`−${formatCurrency(commissionAmount, undefined, currencySymbol)}`}
           valueColor={COLORS.muted2}
         />
       )}
@@ -48,13 +48,13 @@ export default function FinancialBreakdown({
 
       <View style={styles.netRow}>
         <Text style={styles.netLabel}>GANANCIA NETA</Text>
-        <Text style={styles.netValue}>{formatCurrency(groupEarnings, currencySymbol)}</Text>
+        <Text style={styles.netValue}>{formatCurrency(groupEarnings, undefined, currencySymbol)}</Text>
       </View>
 
       {perMember !== null && (
         <View style={styles.perMemberRow}>
           <Text style={styles.perMemberLabel}>Por integrante</Text>
-          <Text style={styles.perMemberValue}>{formatCurrency(perMember, currencySymbol)}</Text>
+          <Text style={styles.perMemberValue}>{formatCurrency(perMember, undefined, currencySymbol)}</Text>
         </View>
       )}
     </View>

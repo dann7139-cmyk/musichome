@@ -1,9 +1,11 @@
 import { LinearGradient } from 'expo-linear-gradient';
+import type { TFunction } from 'i18next';
 import {
   ArrowLeft, Crosshair, List, Music, Radio, RefreshCw, SlidersHorizontal,
   Users, Wifi, WifiOff, X, Zap,
 } from 'lucide-react-native';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import Svg, { Defs, RadialGradient as SvgRadialGradient, Rect, Stop } from 'react-native-svg';
 import {
   Animated,
@@ -75,11 +77,21 @@ interface SheetRow {
   hasGps: boolean; lat: number; lng: number; distKm: number;
 }
 
-const STATUS: Record<GroupStatus, { color: string; label: string }> = {
-  in_event: { color: COLORS.green, label: 'Tocando' },
-  active:   { color: '#4CAF50',    label: 'En app'  },
-  offline:  { color: '#666',       label: 'Offline' },
+const STATUS: Record<GroupStatus, { color: string }> = {
+  in_event: { color: COLORS.green },
+  active:   { color: '#4CAF50'    },
+  offline:  { color: '#666'       },
 };
+
+// Etiquetas traducidas de GroupStatus — factory llamada dentro del componente,
+// donde el hook useTranslation ya está disponible.
+function getStatusLabels(t: TFunction): Record<GroupStatus, string> {
+  return {
+    in_event: t('adminMapScreen.status.playing'),
+    active:   t('adminMapScreen.status.inApp'),
+    offline:  t('adminMapScreen.status.offline'),
+  };
+}
 
 const GPS_BLUE = '#1A77F2';
 
@@ -91,7 +103,7 @@ const ROUTE_REQUIRES_ACTIVE_BOOKING = true;
 
 function MapVignette() {
   return (
-    <View style={StyleSheet.absoluteFillObject} pointerEvents="none">
+    <View style={StyleSheet.absoluteFill} pointerEvents="none">
       <Svg width="100%" height="100%">
         <Defs>
           <SvgRadialGradient id="vig" cx="50%" cy="44%" r="78%">
@@ -345,6 +357,7 @@ function GroupMarker({ status, profileImage, name, hasGps, tier, eventStatus, bo
   eventStatus?: 'en_route' | 'arrived' | 'playing' | null;
   bookingType?: 'express' | 'scheduled' | null;
 }) {
+  const { t } = useTranslation();
   const cfg      = STATUS[status];
   const isLive   = status !== 'offline';
   const hasEvent = !!eventStatus;
@@ -411,7 +424,7 @@ function GroupMarker({ status, profileImage, name, hasGps, tier, eventStatus, bo
           paddingHorizontal: 5, paddingVertical: 2,
         }}>
           <Text style={{ fontSize: 9, color: ringColor, fontFamily: FONTS.bodySemiBold }}>
-            {eventStatus === 'playing' ? '🎸 Tocando' : eventStatus === 'arrived' ? '📍 Llegó' : '🚗 En camino'}
+            {eventStatus === 'playing' ? t('adminMapScreen.eventStatus.playing') : eventStatus === 'arrived' ? t('adminMapScreen.eventStatus.arrived') : t('adminMapScreen.eventStatus.enRoute')}
           </Text>
         </View>
       )}
@@ -597,6 +610,7 @@ function ClientConnectionMarker({ avatarUrl, name, eventStatus, bookingType, tie
   avatarUrl: string | null; name: string;
   eventStatus: string; bookingType: string; tier: MarkerTier;
 }) {
+  const { t } = useTranslation();
   const color = bookingType === 'express' ? '#FF6D00' : '#7C4DFF';
   const init  = name.trim()[0]?.toUpperCase() ?? '?';
 
@@ -638,7 +652,7 @@ function ClientConnectionMarker({ avatarUrl, name, eventStatus, bookingType, tie
           paddingHorizontal: 4, paddingVertical: 1,
         }}>
           <Text style={{ fontSize: 8, color, fontFamily: FONTS.bodySemiBold }}>
-            {eventStatus === 'playing' ? '🎵 En evento' : '📍 Destino'}
+            {eventStatus === 'playing' ? t('adminMapScreen.eventStatus.inEvent') : t('adminMapScreen.eventStatus.destination')}
           </Text>
         </View>
       )}
@@ -734,6 +748,8 @@ function StatChip({ icon, label, count, color, active, prominent, onPress }: {
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function AdminMapScreen({ navigation }: any) {
+  const { t } = useTranslation();
+  const statusLabels = getStatusLabels(t);
   const insets = useSafeAreaInsets();
   const [mode,        setMode]       = useState<MapMode>('groups');
   const [groups,      setGroups]     = useState<GroupRow[]>([]);
@@ -857,7 +873,7 @@ export default function AdminMapScreen({ navigation }: any) {
         : resolveCoords(cityName, g.id);
 
       return {
-        group_id: g.id, group_name: g.name ?? 'Grupo',
+        group_id: g.id, group_name: g.name ?? t('adminMapScreen.fallback.group'),
         profile_image: g.profile_image ?? null,
         status, hasGps, mapLat: pos.lat, mapLng: pos.lng,
         city: cityName, last_seen: loc?.last_seen ?? null,
@@ -892,7 +908,7 @@ export default function AdminMapScreen({ navigation }: any) {
     for (const l of (liveData ?? []) as any[]) {
       rows.push({
         talent_id:    l.user_id,
-        full_name:    l.full_name ?? 'Talento',
+        full_name:    l.full_name ?? t('adminMapScreen.fallback.talent'),
         avatar_url:   l.avatar_url ?? null,
         instrument:   l.instrument ?? '—',
         availability: l.availability ?? 'unknown',
@@ -905,18 +921,18 @@ export default function AdminMapScreen({ navigation }: any) {
     }
 
     // Fallback: talentos sin GPS live — ubicación aproximada por estado/ciudad del perfil
-    for (const t of (jbpData ?? []) as any[]) {
-      if (liveIds.has(t.user_id)) continue;
-      const city  = t.profile?.city  ?? null;
-      const state = t.profile?.state ?? null;
+    for (const jb of (jbpData ?? []) as any[]) {
+      if (liveIds.has(jb.user_id)) continue;
+      const city  = jb.profile?.city  ?? null;
+      const state = jb.profile?.state ?? null;
       // Use resolveCoords from profile state/city — ignores arbitrary SQL test coords
-      const pos   = resolveCoords(state ?? city, t.user_id);
+      const pos   = resolveCoords(state ?? city, jb.user_id);
       rows.push({
-        talent_id:    t.user_id,
-        full_name:    t.profile?.full_name ?? 'Talento',
-        avatar_url:   t.profile?.avatar_url ?? null,
-        instrument:   t.instrument_or_role ?? '—',
-        availability: t.availability_status ?? 'unknown',
+        talent_id:    jb.user_id,
+        full_name:    jb.profile?.full_name ?? t('adminMapScreen.fallback.talent'),
+        avatar_url:   jb.profile?.avatar_url ?? null,
+        instrument:   jb.instrument_or_role ?? '—',
+        availability: jb.availability_status ?? 'unknown',
         mapLat:       pos.lat,
         mapLng:       pos.lng,
         city,
@@ -1288,7 +1304,7 @@ export default function AdminMapScreen({ navigation }: any) {
     if (mode === 'groups') {
       rows = filteredGroups.filter(g => inView(g.mapLat, g.mapLng)).map(g => ({
         id: g.group_id, name: g.group_name, image: g.profile_image,
-        city: g.city, statusColor: STATUS[g.status].color, statusLabel: STATUS[g.status].label,
+        city: g.city, statusColor: STATUS[g.status].color, statusLabel: statusLabels[g.status],
         hasGps: g.hasGps, lat: g.mapLat, lng: g.mapLng, distKm: dist(g.mapLat, g.mapLng),
       }));
     } else if (mode === 'talents') {
@@ -1368,7 +1384,7 @@ export default function AdminMapScreen({ navigation }: any) {
             <View style={s.callout}>
               <Text style={s.calloutName}>{grp.group_name}</Text>
               <Text style={[s.calloutSub, { color: STATUS[grp.status].color }]}>
-                {STATUS[grp.status].label}{grp.city ? ` · ${grp.city}` : ''}
+                {statusLabels[grp.status]}{grp.city ? ` · ${grp.city}` : ''}
               </Text>
               {grp.last_seen && <Text style={s.calloutTime}>{timeAgo(grp.last_seen)}</Text>}
               {canRoute ? (
@@ -1455,7 +1471,7 @@ export default function AdminMapScreen({ navigation }: any) {
       {/* ── MAPA FULL-BLEED ── */}
       <MapView
         ref={mapRef}
-        style={StyleSheet.absoluteFillObject}
+        style={StyleSheet.absoluteFill}
         provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
         customMapStyle={EARTH_STYLE}
         userInterfaceStyle="dark"
@@ -1467,7 +1483,7 @@ export default function AdminMapScreen({ navigation }: any) {
         pitchEnabled={false}
         showsUserLocation={false}
         showsMyLocationButton={false}
-        showsPointsOfInterest={false}
+        showsPointsOfInterests={false}
         showsBuildings={false}
         showsCompass={false}
         showsIndoors={false}
@@ -2038,7 +2054,7 @@ const s = StyleSheet.create({
   fabBadgeTxt: { fontFamily: FONTS.bodySemiBold, fontSize: 10, color: '#041007' },
 
   introSkip: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     zIndex: 20,
     justifyContent: 'flex-end', alignItems: 'center',
   },

@@ -31,6 +31,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useTranslation } from 'react-i18next';
 import Particles from '../../components/ui/Particles';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
@@ -65,6 +66,7 @@ interface GroupEvent {
 type InviteType = 'event' | 'membership';
 
 export default function TalentSearchScreen({ navigation }: any) {
+  const { t } = useTranslation();
   const [talents, setTalents]         = useState<Talent[]>([]);
   const [filtered, setFiltered]       = useState<Talent[]>([]);
   const [loading, setLoading]         = useState(true);
@@ -183,11 +185,11 @@ export default function TalentSearchScreen({ navigation }: any) {
   const sendInvitation = async () => {
     if (!groupId || !selectedTalent) return;
     if (inviteType === 'event' && !selectedEvent) {
-      Alert.alert('Error', 'Selecciona el evento para esta tocada');
+      Alert.alert(t('talentSearchScreen.error'), t('talentSearchScreen.selectEventRequired'));
       return;
     }
     if (inviteType === 'event' && selectedEvent && !selectedEvent.event_id) {
-      Alert.alert('Error', 'Este evento no tiene ID de evento válido. Contacta soporte.');
+      Alert.alert(t('talentSearchScreen.error'), t('talentSearchScreen.invalidEventId'));
       return;
     }
 
@@ -201,6 +203,10 @@ export default function TalentSearchScreen({ navigation }: any) {
       // event_id null = membresía permanente; event_id presente = tocada
       // selectedEvent.event_id es el FK a events.id (no el id de la reserva)
       event_id: inviteType === 'event' && selectedEvent ? selectedEvent.event_id : null,
+      // Hallazgo real (2026-09-05): faltaba este campo — toda invitación
+      // (incluso "membresía") se guardaba con el default de la columna
+      // ('event'), nunca había existido una fila invitation_type='membership'.
+      invitation_type: inviteType,
     };
 
     const { error } = await supabase.from('job_invitations').insert(payload);
@@ -208,15 +214,15 @@ export default function TalentSearchScreen({ navigation }: any) {
 
     if (error) {
       if (error.code === '23505') {
-        Alert.alert('Aviso', 'Ya enviaste una invitación a este talento para este evento.');
+        Alert.alert(t('talentSearchScreen.notice'), t('talentSearchScreen.duplicateInvite'));
       } else {
-        Alert.alert('Error', error.message);
+        Alert.alert(t('talentSearchScreen.error'), error.message);
       }
     } else {
       setModalVisible(false);
       Alert.alert(
-        '¡Invitación enviada! 🎉',
-        `${selectedTalent.full_name} recibirá una notificación.`
+        t('talentSearchScreen.invitationSentTitle'),
+        t('talentSearchScreen.invitationSentMessage', { name: selectedTalent.full_name })
       );
     }
   };
@@ -236,7 +242,7 @@ export default function TalentSearchScreen({ navigation }: any) {
           )}
           <View style={styles.headerTitle}>
             <Users size={18} color={COLORS.green} />
-            <Text style={styles.headerTitleText}>Buscar Talentos</Text>
+            <Text style={styles.headerTitleText}>{t('talentSearchScreen.headerTitle')}</Text>
           </View>
           {/* Botón: ver invitaciones enviadas */}
           <Pressable
@@ -254,7 +260,7 @@ export default function TalentSearchScreen({ navigation }: any) {
             <Search size={16} color={COLORS.muted} />
             <TextInput
               style={styles.searchInput}
-              placeholder="Buscar por instrumento o rol..."
+              placeholder={t('talentSearchScreen.searchPlaceholder')}
               placeholderTextColor={COLORS.muted}
               value={roleFilter}
               onChangeText={setRoleFilter}
@@ -275,7 +281,7 @@ export default function TalentSearchScreen({ navigation }: any) {
                 onPress={() => setAvailFilter(a)}
               >
                 <Text style={[styles.chipText, availFilter === a && styles.chipTextActive]}>
-                  {a === 'all' ? 'Todos' : a === 'available' ? '🟢 Disponibles' : '🔴 Ocupados'}
+                  {a === 'all' ? t('talentSearchScreen.filterAll') : a === 'available' ? t('talentSearchScreen.filterAvailable') : t('talentSearchScreen.filterBusy')}
                 </Text>
               </Pressable>
             ))}
@@ -286,21 +292,21 @@ export default function TalentSearchScreen({ navigation }: any) {
         {loading ? (
           <View style={styles.center}>
             <ActivityIndicator size="large" color={COLORS.green} />
-            <Text style={styles.loadingText}>Buscando talentos...</Text>
+            <Text style={styles.loadingText}>{t('talentSearchScreen.loading')}</Text>
           </View>
         ) : filtered.length === 0 ? (
           <View style={styles.center}>
             <Text style={{ fontSize: 40 }}>🎵</Text>
-            <Text style={styles.emptyTitle}>Sin resultados</Text>
-            <Text style={styles.emptyText}>Prueba con otro instrumento o quita los filtros.</Text>
+            <Text style={styles.emptyTitle}>{t('talentSearchScreen.emptyTitle')}</Text>
+            <Text style={styles.emptyText}>{t('talentSearchScreen.emptyText')}</Text>
           </View>
         ) : (
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.list} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.green} />}>
             <Text style={styles.resultsText}>
-              {filtered.length} talento{filtered.length !== 1 ? 's' : ''} encontrado{filtered.length !== 1 ? 's' : ''}
+              {t('talentSearchScreen.resultsFound', { count: filtered.length })}
             </Text>
             {isAdmin && (
-              <Text style={styles.adminBadge}>👁 Modo Admin — solo lectura</Text>
+              <Text style={styles.adminBadge}>{t('talentSearchScreen.adminBadge')}</Text>
             )}
             {filtered.map((t) => (
               <TalentCard
@@ -340,7 +346,7 @@ export default function TalentSearchScreen({ navigation }: any) {
 
             <View style={modal.sheetHeader}>
               <Text style={modal.sheetTitle}>
-                Invitar a {selectedTalent?.full_name}
+                {t('talentSearchScreen.modalTitle', { name: selectedTalent?.full_name })}
               </Text>
               <Pressable onPress={() => setModalVisible(false)}>
                 <X size={20} color={COLORS.muted} />
@@ -349,7 +355,7 @@ export default function TalentSearchScreen({ navigation }: any) {
 
             <ScrollView showsVerticalScrollIndicator={false}>
               {/* Invite type selector */}
-              <Text style={modal.label}>Tipo de invitación</Text>
+              <Text style={modal.label}>{t('talentSearchScreen.inviteTypeLabel')}</Text>
               <View style={modal.typeRow}>
                 <Pressable
                   style={[modal.typeBtn, inviteType === 'event' && modal.typeBtnActive]}
@@ -357,9 +363,9 @@ export default function TalentSearchScreen({ navigation }: any) {
                 >
                   <Text style={modal.typeEmoji}>🎵</Text>
                   <Text style={[modal.typeLabel, inviteType === 'event' && modal.typeLabelActive]}>
-                    Para una tocada
+                    {t('talentSearchScreen.typeGigLabel')}
                   </Text>
-                  <Text style={modal.typeDesc}>Evento específico</Text>
+                  <Text style={modal.typeDesc}>{t('talentSearchScreen.typeGigDesc')}</Text>
                 </Pressable>
                 <Pressable
                   style={[modal.typeBtn, inviteType === 'membership' && modal.typeBtnActive]}
@@ -367,21 +373,21 @@ export default function TalentSearchScreen({ navigation }: any) {
                 >
                   <Text style={modal.typeEmoji}>🎸</Text>
                   <Text style={[modal.typeLabel, inviteType === 'membership' && modal.typeLabelActive]}>
-                    Unirse al grupo
+                    {t('talentSearchScreen.typeMembershipLabel')}
                   </Text>
-                  <Text style={modal.typeDesc}>Permanente</Text>
+                  <Text style={modal.typeDesc}>{t('talentSearchScreen.typeMembershipDesc')}</Text>
                 </Pressable>
               </View>
 
               {/* Event selector (only for tocada) */}
               {inviteType === 'event' && (
                 <View>
-                  <Text style={modal.label}>Selecciona el evento *</Text>
+                  <Text style={modal.label}>{t('talentSearchScreen.selectEventLabel')}</Text>
                   {events.length === 0 ? (
                     <View style={modal.noEvents}>
                       <Calendar size={20} color={COLORS.muted} />
                       <Text style={modal.noEventsText}>
-                        No tienes eventos confirmados próximos.
+                        {t('talentSearchScreen.noEvents')}
                       </Text>
                     </View>
                   ) : (
@@ -411,7 +417,7 @@ export default function TalentSearchScreen({ navigation }: any) {
               )}
 
               {/* Payment */}
-              <Text style={modal.label}>Pago propuesto (opcional)</Text>
+              <Text style={modal.label}>{t('talentSearchScreen.paymentLabel')}</Text>
               <View style={modal.inputRow}>
                 <DollarSign size={16} color={COLORS.muted} />
                 <TextInput
@@ -425,12 +431,12 @@ export default function TalentSearchScreen({ navigation }: any) {
               </View>
 
               {/* Message */}
-              <Text style={modal.label}>Mensaje (opcional)</Text>
+              <Text style={modal.label}>{t('talentSearchScreen.messageLabel')}</Text>
               <View style={[modal.inputRow, { alignItems: 'flex-start', paddingTop: 12 }]}>
                 <MessageSquare size={16} color={COLORS.muted} style={{ marginTop: 2 }} />
                 <TextInput
                   style={[modal.input, { height: 80, textAlignVertical: 'top' }]}
-                  placeholder="Cuéntale sobre el evento o el grupo..."
+                  placeholder={t('talentSearchScreen.messagePlaceholder')}
                   placeholderTextColor={COLORS.muted}
                   value={message}
                   onChangeText={setMessage}
@@ -446,7 +452,7 @@ export default function TalentSearchScreen({ navigation }: any) {
               >
                 <Send size={16} color={COLORS.bg} />
                 <Text style={modal.sendBtnText}>
-                  {sending ? 'Enviando...' : 'Enviar invitación'}
+                  {sending ? t('talentSearchScreen.sending') : t('talentSearchScreen.sendInvitation')}
                 </Text>
               </Pressable>
             </ScrollView>
@@ -480,6 +486,7 @@ function TalentCard({
   onInvite: (type: InviteType) => void;
   onViewProfile: () => void;
 }) {
+  const { t } = useTranslation();
   const isAvailable = talent.availability_status === 'available';
   const initial = talent.full_name?.charAt(0)?.toUpperCase() ?? '?';
 
@@ -505,7 +512,7 @@ function TalentCard({
             <Text style={card.name} numberOfLines={1}>{talent.full_name}</Text>
             <View style={[card.availBadge, !isAvailable && card.availBadgeBusy]}>
               <Text style={[card.availBadgeText, !isAvailable && card.availBadgeTextBusy]}>
-                {isAvailable ? 'Disponible' : 'Ocupado'}
+                {isAvailable ? t('talentSearchScreen.available') : t('talentSearchScreen.busy')}
               </Text>
             </View>
           </View>
@@ -527,24 +534,24 @@ function TalentCard({
         <View style={card.statItem}>
           <Star size={13} color={COLORS.green} fill={COLORS.green} />
           <Text style={card.statValue}>{talent.rating?.toFixed(1) ?? '5.0'}</Text>
-          <Text style={card.statLabel}>Rating</Text>
+          <Text style={card.statLabel}>{t('talentSearchScreen.rating')}</Text>
         </View>
         <View style={card.statDivider} />
         <View style={card.statItem}>
           <Text style={card.statValue}>{talent.experience_years}</Text>
-          <Text style={card.statLabel}>años exp.</Text>
+          <Text style={card.statLabel}>{t('talentSearchScreen.yearsExp')}</Text>
         </View>
         <View style={card.statDivider} />
         <View style={card.statItem}>
           <Text style={card.statValue}>{talent.total_jobs}</Text>
-          <Text style={card.statLabel}>trabajos</Text>
+          <Text style={card.statLabel}>{t('talentSearchScreen.jobs')}</Text>
         </View>
       </View>
 
       {/* Ver perfil + Invite buttons */}
       <View style={card.btnRow}>
         <Pressable style={card.btnPerfil} onPress={onViewProfile}>
-          <Text style={card.btnPerfilText}>Ver perfil</Text>
+          <Text style={card.btnPerfilText}>{t('talentSearchScreen.viewProfile')}</Text>
         </Pressable>
       </View>
     </View>

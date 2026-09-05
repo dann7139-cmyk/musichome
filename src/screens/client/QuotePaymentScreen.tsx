@@ -34,10 +34,13 @@ import {
 } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
 import { useStripe } from '@stripe/stripe-react-native';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import { calculateFinancedPrice, calculateMonthlyPayment, PUBLIC_MSI_FEE_RATES } from '../../utils/publicPricing';
 import { startConektaCheckout, fetchConektaReference, ConektaMethod, ConektaReference } from '../../utils/conektaCheckout';
+import { getClientActiveEvents, resolveEventContext } from '../../utils/eventBuilder';
 
 const MSI_MIN_AMOUNT = 300; // MXN mínimo para pagar a meses
 
@@ -69,25 +72,37 @@ interface PayMethodDef {
   expandsMonths?: boolean; // despliega el selector 3/6/9/12 (solo 'msi')
 }
 
-const PAYMENT_METHODS: PayMethodDef[] = [
+// Textos de los métodos vienen de i18n (t) — la función se llama dentro del
+// componente, donde el hook useTranslation ya está disponible.
+const getPaymentMethods = (t: TFunction): PayMethodDef[] => [
   {
-    key: 'card', enabled: true, emoji: '💳', title: 'Tarjeta',
-    lines: ['Pago inmediato', 'Débito o crédito', 'Pago protegido por Daricefy'],
+    key: 'card', enabled: true, emoji: '💳', title: t('quotePaymentScreen.methods.card.title'),
+    lines: [
+      t('quotePaymentScreen.methods.card.line1'),
+      t('quotePaymentScreen.methods.card.line2'),
+      t('quotePaymentScreen.methods.card.line3'),
+    ],
   },
   {
-    key: 'spei', enabled: true, emoji: '🏦', title: 'Transferencia SPEI',
-    tag: 'Sin tarjeta', recommended: true,
-    lines: ['No necesitas tarjeta', 'Pago desde tu banca'],
+    key: 'spei', enabled: true, emoji: '🏦', title: t('quotePaymentScreen.methods.spei.title'),
+    tag: t('quotePaymentScreen.methods.spei.tag'), recommended: true,
+    lines: [
+      t('quotePaymentScreen.methods.spei.line1'),
+      t('quotePaymentScreen.methods.spei.line2'),
+    ],
   },
   {
-    key: 'cash', enabled: true, emoji: '🏪', title: 'Pago en efectivo',
-    tag: 'Sin tarjeta',
-    lines: ['OXXO, 7-Eleven, farmacias y más', 'Ideal si no tienes tarjeta'],
+    key: 'cash', enabled: true, emoji: '🏪', title: t('quotePaymentScreen.methods.cash.title'),
+    tag: t('quotePaymentScreen.methods.cash.tag'),
+    lines: [
+      t('quotePaymentScreen.methods.cash.line1'),
+      t('quotePaymentScreen.methods.cash.line2'),
+    ],
   },
   {
-    key: 'msi', enabled: true, emoji: '📅', title: 'Pagar a meses',
-    tag: 'Tarjeta de crédito', expandsMonths: true,
-    lines: ['3, 6, 9 y 12 meses'],
+    key: 'msi', enabled: true, emoji: '📅', title: t('quotePaymentScreen.methods.msi.title'),
+    tag: t('quotePaymentScreen.methods.msi.tag'), expandsMonths: true,
+    lines: [t('quotePaymentScreen.methods.msi.line1')],
   },
   {
     // BNPL vía Conekta (Aplazo min $20, Creditea min $500, sin máximo).
@@ -95,19 +110,26 @@ const PAYMENT_METHODS: PayMethodDef[] = [
     // "error inesperado" hasta que validen la cuenta (~48h) → se muestra
     // como PRÓXIMAMENTE (visible, no seleccionable). Al validar:
     // comingSoon: false y probar con Aplazo +52 9902949001 / OTP 123456.
-    key: 'bnpl', enabled: true, comingSoon: true, emoji: '💰', title: 'Compra ahora, paga después',
-    tag: 'Sin tarjeta',
-    lines: ['La música suena hoy, la pagas después', 'Aplazo, Creditea y más'],
+    key: 'bnpl', enabled: true, comingSoon: true, emoji: '💰', title: t('quotePaymentScreen.methods.bnpl.title'),
+    tag: t('quotePaymentScreen.methods.bnpl.tag'),
+    lines: [
+      t('quotePaymentScreen.methods.bnpl.line1'),
+      t('quotePaymentScreen.methods.bnpl.line2'),
+    ],
   },
 ];
 
 export default function QuotePaymentScreen({ route, navigation }: any) {
+  const { t } = useTranslation();
   const { quote, reservation: existingRes } = route.params as { quote?: any; reservation?: any };
   const { initPaymentSheet, presentPaymentSheet } = useStripe();
+  const PAYMENT_METHODS = getPaymentMethods(t);
 
   // Derivar datos de display desde cotización o reserva existente
   const baseTotal     = existingRes ? (existingRes.total_price ?? 0) : (quote?.total_amount ?? 0);
-  const groupName     = existingRes?.group?.name ?? quote?.group?.name ?? 'Grupo';
+  // Solo para ETIQUETA visual — no afecta montos cobrados ni al proveedor.
+  const payCurrency   = (existingRes?.currency_code ?? quote?.currency_code ?? 'MXN') === 'USD' ? 'USD' : 'MXN';
+  const groupName     = existingRes?.group?.name ?? quote?.group?.name ?? t('quotePaymentScreen.genericGroupName');
   const groupImage    = existingRes?.group?.profile_image ?? quote?.group?.profile_image ?? null;
   const eventDateRaw  = existingRes?.event_date ?? quote?.event_date ?? null;
   const address       = existingRes?.address
@@ -124,6 +146,10 @@ export default function QuotePaymentScreen({ route, navigation }: any) {
   const [paid, setPaid]               = useState(false);
   const [paidResId, setPaidResId]     = useState<string | null>(null);
   const [paidAmount, setPaidAmount]   = useState(0);                   // monto realmente cobrado (para pantalla de éxito)
+  // sql/585 (Fase 1) — event_id resuelto para esta reserva (nuevo o
+  // reutilizado), disponible en la pantalla de éxito para el botón real
+  // "agregar otro proveedor". Null si por algún motivo no se pudo determinar.
+  const [addonEventCtx, setAddonEventCtx] = useState<{ eventId: string; eventDate: string | null; eventAddress: string | null } | null>(null);
   // Pago pendiente SPEI/efectivo: datos para re-mostrar la CLABE/referencia
   // en la app (la página de Conekta la enseña unos segundos y redirige).
   const [pendingRef, setPendingRef]       = useState<ConektaReference | null>(null);
@@ -173,8 +199,8 @@ export default function QuotePaymentScreen({ route, navigation }: any) {
     // Monto mínimo solo aplica a "pagar a meses"
     if (method === 'msi' && calculateFinancedPrice(baseTotal, months) < MSI_MIN_AMOUNT) {
       Alert.alert(
-        'Monto insuficiente',
-        `Pagar a meses está disponible solo para montos mayores a $${MSI_MIN_AMOUNT} MXN.`,
+        t('quotePaymentScreen.errors.insufficientAmountTitle'),
+        t('quotePaymentScreen.errors.insufficientAmountMessage', { minAmount: MSI_MIN_AMOUNT }),
       );
       return;
     }
@@ -184,84 +210,69 @@ export default function QuotePaymentScreen({ route, navigation }: any) {
     try {
       const { data: sd } = await supabase.auth.getSession();
       const clientId = sd.session?.user.id;
-      if (!clientId) throw new Error('No hay sesión activa.');
+      if (!clientId) throw new Error(t('quotePaymentScreen.errors.noSession'));
 
       let reservationId: string;
 
       if (existingRes) {
         // Modo reserva existente: saltar creación, ir directo al pago
         reservationId = existingRes.id;
+        if (existingRes.event_id) {
+          setAddonEventCtx({ eventId: existingRes.event_id, eventDate: existingRes.event_date ?? null, eventAddress: existingRes.address ?? null });
+        }
       } else {
-        // Modo cotización nueva: crear evento + reserva + aceptar cotización
-        const { data: eventData, error: eventErr } = await supabase
-          .from('events')
-          .insert({
-            client_id:  clientId,
-            event_date: quote.event_date,
-            event_time: quote.event_time ?? null,
-            address:    address || null,
-            status:     'active',
-          })
-          .select('id')
-          .single();
-        if (eventErr || !eventData?.id) throw new Error('No se pudo crear el evento.');
+        // Modo cotización nueva: crear reserva + aceptar cotización.
+        //
+        // Resolver evento sigue siendo del lado de la app (Alert.alert es
+        // UI, no puede vivir en SQL) — solo importa de verdad para
+        // cotizaciones viejas sin su propio event_id.
+        const activeEvents = quote.event_id ? [] : await getClientActiveEvents();
+        const resolvedEventId = await resolveEventContext({
+          t,
+          presetEventId: quote.event_id ?? null,
+          activeEvents,
+        });
 
-        const { data: resData, error: resErr } = await supabase
-          .from('reservations')
-          .insert({
-            event_id:    eventData.id,
-            client_id:   clientId,
-            group_id:    quote.group_id,
-            event_date:  quote.event_date,
-            event_time:  quote.event_time  ?? null,
-            address:     address || null,
-            total_price: baseTotal,
-            status:      'accepted',
-            quote_id:    quote.id,
-            notes:       quote.comments   ?? null,
-            ...(months > 1 ? { msi_months: months } : {}),
-            // 🎁 Regalo: copiar del quote a la reserva
-            ...(quote.is_gift ? {
-              is_gift:                true,
-              gift_recipient_name:    quote.gift_recipient_name ?? null,
-              gift_recipient_contact: quote.gift_recipient_contact ?? null,
-              gift_message:           quote.gift_message ?? null,
-            } : {}),
-          })
-          .select('id')
-          .single();
-        if (resErr || !resData?.id) {
-          // Candado universal (trigger sql/431, actualizado en Fase A): la
-          // fecha se bloqueó/ocupó o el grupo ya llegó a su límite/traslape
-          const code = resErr?.message ?? '';
+        // sql/593 (2026-09-01) — UNA sola llamada atómica en vez de
+        // insert+update por separado. Hallazgo real del recorrido de los
+        // 3 roles: una falla de red justo entre ambos pasos podía dejar
+        // la cotización "viva" con una reserva ya creada, y un reintento
+        // podía duplicarla (riesgo real de doble cobro). Idempotente:
+        // reintentar tras eso regresa la MISMA reserva, no otra.
+        const { data: acceptResult, error: acceptErr } = await supabase.rpc('client_accept_quote', {
+          p_quote_id:   quote.id,
+          p_event_id:   resolvedEventId,
+          p_msi_months: months,
+        });
+        if (acceptErr || !acceptResult?.ok) {
+          const code = acceptErr?.message ?? acceptResult?.error ?? '';
           if (code.includes('date_blocked') || code.includes('date_taken')) {
-            throw new Error('Esa fecha ya no está disponible para el grupo (se ocupó o la bloqueó). Coordina otra fecha antes de continuar.');
+            throw new Error(t('quotePaymentScreen.errors.dateBlocked'));
           }
           if (code.includes('daily_event_limit')) {
-            throw new Error('Este grupo ya tiene 2 eventos agendados ese día. Coordina otra fecha antes de continuar.');
+            throw new Error(t('quotePaymentScreen.errors.dailyLimit'));
           }
           if (code.includes('time_overlap')) {
-            throw new Error('El horario de este evento choca con otro evento del grupo ese día. Coordina otro horario o fecha antes de continuar.');
+            throw new Error(t('quotePaymentScreen.errors.timeOverlap'));
           }
-          // Límite de 3 grupos por evento (sql/556): esta ruta inserta
-          // directo en reservations (sin RPC), así que no hay pre-check
-          // amistoso — el trigger lo lanza como excepción real.
           if (code.includes('event_group_limit_reached')) {
-            throw new Error('Ya hay 3 grupos contratados para este evento.');
+            throw new Error(t('quotePaymentScreen.errors.groupLimitReached'));
           }
-          throw new Error('No se pudo crear la reserva. Intenta de nuevo.');
+          throw new Error(t('quotePaymentScreen.errors.reservationCreateFailed'));
         }
 
-        reservationId = resData.id;
+        reservationId = acceptResult.reservation_id;
+        const eventId: string = acceptResult.event_id;
+        setAddonEventCtx({ eventId, eventDate: quote.event_date ?? null, eventAddress: address || null });
 
-        await supabase.from('quotes').update({ status: 'accepted' }).eq('id', quote.id);
-
-        if (quote.group?.owner_id) {
+        // Solo en una aceptación nueva de verdad — un reintento
+        // idempotente ya notificó la primera vez.
+        if (quote.group?.owner_id && !acceptResult.already_accepted) {
           await supabase.from('notifications').insert({
             user_id: quote.group.owner_id,
             type:    'quote_accepted',
-            title:   '✅ Cotización aceptada',
-            body:    `Un cliente aceptó tu cotización de $${baseTotal.toLocaleString()} MXN.`,
+            title:   t('quotePaymentScreen.notifications.quoteAcceptedTitle'),
+            body:    t('quotePaymentScreen.notifications.quoteAcceptedBody', { amount: baseTotal.toLocaleString(), currency: payCurrency }),
             data:    { quote_id: quote.id, reservation_id: reservationId },
           });
         }
@@ -295,19 +306,19 @@ export default function QuotePaymentScreen({ route, navigation }: any) {
             // Sin cargo generado (cerró el navegador antes de elegir) →
             // puede reintentar desde "Mis Eventos".
             Alert.alert(
-              'Pago pendiente',
-              'Puedes completar el pago desde "Mis Eventos" cuando quieras.',
-              [{ text: 'Ver mis eventos', onPress: () => navigation.navigate('ClientReservations') }],
+              t('quotePaymentScreen.pendingPayment.title'),
+              t('quotePaymentScreen.pendingPayment.message'),
+              [{ text: t('quotePaymentScreen.pendingPayment.seeReservations'), onPress: () => navigation.navigate('ClientReservations') }],
             );
             return;
           }
           Alert.alert(
-            'Pago sin completar',
-            'Si terminaste el pago, se confirmará en un momento y verás tu evento en "Mis Eventos". Si no lo completaste, puedes reintentarlo desde el aviso "⚡ Pago pendiente" en tu inicio.',
-            [{ text: 'Entendido', onPress: () => navigation.navigate('ClientReservations') }],
+            t('quotePaymentScreen.pendingPayment.incompleteTitle'),
+            t('quotePaymentScreen.pendingPayment.incompleteMessage'),
+            [{ text: t('quotePaymentScreen.pendingPayment.understood'), onPress: () => navigation.navigate('ClientReservations') }],
           );
         } else {
-          throw new Error('No se pudo iniciar el pago con Conekta. Intenta de nuevo.');
+          throw new Error(t('quotePaymentScreen.errors.conektaInitFailed'));
         }
         return;
       }
@@ -322,8 +333,8 @@ export default function QuotePaymentScreen({ route, navigation }: any) {
         headers: { Authorization: `Bearer ${sd.session?.access_token}` },
       });
 
-      if (piErr) throw new Error(`Error de pago: ${piErr.message}`);
-      if (!piData) throw new Error('Sin respuesta del servidor de pagos.');
+      if (piErr) throw new Error(t('quotePaymentScreen.errors.paymentErrorPrefix', { message: piErr.message }));
+      if (!piData) throw new Error(t('quotePaymentScreen.errors.noServerResponse'));
       if (piData.error) {
         // Traducciones de errores Stripe a mensajes amigables
         const stripeMsg: string = piData.error ?? '';
@@ -331,11 +342,11 @@ export default function QuotePaymentScreen({ route, navigation }: any) {
           months > 1 &&
           (stripeMsg.includes('installment') || stripeMsg.includes('card_not_supported'))
         ) {
-          throw new Error('Esta tarjeta no es compatible con pago en parcialidades. Selecciona "1 pago" o intenta con otra tarjeta.');
+          throw new Error(t('quotePaymentScreen.errors.cardInstallmentsNotSupported'));
         }
-        throw new Error(stripeMsg || 'No se pudo inicializar el pago.');
+        throw new Error(stripeMsg || t('quotePaymentScreen.errors.paymentInitFailed'));
       }
-      if (!piData.client_secret) throw new Error('No se recibió el token de pago.');
+      if (!piData.client_secret) throw new Error(t('quotePaymentScreen.errors.noPaymentToken'));
 
       // Inicializar Payment Sheet
       const { error: initError } = await initPaymentSheet({
@@ -350,9 +361,9 @@ export default function QuotePaymentScreen({ route, navigation }: any) {
       if (payError) {
         if (payError.code === 'Canceled') {
           Alert.alert(
-            'Pago pendiente',
-            'Puedes completar el pago desde "Mis Eventos" cuando quieras.',
-            [{ text: 'Ver mis eventos', onPress: () => navigation.navigate('ClientReservations') }],
+            t('quotePaymentScreen.pendingPayment.title'),
+            t('quotePaymentScreen.pendingPayment.message'),
+            [{ text: t('quotePaymentScreen.pendingPayment.seeReservations'), onPress: () => navigation.navigate('ClientReservations') }],
           );
           return;
         }
@@ -364,16 +375,16 @@ export default function QuotePaymentScreen({ route, navigation }: any) {
            errMsg.toLowerCase().includes('no está disponible') ||
            errMsg.toLowerCase().includes('not available'))
         ) {
-          throw new Error('Esta tarjeta no es compatible con pago en parcialidades. Puedes intentar con otra tarjeta o pagar en 1 solo pago.');
+          throw new Error(t('quotePaymentScreen.errors.cardInstallmentsNotSupportedRetry'));
         }
-        throw new Error(errMsg || 'Ocurrió un problema al procesar el pago.');
+        throw new Error(errMsg || t('quotePaymentScreen.errors.paymentProcessingProblem'));
       }
 
       setPaidAmount(chargeFor(method, months));
       setPaidResId(reservationId);
       setPaid(true);
     } catch (err: any) {
-      Alert.alert('Error al procesar el pago', err.message ?? 'Intenta de nuevo.');
+      Alert.alert(t('quotePaymentScreen.errors.paymentErrorTitle'), err.message ?? t('quotePaymentScreen.errors.genericRetry'));
     } finally {
       setLoading(false);
       setBusyKey(null);
@@ -394,40 +405,38 @@ export default function QuotePaymentScreen({ route, navigation }: any) {
       <SafeAreaView edges={['top']} style={s.successRoot}>
         <Text style={{ fontSize: 44 }}>{isSpei ? '🏦' : '🏪'}</Text>
         <View style={{ alignItems: 'center', gap: 8 }}>
-          <Text style={s.refBigTitle}>{isSpei ? 'Transfiere para confirmar' : 'Paga en tienda para confirmar'}</Text>
+          <Text style={s.refBigTitle}>{isSpei ? t('quotePaymentScreen.referenceScreen.transferTitle') : t('quotePaymentScreen.referenceScreen.payInStoreTitle')}</Text>
           <Text style={s.successSub}>
             {isSpei
-              ? 'Haz una transferencia SPEI desde tu banca con estos datos:'
-              : 'Da esta referencia en OXXO, 7-Eleven, farmacias y más:'}
+              ? t('quotePaymentScreen.referenceScreen.speiInstructions')
+              : t('quotePaymentScreen.referenceScreen.cashInstructions')}
           </Text>
         </View>
 
         <View style={s.refCard}>
-          <Text style={s.refLabel}>{isSpei ? 'CLABE' : 'Referencia'}</Text>
+          <Text style={s.refLabel}>{isSpei ? t('quotePaymentScreen.referenceScreen.clabeLabel') : t('quotePaymentScreen.referenceScreen.referenceLabel')}</Text>
           <Text style={s.refValue} selectable>{mainVal}</Text>
           {isSpei && !!pendingRef.bank && (
-            <Text style={s.refBank}>Banco destino: {pendingRef.bank}</Text>
+            <Text style={s.refBank}>{t('quotePaymentScreen.referenceScreen.bankLabel', { bank: pendingRef.bank })}</Text>
           )}
-          <Text style={s.refAmount}>Monto exacto: ${amountStr} MXN</Text>
+          <Text style={s.refAmount}>{t('quotePaymentScreen.referenceScreen.exactAmount', { amount: amountStr })}</Text>
           <Pressable style={s.refCopyBtn} onPress={copyVal}>
             {copied
               ? <CheckCircle size={16} color="#000" />
               : <Copy size={16} color="#000" />}
-            <Text style={s.refCopyText}>{copied ? '¡Copiado!' : (isSpei ? 'Copiar CLABE' : 'Copiar referencia')}</Text>
+            <Text style={s.refCopyText}>{copied ? t('quotePaymentScreen.referenceScreen.copied') : (isSpei ? t('quotePaymentScreen.referenceScreen.copyClabe') : t('quotePaymentScreen.referenceScreen.copyReference'))}</Text>
           </Pressable>
         </View>
 
         <Text style={s.refNote}>
-          Tu evento se confirmará automáticamente en cuanto recibamos tu pago.
-          Copia estos datos antes de salir — si los pierdes, puedes generar
-          unos nuevos desde "Pago pendiente" en tu inicio.
+          {t('quotePaymentScreen.referenceScreen.note')}
         </Text>
 
         <Pressable
           style={s.whiteBtn}
           onPress={() => navigation.navigate('ClientReservations')}
         >
-          <Text style={s.whiteBtnText}>Ver mis eventos</Text>
+          <Text style={s.whiteBtnText}>{t('quotePaymentScreen.referenceScreen.seeMyEvents')}</Text>
         </Pressable>
       </SafeAreaView>
     );
@@ -442,8 +451,8 @@ export default function QuotePaymentScreen({ route, navigation }: any) {
         </Animated.View>
 
         <Animated.View style={{ opacity: checkOp, alignItems: 'center', gap: 8 }}>
-          <Text style={s.successTitle}>¡Pago exitoso!</Text>
-          <Text style={s.successSub}>Tu reserva está confirmada</Text>
+          <Text style={s.successTitle}>{t('quotePaymentScreen.success.title')}</Text>
+          <Text style={s.successSub}>{t('quotePaymentScreen.success.subtitle')}</Text>
         </Animated.View>
 
         <Animated.View style={[s.successCard, { opacity: checkOp }]}>
@@ -460,15 +469,28 @@ export default function QuotePaymentScreen({ route, navigation }: any) {
           </View>
           <View style={s.successAmtWrap}>
             <Text style={s.successAmt}>${paidAmount.toLocaleString()}</Text>
-            <Text style={s.successAmtLabel}>MXN</Text>
+            <Text style={s.successAmtLabel}>{payCurrency}</Text>
           </View>
         </Animated.View>
+
+        {!!addonEventCtx && (
+          <Pressable
+            style={s.successBtnSecondary}
+            onPress={() => navigation.navigate('EventCategoryPicker', {
+              eventId: addonEventCtx.eventId,
+              eventDate: addonEventCtx.eventDate,
+              eventAddress: addonEventCtx.eventAddress,
+            })}
+          >
+            <Text style={s.successBtnSecondaryText}>{t('quotePaymentScreen.success.addAnotherProvider')}</Text>
+          </Pressable>
+        )}
 
         <Pressable
           style={s.successBtn}
           onPress={() => navigation.navigate('ClientReservations', { justPaidReservationId: paidResId })}
         >
-          <Text style={s.successBtnText}>Ver mis reservas</Text>
+          <Text style={s.successBtnText}>{t('quotePaymentScreen.success.seeReservations')}</Text>
         </Pressable>
       </SafeAreaView>
     );
@@ -489,7 +511,7 @@ export default function QuotePaymentScreen({ route, navigation }: any) {
             </View>
           )}
           <View style={{ flex: 1 }}>
-            <Text style={s.headerTitle}>Confirmar pago</Text>
+            <Text style={s.headerTitle}>{t('quotePaymentScreen.header.title')}</Text>
             <Text style={s.headerSub}>{groupName}</Text>
           </View>
         </View>
@@ -501,11 +523,11 @@ export default function QuotePaymentScreen({ route, navigation }: any) {
         <View style={s.badgesRow}>
           <View style={s.badge}>
             <Shield size={12} color={COLORS.green} />
-            <Text style={s.badgeText}>Pago protegido</Text>
+            <Text style={s.badgeText}>{t('quotePaymentScreen.badges.protected')}</Text>
           </View>
           <View style={s.badge}>
             <Lock size={12} color={COLORS.green} />
-            <Text style={s.badgeText}>Garantía Daricefy</Text>
+            <Text style={s.badgeText}>{t('quotePaymentScreen.badges.guarantee')}</Text>
           </View>
         </View>
 
@@ -523,16 +545,16 @@ export default function QuotePaymentScreen({ route, navigation }: any) {
           ) : null}
           <View style={s.detailRow}>
             <Music2 size={15} color={COLORS.muted2} />
-            <Text style={s.detailText}>{durationHours}h de servicio</Text>
+            <Text style={s.detailText}>{t('quotePaymentScreen.detail.durationHours', { hours: durationHours })}</Text>
           </View>
           <View style={s.totalRow}>
-            <Text style={s.totalLabel}>Total del evento</Text>
-            <Text style={s.totalValue}>${baseTotal.toLocaleString()} MXN</Text>
+            <Text style={s.totalLabel}>{t('quotePaymentScreen.detail.totalLabel')}</Text>
+            <Text style={s.totalValue}>${baseTotal.toLocaleString()} {payCurrency}</Text>
           </View>
         </View>
 
         {/* ── Checkout Daricefy: ¿cómo quieres pagar? ─────────────────────────── */}
-        <Text style={s.payQuestion}>¿Cómo quieres pagar?</Text>
+        <Text style={s.payQuestion}>{t('quotePaymentScreen.payQuestion')}</Text>
 
         {PAYMENT_METHODS.filter((m) => m.enabled).map((m) => {
           const isMsi = !!m.expandsMonths;
@@ -549,7 +571,7 @@ export default function QuotePaymentScreen({ route, navigation }: any) {
                 ]}
                 onPress={() => {
                   if (soon) {
-                    Alert.alert('🎶 Muy pronto', 'Estamos habilitando el pago a plazos (Aplazo, Creditea y más). ¡Podrás usarlo muy pronto!');
+                    Alert.alert(t('quotePaymentScreen.comingSoonAlert.title'), t('quotePaymentScreen.comingSoonAlert.message'));
                     return;
                   }
                   isMsi ? setMesesOpen((o) => !o) : pay(m.key);
@@ -563,7 +585,7 @@ export default function QuotePaymentScreen({ route, navigation }: any) {
                     <Text style={s.methodTitle}>{m.title}</Text>
                     {soon ? (
                       <View style={s.soonPill}>
-                        <Text style={s.soonPillText}>Próximamente</Text>
+                        <Text style={s.soonPillText}>{t('quotePaymentScreen.soonPill')}</Text>
                       </View>
                     ) : m.tag ? (
                       <View style={s.methodTag}>
@@ -572,7 +594,7 @@ export default function QuotePaymentScreen({ route, navigation }: any) {
                     ) : null}
                     {m.recommended ? (
                       <Animated.View style={[s.recPill, { transform: [{ scale: recPulse }] }]}>
-                        <Text style={s.recPillText}>⭐ Recomendado</Text>
+                        <Text style={s.recPillText}>{t('quotePaymentScreen.recommendedPill')}</Text>
                       </Animated.View>
                     ) : null}
                   </View>
@@ -583,7 +605,7 @@ export default function QuotePaymentScreen({ route, navigation }: any) {
 
                   {m.key === 'spei' ? (
                     <View style={s.savingsPill}>
-                      <Text style={s.savingsText}>Ahorra ${SPEI_DISCOUNT} MXN pagando por transferencia</Text>
+                      <Text style={s.savingsText}>{t('quotePaymentScreen.methods.spei.savings', { amount: SPEI_DISCOUNT })}</Text>
                     </View>
                   ) : null}
                 </View>
@@ -624,9 +646,9 @@ export default function QuotePaymentScreen({ route, navigation }: any) {
                         disabled={loading}
                       >
                         <View style={{ flex: 1 }}>
-                          <Text style={s.mesTitle}>{mo} meses</Text>
+                          <Text style={s.mesTitle}>{t('quotePaymentScreen.months.label', { count: mo })}</Text>
                           <Text style={s.mesSub}>
-                            Comisión +{feePct.toFixed(0)}% · total ${financed.toLocaleString()} MXN
+                            {t('quotePaymentScreen.months.fee', { feePct: feePct.toFixed(0), amount: financed.toLocaleString(), currency: payCurrency })}
                           </Text>
                         </View>
                         {moBusy ? (
@@ -634,7 +656,7 @@ export default function QuotePaymentScreen({ route, navigation }: any) {
                         ) : (
                           <Text style={s.mesAmt}>
                             ${monthly.toLocaleString()}
-                            <Text style={s.mesAmtUnit}>/mes</Text>
+                            <Text style={s.mesAmtUnit}>{t('quotePaymentScreen.months.perMonth')}</Text>
                           </Text>
                         )}
                       </Pressable>
@@ -648,12 +670,12 @@ export default function QuotePaymentScreen({ route, navigation }: any) {
 
         {/* ── Beneficios Daricefy ─────────────────────────────────────────────── */}
         <View style={s.benefits}>
-          <Text style={s.benefitsTitle}>Tu pago está protegido</Text>
+          <Text style={s.benefitsTitle}>{t('quotePaymentScreen.benefits.title')}</Text>
           {[
-            { Icon: Shield,     text: 'Pago protegido' },
-            { Icon: RotateCcw,  text: 'Reembolso si el grupo no se presenta' },
-            { Icon: Wallet,     text: 'Wallet protegida' },
-            { Icon: BadgeCheck, text: 'Garantía Daricefy' },
+            { Icon: Shield,     text: t('quotePaymentScreen.badges.protected') },
+            { Icon: RotateCcw,  text: t('quotePaymentScreen.benefits.refund') },
+            { Icon: Wallet,     text: t('quotePaymentScreen.benefits.walletProtected') },
+            { Icon: BadgeCheck, text: t('quotePaymentScreen.badges.guarantee') },
           ].map(({ Icon, text }, i) => (
             <View key={i} style={s.benefitRow}>
               <View style={s.benefitIcon}>
@@ -828,6 +850,12 @@ const s = StyleSheet.create({
     alignItems: 'center', marginTop: 8,
   },
   successBtnText: { fontFamily: FONTS.bodySemiBold, fontSize: 16, color: COLORS.bg },
+  successBtnSecondary: {
+    width: '100%',
+    backgroundColor: 'transparent', borderRadius: RADIUS.lg, borderWidth: 1, borderColor: COLORS.green,
+    paddingVertical: 15, alignItems: 'center', marginTop: 10,
+  },
+  successBtnSecondaryText: { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: COLORS.green },
 
   // ── Pago pendiente (CLABE SPEI / referencia efectivo) ──
   refCard: {

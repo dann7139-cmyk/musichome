@@ -8,7 +8,10 @@
 export const PHONE_REGEX = /(\+?\d{1,3}[\s-]?)?\(?\d{3}\)?[\s-]?\d{3}[\s-]?\d{4}|\d{7,}/;
 export const EMAIL_REGEX = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
 export const URL_REGEX = /(https?:\/\/|www\.)[^\s]+|[a-zA-Z0-9-]+\.(com|mx|net|org|io|co|app|tv|biz)/i;
-export const SOCIAL_REGEX = /@[a-zA-Z0-9_]+|(?:whatsapp|instagram|facebook|twitter|tiktok|youtube|snapchat|telegram|discord|messenger|wa\.me|fb\.com|ig\.com|tw\.com)/i;
+// Incluye variantes/abreviaciones cortas ("insta", "face") y erratas
+// comunes ("isntagram", "instagran", "facebok") — con \b para que "face"
+// no dispare dentro de palabras normales como "factura" o "faceta".
+export const SOCIAL_REGEX = /@[a-zA-Z0-9_]+|(?:whatsapp|instagram|isntagram|instagran|facebook|facebok|\bface\b|\binsta\b|twitter|tiktok|youtube|snapchat|telegram|discord|messenger|wa\.me|fb\.com|ig\.com|tw\.com)/i;
 export const CONTACT_KEYWORDS_REGEX = /(?:mi (?:tel[ée]fono|n[úu]mero|cel|celular|whats|wa))|(?:ll[áa]mame|escr[íi]beme|cont[áa]ctame)\s+(?:al|a)/i;
 
 export interface ValidationResult {

@@ -63,11 +63,17 @@ function getPaymentChip(r: any, isHistory: boolean): ChipData {
   if (paid) {
     const payout = r.payout_status as string | undefined;
 
-    if (payout === 'released' || payout === 'refunded') {
+    if (payout === 'released') {
       if (isHistory) {
         return mkChip('✓  Cobrado', COLORS.green2, 'rgba(0,200,83,0.07)', 'rgba(0,200,83,0.25)');
       }
       return mkChip('✓  Disponible para retiro', COLORS.green, COLORS.greenMuted, 'rgba(0,230,118,0.35)');
+    }
+
+    if (payout === 'refunded') {
+      // Nunca mostrar como "Cobrado"/"Disponible" — el cliente recibió su
+      // dinero de vuelta, esto no es una ganancia disponible para el grupo.
+      return mkChip('↩  Reembolsado al cliente', COLORS.blue, 'rgba(66,133,244,0.08)', 'rgba(66,133,244,0.30)');
     }
 
     if (payout === 'half_released') {

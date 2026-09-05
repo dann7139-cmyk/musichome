@@ -13,10 +13,20 @@ import {
   View,
 } from 'react-native';
 import * as Location from 'expo-location';
+import { useTranslation } from 'react-i18next';
 import { supabase } from '../../config/supabase';
 import { useAuth } from '../../context/AuthContext';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import Button from '../../components/ui/Button';
+import i18n from '../../i18n';
+
+// País REAL confirmado por GPS (no el idioma del teléfono) → idioma de la
+// app. Único punto de entrada de ubicación para todos los roles (guard en
+// AppNavigator), así que aquí es donde de verdad se sabe dónde está el
+// usuario — más confiable que adivinar por el idioma del dispositivo.
+function languageForCountry(countryName: string): 'en' | 'es' {
+  return countryName === 'Estados Unidos' || countryName === 'Canadá' ? 'en' : 'es';
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -24,14 +34,6 @@ type Screen = 'initial' | 'detecting' | 'confirming' | 'manual';
 
 interface CountryRow { id: string; name: string; code: string; }
 interface StateRow   { id: string; name: string; code: string; }
-
-// ─── Constants ────────────────────────────────────────────────────────────────
-
-const ROLE_SUBTITLES: Record<string, string> = {
-  client: 'Necesitamos tu ubicación para mostrarte grupos disponibles en tu zona.',
-  group:  'Necesitamos tu ubicación para que los clientes de tu estado puedan encontrarte.',
-  talent: 'Necesitamos tu ubicación para que los grupos de tu estado puedan invitarte.',
-};
 
 // ─── Util ─────────────────────────────────────────────────────────────────────
 
@@ -47,7 +49,14 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function LocationRequestScreen() {
+  const { t } = useTranslation();
   const { role, refetchProfile } = useAuth();
+
+  const ROLE_SUBTITLES: Record<string, string> = {
+    client: t('locationRequestScreen.roleSubtitleClient'),
+    group:  t('locationRequestScreen.roleSubtitleGroup'),
+    talent: t('locationRequestScreen.roleSubtitleTalent'),
+  };
 
   const [screen,           setScreen          ] = useState<Screen>('initial');
   const [countries,        setCountries       ] = useState<CountryRow[]>([]);
@@ -136,12 +145,11 @@ export default function LocationRequestScreen() {
         : undefined;
 
       if (countries.length > 0 && !matchedCountry) {
-        const label = detectedState ?? detectedCountry ?? 'tu ubicación actual';
+        const label = detectedState ?? detectedCountry ?? t('locationRequestScreen.defaultLocationLabel');
         Alert.alert(
-          'Zona no disponible',
-          `Daricefy todavía no opera en ${label}. ` +
-          'Por favor selecciona tu país de origen manualmente.',
-          [{ text: 'OK', onPress: () => setScreen('manual') }]
+          t('locationRequestScreen.alertZoneUnavailableTitle'),
+          t('locationRequestScreen.alertZoneUnavailableMessage', { location: label }),
+          [{ text: t('common.ok'), onPress: () => setScreen('manual') }]
         );
         return;
       }
@@ -184,8 +192,8 @@ export default function LocationRequestScreen() {
         setStates(stateData ?? []);
         setNotFoundHint(
           detectedState
-            ? `No reconocimos "${detectedState}". Selecciona tu estado de la lista.`
-            : 'No reconocimos tu estado. Selecciónalo de la lista.'
+            ? t('locationRequestScreen.notFoundHintWithState', { state: detectedState })
+            : t('locationRequestScreen.notFoundHintGeneric')
         );
         setScreen('manual');
         return;
@@ -200,13 +208,13 @@ export default function LocationRequestScreen() {
       if (cancelledRef.current) return;
       const isTimeout = (err as Error).message === 'timeout';
       Alert.alert(
-        'Error de ubicación',
+        t('locationRequestScreen.alertLocationErrorTitle'),
         isTimeout
-          ? 'No pudimos detectar tu ubicación (tiempo agotado).'
-          : 'Ocurrió un error al detectar tu ubicación.',
+          ? t('locationRequestScreen.alertLocationErrorTimeout')
+          : t('locationRequestScreen.alertLocationErrorGeneric'),
         [
-          { text: 'Reintentar',             onPress: () => handleDetect() },
-          { text: 'Seleccionar manualmente', onPress: () => setScreen('manual') },
+          { text: t('locationRequestScreen.retryButton'),          onPress: () => handleDetect() },
+          { text: t('locationRequestScreen.selectManuallyButton'), onPress: () => setScreen('manual') },
         ]
       );
       setScreen('initial');
@@ -228,9 +236,13 @@ export default function LocationRequestScreen() {
     });
     if (error) {
       setSaving(false);
-      Alert.alert('Error', 'No pudimos guardar tu ubicación. Intenta de nuevo.');
+      Alert.alert(t('locationRequestScreen.alertSaveErrorTitle'), t('locationRequestScreen.alertSaveErrorMessage'));
       return;
     }
+    // 🌐 País real confirmado → idioma de la app. Solo cambia si hace
+    // falta (evita re-render/flash innecesario si ya coincidía).
+    const lng = languageForCountry(countryName);
+    if (i18n.language !== lng) i18n.changeLanguage(lng);
     await refetchProfile();
     // AppNavigator re-renders: guard passes → exits this screen automatically
   };
@@ -247,17 +259,17 @@ export default function LocationRequestScreen() {
   const renderInitial = () => (
     <View style={styles.centerContent}>
       <Text style={styles.emoji}>📍</Text>
-      <Text style={styles.title}>¿Dónde estás?</Text>
+      <Text style={styles.title}>{t('locationRequestScreen.initialTitle')}</Text>
       <Text style={styles.subtitle}>{subtitle}</Text>
 
       <View style={styles.buttonGroup}>
         <Button
-          label="Detectar automáticamente"
+          label={t('locationRequestScreen.detectAutomaticallyButton')}
           onPress={handleDetect}
           size="lg"
         />
         <Button
-          label="Seleccionar manualmente"
+          label={t('locationRequestScreen.selectManuallyButton')}
           onPress={() => setScreen('manual')}
           variant="outline"
           size="lg"
@@ -269,12 +281,12 @@ export default function LocationRequestScreen() {
   const renderDetecting = () => (
     <View style={styles.centerContent}>
       <ActivityIndicator size="large" color={COLORS.green} style={styles.spinner} />
-      <Text style={styles.detectingTitle}>Detectando tu ubicación...</Text>
+      <Text style={styles.detectingTitle}>{t('locationRequestScreen.detectingTitle')}</Text>
       <Text style={styles.detectingHint}>
-        Asegúrate de tener el GPS activo y buena señal.
+        {t('locationRequestScreen.detectingHint')}
       </Text>
       <Pressable onPress={handleCancel} style={styles.cancelLink}>
-        <Text style={styles.cancelText}>Cancelar</Text>
+        <Text style={styles.cancelText}>{t('locationRequestScreen.cancelButton')}</Text>
       </Pressable>
     </View>
   );
@@ -282,22 +294,22 @@ export default function LocationRequestScreen() {
   const renderConfirming = () => (
     <View style={styles.centerContent}>
       <Text style={styles.emoji}>✅</Text>
-      <Text style={styles.confirmingTitle}>Te detectamos en:</Text>
+      <Text style={styles.confirmingTitle}>{t('locationRequestScreen.confirmingTitle')}</Text>
       <View style={styles.confirmingCard}>
         <Text style={styles.confirmingLocation}>
           📍 {confirmedStateName}, {confirmedCountryName}
         </Text>
       </View>
-      <Text style={styles.confirmingQuestion}>¿Es correcto?</Text>
+      <Text style={styles.confirmingQuestion}>{t('locationRequestScreen.confirmingQuestion')}</Text>
       <View style={styles.buttonGroup}>
         <Button
-          label="Sí, continuar"
+          label={t('locationRequestScreen.confirmYesButton')}
           onPress={() => saveLocation(confirmedStateName!, confirmedCountryName!)}
           size="lg"
           loading={saving}
         />
         <Button
-          label="No, seleccionar otro"
+          label={t('locationRequestScreen.confirmNoButton')}
           onPress={() => setScreen('manual')}
           variant="outline"
           size="lg"
@@ -310,10 +322,10 @@ export default function LocationRequestScreen() {
   const renderManual = () => (
     <View style={styles.manualContent}>
       <Pressable onPress={() => setScreen('initial')} style={styles.backRow}>
-        <Text style={styles.backText}>← Volver</Text>
+        <Text style={styles.backText}>{t('locationRequestScreen.backButton')}</Text>
       </Pressable>
 
-      <Text style={styles.manualTitle}>Selecciona tu ubicación</Text>
+      <Text style={styles.manualTitle}>{t('locationRequestScreen.manualTitle')}</Text>
 
       {notFoundHint && (
         <View style={styles.hintBox}>
@@ -321,19 +333,19 @@ export default function LocationRequestScreen() {
         </View>
       )}
 
-      <Text style={styles.fieldLabel}>País</Text>
+      <Text style={styles.fieldLabel}>{t('locationRequestScreen.countryLabel')}</Text>
       <Pressable
         style={styles.selector}
         onPress={() => setShowCountryModal(true)}
       >
         <Text style={selCountry ? styles.selectorValue : styles.selectorPlaceholder}>
-          {selCountry?.name ?? 'Selecciona un país'}
+          {selCountry?.name ?? t('locationRequestScreen.selectCountryPlaceholder')}
         </Text>
         <Text style={styles.selectorArrow}>▾</Text>
       </Pressable>
 
       <Text style={[styles.fieldLabel, !selCountry && styles.fieldLabelDisabled]}>
-        Estado / Provincia
+        {t('locationRequestScreen.stateLabel')}
       </Text>
       <Pressable
         style={[styles.selector, !selCountry && styles.selectorDisabled]}
@@ -341,14 +353,14 @@ export default function LocationRequestScreen() {
         disabled={!selCountry}
       >
         <Text style={selState ? styles.selectorValue : styles.selectorPlaceholder}>
-          {selState?.name ?? (selCountry ? 'Selecciona un estado' : 'Primero selecciona un país')}
+          {selState?.name ?? (selCountry ? t('locationRequestScreen.selectStatePlaceholder') : t('locationRequestScreen.selectCountryFirstPlaceholder'))}
         </Text>
         <Text style={styles.selectorArrow}>▾</Text>
       </Pressable>
 
       <View style={styles.saveButtonWrap}>
         <Button
-          label="Guardar ubicación"
+          label={t('locationRequestScreen.saveLocationButton')}
           onPress={handleSaveManual}
           size="lg"
           loading={saving}
@@ -370,7 +382,7 @@ export default function LocationRequestScreen() {
       <Pressable style={styles.modalOverlay} onPress={() => setShowCountryModal(false)}>
         <View style={styles.modalSheet}>
           <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>País</Text>
+            <Text style={styles.modalTitle}>{t('locationRequestScreen.countryModalTitle')}</Text>
             <Pressable onPress={() => setShowCountryModal(false)} hitSlop={12}>
               <Text style={styles.modalClose}>✕</Text>
             </Pressable>
@@ -418,7 +430,7 @@ export default function LocationRequestScreen() {
       <Pressable style={styles.modalOverlay} onPress={() => setShowStateModal(false)}>
         <View style={styles.modalSheet}>
           <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Estado / Provincia</Text>
+            <Text style={styles.modalTitle}>{t('locationRequestScreen.stateModalTitle')}</Text>
             <Pressable onPress={() => setShowStateModal(false)} hitSlop={12}>
               <Text style={styles.modalClose}>✕</Text>
             </Pressable>

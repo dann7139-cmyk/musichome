@@ -458,7 +458,7 @@ const s = StyleSheet.create({
   headerTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 16, color: COLORS.text },
 
   sentOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: COLORS.bg,
     alignItems: 'center',
     justifyContent: 'center',

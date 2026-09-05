@@ -1,4 +1,4 @@
-import { Calendar as CalendarIcon, Clock, CreditCard, FileText, Share2, Star, Trash2, X } from 'lucide-react-native';
+import { Calendar as CalendarIcon, Clock, CreditCard, FileText, Plus, Share2, Star, Trash2, X } from 'lucide-react-native';
 import { Calendar } from 'react-native-calendars';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
@@ -52,7 +52,7 @@ const QUOTE_STATUS_CFG: Record<string, { label: string; color: string }> = {
 };
 
 export default function ClientReservationsScreen({ navigation, route }: any) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [reservations,     setReservations]     = useState<any[]>([]);
   const [quotes,           setQuotes]           = useState<any[]>([]);
   const [expressRequests,  setExpressRequests]  = useState<any[]>([]);
@@ -346,13 +346,65 @@ export default function ClientReservationsScreen({ navigation, route }: any) {
     .filter((r, i, arr) => r && arr.findIndex(x => x?.id === r.id) === i)
     .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''));
 
+  // sql/585 (Fase 1C, ampliado 2026-09-01) — agrupación "Mi evento":
+  // puramente aditivo, no toca el render de eventItems de abajo en
+  // absoluto, no muta reservas ni pagos. Antes solo aparecía con 2+
+  // proveedores; ahora aparece desde 1 solo, para que "Agregar otro
+  // proveedor" tenga un punto de entrada persistente en Mis Reservas y no
+  // dependa de que el cliente toque el botón en el aviso de éxito antes de
+  // cerrarlo. create_booking_with_event() YA crea un event_id real para
+  // cada reserva nueva hoy (confirmado en producción) — con este cambio,
+  // toda reserva con event_id (nueva o vieja) obtiene su tarjeta "Mi
+  // evento" además de su tarjeta normal de abajo (redundancia visual
+  // menor, aceptada a cambio de tener un punto de entrada persistente).
+  // 2026-09-06 — "Mi evento" ahora también agrupa cotizaciones TODAVÍA SIN
+  // responder (pending/quoted), no solo reservas/cotizaciones aceptadas.
+  // Hallazgo real del cliente probando: pedir la 1ª cotización a un grupo
+  // no dejaba ningún lugar para "agregar otro proveedor" hasta que ALGUIEN
+  // ya hubiera confirmado — obligaba a repetir todo el formulario para el
+  // 2º grupo. QuoteFormScreen ya liga cada cotización nueva a un event_id
+  // real (columna nueva de quotes, sql/585) — aquí solo se refleja eso.
+  // Solo fechas de hoy en adelante — mismo criterio que pendingQuotes: una
+  // cotización pendiente de un evento que ya pasó no debe resucitar su
+  // tarjeta "Mi evento".
+  const pendingEventQuotes = quotes.filter(q =>
+    q?.event_id && ['pending', 'quoted'].includes(q.status) && (q.event_date ?? '') >= today
+  );
+
+  const groupedEvents = (() => {
+    const byEvent: Record<string, any[]> = {};
+    for (const r of eventItems) {
+      if (!r?.event_id || r._isQuote) continue;
+      (byEvent[r.event_id] ??= []).push(r);
+    }
+    for (const q of pendingEventQuotes) {
+      (byEvent[q.event_id] ??= []).push(q);
+    }
+    return Object.entries(byEvent)
+      .filter(([, items]) => items.length >= 1)
+      .map(([eventId, items]) => ({
+        eventId,
+        eventDate: items[0].event_date,
+        // Una reserva trae `address`; una cotización trae `event_address`
+        // (nombres reales de cada tabla) — el evento puede tener solo
+        // cotizaciones pendientes, así que se aceptan ambos.
+        address:   items[0].address ?? items[0].event_address ?? null,
+        providers: items,
+      }))
+      .sort((a, b) => (b.eventDate ?? '').localeCompare(a.eventDate ?? ''));
+  })();
+
+  // Eventos que existen SOLO por una cotización pendiente — todavía no
+  // tienen ninguna tarjeta en eventItems para anclar el encabezado antes de
+  // ella, así que se muestran aparte, arriba de la lista normal.
+  const eventItemEventIds = new Set(eventItems.map(r => r?.event_id).filter(Boolean));
+  const pendingOnlyGroupedEvents = groupedEvents.filter(g => !eventItemEventIds.has(g.eventId));
+
   return (
     <View style={styles.container}>
       <SafeAreaView edges={['top']} style={{ flex: 1 }}>
-        <View style={styles.header}>
-          <Text style={styles.title}>{t('reservations.title')}</Text>
-        </View>
-
+        {/* Petición real (2026-09-03): quitado el título repetido — el tab
+            de abajo ya dice "Reservas"/"Mis Eventos". */}
         {/* ── Tabs ──────────────────────────────────────────────── */}
         <View style={styles.tabs}>
           <Pressable
@@ -395,23 +447,66 @@ export default function ClientReservationsScreen({ navigation, route }: any) {
               </View>
             ) : (
               <>
-                {eventItems.map((r, idx) => (
-                  <ReservationCard
-                    key={r.id}
-                    reservation={r}
-                    navigation={navigation}
-                    onUpdate={() => fetchAll(0)}
-                    isReviewed={reviewedIds.has(r.id)}
-                    isJustPaid={justPaidId === r.id}
-                    showMap={idx < 6}
-                    onRate={(reservationId: string) => {
-                      const res = reservations.find(r => r.id === reservationId);
-                      if (res) {
-                        navigation.navigate('EventTimer' as any, { reservation: res, readOnly: true, userRole: 'client' });
-                      }
-                    }}
-                  />
-                ))}
+                {/* sql/585 (Fase 1C, rediseñado 2026-09-02) — "Mi evento" ya
+                    NO duplica la tarjeta de la reserva: se inserta como un
+                    encabezado ligero justo antes de la PRIMERA reserva de
+                    cada event_id (una sola vez por evento, sin importar si
+                    tiene 1, 2 o 3 proveedores), y cada reserva sigue
+                    renderizando su ReservationCard normal, completo, una
+                    sola vez — con chat/cancelar/calificar/GPS intactos. El
+                    botón "Agregar otro proveedor" vive en ese encabezado,
+                    así que es un punto de entrada persistente incluso con
+                    1 solo proveedor, sin repetir precio/estado que ya
+                    muestra la tarjeta de abajo. */}
+                {(() => {
+                  const shownEventHeaders = new Set<string>();
+                  return eventItems.map((r, idx) => {
+                    const showHeader = !!r?.event_id && !r._isQuote && !shownEventHeaders.has(r.event_id);
+                    if (showHeader) shownEventHeaders.add(r.event_id);
+                    const group = showHeader ? groupedEvents.find(g => g.eventId === r.event_id) : null;
+                    return (
+                      <React.Fragment key={r.id}>
+                        {showHeader && group && (
+                          <View style={styles.eventGroupHeader}>
+                            <View style={{ flex: 1 }}>
+                              <Text style={styles.eventGroupHeaderTitle}>
+                                {t('reservations.myEventTitle', {
+                                  date: group.eventDate
+                                    ? new Date(group.eventDate + 'T12:00:00').toLocaleDateString(i18n.language?.startsWith('en') ? 'en-US' : 'es-MX', { day: 'numeric', month: 'long' })
+                                    : '—',
+                                })}
+                              </Text>
+                              {!!group.address && <Text style={styles.eventGroupHeaderAddress} numberOfLines={1}>📍 {group.address}</Text>}
+                            </View>
+                            <Pressable
+                              style={styles.eventGroupHeaderAddBtn}
+                              onPress={() => navigation.navigate('EventCategoryPicker', {
+                                eventId: group.eventId, eventDate: group.eventDate, eventAddress: group.address,
+                              })}
+                            >
+                              <Plus size={14} color={COLORS.green} />
+                              <Text style={styles.eventGroupHeaderAddBtnText}>{t('reservations.addAnotherProvider')}</Text>
+                            </Pressable>
+                          </View>
+                        )}
+                        <ReservationCard
+                          reservation={r}
+                          navigation={navigation}
+                          onUpdate={() => fetchAll(0)}
+                          isReviewed={reviewedIds.has(r.id)}
+                          isJustPaid={justPaidId === r.id}
+                          showMap={idx < 6}
+                          onRate={(reservationId: string) => {
+                            const res = reservations.find(r => r.id === reservationId);
+                            if (res) {
+                              navigation.navigate('EventTimer' as any, { reservation: res, readOnly: true, userRole: 'client' });
+                            }
+                          }}
+                        />
+                      </React.Fragment>
+                    );
+                  });
+                })()}
                 {resHasMore && (
                   <Pressable style={styles.loadMoreBtn} onPress={loadMoreReservations}>
                     <Text style={styles.loadMoreText}>{t('reservations.load_more')}</Text>
@@ -424,7 +519,7 @@ export default function ClientReservationsScreen({ navigation, route }: any) {
           {/* ── Tab: Pendientes ────────────────────────────────── */}
           {activeTab === 'pendientes' && (() => {
             const visibleQuotes = quotes.filter(q => q.status === 'pending' || q.status === 'quoted');
-            const hasAny = visibleQuotes.length > 0 || expressRequests.length > 0;
+            const hasAny = visibleQuotes.length > 0 || expressRequests.length > 0 || pendingOnlyGroupedEvents.length > 0;
             return !hasAny ? (
               <View style={styles.empty}>
                 <Text style={styles.emptyIcon}>📋</Text>
@@ -433,6 +528,38 @@ export default function ClientReservationsScreen({ navigation, route }: any) {
               </View>
             ) : (
               <>
+                {/* 2026-09-02 (pedido real) — movido de la pestaña "Eventos":
+                    un evento que todavía NO tiene ninguna reserva confirmada
+                    (solo cotizaciones pendientes) pertenece conceptualmente
+                    a "Pendientes", no a "Eventos" — ahí solo debían aparecer
+                    eventos ya confirmados. En cuanto la primera cotización
+                    se acepte, este evento pasa al mecanismo normal de la
+                    pestaña Eventos (inline, antes de su tarjeta) y
+                    desaparece de aquí. */}
+                {pendingOnlyGroupedEvents.map(group => (
+                  <View key={group.eventId} style={styles.eventGroupHeader}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.eventGroupHeaderTitle}>
+                        {t('reservations.myEventTitle', {
+                          date: group.eventDate
+                            ? new Date(group.eventDate + 'T12:00:00').toLocaleDateString(i18n.language?.startsWith('en') ? 'en-US' : 'es-MX', { day: 'numeric', month: 'long' })
+                            : '—',
+                        })}
+                      </Text>
+                      {!!group.address && <Text style={styles.eventGroupHeaderAddress} numberOfLines={1}>📍 {group.address}</Text>}
+                    </View>
+                    <Pressable
+                      style={styles.eventGroupHeaderAddBtn}
+                      onPress={() => navigation.navigate('EventCategoryPicker', {
+                        eventId: group.eventId, eventDate: group.eventDate, eventAddress: group.address,
+                      })}
+                    >
+                      <Plus size={14} color={COLORS.green} />
+                      <Text style={styles.eventGroupHeaderAddBtnText}>{t('reservations.addAnotherProvider')}</Text>
+                    </Pressable>
+                  </View>
+                ))}
+
                 {/* ── Solicitudes express ── */}
                 {expressRequests.length > 0 && (
                   <Text style={styles.pendSectionTitle}>⚡ Solicitudes exprés · {expressRequests.length}</Text>
@@ -855,7 +982,7 @@ function ReservationCard({ reservation: r, navigation, onUpdate, isReviewed, isJ
     });
     setCancelling(false);
 
-    const fmt = (n: number) => `$${Number(n).toLocaleString('es-MX')} MXN`;
+    const fmt = (n: number) => `$${Number(n).toLocaleString('es-MX')} ${payCurrency}`;
     const tier    = charge?.tier as string | undefined;
     const refund  = Number(charge?.refund_amount ?? 0);
     const retain  = Number(charge?.retain_amount ?? 0);
@@ -906,7 +1033,7 @@ function ReservationCard({ reservation: r, navigation, onUpdate, isReviewed, isJ
   // El servidor recalcula el monto (tiers); el cliente no lo decide.
   // Idempotente por cancel-{id}: reintentar no duplica reembolso.
   const executeCancellation = async (bank?: { clabe: string; account_holder: string; bank_name: string }) => {
-    const fmt = (n: number) => `$${Number(n).toLocaleString('es-MX')} MXN`;
+    const fmt = (n: number) => `$${Number(n).toLocaleString('es-MX')} ${payCurrency}`;
     setCancelling(true);
     const { data, error } = await supabase.functions.invoke('process-refund', {
       body: {
@@ -949,7 +1076,7 @@ function ReservationCard({ reservation: r, navigation, onUpdate, isReviewed, isJ
 
   // Estado del reembolso de una reserva cancelada (automático o manual)
   const viewRefundStatus = async () => {
-    const fmt = (n: number) => `$${Number(n).toLocaleString('es-MX')} MXN`;
+    const fmt = (n: number) => `$${Number(n).toLocaleString('es-MX')} ${payCurrency}`;
     const { data: mr } = await supabase
       .from('manual_refunds')
       .select('amount, status, due_date, transfer_reference, receipt_path, clabe')
@@ -1132,7 +1259,7 @@ function ReservationCard({ reservation: r, navigation, onUpdate, isReviewed, isJ
             </View>
           )}
           <View style={styles.priceRow}>
-            <Text style={styles.price}>${r.total_price?.toLocaleString()}</Text>
+            <Text style={styles.price}>${r.total_price?.toLocaleString()} {payCurrency}</Text>
           </View>
         </View>
 
@@ -1238,7 +1365,7 @@ function ReservationCard({ reservation: r, navigation, onUpdate, isReviewed, isJ
               <Text style={styles.payBtnText}>{payLabel}</Text>
               <Text style={styles.payBtnSub}>Elige tu forma de pago al confirmar</Text>
             </View>
-            <Text style={styles.payBtnPrice}>${r.total_price?.toLocaleString()}</Text>
+            <Text style={styles.payBtnPrice}>${r.total_price?.toLocaleString()} {payCurrency}</Text>
           </View>
         </Pressable>
       )}
@@ -1512,6 +1639,26 @@ const styles = StyleSheet.create({
   title: { fontFamily: FONTS.title, fontSize: 24, color: COLORS.text },
   list: { padding: SPACING.xl, gap: 12 },
 
+  // ── "Mi evento" (sql/585, Fase 1C, rediseñado 2026-09-02) — encabezado
+  // ligero antes de la primera reserva de cada event_id, SIN duplicar
+  // precio/estado (eso ya lo muestra la ReservationCard de abajo).
+  eventGroupHeader: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: COLORS.card2,
+    borderRadius: RADIUS.lg,
+    borderWidth: 1,
+    borderColor: 'rgba(0,230,118,0.25)',
+    padding: 14,
+  },
+  eventGroupHeaderTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: COLORS.text },
+  eventGroupHeaderAddress: { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2, marginTop: 2 },
+  eventGroupHeaderAddBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    backgroundColor: 'rgba(0,230,118,0.12)', borderRadius: RADIUS.full,
+    paddingHorizontal: 12, paddingVertical: 8,
+  },
+  eventGroupHeaderAddBtnText: { fontFamily: FONTS.bodySemiBold, fontSize: 12, color: COLORS.green },
+
   // ── Card ──
   // Cascarón estilo ExpressCard: fondo oscuro + borde verde fino; el mapa
   // de zona (RequestZoneMap) entra arriba gracias al overflow hidden
@@ -1628,6 +1775,7 @@ const styles = StyleSheet.create({
   tabs: {
     flexDirection: 'row',
     marginHorizontal: SPACING.xl,
+    marginTop: 16,
     marginBottom: 16,
     padding: 4,
     backgroundColor: COLORS.card,

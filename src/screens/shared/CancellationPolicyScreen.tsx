@@ -14,6 +14,7 @@ import React from 'react';
 import { ScrollView, StyleSheet, Text, View, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ArrowLeft } from 'lucide-react-native';
+import { useTranslation } from 'react-i18next';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 
 type Row = { when: string; result: string; highlight?: boolean };
@@ -44,6 +45,7 @@ function PolicyRows({ rows }: { rows: Row[] }) {
 }
 
 export default function CancellationPolicyScreen({ route, navigation }: any) {
+  const { t } = useTranslation();
   const role: 'client' | 'group' = route?.params?.role === 'group' ? 'group' : 'client';
 
   return (
@@ -54,8 +56,8 @@ export default function CancellationPolicyScreen({ route, navigation }: any) {
             <ArrowLeft size={20} color={COLORS.text} />
           </Pressable>
           <View style={{ flex: 1 }}>
-            <Text style={s.headerTitle}>Políticas de cancelación</Text>
-            <Text style={s.headerSub}>{role === 'group' ? 'Para grupos' : 'Para clientes'}</Text>
+            <Text style={s.headerTitle}>{t('cancellationPolicyScreen.header.title')}</Text>
+            <Text style={s.headerSub}>{role === 'group' ? t('cancellationPolicyScreen.header.subGroup') : t('cancellationPolicyScreen.header.subClient')}</Text>
           </View>
         </View>
 
@@ -63,14 +65,11 @@ export default function CancellationPolicyScreen({ route, navigation }: any) {
 
           {/* ── Marco de intermediario (ambos roles) ── */}
           <View style={s.introCard}>
-            <Text style={s.introTitle}>🤝 Daricefy es el intermediario</Text>
+            <Text style={s.introTitle}>{t('cancellationPolicyScreen.intro.title')}</Text>
             <Text style={s.introText}>
-              Somos una plataforma tecnológica que conecta clientes con grupos musicales
-              independientes y <Text style={s.bold}>custodia el pago para proteger a las dos partes</Text>.
-              Los grupos no son empleados ni representantes de Daricefy: cada grupo es
-              responsable de su servicio y cada cliente de la información de su evento.
-              El dinero queda protegido en custodia y solo se entrega al grupo cuando el
-              evento se cumple.
+              {t('cancellationPolicyScreen.intro.p1')}{' '}
+              <Text style={s.bold}>{t('cancellationPolicyScreen.intro.b1')}</Text>.{' '}
+              {t('cancellationPolicyScreen.intro.p2')}
             </Text>
           </View>
 

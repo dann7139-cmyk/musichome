@@ -5,6 +5,7 @@ import {
   Alert,
   Animated,
   Easing,
+  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -14,12 +15,14 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useTranslation } from 'react-i18next';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
 
 export default function IntroScreen({ navigation }: any) {
+  const { t } = useTranslation();
   const [email,    setEmail]    = useState('');
   const [password, setPassword] = useState('');
   const [loading,  setLoading]  = useState(false);
@@ -107,23 +110,25 @@ export default function IntroScreen({ navigation }: any) {
   // ── Acciones ─────────────────────────────────────────────────────────────────
   const handleLogin = async () => {
     if (!email || !password) {
-      Alert.alert('Campos vacíos', 'Ingresa tu correo y contraseña');
+      Alert.alert(t('introScreen.alertEmptyFieldsTitle'), t('introScreen.alertEmptyFieldsMessage'));
       return;
     }
     setLoading(true);
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     setLoading(false);
-    if (error) Alert.alert('Error al iniciar sesión', error.message);
+    if (error) Alert.alert(t('introScreen.alertLoginErrorTitle'), error.message);
   };
 
   const handleForgot = async () => {
     if (!email) {
-      Alert.alert('Correo requerido', 'Escribe tu correo arriba y luego toca esta opción.');
+      Alert.alert(t('introScreen.alertForgotEmailRequiredTitle'), t('introScreen.alertForgotEmailRequiredMessage'));
       return;
     }
-    const { error } = await supabase.auth.resetPasswordForEmail(email);
-    if (error) Alert.alert('Error', error.message);
-    else Alert.alert('Correo enviado', 'Revisa tu bandeja de entrada para restablecer tu contraseña.');
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: 'daricefy://reset-password',
+    });
+    if (error) Alert.alert(t('introScreen.alertErrorTitle'), error.message);
+    else Alert.alert(t('introScreen.alertEmailSentTitle'), t('introScreen.alertEmailSentMessage'));
   };
 
   // ── Render ───────────────────────────────────────────────────────────────────
@@ -132,7 +137,7 @@ export default function IntroScreen({ navigation }: any) {
 
       {/* ── FONDO: vórtice de energía (permanente) ── */}
       <Animated.View
-        style={[StyleSheet.absoluteFillObject, { alignItems: 'center', justifyContent: 'center' }, { opacity: bgOpacity }]}
+        style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center' }, { opacity: bgOpacity }]}
         pointerEvents="none"
       >
         <View style={s.glowBlob} />
@@ -154,7 +159,7 @@ export default function IntroScreen({ navigation }: any) {
 
       {/* ── FLASH de la X ── */}
       <Animated.View
-        style={[StyleSheet.absoluteFillObject, { alignItems: 'center', justifyContent: 'center' }, { opacity: xFlashAnim }]}
+        style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center' }, { opacity: xFlashAnim }]}
         pointerEvents="none"
       >
         <View style={s.xFlash} />
@@ -172,6 +177,8 @@ export default function IntroScreen({ navigation }: any) {
             {/* Logo + taglines */}
             <View style={s.hero}>
               <Animated.View style={{ alignItems: 'center', opacity: logoOpacity, transform: [{ scale: logoScale }] }}>
+                {/* Marca (2026-09-05) — el logo real, igual que en Splash/Login */}
+                <Image source={require('../../../assets/images/icon.png')} style={s.logoMark} resizeMode="contain" />
                 <Text style={s.logoText} adjustsFontSizeToFit numberOfLines={1}>
                   Darice<Text style={s.logoX}>fy</Text>
                 </Text>
@@ -181,8 +188,8 @@ export default function IntroScreen({ navigation }: any) {
               </Animated.View>
 
               <Animated.View style={{ alignItems: 'center', opacity: taglinesOp, transform: [{ translateY: taglinesY }], marginTop: 12 }}>
-                <Text style={s.tagline}>Conecta talento y eventos</Text>
-                <Text style={s.subtitle}>La plataforma de música en vivo que te lleva más lejos.</Text>
+                <Text style={s.tagline}>{t('introScreen.tagline')}</Text>
+                <Text style={s.subtitle}>{t('introScreen.subtitle')}</Text>
               </Animated.View>
             </View>
 
@@ -195,11 +202,11 @@ export default function IntroScreen({ navigation }: any) {
                 style={s.cardAccent}
               />
 
-              <Text style={s.formTitle}>Iniciar sesión</Text>
+              <Text style={s.formTitle}>{t('introScreen.formTitle')}</Text>
 
               <Input
-                label="Correo electrónico"
-                placeholder="tu@correo.com"
+                label={t('introScreen.emailLabel')}
+                placeholder={t('introScreen.emailPlaceholder')}
                 value={email}
                 onChangeText={setEmail}
                 keyboardType="email-address"
@@ -208,8 +215,8 @@ export default function IntroScreen({ navigation }: any) {
               />
 
               <Input
-                label="Contraseña"
-                placeholder="••••••••"
+                label={t('introScreen.passwordLabel')}
+                placeholder={t('introScreen.passwordPlaceholder')}
                 value={password}
                 onChangeText={setPassword}
                 secureTextEntry
@@ -217,18 +224,18 @@ export default function IntroScreen({ navigation }: any) {
               />
 
               <View style={{ height: 6 }} />
-              <Button label="Iniciar sesión" onPress={handleLogin} loading={loading} size="lg" />
+              <Button label={t('introScreen.submit')} onPress={handleLogin} loading={loading} size="lg" />
 
               <Pressable style={s.forgotRow} onPress={handleForgot}>
-                <Text style={s.forgotText}>¿Olvidaste tu contraseña?</Text>
+                <Text style={s.forgotText}>{t('introScreen.forgotPassword')}</Text>
               </Pressable>
             </Animated.View>
 
             {/* ── FOOTER: registrarse ── */}
             <Animated.View style={[s.footer, { opacity: formOp }]}>
-              <Text style={s.footerText}>¿No tienes cuenta? </Text>
+              <Text style={s.footerText}>{t('introScreen.noAccount')}</Text>
               <Pressable onPress={() => navigation?.navigate?.('Register')}>
-                <Text style={s.footerLink}>Regístrate</Text>
+                <Text style={s.footerLink}>{t('introScreen.registerLink')}</Text>
               </Pressable>
             </Animated.View>
 
@@ -264,6 +271,7 @@ const s = StyleSheet.create({
 
   // ── Hero / logo ───────────────────────────────────────────────
   hero: { alignItems: 'center', marginBottom: 32 },
+  logoMark: { width: 64, height: 64, marginBottom: 10 },
   logoText: {
     fontFamily: FONTS.title, fontSize: 34,
     color: COLORS.text, letterSpacing: -0.5, textAlign: 'center',

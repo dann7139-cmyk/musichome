@@ -57,18 +57,23 @@ interface RecStatus {
 
 // ─── Paquetes de duración ────────────────────────────────────────────────────
 
+// sql/612 (2026-09-05): nueva escalera de precios — Recomendado cuesta
+// más que Destacado a propósito (decisión real del usuario). Espejo de
+// RECOMENDADO_PRICES en src/constants/adPricing.ts y de la fórmula en
+// place_recommendation_order (BD) — si cambias un número aquí, cámbialo
+// en los dos lugares o dejarán de coincidir.
 const PACKAGES: RecPackage[] = [
   {
-    days: 1, label: '1 día', price: 79, perDay: 79, savings: 0,
+    days: 3, label: '3 días', price: 199, perDay: 66, savings: 0,
     emoji: '⚡',
   },
   {
-    days: 3, label: '3 días', price: 199, perDay: 66, savings: 38,
+    days: 7, label: '7 días', price: 349, perDay: 50, savings: 115,
     emoji: '🚀',
     highlight: true,
   },
   {
-    days: 7, label: '7 días', price: 399, perDay: 57, savings: 154,
+    days: 15, label: '15 días', price: 649, perDay: 43, savings: 346,
     emoji: '👑',
   },
 ];
@@ -208,7 +213,7 @@ export default function RecommendationScreen({ navigation, route }: any) {
               );
               if (orderErr || !orderData?.ok) {
                 if (orderData?.error === 'no_capacity') {
-                  throw new Error('Por ahora no hay lugares de Recomendado en tu estado (máx. 10 grupos a la vez). Se liberan cuando vencen las campañas activas — intenta más tarde.');
+                  throw new Error('Por ahora no hay lugares de Recomendado en tu categoría y estado (máx. 5 grupos a la vez). Se liberan cuando vencen las campañas activas — intenta más tarde.');
                 }
                 throw new Error(orderData?.error ?? orderErr?.message ?? 'Error al crear orden');
               }

@@ -26,6 +26,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useTranslation } from 'react-i18next';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import { useAuth } from '../../context/AuthContext';
@@ -39,17 +40,18 @@ interface CityOption {
   demand_level: 'high' | 'normal' | 'new';
 }
 
-const DEMAND_LABEL: Record<string, { label: string; color: string }> = {
-  high:   { label: 'Alta demanda', color: '#FF6B35' },
-  normal: { label: 'Activa',        color: COLORS.green },
-  new:    { label: 'Nueva',         color: COLORS.muted },
-};
-
 // Timeout en ms para el intento de GPS (no bloquear más de esto)
 const GPS_TIMEOUT_MS = 6000;
 
 export default function CitySelectScreen() {
+  const { t } = useTranslation();
   const { refetchProfile } = useAuth();
+
+  const DEMAND_LABEL: Record<string, { label: string; color: string }> = {
+    high:   { label: t('citySelectScreen.demandHigh'),   color: '#FF6B35' },
+    normal: { label: t('citySelectScreen.demandActive'), color: COLORS.green },
+    new:    { label: t('citySelectScreen.demandNew'),    color: COLORS.muted },
+  };
 
   // Fases: 'detecting' → GPS en curso | 'manual' → mostrar selector
   const [phase, setPhase]           = useState<'detecting' | 'manual'>('detecting');
@@ -208,7 +210,7 @@ export default function CitySelectScreen() {
     setLoading(true);
     const { data, error: err } = await supabase.rpc('get_active_cities');
     if (err) {
-      setError('No se pudieron cargar las ciudades. Intenta de nuevo.');
+      setError(t('citySelectScreen.errorLoadCities'));
     } else {
       const list = (data as CityOption[]) ?? [];
       setCities(list);
@@ -226,7 +228,7 @@ export default function CitySelectScreen() {
     const { data, error: err } = await supabase.rpc('update_my_city', { p_city: cityName });
     if (err || (data as any)?.ok === false) {
       console.log('[CitySelect] error guardando ciudad:', cityName, err ?? (data as any));
-      setError('No se pudo guardar tu ciudad. Intenta de nuevo.');
+      setError(t('citySelectScreen.errorSaveCity'));
       setSaving(false);
       setLoading(false);
       setPhase('manual');
@@ -275,7 +277,7 @@ export default function CitySelectScreen() {
           )}
           {item.group_count > 0 && (
             <Text style={styles.groupCount}>
-              {item.group_count} grupo{item.group_count !== 1 ? 's' : ''}
+              {t('citySelectScreen.groupCount', { count: item.group_count })}
             </Text>
           )}
           {isSelected && (
@@ -293,9 +295,9 @@ export default function CitySelectScreen() {
         <Animated.View style={{ opacity: pulseAnim, transform: [{ scale: pulseAnim }] }}>
           <Navigation size={48} color={COLORS.green} />
         </Animated.View>
-        <Text style={styles.detectTitle}>Detectando tu ubicación…</Text>
+        <Text style={styles.detectTitle}>{t('citySelectScreen.detectingTitle')}</Text>
         <Text style={styles.detectSub}>
-          Esto solo toma un momento. Usamos tu ubicación para mostrar grupos y precios locales.
+          {t('citySelectScreen.detectingSub')}
         </Text>
         <ActivityIndicator color={COLORS.green} style={{ marginTop: 24 }} />
       </View>
@@ -311,13 +313,13 @@ export default function CitySelectScreen() {
         <MapPin size={32} color={COLORS.green} />
         <Text style={styles.title}>
           {detectedCity
-            ? `"${detectedCity}" no está disponible aún`
-            : '¿En qué ciudad estás?'}
+            ? t('citySelectScreen.titleNotAvailable', { city: detectedCity })
+            : t('citySelectScreen.titleWhichCity')}
         </Text>
         <Text style={styles.subtitle}>
           {detectedCity
-            ? 'Selecciona la ciudad más cercana. Esto personaliza tu experiencia.'
-            : 'Esto personaliza los grupos, precios y anuncios que ves.'}
+            ? t('citySelectScreen.subtitleSelectNearest')
+            : t('citySelectScreen.subtitleCustomize')}
         </Text>
       </View>
 
@@ -326,7 +328,7 @@ export default function CitySelectScreen() {
         <Search size={16} color={COLORS.muted} style={{ marginRight: 8 }} />
         <TextInput
           style={styles.searchInput}
-          placeholder="Buscar ciudad…"
+          placeholder={t('citySelectScreen.searchPlaceholder')}
           placeholderTextColor={COLORS.muted}
           value={search}
           onChangeText={setSearch}
@@ -350,7 +352,7 @@ export default function CitySelectScreen() {
           <Text style={styles.errorText}>{error}</Text>
           <Pressable style={styles.retryBtn} onPress={() => loadCities()}>
             <RefreshCw size={14} color={COLORS.green} />
-            <Text style={styles.retryText}>Reintentar</Text>
+            <Text style={styles.retryText}>{t('common.retry')}</Text>
           </Pressable>
         </View>
       ) : (
@@ -364,8 +366,8 @@ export default function CitySelectScreen() {
           ListEmptyComponent={
             <Text style={styles.emptyText}>
               {search.trim()
-                ? `Sin resultados para "${search}"`
-                : 'No hay ciudades disponibles.'}
+                ? t('citySelectScreen.emptyNoResults', { search })
+                : t('citySelectScreen.emptyNoCities')}
             </Text>
           }
         />
@@ -382,7 +384,7 @@ export default function CitySelectScreen() {
             <ActivityIndicator color={COLORS.bg} size="small" />
           ) : (
             <Text style={styles.btnText}>
-              {selected ? `Confirmar — ${selected.name}` : 'Selecciona una ciudad'}
+              {selected ? t('citySelectScreen.confirmWithCity', { city: selected.name }) : t('citySelectScreen.selectCityPrompt')}
             </Text>
           )}
         </Pressable>

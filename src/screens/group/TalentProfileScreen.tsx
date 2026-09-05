@@ -12,8 +12,8 @@ import {
   Star,
   X,
 } from 'lucide-react-native';
-import { Video, ResizeMode } from 'expo-av';
-import React, { useEffect, useRef, useState } from 'react';
+import VideoPlayer from '../../components/ui/VideoPlayer';
+import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -30,6 +30,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useTranslation } from 'react-i18next';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 
@@ -67,6 +68,7 @@ type InviteType = 'event' | 'membership';
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function TalentProfileScreen({ route, navigation }: any) {
+  const { t } = useTranslation();
   const { talent, isUsa, groupId, canInvite } = route.params as {
     talent: TalentFull;
     isUsa: boolean;
@@ -77,11 +79,8 @@ export default function TalentProfileScreen({ route, navigation }: any) {
   const isAvailable = talent.availability_status === 'available';
   const initial     = talent.full_name?.charAt(0)?.toUpperCase() ?? '?';
 
-  const videoRef = useRef<any>(null);
-
-  useEffect(() => {
-    return () => { videoRef.current?.unloadAsync?.(); };
-  }, []);
+  // VideoPlayer (expo-video) libera su propio reproductor al desmontarse —
+  // ya no hace falta un ref + limpieza manual como con expo-av.
 
   // Invite modal state
   const [modalVisible, setModalVisible]   = useState(false);
@@ -119,11 +118,11 @@ export default function TalentProfileScreen({ route, navigation }: any) {
   const sendInvitation = async () => {
     if (!groupId) return;
     if (inviteType === 'event' && !selectedEvent) {
-      Alert.alert('Error', 'Selecciona el evento para esta tocada');
+      Alert.alert(t('talentProfileScreen.error'), t('talentProfileScreen.selectEventRequired'));
       return;
     }
     if (inviteType === 'event' && selectedEvent && !selectedEvent.event_id) {
-      Alert.alert('Error', 'Este evento no tiene ID de evento válido. Contacta soporte.');
+      Alert.alert(t('talentProfileScreen.error'), t('talentProfileScreen.invalidEventId'));
       return;
     }
 
@@ -134,7 +133,12 @@ export default function TalentProfileScreen({ route, navigation }: any) {
       proposed_payment_amount: payment ? parseFloat(payment) : null,
       message:                 message.trim() || null,
       status:                  'pending',
-      event_id: inviteType === 'event' && selectedEvent ? selectedEvent.event_id : null,
+      event_id:                inviteType === 'event' && selectedEvent ? selectedEvent.event_id : null,
+      // Hallazgo real (2026-09-05): este campo nunca se mandaba, así que
+      // TODA invitación (incluso eligiendo "membresía" en este modal)
+      // se guardaba con el default de la columna ('event') — nunca había
+      // existido una sola fila invitation_type='membership' en producción.
+      invitation_type:         inviteType,
     };
 
     const { error } = await supabase.from('job_invitations').insert(payload);
@@ -142,20 +146,23 @@ export default function TalentProfileScreen({ route, navigation }: any) {
 
     if (error) {
       if (error.code === '23505') {
-        Alert.alert('Aviso', 'Ya enviaste una invitación a este talento para este evento.');
+        Alert.alert(t('talentProfileScreen.notice'), t('talentProfileScreen.duplicateInvite'));
       } else {
-        Alert.alert('Error', error.message);
+        Alert.alert(t('talentProfileScreen.error'), error.message);
       }
     } else {
       setModalVisible(false);
-      Alert.alert('¡Invitación enviada! 🎉', `${talent.full_name} recibirá una notificación.`);
+      Alert.alert(
+        t('talentProfileScreen.invitationSentTitle'),
+        t('talentProfileScreen.invitationSentMessage', { name: talent.full_name })
+      );
     }
   };
 
   const openSocial = (url: string) => {
     const fullUrl = url.startsWith('http') ? url : `https://${url}`;
     Linking.openURL(fullUrl).catch(() =>
-      Alert.alert('Error', 'No se pudo abrir el enlace.')
+      Alert.alert(t('talentProfileScreen.error'), t('talentProfileScreen.linkError'))
     );
   };
 
@@ -176,7 +183,7 @@ export default function TalentProfileScreen({ route, navigation }: any) {
           <Pressable style={s.backBtn} onPress={() => navigation.goBack()}>
             <ArrowLeft size={20} color={COLORS.text} />
           </Pressable>
-          <Text style={s.headerTitle}>Perfil de Talento</Text>
+          <Text style={s.headerTitle}>{t('talentProfileScreen.headerTitle')}</Text>
           <View style={{ width: 40 }} />
         </View>
 
@@ -204,7 +211,7 @@ export default function TalentProfileScreen({ route, navigation }: any) {
             <View style={s.badgesRow}>
               <View style={[s.availBadge, !isAvailable && s.availBadgeBusy]}>
                 <Text style={[s.availBadgeText, !isAvailable && s.availBadgeTextBusy]}>
-                  {isAvailable ? '🟢 Disponible' : '🔴 Ocupado'}
+                  {isAvailable ? t('talentProfileScreen.available') : t('talentProfileScreen.busy')}
                 </Text>
               </View>
               {talent.distance_km != null && (
@@ -227,26 +234,26 @@ export default function TalentProfileScreen({ route, navigation }: any) {
             <View style={s.statItem}>
               <Star size={16} color={COLORS.green} fill={COLORS.green} />
               <Text style={s.statValue}>{talent.rating?.toFixed(1) ?? '5.0'}</Text>
-              <Text style={s.statLabel}>Rating</Text>
+              <Text style={s.statLabel}>{t('talentProfileScreen.rating')}</Text>
             </View>
             <View style={s.statDivider} />
             <View style={s.statItem}>
               <Music2 size={16} color={COLORS.green} />
               <Text style={s.statValue}>{talent.total_jobs}</Text>
-              <Text style={s.statLabel}>Trabajos</Text>
+              <Text style={s.statLabel}>{t('talentProfileScreen.jobs')}</Text>
             </View>
             <View style={s.statDivider} />
             <View style={s.statItem}>
               <Clock size={16} color={COLORS.green} />
               <Text style={s.statValue}>{talent.experience_years}</Text>
-              <Text style={s.statLabel}>Años exp.</Text>
+              <Text style={s.statLabel}>{t('talentProfileScreen.experience')}</Text>
             </View>
           </View>
 
           {/* ── BIO ── */}
           {talent.bio ? (
             <View style={s.section}>
-              <Text style={s.sectionTitle}>Sobre mí</Text>
+              <Text style={s.sectionTitle}>{t('talentProfileScreen.about')}</Text>
               <Text style={s.bioText}>{talent.bio}</Text>
             </View>
           ) : null}
@@ -254,7 +261,7 @@ export default function TalentProfileScreen({ route, navigation }: any) {
           {/* ── ESTILOS MUSICALES ── */}
           {talent.musical_styles && talent.musical_styles.length > 0 && (
             <View style={s.section}>
-              <Text style={s.sectionTitle}>Estilos musicales</Text>
+              <Text style={s.sectionTitle}>{t('talentProfileScreen.musicalStyles')}</Text>
               <View style={s.stylesRow}>
                 {talent.musical_styles.map((style, i) => (
                   <View key={i} style={s.styleChip}>
@@ -268,13 +275,12 @@ export default function TalentProfileScreen({ route, navigation }: any) {
           {/* ── VIDEO PROFESIONAL ── */}
           {talent.video_url ? (
             <View style={s.section}>
-              <Text style={s.sectionTitle}>🎬 Video profesional</Text>
-              <Video
-                ref={videoRef}
-                source={{ uri: talent.video_url }}
+              <Text style={s.sectionTitle}>{t('talentProfileScreen.videoSectionTitle')}</Text>
+              <VideoPlayer
+                uri={talent.video_url}
                 style={s.video}
-                useNativeControls
-                resizeMode={ResizeMode.CONTAIN}
+                nativeControls
+                contentFit="contain"
               />
             </View>
           ) : null}
@@ -282,7 +288,7 @@ export default function TalentProfileScreen({ route, navigation }: any) {
           {/* ── REDES SOCIALES ── */}
           {(talent.social_instagram || talent.social_tiktok) && (
             <View style={s.section}>
-              <Text style={s.sectionTitle}>Redes sociales</Text>
+              <Text style={s.sectionTitle}>{t('talentProfileScreen.socialSectionTitle')}</Text>
               <View style={s.socialRow}>
                 {talent.social_instagram && (
                   <Pressable
@@ -321,10 +327,10 @@ export default function TalentProfileScreen({ route, navigation }: any) {
           <View style={s.inviteBarWrap}>
             <View style={s.inviteBar}>
               <Pressable style={s.inviteBtnTocada} onPress={() => { setInviteType('event'); openInviteModal(); }}>
-                <Text style={s.inviteBtnText}>🎵 Para una tocada</Text>
+                <Text style={s.inviteBtnText}>{t('talentProfileScreen.inviteForGig')}</Text>
               </Pressable>
               <Pressable style={s.inviteBtnGrupo} onPress={() => { setInviteType('membership'); openInviteModal(); }}>
-                <Text style={s.inviteBtnText}>🎸 Al grupo</Text>
+                <Text style={s.inviteBtnText}>{t('talentProfileScreen.inviteToGroup')}</Text>
               </Pressable>
             </View>
           </View>
@@ -347,7 +353,7 @@ export default function TalentProfileScreen({ route, navigation }: any) {
             <View style={modal.handle} />
 
             <View style={modal.header}>
-              <Text style={modal.title}>Invitar a {talent.full_name}</Text>
+              <Text style={modal.title}>{t('talentProfileScreen.modalTitle', { name: talent.full_name })}</Text>
               <Pressable onPress={() => setModalVisible(false)}>
                 <X size={20} color={COLORS.muted} />
               </Pressable>
@@ -355,7 +361,7 @@ export default function TalentProfileScreen({ route, navigation }: any) {
 
             <ScrollView showsVerticalScrollIndicator={false}>
               {/* Invite type selector */}
-              <Text style={modal.label}>Tipo de invitación</Text>
+              <Text style={modal.label}>{t('talentProfileScreen.inviteTypeLabel')}</Text>
               <View style={modal.typeRow}>
                 <Pressable
                   style={[modal.typeBtn, inviteType === 'event' && modal.typeBtnActive]}
@@ -363,9 +369,9 @@ export default function TalentProfileScreen({ route, navigation }: any) {
                 >
                   <Text style={modal.typeEmoji}>🎵</Text>
                   <Text style={[modal.typeLabel, inviteType === 'event' && modal.typeLabelActive]}>
-                    Para una tocada
+                    {t('talentProfileScreen.typeGigLabel')}
                   </Text>
-                  <Text style={modal.typeDesc}>Evento específico</Text>
+                  <Text style={modal.typeDesc}>{t('talentProfileScreen.typeGigDesc')}</Text>
                 </Pressable>
                 <Pressable
                   style={[modal.typeBtn, inviteType === 'membership' && modal.typeBtnActive]}
@@ -373,22 +379,22 @@ export default function TalentProfileScreen({ route, navigation }: any) {
                 >
                   <Text style={modal.typeEmoji}>🎸</Text>
                   <Text style={[modal.typeLabel, inviteType === 'membership' && modal.typeLabelActive]}>
-                    Unirse al grupo
+                    {t('talentProfileScreen.typeMembershipLabel')}
                   </Text>
-                  <Text style={modal.typeDesc}>Permanente</Text>
+                  <Text style={modal.typeDesc}>{t('talentProfileScreen.typeMembershipDesc')}</Text>
                 </Pressable>
               </View>
 
               {/* Event selector */}
               {inviteType === 'event' && (
                 <View>
-                  <Text style={modal.label}>Selecciona el evento *</Text>
+                  <Text style={modal.label}>{t('talentProfileScreen.selectEventLabel')}</Text>
                   {loadingEvents ? (
                     <ActivityIndicator size="small" color={COLORS.green} style={{ marginBottom: 16 }} />
                   ) : events.length === 0 ? (
                     <View style={modal.noEvents}>
                       <Calendar size={20} color={COLORS.muted} />
-                      <Text style={modal.noEventsText}>No tienes eventos confirmados próximos.</Text>
+                      <Text style={modal.noEventsText}>{t('talentProfileScreen.noEvents')}</Text>
                     </View>
                   ) : (
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
@@ -417,7 +423,7 @@ export default function TalentProfileScreen({ route, navigation }: any) {
               )}
 
               {/* Payment */}
-              <Text style={modal.label}>Pago propuesto (opcional)</Text>
+              <Text style={modal.label}>{t('talentProfileScreen.paymentLabel')}</Text>
               <View style={modal.inputRow}>
                 <DollarSign size={16} color={COLORS.muted} />
                 <TextInput
@@ -431,12 +437,12 @@ export default function TalentProfileScreen({ route, navigation }: any) {
               </View>
 
               {/* Message */}
-              <Text style={modal.label}>Mensaje (opcional)</Text>
+              <Text style={modal.label}>{t('talentProfileScreen.messageLabel')}</Text>
               <View style={[modal.inputRow, { alignItems: 'flex-start', paddingTop: 12 }]}>
                 <MessageSquare size={16} color={COLORS.muted} style={{ marginTop: 2 }} />
                 <TextInput
                   style={[modal.input, { height: 80, textAlignVertical: 'top' }]}
-                  placeholder="Cuéntale sobre el evento o el grupo..."
+                  placeholder={t('talentProfileScreen.messagePlaceholder')}
                   placeholderTextColor={COLORS.muted}
                   value={message}
                   onChangeText={setMessage}
@@ -452,7 +458,7 @@ export default function TalentProfileScreen({ route, navigation }: any) {
               >
                 <Send size={16} color={COLORS.bg} />
                 <Text style={modal.sendBtnText}>
-                  {sending ? 'Enviando...' : 'Enviar invitación'}
+                  {sending ? t('talentProfileScreen.sending') : t('talentProfileScreen.sendInvitation')}
                 </Text>
               </Pressable>
             </ScrollView>

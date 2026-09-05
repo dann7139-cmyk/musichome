@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { Calendar } from 'react-native-calendars';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useTranslation } from 'react-i18next';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import Particles from '../../components/ui/Particles';
@@ -24,6 +25,7 @@ interface BlockedDate {
 }
 
 export default function GroupAvailabilityScreen({ navigation }: any) {
+  const { t } = useTranslation();
   const [groupId, setGroupId] = useState<string | null>(null);
   const [blockedDates, setBlockedDates] = useState<BlockedDate[]>([]);
   const [markedDates, setMarkedDates] = useState<any>({});
@@ -74,7 +76,7 @@ export default function GroupAvailabilityScreen({ navigation }: any) {
     if (error) {
       // Visible: si esto falla en silencio, el calendario pinta TODO libre y miente
       console.log('Error fetching blocked dates:', error.message);
-      Alert.alert('Error al cargar bloqueos', 'No se pudieron cargar tus fechas bloqueadas. Vuelve a entrar a la pantalla.');
+      Alert.alert(t('groupAvailabilityScreen.errors.loadTitle'), t('groupAvailabilityScreen.errors.loadMessage'));
       return;
     }
 
@@ -95,11 +97,11 @@ export default function GroupAvailabilityScreen({ navigation }: any) {
     const existing = blockedDates.find(b => b.date === dateStr);
     if (existing) {
       Alert.alert(
-        'Fecha bloqueada',
-        `Esta fecha ya está bloqueada.\n\n${existing.reason || 'Sin motivo especificado'}`,
+        t('groupAvailabilityScreen.blockedAlert.title'),
+        `${t('groupAvailabilityScreen.blockedAlert.message')}\n\n${existing.reason || t('groupAvailabilityScreen.blockedAlert.noReason')}`,
         [
-          { text: 'Cancelar', style: 'cancel' },
-          { text: 'Desbloquear', style: 'destructive', onPress: () => removeBlock(existing.id) },
+          { text: t('groupAvailabilityScreen.common.cancel'), style: 'cancel' },
+          { text: t('groupAvailabilityScreen.common.unblock'), style: 'destructive', onPress: () => removeBlock(existing.id) },
         ]
       );
       return;
@@ -131,12 +133,12 @@ export default function GroupAvailabilityScreen({ navigation }: any) {
         setModalVisible(false);
         await fetchBlockedDates(groupId);
         Alert.alert(
-          'Fecha ya bloqueada',
-          `${selectedDate} ya estaba bloqueada. ¿Quieres desbloquearla?`,
+          t('groupAvailabilityScreen.alreadyBlockedAlert.title'),
+          t('groupAvailabilityScreen.alreadyBlockedAlert.message', { date: selectedDate }),
           [
-            { text: 'Dejarla bloqueada', style: 'cancel' },
+            { text: t('groupAvailabilityScreen.alreadyBlockedAlert.keep'), style: 'cancel' },
             {
-              text: 'Desbloquear',
+              text: t('groupAvailabilityScreen.common.unblock'),
               style: 'destructive',
               onPress: async () => {
                 const { data: row } = await supabase
@@ -151,12 +153,12 @@ export default function GroupAvailabilityScreen({ navigation }: any) {
           ]
         );
       } else {
-        Alert.alert('Error', error.message);
+        Alert.alert(t('groupAvailabilityScreen.common.error'), error.message);
       }
     } else {
       setModalVisible(false);
       await fetchBlockedDates(groupId);
-      Alert.alert('✓ Bloqueada', `La fecha ${selectedDate} fue bloqueada correctamente.`);
+      Alert.alert(t('groupAvailabilityScreen.blockedSuccess.title'), t('groupAvailabilityScreen.blockedSuccess.message', { date: selectedDate }));
     }
   };
 
@@ -169,7 +171,7 @@ export default function GroupAvailabilityScreen({ navigation }: any) {
       .eq('id', blockId);
 
     if (error) {
-      Alert.alert('Error', error.message);
+      Alert.alert(t('groupAvailabilityScreen.common.error'), error.message);
     } else {
       await fetchBlockedDates(groupId);
     }
@@ -194,15 +196,15 @@ export default function GroupAvailabilityScreen({ navigation }: any) {
           <Pressable style={s.backBtn} onPress={() => navigation.goBack()}>
             <ArrowLeft size={20} color={COLORS.text} />
           </Pressable>
-          <Text style={s.headerTitle}>Disponibilidad</Text>
+          <Text style={s.headerTitle}>{t('groupAvailabilityScreen.headerTitle')}</Text>
           <View style={{ width: 40 }} />
         </View>
 
         <ScrollView showsVerticalScrollIndicator={false}>
           <View style={s.section}>
-            <Text style={s.sectionTitle}>Calendario de disponibilidad</Text>
+            <Text style={s.sectionTitle}>{t('groupAvailabilityScreen.calendarSectionTitle')}</Text>
             <Text style={s.hint}>
-              Toca una fecha para bloquearla. Las fechas bloqueadas aparecerán en rojo y no estarán disponibles para reservas.
+              {t('groupAvailabilityScreen.calendarHint')}
             </Text>
 
             <View style={s.calendarWrapper}>
@@ -241,7 +243,7 @@ export default function GroupAvailabilityScreen({ navigation }: any) {
           {/* Lista de fechas bloqueadas */}
           {blockedDates.length > 0 && (
             <View style={s.section}>
-              <Text style={s.sectionTitle}>Fechas bloqueadas ({blockedDates.length})</Text>
+              <Text style={s.sectionTitle}>{t('groupAvailabilityScreen.blockedDatesTitle', { count: blockedDates.length })}</Text>
               {blockedDates.map((bd) => (
                 <View key={bd.id} style={s.blockedRow}>
                   <View style={{ flex: 1 }}>
@@ -252,11 +254,11 @@ export default function GroupAvailabilityScreen({ navigation }: any) {
                     style={s.removeBtn}
                     onPress={() => {
                       Alert.alert(
-                        'Desbloquear fecha',
-                        `¿Desbloquear ${bd.date}?`,
+                        t('groupAvailabilityScreen.unblockAlert.title'),
+                        t('groupAvailabilityScreen.unblockAlert.message', { date: bd.date }),
                         [
-                          { text: 'Cancelar', style: 'cancel' },
-                          { text: 'Desbloquear', style: 'destructive', onPress: () => removeBlock(bd.id) },
+                          { text: t('groupAvailabilityScreen.common.cancel'), style: 'cancel' },
+                          { text: t('groupAvailabilityScreen.common.unblock'), style: 'destructive', onPress: () => removeBlock(bd.id) },
                         ]
                       );
                     }}
@@ -275,7 +277,7 @@ export default function GroupAvailabilityScreen({ navigation }: any) {
         <View style={s.overlay}>
           <View style={s.sheet}>
             <View style={s.sheetHeader}>
-              <Text style={s.sheetTitle}>Bloquear fecha</Text>
+              <Text style={s.sheetTitle}>{t('groupAvailabilityScreen.modal.title')}</Text>
               <Pressable onPress={() => setModalVisible(false)}>
                 <X size={20} color={COLORS.muted2} />
               </Pressable>
@@ -283,12 +285,12 @@ export default function GroupAvailabilityScreen({ navigation }: any) {
 
             <Text style={s.modalDate}>{selectedDate}</Text>
 
-            <Text style={s.label}>Motivo (opcional)</Text>
+            <Text style={s.label}>{t('groupAvailabilityScreen.modal.reasonLabel')}</Text>
             <TextInput
               style={s.input}
               value={reason}
               onChangeText={setReason}
-              placeholder="Ej: Día festivo, vacaciones..."
+              placeholder={t('groupAvailabilityScreen.modal.reasonPlaceholder')}
               placeholderTextColor={COLORS.muted}
               multiline
               numberOfLines={3}
@@ -303,7 +305,7 @@ export default function GroupAvailabilityScreen({ navigation }: any) {
             >
               {saving
                 ? <ActivityIndicator size="small" color={COLORS.bg} />
-                : <><CalendarOff size={16} color={COLORS.bg} /><Text style={s.saveBtnText}>Bloquear fecha</Text></>}
+                : <><CalendarOff size={16} color={COLORS.bg} /><Text style={s.saveBtnText}>{t('groupAvailabilityScreen.modal.title')}</Text></>}
             </Pressable>
           </View>
         </View>

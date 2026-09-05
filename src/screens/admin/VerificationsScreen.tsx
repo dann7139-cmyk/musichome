@@ -28,6 +28,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useTranslation } from 'react-i18next';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import Badge from '../../components/ui/Badge';
@@ -50,6 +51,7 @@ function GeoFilter({
   activeState: string | null;
   onSelect: (country: string | null, state: string | null) => void;
 }) {
+  const { t } = useTranslation();
   const countries = useMemo(() => {
     const s = new Set<string>();
     data.forEach(d => { if (d[countryKey]) s.add(d[countryKey]); });
@@ -82,7 +84,7 @@ function GeoFilter({
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={geoSt.row}>
         <Pressable style={[geoSt.pill, !activeCountry && geoSt.pillActive]} onPress={() => onSelect(null, null)}>
           <Globe size={11} color={!activeCountry ? COLORS.bg : COLORS.muted2} />
-          <Text style={[geoSt.pillTxt, !activeCountry && geoSt.pillTxtActive]}>Todos</Text>
+          <Text style={[geoSt.pillTxt, !activeCountry && geoSt.pillTxtActive]}>{t('adminVerificationsScreen.geoFilter.all')}</Text>
         </Pressable>
         {countries.map(c => (
           <Pressable key={c} style={[geoSt.pill, activeCountry === c && geoSt.pillActive]} onPress={() => pickCountry(c)}>
@@ -95,7 +97,7 @@ function GeoFilter({
       {activeCountry && states.length > 0 && (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={geoSt.row}>
           <Pressable style={[geoSt.pill, geoSt.pillSm, !activeState && geoSt.pillStatActive]} onPress={() => onSelect(activeCountry, null)}>
-            <Text style={[geoSt.pillTxt, geoSt.pillTxtSm, !activeState && geoSt.pillTxtActive]}>Todos los estados</Text>
+            <Text style={[geoSt.pillTxt, geoSt.pillTxtSm, !activeState && geoSt.pillTxtActive]}>{t('adminVerificationsScreen.geoFilter.allStates')}</Text>
           </Pressable>
           {states.map(st => (
             <Pressable key={st} style={[geoSt.pill, geoSt.pillSm, activeState === st && geoSt.pillStatActive]} onPress={() => pickState(st)}>
@@ -129,6 +131,7 @@ const geoSt = StyleSheet.create({
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function AdminVerificationsScreen({ navigation }: any) {
+  const { t } = useTranslation();
   const [activeTab,   setActiveTab]   = useState(0);
   const [refreshing,  setRefreshing]  = useState(false);
 
@@ -256,7 +259,7 @@ export default function AdminVerificationsScreen({ navigation }: any) {
       .from('verification-docs')
       .createSignedUrl(path, 3600);
     if (error || !data?.signedUrl) {
-      Alert.alert('Error', `No se pudo generar el enlace para ver el ${label}.`);
+      Alert.alert(t('adminVerificationsScreen.alerts.error'), t('adminVerificationsScreen.alerts.fileLinkError', { label }));
       return;
     }
     Linking.openURL(data.signedUrl);
@@ -266,14 +269,14 @@ export default function AdminVerificationsScreen({ navigation }: any) {
 
   const handleGroupDecision = async (request: any, decision: 'approved' | 'rejected') => {
     Alert.alert(
-      decision === 'approved' ? 'Aprobar verificación' : 'Rechazar verificación',
+      decision === 'approved' ? t('adminVerificationsScreen.alerts.group.approveTitle') : t('adminVerificationsScreen.alerts.group.rejectTitle'),
       decision === 'approved'
-        ? `¿Verificar el grupo "${request.group?.name}"?`
-        : `¿Rechazar la solicitud de "${request.group?.name}"?`,
+        ? t('adminVerificationsScreen.alerts.group.approveMessage', { name: request.group?.name })
+        : t('adminVerificationsScreen.alerts.group.rejectMessage', { name: request.group?.name }),
       [
-        { text: 'Cancelar', style: 'cancel' },
+        { text: t('adminVerificationsScreen.alerts.cancel'), style: 'cancel' },
         {
-          text: decision === 'approved' ? 'Aprobar' : 'Rechazar',
+          text: decision === 'approved' ? t('adminVerificationsScreen.buttons.approve') : t('adminVerificationsScreen.buttons.reject'),
           style: decision === 'rejected' ? 'destructive' : 'default',
           onPress: async () => {
             setGroupLoading(true);
@@ -284,13 +287,16 @@ export default function AdminVerificationsScreen({ navigation }: any) {
             });
             setGroupLoading(false);
             if (error || !data?.ok) {
-              Alert.alert('Error', data?.error ?? error?.message ?? 'No se pudo procesar.');
+              Alert.alert(t('adminVerificationsScreen.alerts.error'), data?.error ?? error?.message ?? t('adminVerificationsScreen.alerts.group.genericError'));
               return;
             }
             setSelectedReq(null);
             setGroupNotes('');
             fetchGroups();
-            Alert.alert('¡Listo!', `Solicitud ${decision === 'approved' ? 'aprobada' : 'rechazada'}.`);
+            Alert.alert(
+              t('adminVerificationsScreen.alerts.done'),
+              decision === 'approved' ? t('adminVerificationsScreen.alerts.group.approveSuccess') : t('adminVerificationsScreen.alerts.group.rejectSuccess'),
+            );
           },
         },
       ]
@@ -307,14 +313,16 @@ export default function AdminVerificationsScreen({ navigation }: any) {
     refetch: () => void,
     clearSelected: () => void,
   ) => {
-    const label = profile.role === 'talent' ? 'talento' : 'cliente';
+    const label = profile.role === 'talent' ? t('adminVerificationsScreen.alerts.profile.roleTalent') : t('adminVerificationsScreen.alerts.profile.roleClient');
     Alert.alert(
-      verified ? `Verificar ${label}` : `Rechazar ${label}`,
-      `¿${verified ? 'Verificar' : 'Rechazar la verificación de'} ${profile.full_name}?`,
+      verified ? t('adminVerificationsScreen.alerts.profile.verifyTitle', { role: label }) : t('adminVerificationsScreen.alerts.profile.rejectTitle', { role: label }),
+      verified
+        ? t('adminVerificationsScreen.alerts.profile.verifyMessage', { name: profile.full_name })
+        : t('adminVerificationsScreen.alerts.profile.rejectMessage', { name: profile.full_name }),
       [
-        { text: 'Cancelar', style: 'cancel' },
+        { text: t('adminVerificationsScreen.alerts.cancel'), style: 'cancel' },
         {
-          text: verified ? 'Verificar' : 'Rechazar',
+          text: verified ? t('adminVerificationsScreen.buttons.verify') : t('adminVerificationsScreen.buttons.reject'),
           style: verified ? 'default' : 'destructive',
           onPress: async () => {
             setLoading(true);
@@ -325,12 +333,15 @@ export default function AdminVerificationsScreen({ navigation }: any) {
             });
             setLoading(false);
             if (error || !data?.ok) {
-              Alert.alert('Error', error?.message ?? data?.error ?? 'No se pudo actualizar.');
+              Alert.alert(t('adminVerificationsScreen.alerts.error'), error?.message ?? data?.error ?? t('adminVerificationsScreen.alerts.profile.genericError'));
               return;
             }
             clearSelected();
             refetch();
-            Alert.alert('¡Listo!', verified ? `${profile.full_name} fue verificado.` : 'Solicitud rechazada.');
+            Alert.alert(
+              t('adminVerificationsScreen.alerts.done'),
+              verified ? t('adminVerificationsScreen.alerts.profile.verifySuccess', { name: profile.full_name }) : t('adminVerificationsScreen.alerts.profile.rejectSuccess'),
+            );
           },
         },
       ]

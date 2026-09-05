@@ -42,6 +42,7 @@ import {
 import { analyzeMessage } from '../../utils/phoneFilter';
 import { checkGroupLogistics, currencyForCountry } from '../../utils/logistics';
 import { buildGroupCalendarMarks } from '../../utils/groupCalendarAvailability';
+import { getClientActiveEvents, resolveEventContext } from '../../utils/eventBuilder';
 import { useAuth } from '../../context/AuthContext';
 import { useTranslation } from 'react-i18next';
 
@@ -65,7 +66,7 @@ const MSI_OPTIONS = [
 
 export default function BookingScreen({ route, navigation }: any) {
   const { t } = useTranslation();
-  const { group, package: pkg } = route.params;
+  const { group, package: pkg, eventId: presetEventId } = route.params;
   const { safeState } = useAuth();
 
   // Disponibilidad
@@ -290,7 +291,7 @@ export default function BookingScreen({ route, navigation }: any) {
     authorizedPriceRef.current = { base: adjustedPrice, commission, final: finalPrice, rate, multiplier };
 
     const msiLabel = selectedMSI.months > 1
-      ? `${selectedMSI.months} MSI · $${monthlyAmount.toLocaleString()} × ${selectedMSI.months} meses`
+      ? `${selectedMSI.months} MSI · $${monthlyAmount.toLocaleString()} ${currencyForCountry(eventCountry)} × ${selectedMSI.months} meses`
       : 'Pago único';
 
     Alert.alert(
@@ -345,7 +346,17 @@ export default function BookingScreen({ route, navigation }: any) {
     const priceToCharge = authorized?.final ?? clientPrice;
     const baseToStore   = authorized?.base  ?? adjustedPrice;
 
-    const { data: bookingResult, error } = await supabase.rpc('create_booking_with_event', {
+    // sql/585 (Fase 1, pendiente de autorización de producción) — resuelve
+    // si esta reserva se agrega a un evento ya existente o crea uno nuevo.
+    // Decisión SIEMPRE explícita (preset desde navegación, o pregunta
+    // directa) — nunca se infiere por texto de dirección. Mientras sql/585
+    // no esté aplicado, getClientActiveEvents() devuelve [] siempre, así
+    // que esto resuelve a `null` y el comportamiento queda idéntico al
+    // actual (cada reserva crea su propio evento, cero cambio de conducta).
+    const activeEvents = await getClientActiveEvents();
+    const resolvedEventId = await resolveEventContext({ t, presetEventId, activeEvents });
+
+    const bookingRpcParams: Record<string, any> = {
       p_client_id:                  sessionData.session.user.id,
       p_group_id:                   group.id,
       p_package_id:                 pkg.id,
@@ -360,7 +371,23 @@ export default function BookingScreen({ route, navigation }: any) {
       p_installment_plan:           selectedMSI.months > 1 ? selectedMSI.key : null,
       p_installment_months:         selectedMSI.months > 1 ? selectedMSI.months : null,
       p_installment_monthly_amount: selectedMSI.months > 1 ? monthlyAmount : null,
-    });
+    };
+    // sql/585 (Fase 1, no aplicado) — create_booking_with_event en producción
+    // TODAVÍA NO tiene el parámetro p_event_id (confirmado por introspección
+    // directa 2026-08-31: pg_get_function_identity_arguments no lo incluye).
+    // Enviar esa clave igual, aunque sea null, hace que PostgREST falle con
+    // PGRST202 ("could not find the function... in the schema cache") porque
+    // resuelve el RPC por el CONJUNTO EXACTO de nombres de parámetro — un
+    // hallazgo real de esta ronda: la versión anterior de este código SÍ
+    // mandaba esa clave siempre y habría roto CADA reserva en producción.
+    // Por eso: solo se agrega la clave si hay un event_id real, y aun así
+    // con reintento defensivo sin ella si el RPC de producción la rechaza.
+    if (resolvedEventId) bookingRpcParams.p_event_id = resolvedEventId;
+    let { data: bookingResult, error } = await supabase.rpc('create_booking_with_event', bookingRpcParams);
+    if (error?.code === 'PGRST202' && 'p_event_id' in bookingRpcParams) {
+      const { p_event_id, ...withoutEventId } = bookingRpcParams;
+      ({ data: bookingResult, error } = await supabase.rpc('create_booking_with_event', withoutEventId));
+    }
     // MSI ya se guarda atómicamente en el RPC — no se necesita update separado
 
     // Guardar ubicación y moneda en la reserva (fire-and-forget)
@@ -411,12 +438,29 @@ export default function BookingScreen({ route, navigation }: any) {
     if (error || !bookingResult?.reservation_id) {
       Alert.alert(t('common.error'), error?.message ?? t('booking.error_create'));
     } else {
+      // sql/585 (Fase 1, pendiente de autorización) — acción REAL de
+      // "agregar otro proveedor", no solo el texto informativo de antes.
+      // bookingResult.event_id siempre viene lleno (nuevo o reutilizado),
+      // así que aunque sql/585 no esté aplicado todavía, este botón
+      // navega al Explorador con el mismo event_id/fecha/dirección — la
+      // única pieza que falta para que funcione de punta a punta es que
+      // sql/585 esté aplicado (para que el 2do proveedor SÍ reutilice el
+      // event_id en vez de crear uno nuevo).
+      const eventIdForAddon = bookingResult.event_id as string | undefined;
       Alert.alert(
         t('booking.success_title'),
         t('booking.success_body', { group: group.name }) + t('booking.success_addon'),
         [
+          {
+            text: t('booking.addAnotherProviderBtn'),
+            onPress: () => navigation.navigate('EventCategoryPicker', {
+              eventId:      eventIdForAddon,
+              eventDate:    selectedDate,
+              eventAddress: address,
+            }),
+          },
           { text: t('booking.see_reservations'), onPress: () => navigation.navigate('ClientReservations') },
-          { text: t('booking.go_home'), onPress: () => navigation.popToTop() },
+          { text: t('booking.go_home'), style: 'cancel', onPress: () => navigation.popToTop() },
         ]
       );
     }
@@ -452,9 +496,9 @@ export default function BookingScreen({ route, navigation }: any) {
             </View>
             <View style={styles.pkgPriceBlock}>
               {hasSurcharge && (
-                <Text style={styles.pkgBasePrice}>${pkg.price?.toLocaleString()}</Text>
+                <Text style={styles.pkgBasePrice}>${pkg.price?.toLocaleString()} {currencyForCountry(eventCountry)}</Text>
               )}
-              <Text style={styles.pkgPrice}>${adjustedPrice?.toLocaleString()}</Text>
+              <Text style={styles.pkgPrice}>${adjustedPrice?.toLocaleString()} {currencyForCountry(eventCountry)}</Text>
             </View>
           </View>
 
@@ -686,11 +730,6 @@ export default function BookingScreen({ route, navigation }: any) {
                     <Text style={[styles.breakLabel, isActive && styles.breakLabelActive]}>
                       {opt.label}
                     </Text>
-                    {opt.extraLabel && (
-                      <View style={styles.paidBadge}>
-                        <Text style={styles.paidBadgeText}>{opt.extraLabel}</Text>
-                      </View>
-                    )}
                   </View>
                   <Text style={styles.breakDesc}>{opt.desc}</Text>
                 </Pressable>
@@ -707,13 +746,13 @@ export default function BookingScreen({ route, navigation }: any) {
             {anticipationAdj && anticipationAdj.type === 'discount' && (
               <View style={styles.priceRow}>
                 <Text style={styles.priceRowLabel}>{anticipationAdj.label}</Text>
-                <Text style={styles.priceRowDiscount}>-${anticipationAdj.amount.toLocaleString()}</Text>
+                <Text style={styles.priceRowDiscount}>-${anticipationAdj.amount.toLocaleString()} {currencyForCountry(eventCountry)}</Text>
               </View>
             )}
             {anticipationAdj && anticipationAdj.type === 'surcharge' && (
               <View style={styles.priceRow}>
                 <Text style={styles.priceRowLabel}>{anticipationAdj.label}</Text>
-                <Text style={styles.priceRowExtra}>+${anticipationAdj.amount.toLocaleString()}</Text>
+                <Text style={styles.priceRowExtra}>+${anticipationAdj.amount.toLocaleString()} {currencyForCountry(eventCountry)}</Text>
               </View>
             )}
 
@@ -723,7 +762,7 @@ export default function BookingScreen({ route, navigation }: any) {
                 <Text style={styles.priceRowLabel}>
                   {breakType === 'B' ? 'Descanso 15 min único' : 'Sin descanso'}
                 </Text>
-                <Text style={styles.priceRowExtra}>+${surchargeAmount.toLocaleString()}</Text>
+                <Text style={styles.priceRowExtra}>+${surchargeAmount.toLocaleString()} {currencyForCountry(eventCountry)}</Text>
               </View>
             )}
 
@@ -736,7 +775,7 @@ export default function BookingScreen({ route, navigation }: any) {
                     : `📉 Descuento zona nueva (${Math.round((1 - demandMultiplier) * 100)}%)`}
                 </Text>
                 <Text style={demandMultiplier > 1.0 ? styles.priceRowExtra : styles.priceRowDiscount}>
-                  {demandMultiplier > 1.0 ? '+' : '-'}${Math.abs(Math.round(adjustedPrice * (demandMultiplier - 1))).toLocaleString()}
+                  {demandMultiplier > 1.0 ? '+' : '-'}${Math.abs(Math.round(adjustedPrice * (demandMultiplier - 1))).toLocaleString()} {currencyForCountry(eventCountry)}
                 </Text>
               </View>
             )}
@@ -748,14 +787,14 @@ export default function BookingScreen({ route, navigation }: any) {
                   <Text style={styles.priceRowLabel}>{selectedMSI.months} MSI</Text>
                   <Text style={styles.priceRowSubLabel}>Cargo financiero incluido</Text>
                 </View>
-                <Text style={styles.priceRowExtra}>+${msiFeeAmount.toLocaleString()}</Text>
+                <Text style={styles.priceRowExtra}>+${msiFeeAmount.toLocaleString()} {currencyForCountry(eventCountry)}</Text>
               </View>
             )}
 
             {/* Total */}
             <View style={styles.totalRow}>
               <Text style={styles.totalLabel}>{t('booking.total').toUpperCase()}</Text>
-              <Text style={styles.totalValue}>${clientTotal.toLocaleString()}</Text>
+              <Text style={styles.totalValue}>${clientTotal.toLocaleString()} {currencyForCountry(eventCountry)}</Text>
             </View>
           </View>
 
@@ -785,12 +824,12 @@ export default function BookingScreen({ route, navigation }: any) {
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={[styles.msiOptionLabel, isActive && styles.msiOptionLabelActive]}>
-                        {opt.months > 1 ? `${opt.label} – $${monthly.toLocaleString()}/mes` : opt.label}
+                        {opt.months > 1 ? `${opt.label} – $${monthly.toLocaleString()} ${currencyForCountry(eventCountry)}/mes` : opt.label}
                       </Text>
                       {opt.months > 1 ? (
                         <Text style={styles.msiOptionAmount}>Cargo financiero incluido</Text>
                       ) : (
-                        <Text style={styles.msiOptionAmount}>${clientPrice.toLocaleString()} total</Text>
+                        <Text style={styles.msiOptionAmount}>${clientPrice.toLocaleString()} {currencyForCountry(eventCountry)} total</Text>
                       )}
                     </View>
                     {opt.months > 1 && (
@@ -804,7 +843,7 @@ export default function BookingScreen({ route, navigation }: any) {
             </View>
 
             <Text style={styles.msiDisclaimer}>
-              ℹ️ Solo tarjetas de crédito participantes. Si tu tarjeta no aplica MSI, se hará un solo cobro de ${clientTotal.toLocaleString()}.
+              ℹ️ Solo tarjetas de crédito participantes. Si tu tarjeta no aplica MSI, se hará un solo cobro de ${clientTotal.toLocaleString()} {currencyForCountry(eventCountry)}.
             </Text>
 
             {/* Hero del plan seleccionado */}
@@ -813,7 +852,7 @@ export default function BookingScreen({ route, navigation }: any) {
                 {selectedMSI.months > 1 ? `${selectedMSI.months} pagos de` : 'Total'}
               </Text>
               <Text style={styles.msiHeroAmount}>
-                ${monthlyAmount.toLocaleString()}
+                ${monthlyAmount.toLocaleString()} {currencyForCountry(eventCountry)}
               </Text>
               <Text style={styles.msiHeroInterests}>
                 {selectedMSI.months > 1 ? 'Cargo financiero incluido' : 'Sin cargo adicional'}

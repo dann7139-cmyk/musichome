@@ -15,19 +15,23 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { ArrowLeft, CheckCircle, XCircle } from 'lucide-react-native';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import RequestZoneMap from '../../components/requests/RequestZoneMap';
 import { eventCardCenter } from '../../utils/mapUtils';
+import { getClientActiveEvents, resolveEventContext } from '../../utils/eventBuilder';
 
-const EVENT_TYPE_LABELS: Record<string, string> = {
-  fiesta_privada: '🎉 Fiesta privada',
-  boda:           '💍 Boda',
-  cumpleanos:     '🎂 Cumpleaños',
-  graduacion:     '🎓 Graduación',
-  empresarial:    '🏢 Empresarial',
-  otro:           '🎵 Otro',
-};
+// Etiquetas de tipo de evento — se generan dentro del componente con `t`.
+const getEventTypeLabels = (t: TFunction): Record<string, string> => ({
+  fiesta_privada: t('clientQuoteDetailScreen.eventTypes.fiesta_privada'),
+  boda:           t('clientQuoteDetailScreen.eventTypes.boda'),
+  cumpleanos:     t('clientQuoteDetailScreen.eventTypes.cumpleanos'),
+  graduacion:     t('clientQuoteDetailScreen.eventTypes.graduacion'),
+  empresarial:    t('clientQuoteDetailScreen.eventTypes.empresarial'),
+  otro:           t('clientQuoteDetailScreen.eventTypes.otro'),
+});
 
 function Row({ label, value, bold }: { label: string; value: string; bold?: boolean }) {
   return (
@@ -39,7 +43,9 @@ function Row({ label, value, bold }: { label: string; value: string; bold?: bool
 }
 
 export default function ClientQuoteDetailScreen({ route, navigation }: any) {
+  const { t } = useTranslation();
   const { quoteId } = route.params as { quoteId: string };
+  const EVENT_TYPE_LABELS = getEventTypeLabels(t);
 
   const [quote, setQuote]           = useState<any>(null);
   const [loading, setLoading]       = useState(true);
@@ -105,85 +111,72 @@ export default function ClientQuoteDetailScreen({ route, navigation }: any) {
     try {
       const { data: { user }, error: authErr } = await supabase.auth.getUser();
       const clientId = user?.id;
-      if (authErr || !clientId) throw new Error('No hay sesión activa.');
+      if (authErr || !clientId) throw new Error(t('clientQuoteDetailScreen.errors.noSession'));
 
       const total     = quote.total_amount ?? 0;
       const addrParts = [quote.event_address, quote.event_municipio, quote.event_estado].filter(Boolean);
       const address   = addrParts.join(', ') || null;
 
-      // 1. Crear evento padre
-      const { data: eventData, error: eventErr } = await supabase
-        .from('events')
-        .insert({
-          client_id:  clientId,
-          event_date: quote.event_date,
-          event_time: quote.event_time ?? null,
-          address,
-          status:     'active',
-        })
-        .select('id')
-        .single();
-      if (eventErr || !eventData?.id) throw new Error('No se pudo registrar el evento. Intenta de nuevo.');
+      // Resolver evento — SIGUE siendo del lado de la app (Alert.alert de
+      // "¿es tu evento del [fecha]?" es UI, no puede vivir en SQL). Solo
+      // importa de verdad para cotizaciones viejas sin su propio event_id
+      // — sql/593 usa el de la cotización directamente cuando ya existe.
+      const activeEvents = quote.event_id ? [] : await getClientActiveEvents();
+      const resolvedEventId = await resolveEventContext({
+        t,
+        presetEventId: quote.event_id ?? null,
+        activeEvents,
+      });
 
-      // 2. Crear reserva
-      const { data: resData, error: resErr } = await supabase
-        .from('reservations')
-        .insert({
-          event_id:    eventData.id,
-          client_id:   clientId,
-          group_id:    quote.group_id,
-          event_date:  quote.event_date,
-          event_time:  quote.event_time ?? null,
-          address,
-          total_price: total,
-          status:      'accepted',
-          quote_id:    quote.id,
-          notes:       quote.comments ?? null,
-          ...(msiMonths > 1 ? { msi_months: msiMonths } : {}),
-          // 🎁 Regalo: copiar del quote a la reserva (marca + destinatario + mensaje)
-          ...(quote.is_gift ? {
-            is_gift:                true,
-            gift_recipient_name:    quote.gift_recipient_name ?? null,
-            gift_recipient_contact: quote.gift_recipient_contact ?? null,
-            gift_message:           quote.gift_message ?? null,
-          } : {}),
-        })
-        .select('id')
-        .single();
-      if (resErr || !resData?.id) {
-        // Candado universal (trigger sql/431, actualizado en Fase A): la
-        // fecha se bloqueó/ocupó o el grupo ya llegó a su límite/traslape
-        const code = resErr?.message ?? '';
+      // sql/593 (2026-09-01) — crear la reserva y marcar la cotización
+      // aceptada en UNA sola llamada atómica. Hallazgo real del recorrido
+      // de los 3 roles: antes eran 2 pasos separados (insert + update);
+      // si la conexión se cortaba justo entre ambos, la cotización se
+      // quedaba "viva" con una reserva ya creada, y un reintento podía
+      // duplicarla (riesgo real de doble cobro). La función es además
+      // idempotente: reintentar tras una falla ya resuelta regresa la
+      // MISMA reserva en vez de crear otra.
+      const { data: acceptResult, error: acceptErr } = await supabase.rpc('client_accept_quote', {
+        p_quote_id:   quote.id,
+        p_event_id:   resolvedEventId,
+        p_msi_months: msiMonths,
+      });
+      if (acceptErr || !acceptResult?.ok) {
+        const code = acceptErr?.message ?? acceptResult?.error ?? '';
         if (code.includes('date_blocked') || code.includes('date_taken')) {
-          throw new Error('Esa fecha ya no está disponible para el grupo (se ocupó o la bloqueó). Coordina otra fecha antes de aceptar.');
+          throw new Error(t('clientQuoteDetailScreen.errors.dateBlocked'));
         }
         if (code.includes('daily_event_limit')) {
-          throw new Error('Este grupo ya tiene 2 eventos agendados ese día. Coordina otra fecha antes de aceptar.');
+          throw new Error(t('clientQuoteDetailScreen.errors.dailyLimit'));
         }
         if (code.includes('time_overlap')) {
-          throw new Error('El horario de este evento choca con otro evento del grupo ese día. Coordina otro horario o fecha antes de aceptar.');
+          throw new Error(t('clientQuoteDetailScreen.errors.timeOverlap'));
         }
-        throw new Error('No se pudo crear la reserva. Intenta de nuevo.');
+        if (code.includes('event_group_limit_reached')) {
+          throw new Error(t('clientQuoteDetailScreen.errors.groupLimitReached'));
+        }
+        throw new Error(t('clientQuoteDetailScreen.errors.reservationCreateFailed'));
       }
+      const reservationId: string = acceptResult.reservation_id;
+      const eventId: string       = acceptResult.event_id;
 
-      // 3. Marcar cotización como aceptada
-      await supabase.from('quotes').update({ status: 'accepted' }).eq('id', quote.id);
-
-      // 4. Notificar al grupo
-      if (quote.group?.owner_id) {
+      // Notificar al grupo — solo en una aceptación nueva de verdad; un
+      // reintento idempotente ya notificó la primera vez.
+      if (quote.group?.owner_id && !acceptResult.already_accepted) {
         await notifyGroup(
           quote.group.id,
           quote.group.owner_id,
           'quote_accepted',
-          '✅ Cotización aceptada',
-          `Cliente aceptó tu cotización de $${total.toLocaleString()} MXN.`,
+          t('clientQuoteDetailScreen.notifications.quoteAcceptedTitle'),
+          t('clientQuoteDetailScreen.notifications.quoteAcceptedBody', { amount: total.toLocaleString() }),
         );
       }
 
-      // 5. Navegar a la pantalla unificada de pago (QuotePaymentScreen)
+      // Navegar a la pantalla unificada de pago (QuotePaymentScreen)
       navigation.navigate('QuotePayment', {
         reservation: {
-          id:          resData.id,
+          id:          reservationId,
+          event_id:    eventId,
           total_price: total,
           event_date:  quote.event_date,
           event_time:  quote.event_time ?? null,
@@ -196,7 +189,7 @@ export default function ClientQuoteDetailScreen({ route, navigation }: any) {
       });
 
     } catch (err: any) {
-      Alert.alert('Ocurrió un problema', err.message ?? 'No se pudo procesar tu solicitud. Intenta de nuevo.');
+      Alert.alert(t('clientQuoteDetailScreen.errors.genericProblemTitle'), err.message ?? t('clientQuoteDetailScreen.errors.genericProblemMessage'));
     } finally {
       setActing(false);
     }
@@ -207,11 +200,11 @@ export default function ClientQuoteDetailScreen({ route, navigation }: any) {
     if (acting) return;
     const baseTotal = quote.total_amount ?? 0;
     Alert.alert(
-      '¿Confirmar contratación?',
-      `Total: $${baseTotal.toLocaleString()} MXN\n\nElegirás tu forma de pago en el siguiente paso.\n\nEl pago se libera al finalizar el evento.`,
+      t('clientQuoteDetailScreen.confirmDialog.title'),
+      t('clientQuoteDetailScreen.confirmDialog.message', { amount: baseTotal.toLocaleString() }),
       [
-        { text: 'Revisar', style: 'cancel' },
-        { text: 'Continuar al pago', onPress: () => handleConfirmPayment(1) },
+        { text: t('clientQuoteDetailScreen.confirmDialog.review'), style: 'cancel' },
+        { text: t('clientQuoteDetailScreen.confirmDialog.continue'), onPress: () => handleConfirmPayment(1) },
       ],
     );
   };
@@ -219,12 +212,12 @@ export default function ClientQuoteDetailScreen({ route, navigation }: any) {
   // ── Cancelar ───────────────────────────────────────────────────────────────
   const handleCancel = () => {
     Alert.alert(
-      'Cancelar cotización',
-      '¿Estás seguro de que quieres cancelar esta cotización?',
+      t('clientQuoteDetailScreen.cancelDialog.title'),
+      t('clientQuoteDetailScreen.cancelDialog.message'),
       [
-        { text: 'No', style: 'cancel' },
+        { text: t('clientQuoteDetailScreen.cancelDialog.no'), style: 'cancel' },
         {
-          text: 'Sí, cancelar',
+          text: t('clientQuoteDetailScreen.cancelDialog.yesCancel'),
           style: 'destructive',
           onPress: async () => {
             setActing(true);
@@ -238,22 +231,22 @@ export default function ClientQuoteDetailScreen({ route, navigation }: any) {
                 quote.group.id,
                 quote.group.owner_id,
                 'quote_cancelled',
-                '❌ Cotización cancelada',
-                'El cliente canceló la cotización.',
+                t('clientQuoteDetailScreen.notifications.quoteCancelledTitle'),
+                t('clientQuoteDetailScreen.notifications.quoteCancelledBody'),
               );
             }
 
             setActing(false);
             if (error) {
-              Alert.alert('Error', 'No se pudo procesar. Intenta de nuevo.');
+              Alert.alert(t('clientQuoteDetailScreen.cancelResult.errorTitle'), t('clientQuoteDetailScreen.cancelResult.errorMessage'));
             } else {
               Alert.alert(
-                'Cancelada',
-                '¿Quieres volver a cotizar con este grupo?',
+                t('clientQuoteDetailScreen.cancelResult.cancelledTitle'),
+                t('clientQuoteDetailScreen.cancelResult.cancelledMessage'),
                 [
-                  { text: 'No, gracias', onPress: () => navigation.goBack() },
+                  { text: t('clientQuoteDetailScreen.cancelResult.noThanks'), onPress: () => navigation.goBack() },
                   {
-                    text: 'Volver a cotizar',
+                    text: t('clientQuoteDetailScreen.cancelResult.requote'),
                     onPress: () => {
                       navigation.goBack();
                       navigation.navigate('QuoteForm', { group: quote.group });
@@ -282,7 +275,7 @@ export default function ClientQuoteDetailScreen({ route, navigation }: any) {
     return (
       <View style={s.root}>
         <SafeAreaView edges={['top']} style={s.center}>
-          <Text style={s.errorText}>No se encontró la cotización.</Text>
+          <Text style={s.errorText}>{t('clientQuoteDetailScreen.loading.notFound')}</Text>
         </SafeAreaView>
       </View>
     );
@@ -317,8 +310,8 @@ export default function ClientQuoteDetailScreen({ route, navigation }: any) {
             )}
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={s.headerTitle}>Cotización recibida</Text>
-            <Text style={s.headerSub}>{quote.group?.name ?? 'Grupo'}</Text>
+            <Text style={s.headerTitle}>{t('clientQuoteDetailScreen.header.title')}</Text>
+            <Text style={s.headerSub}>{quote.group?.name ?? t('clientQuoteDetailScreen.genericGroupName')}</Text>
           </View>
           {quote.group?.id && (
             <Pressable
@@ -326,7 +319,7 @@ export default function ClientQuoteDetailScreen({ route, navigation }: any) {
               hitSlop={8}
               style={({ pressed }) => [s.viewProfileBtn, pressed && { opacity: 0.6 }]}
             >
-              <Text style={s.viewProfileTx}>Ver perfil ›</Text>
+              <Text style={s.viewProfileTx}>{t('clientQuoteDetailScreen.header.viewProfile')}</Text>
             </Pressable>
           )}
         </View>
@@ -338,13 +331,13 @@ export default function ClientQuoteDetailScreen({ route, navigation }: any) {
         {isAccepted && (
           <View style={[s.statusBanner, s.statusGreen]}>
             <CheckCircle size={16} color={COLORS.green} />
-            <Text style={[s.statusText, { color: COLORS.green }]}>Cotización aceptada ✅</Text>
+            <Text style={[s.statusText, { color: COLORS.green }]}>{t('clientQuoteDetailScreen.status.accepted')}</Text>
           </View>
         )}
         {isCancelled && (
           <View style={[s.statusBanner, s.statusRed]}>
             <XCircle size={16} color={COLORS.red} />
-            <Text style={[s.statusText, { color: COLORS.red }]}>Cotización cancelada</Text>
+            <Text style={[s.statusText, { color: COLORS.red }]}>{t('clientQuoteDetailScreen.status.cancelled')}</Text>
           </View>
         )}
 
@@ -357,7 +350,7 @@ export default function ClientQuoteDetailScreen({ route, navigation }: any) {
           return (
             <View style={s.mapCard}>
               <RequestZoneMap
-                mapId={String(quote.id)} center={center} typeLabel="📅 Programada"
+                mapId={String(quote.id)} center={center} typeLabel={t('clientQuoteDetailScreen.map.scheduled')}
                 userLocation={null} groupPhotoUrl={null}
               />
             </View>
@@ -366,39 +359,39 @@ export default function ClientQuoteDetailScreen({ route, navigation }: any) {
 
         {/* Precio total */}
         <View style={[s.priceCard, { borderColor: isAccepted ? COLORS.green : isCancelled ? COLORS.red : COLORS.border }]}>
-          <Text style={s.priceLabel}>Total cotizado</Text>
+          <Text style={s.priceLabel}>{t('clientQuoteDetailScreen.price.label')}</Text>
           <Text style={s.priceValue}>${total.toLocaleString()} MXN</Text>
           {quote.travel_cost > 0 && (
-            <Text style={s.priceNote}>Incluye ${quote.travel_cost?.toLocaleString()} de traslado</Text>
+            <Text style={s.priceNote}>{t('clientQuoteDetailScreen.price.travelNote', { amount: quote.travel_cost?.toLocaleString() })}</Text>
           )}
         </View>
 
         {/* Detalles del evento */}
         <View style={s.section}>
-          <Text style={s.sectionTitle}>Detalles del evento</Text>
-          <Row label="Tipo"      value={EVENT_TYPE_LABELS[quote.event_type] ?? quote.event_type} />
-          <Row label="Fecha"     value={eventDateStr} />
-          <Row label="Duración"  value={`${quote.duration_hours} horas`} />
-          {quote.event_time ? <Row label="Hora" value={quote.event_time} /> : null}
+          <Text style={s.sectionTitle}>{t('clientQuoteDetailScreen.eventDetails.title')}</Text>
+          <Row label={t('clientQuoteDetailScreen.eventDetails.type')}      value={EVENT_TYPE_LABELS[quote.event_type] ?? quote.event_type} />
+          <Row label={t('clientQuoteDetailScreen.eventDetails.date')}     value={eventDateStr} />
+          <Row label={t('clientQuoteDetailScreen.eventDetails.duration')}  value={t('clientQuoteDetailScreen.eventDetails.durationValue', { hours: quote.duration_hours })} />
+          {quote.event_time ? <Row label={t('clientQuoteDetailScreen.eventDetails.time')} value={quote.event_time} /> : null}
         </View>
 
         {/* Horas extra disponibles */}
         {(quote.overtime_1h_price || quote.overtime_2h_price || quote.overtime_3h_price) && (
           <View style={s.section}>
-            <Text style={s.sectionTitle}>Horas extra disponibles</Text>
+            <Text style={s.sectionTitle}>{t('clientQuoteDetailScreen.overtime.title')}</Text>
             <Text style={s.overtimeNote}>
-              ⏱ Al finalizar el evento podrás contratar horas extra directamente desde la app, antes de que concluya el servicio.
+              {t('clientQuoteDetailScreen.overtime.note')}
             </Text>
-            {quote.overtime_1h_price ? <Row label="+1 hora extra" value={`$${quote.overtime_1h_price?.toLocaleString()}`} /> : null}
-            {quote.overtime_2h_price ? <Row label="+2 horas extra" value={`$${quote.overtime_2h_price?.toLocaleString()}`} /> : null}
-            {quote.overtime_3h_price ? <Row label="+3 horas extra" value={`$${quote.overtime_3h_price?.toLocaleString()}`} /> : null}
+            {quote.overtime_1h_price ? <Row label={t('clientQuoteDetailScreen.overtime.plus1')} value={`$${quote.overtime_1h_price?.toLocaleString()}`} /> : null}
+            {quote.overtime_2h_price ? <Row label={t('clientQuoteDetailScreen.overtime.plus2')} value={`$${quote.overtime_2h_price?.toLocaleString()}`} /> : null}
+            {quote.overtime_3h_price ? <Row label={t('clientQuoteDetailScreen.overtime.plus3')} value={`$${quote.overtime_3h_price?.toLocaleString()}`} /> : null}
           </View>
         )}
 
         {/* Notas del grupo */}
         {quote.group_notes ? (
           <View style={s.section}>
-            <Text style={s.sectionTitle}>Notas del grupo</Text>
+            <Text style={s.sectionTitle}>{t('clientQuoteDetailScreen.groupNotes.title')}</Text>
             <View style={s.noteBox}>
               <Text style={s.noteText}>"{quote.group_notes}"</Text>
             </View>
@@ -417,7 +410,7 @@ export default function ClientQuoteDetailScreen({ route, navigation }: any) {
               disabled={acting}
             >
               <XCircle size={18} color={COLORS.red} />
-              <Text style={s.cancelBtnText}>Cancelar</Text>
+              <Text style={s.cancelBtnText}>{t('clientQuoteDetailScreen.actions.cancel')}</Text>
             </Pressable>
             <Pressable
               style={[s.acceptBtn, acting && { opacity: 0.5 }]}
@@ -427,7 +420,7 @@ export default function ClientQuoteDetailScreen({ route, navigation }: any) {
               {acting
                 ? <ActivityIndicator size="small" color={COLORS.bg} />
                 : <CheckCircle size={18} color={COLORS.bg} />}
-              <Text style={s.acceptBtnText}>Contratar y pagar</Text>
+              <Text style={s.acceptBtnText}>{t('clientQuoteDetailScreen.actions.hireAndPay')}</Text>
             </Pressable>
           </View>
         )}
@@ -440,7 +433,7 @@ export default function ClientQuoteDetailScreen({ route, navigation }: any) {
               navigation.navigate('QuoteForm', { group: quote.group });
             }}
           >
-            <Text style={s.acceptBtnText}>Volver a cotizar</Text>
+            <Text style={s.acceptBtnText}>{t('clientQuoteDetailScreen.actions.requoteAgain')}</Text>
           </Pressable>
         )}
 

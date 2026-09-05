@@ -15,12 +15,15 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { Gift as GiftIcon } from 'lucide-react-native';
+import { useTranslation } from 'react-i18next';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import { containsProfanity, PROFANITY_WARNING } from '../../utils/profanityFilter';
+import GiftPickerModal from '../gifts/GiftPickerModal';
 
 export type RatingSubject =
-  | { type: 'group';   targetId: string; targetName: string; reservationId: string }
+  | { type: 'group';   targetId: string; targetName: string; reservationId: string; groupCountry?: string | null }
   | { type: 'client';  targetId: string; targetName: string; reservationId: string }
   | { type: 'talent';  targetId: string; targetName: string; reservationId: string };
 
@@ -46,9 +49,12 @@ const STAR_LABELS: Record<number, string> = {
 };
 
 export default function RatingModal({ visible, subject, onDone }: Props) {
+  const { t } = useTranslation();
   const [stars,   setStars]   = useState(5);
   const [comment, setComment] = useState('');
   const [loading, setLoading] = useState(false);
+  // 🎁 "Dar propina" — solo aplica cuando el cliente califica al grupo.
+  const [tipVisible, setTipVisible] = useState(false);
 
   if (!subject) return null;
 
@@ -147,6 +153,15 @@ export default function RatingModal({ visible, subject, onDone }: Props) {
             maxLength={300}
           />
 
+          {/* 🎁 Dar propina — solo al calificar al grupo. Mismo azul que el
+              resto de los botones de regalo en la app. */}
+          {subject.type === 'group' && (
+            <Pressable style={s.btnTip} onPress={() => setTipVisible(true)}>
+              <GiftIcon size={16} color="#fff" />
+              <Text style={s.btnTipText}>{t('gifts.tipButton')}</Text>
+            </Pressable>
+          )}
+
           {/* Buttons */}
           <Pressable
             style={[s.btnSubmit, loading && { opacity: 0.6 }]}
@@ -163,6 +178,20 @@ export default function RatingModal({ visible, subject, onDone }: Props) {
           </Pressable>
         </View>
       </KeyboardAvoidingView>
+
+      {/* GiftPickerModal NO usa <Modal> nativo propio a propósito (por eso
+          se puede montar aquí, dentro de este <Modal>, sin romperse en
+          Android). */}
+      {subject.type === 'group' && (
+        <GiftPickerModal
+          visible={tipVisible}
+          onClose={() => setTipVisible(false)}
+          groupId={subject.targetId}
+          groupName={subject.targetName}
+          groupCountry={subject.groupCountry ?? null}
+          reservationId={subject.reservationId}
+        />
+      )}
     </Modal>
   );
 }
@@ -204,6 +233,13 @@ const s = StyleSheet.create({
     height: 80,
     marginBottom: 20,
   },
+
+  btnTip: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: '#3B82F6', borderWidth: 1.5, borderColor: '#60A5FA',
+    borderRadius: RADIUS.lg, paddingVertical: 13, marginBottom: 12,
+  },
+  btnTipText: { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: '#fff' },
 
   btnSubmit: {
     backgroundColor: COLORS.green,

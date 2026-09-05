@@ -5,13 +5,14 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import Stripe from 'https://esm.sh/stripe@13?target=deno&no-check=1';
+import { resolveRefundClaimAction, applyRefundClaimAction } from '../_shared/refund_claim_guard.ts';
 
-const supabase = createClient(
-  Deno.env.get('SUPABASE_URL')!,
-  Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
-);
+const SUPABASE_URL  = Deno.env.get('SUPABASE_URL')!;
+const SERVICE_KEY   = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
-Deno.serve(async (req) => {
+const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
+
+export async function handleRequest(req: Request): Promise<Response> {
   const sigHeader     = req.headers.get('stripe-signature') ?? '';
   const webhookSecret = Deno.env.get('STRIPE_WEBHOOK_SECRET') ?? '';
   const stripeKey     = Deno.env.get('STRIPE_SECRET_KEY') ?? '';
@@ -210,6 +211,35 @@ Deno.serve(async (req) => {
       return new Response('OK', { status: 200 });
     }
 
+    // ── ¿Es el cobro MANUAL de Plus (create-plus-subscription, cuando la
+    //    cuenta de Stripe no genera el payment_intent automático de la
+    //    factura)? Se le avisa a Stripe que la factura quedó pagada
+    //    (paid_out_of_band) — eso dispara customer.subscription.updated
+    //    con status='active', que activa Plus por la ruta normal (abajo).
+    const plusGroupId = pi.metadata?.plus_group_id;
+    const plusInvoiceId = pi.metadata?.plus_invoice_id;
+    if (plusGroupId && plusInvoiceId) {
+      try {
+        await stripe.invoices.pay(plusInvoiceId, { paid_out_of_band: true });
+
+        const plusSubId = pi.metadata?.plus_subscription_id;
+        const pmId = typeof pi.payment_method === 'string'
+          ? pi.payment_method
+          : (pi.payment_method as any)?.id ?? null;
+        if (plusSubId && pmId) {
+          // Guarda la tarjeta como default de la suscripción — sin esto,
+          // la renovación del año que viene no tendría con qué cobrar.
+          await stripe.subscriptions.update(plusSubId, { default_payment_method: pmId });
+        }
+
+        console.log(`[Plus] Invoice pagada out-of-band: invoice=${plusInvoiceId} group=${plusGroupId} pi=${pi.id}`);
+      } catch (e: any) {
+        console.error('[Plus] Error marcando invoice de Plus como pagada:', e.message);
+        return new Response('Stripe error', { status: 500 });
+      }
+      return new Response('OK', { status: 200 });
+    }
+
     // ── ¿Es pago de hora extra? ──────────────────────────────────
     const extraHourId = pi.metadata?.extra_hour_id;
     if (extraHourId) {
@@ -231,12 +261,13 @@ Deno.serve(async (req) => {
         console.warn('[Webhook] No se pudo obtener stripe fee extra_hour:', e.message);
       }
 
-      const { error: extraErr } = await supabase.rpc(
+      const { data: extraData, error: extraErr } = await supabase.rpc(
         'confirm_extra_hour_stripe_payment',
         {
           p_extra_id:          extraHourId,
           p_stripe_payment_id: pi.id,
           p_amount_paid:       pi.amount / 100,
+          p_currency:          (pi.currency ?? '').toUpperCase(),
           p_stripe_fee:        stripeFee,
         },
       );
@@ -244,6 +275,14 @@ Deno.serve(async (req) => {
       if (extraErr) {
         console.error('[Webhook] confirm_extra_hour_stripe_payment error:', extraErr.message);
         return new Response('DB Error', { status: 500 });
+      }
+
+      // La RPC devuelve {ok:false, ...} como JSONB normal (no excepción) para
+      // currency_mismatch, invalid_status, extra_not_found, etc. — sin este
+      // chequeo el webhook respondía 200 aunque no se hubiera acreditado nada.
+      if (extraData?.ok === false) {
+        console.error('[Webhook] confirm_extra_hour_stripe_payment rechazado:', JSON.stringify(extraData));
+        return new Response('Rejected', { status: 500 });
       }
 
       console.log(`[Webhook] Extra hour paid: ${extraHourId}`);
@@ -428,17 +467,31 @@ Deno.serve(async (req) => {
     const refundAmount = (refund.amount ?? charge.amount_refunded ?? null) != null
       ? (refund.amount ?? charge.amount_refunded) / 100
       : null;
+    const refundId = refund.id ?? null;
 
-    const { error: refErr } = await supabase.rpc('process_refund_reversal', {
-      p_reservation_id: res.id,
-      p_mp_refund_id:   refund.id ?? null,
-      p_refund_amount:  refundAmount,
-    });
+    // P1F: NUNCA asumir que este refund es 'full'. Se consulta el claim
+    // (creado por process-refund ANTES de llamar a Stripe) para saber si
+    // en realidad es una cancelación de cliente o de grupo — y en ese
+    // caso completar settle_cancellation/settle_group_cancellation
+    // directamente (nunca la RPC genérica), sin importar si este webhook
+    // ganó la carrera contra process-refund o llegó después.
+    const decision = await resolveRefundClaimAction(SUPABASE_URL, SERVICE_KEY, 'stripe', piId);
 
-    if (refErr) {
-      console.error('[Stripe Webhook] Error process_refund_reversal:', refErr.message);
+    if (decision.action === 'already_done') {
+      console.log(`[Stripe Webhook] claim=${decision.claimId} ya estaba 'done' — idempotente, sin cambios (reserva=${res.id})`);
     } else {
-      console.log(`[Stripe Webhook] Reembolso revertido: reserva=${res.id} amount=${refundAmount}`);
+      const outcome = await applyRefundClaimAction(
+        SUPABASE_URL, SERVICE_KEY, res.id, refundId, refundAmount, decision,
+        { provider: 'stripe', providerPaymentId: piId },
+      );
+      if (!outcome.ok) {
+        console.error(`[Stripe Webhook] Error ${outcome.rpc} (decision=${decision.action}):`, JSON.stringify(outcome.result));
+      } else if (outcome.rpc === 'none_fail_closed') {
+        console.warn(`[Stripe Webhook] FAIL CLOSED — sin claim, sin RPC contable ejecutada (reserva=${res.id}) logged=${outcome.result.logged} notified=${outcome.result.notified}`);
+      } else {
+        const skipped = 'skipped' in outcome && outcome.skipped;
+        console.log(`[Stripe Webhook] ${outcome.rpc}${skipped ? ' (skip, ya liquidado por otra vía)' : ''}: reserva=${res.id} amount=${refundAmount} decision=${decision.action}`);
+      }
     }
   }
 
@@ -616,4 +669,8 @@ Deno.serve(async (req) => {
   }
 
   return new Response('OK', { status: 200 });
-});
+}
+
+if (import.meta.main) {
+  Deno.serve(handleRequest);
+}

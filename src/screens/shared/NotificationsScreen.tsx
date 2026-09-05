@@ -66,7 +66,9 @@ interface Notification {
         // Disputas (cliente/grupo/admin — sql 184/425/427)
         'dispute' |
         // Calificaciones recibidas
-        'review_received';
+        'review_received' |
+        // sql/591 — coordinación de equipo grande entre grupos del mismo evento
+        'sound_coordination_needed';
   title: string;
   message?: string;
   body?: string;
@@ -363,6 +365,7 @@ export default function NotificationsScreen({ navigation }: any) {
         break;
 
       // ── Recordatorios de evento + auto-inicio/nudge ────────────────────────
+      case 'event_reminder_24h':
       case 'event_reminder_morning':
       case 'event_reminder_1h':
       case 'event_reminder_2h':
@@ -515,6 +518,24 @@ export default function NotificationsScreen({ navigation }: any) {
         break;
       }
 
+      case 'sound_coordination_needed': {
+        // sql/591 — grupo sin equipo grande: otro proveedor de su mismo
+        // evento ya lo tiene. Mismo patrón exacto que 'new_quote_request'
+        // — va directo al detalle de SU PROPIA cotización, donde ya vive
+        // el banner con el nombre/teléfono del otro grupo.
+        const scId = notif.data?.quote_id as string | undefined;
+        if (scId) {
+          const { data: qData } = await supabase
+            .from('quotes')
+            .select('*, client:profiles!client_id(full_name, avatar_url)')
+            .eq('id', scId)
+            .maybeSingle();
+          if (qData) { navigation.navigate('GroupQuoteDetail', { quote: qData }); break; }
+        }
+        navigation.navigate('GroupQuotes');
+        break;
+      }
+
       case 'quote_accepted':
       case 'quote_cancelled': {
         // Grupo/integrante: ir al detalle de la cotización
@@ -579,8 +600,12 @@ export default function NotificationsScreen({ navigation }: any) {
       // ── Re-engagement (clientes) ───────────────────────────────────────────
       case 'new_city_groups':
       case 'group_nearby':
-        // Lleva al explorador de grupos
-        navigation.navigate('Explorar');
+        // Lleva al explorador de grupos — "Explorar" es un tab DENTRO de
+        // "Home" (ClientTabs), no una ruta del stack raíz. navigate('Explorar')
+        // a secas no hacía nada porque esta pantalla vive en el stack raíz,
+        // sibling de "Home", no dentro de él (mismo bug de EventCategoryPicker,
+        // hallazgo real 2026-09-03). Estos 2 tipos son solo de cliente.
+        navigation.navigate('Home', { screen: 'Explorar' });
         break;
 
       case 'bid_displaced':
@@ -806,7 +831,17 @@ export default function NotificationsScreen({ navigation }: any) {
           ? (SCREEN_REMAP[rawSysScreen] ?? rawSysScreen)
           : undefined;
         if (sysScreen) {
-          try { navigation.navigate(sysScreen as any); } catch { /* pantalla inválida */ }
+          // gift_id viaja en varias notificaciones de tipo 'system' (regalos) —
+          // GiftReveal lo necesita para saber cuál mostrar. group_id viaja en
+          // el agradecimiento al que pagó, para mandarlo al perfil del grupo
+          // que apoyó (GroupDetailScreen ya sabe cargar solo con el id).
+          const giftId  = notif.data?.gift_id as string | undefined;
+          const groupId = notif.data?.group_id as string | undefined;
+          const params =
+            sysScreen === 'GroupDetail' && groupId ? { groupId } :
+            giftId ? { gift_id: giftId } :
+            undefined;
+          try { navigation.navigate(sysScreen as any, params); } catch { /* pantalla inválida */ }
         }
         break;
       }

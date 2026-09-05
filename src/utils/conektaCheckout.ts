@@ -98,6 +98,53 @@ export async function startPromoConektaCheckout(
   return { ok: true };
 }
 
+// ── 🎁 Regalo/donación a un grupo (perfil o publicación) ─────────────────────
+// Solo tarjeta → instantáneo. Al volver del navegador SÍ se consulta el
+// estado unas veces (igual que reservas con tarjeta). IMPORTANTE (bug real
+// reportado 2026-09-05): `WebBrowser.openBrowserAsync` se resuelve en
+// cuanto el usuario CIERRA la pestaña, sea porque pagó, canceló, o de
+// plano se salió sin tocar nada — NO significa "pagó". Antes esto disparaba
+// la celebración de inmediato, así que un cliente que se salía sin pagar
+// veía igual la animación de "regalo enviado". Ahora se espera el resultado
+// real (polling a `group_gifts.status`, igual que hace `startConektaCheckout`
+// con reservas) antes de decirle a quien llama si celebrar o no.
+export async function startGiftConektaCheckout(
+  groupId: string,
+  giftId: string,
+  postId?: string,
+  customAmount?: number,
+  reservationId?: string,
+): Promise<{ ok: boolean; status: 'paid' | 'pending' | 'error'; giftOrderId?: string; error?: string }> {
+  const { data: sd } = await supabase.auth.getSession();
+  const { data, error } = await supabase.functions.invoke('create-gift-order', {
+    body:    { group_id: groupId, gift_id: giftId, post_id: postId ?? null, custom_amount: customAmount ?? null, reservation_id: reservationId ?? null },
+    headers: { Authorization: `Bearer ${sd.session?.access_token}` },
+  });
+  const url = (data as any)?.checkout_url as string | undefined;
+  const giftOrderId = (data as any)?.gift_order_id as string | undefined;
+  if (error || (data as any)?.error || !url || !giftOrderId) {
+    const msg = (data as any)?.error ?? error?.message ?? 'No se pudo iniciar el pago';
+    console.warn('[conekta] gift create-order falló:', msg);
+    return { ok: false, status: 'error', error: msg };
+  }
+
+  await WebBrowser.openBrowserAsync(url);
+
+  // El webhook es la fuente de verdad — se consulta unas veces antes de
+  // decidir si celebrar (paid) o avisar que sigue en proceso (pending).
+  // Quien llama NO debe celebrar hasta ver status:'paid' en la respuesta.
+  for (let i = 0; i < 4; i++) {
+    const { data: g } = await supabase
+      .from('group_gifts')
+      .select('status')
+      .eq('id', giftOrderId)
+      .single();
+    if (g?.status === 'paid') return { ok: true, status: 'paid', giftOrderId };
+    if (i < 3) await new Promise((res) => setTimeout(res, 1500));
+  }
+  return { ok: true, status: 'pending', giftOrderId };
+}
+
 // Recupera la CLABE (SPEI) o referencia (efectivo) de una orden pendiente,
 // para re-mostrarla en la app (la página de Conekta la enseña solo unos
 // segundos antes de redirigir).

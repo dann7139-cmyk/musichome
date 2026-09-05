@@ -48,6 +48,11 @@ export default function GroupQuoteDetailScreen({ route, navigation }: any) {
   const [isOwner,      setIsOwner]      = useState<boolean | null>(null);
   const [ownerName,    setOwnerName]    = useState<string>('');
   const [groupMembers, setGroupMembers] = useState<GroupMember[]>([]);
+  // sql/591 — "¿otro proveedor de este mismo evento ya tiene el equipo
+  // grande que a mí me falta?" Solo tiene sentido consultarlo mientras la
+  // cotización sigue pendiente de respuesta (una vez respondida, coordinar
+  // ya no cambia nada de lo que se le mandó al cliente).
+  const [soundCoordination, setSoundCoordination] = useState<any>(null);
   // El grupo tiene otra tocada DESPUÉS ese día → sin horas extra en este evento
   const [boxedIn,      setBoxedIn]      = useState(false);
 
@@ -59,6 +64,15 @@ export default function GroupQuoteDetailScreen({ route, navigation }: any) {
       durationHours: quote.duration_hours,
     }).then(cap => setBoxedIn(cap <= 0));
   }, []);
+
+  useEffect(() => {
+    if (quote.status !== 'pending') return;
+    // sql/591 (no aplicado todavía) — la RPC puede no existir en producción;
+    // si falla o no tiene el shape esperado, simplemente no se muestra el
+    // banner (comportamiento idéntico al actual, sin romper nada).
+    supabase.rpc('group_get_sound_coordination', { p_quote_id: quote.id })
+      .then(({ data, error }) => { if (!error && data?.needed) setSoundCoordination(data); });
+  }, [quote.id, quote.status]);
 
   useEffect(() => {
     supabase.auth.getUser().then(async ({ data }) => {
@@ -322,6 +336,7 @@ export default function GroupQuoteDetailScreen({ route, navigation }: any) {
         venueSize={quote.venue_size}
         needsSound={quote.needs_sound}
         needsLighting={quote.needs_lighting}
+        soundCoordination={soundCoordination}
         needsStage={quote.needs_stage}
         needsLed={quote.needs_led}
         // Client card — foto + Ver perfil, como ExpressCard

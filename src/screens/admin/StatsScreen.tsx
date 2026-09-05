@@ -17,6 +17,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   AlertTriangle, ArrowLeft, DollarSign, Globe, TrendingUp, Users, Zap,
 } from 'lucide-react-native';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import { CountryTabs, StatePicker } from '../../components/reports';
@@ -94,18 +96,22 @@ function RankRow({ rank, label, value, sub }: any) {
 
 // ─── TABS ─────────────────────────────────────────────────────────────────────
 
-const TABS = [
-  { label: 'Plataforma',   icon: Globe },
-  { label: 'Usuarios',     icon: Users },
-  { label: 'Comercial',    icon: TrendingUp },
-  { label: 'Finanzas',     icon: DollarSign },
-  { label: 'Riesgo',       icon: AlertTriangle },
-  { label: 'Inteligencia', icon: Zap },
-];
+function getTabs(t: TFunction) {
+  return [
+    { label: t('adminStatsScreen.tabs.platform'),     icon: Globe },
+    { label: t('adminStatsScreen.tabs.users'),        icon: Users },
+    { label: t('adminStatsScreen.tabs.commercial'),   icon: TrendingUp },
+    { label: t('adminStatsScreen.tabs.finance'),      icon: DollarSign },
+    { label: t('adminStatsScreen.tabs.risk'),         icon: AlertTriangle },
+    { label: t('adminStatsScreen.tabs.intelligence'), icon: Zap },
+  ];
+}
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function AdminStatsScreen({ navigation }: any) {
+  const { t } = useTranslation();
+  const TABS = getTabs(t);
   const [activeTab, setActiveTab] = useState(0);
   const [loading,   setLoading]   = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -242,7 +248,7 @@ export default function AdminStatsScreen({ navigation }: any) {
       .map(([id, v]) => ({
         id,
         name:  v.name,
-        city:  (grpRes.data ?? []).find((g: any) => g.id === id)?.city ?? 'Sin ciudad',
+        city:  (grpRes.data ?? []).find((g: any) => g.id === id)?.city ?? t('adminStatsScreen.common.noCity'),
         ads:   v.ads,
         bids:  v.bids,
         recs:  v.recs,
@@ -349,7 +355,7 @@ export default function AdminStatsScreen({ navigation }: any) {
 
   // Eventos → comisión desde reservations (bruto real)
   completed.forEach(r => {
-    const city = groupMap.get(r.group_id)?.city ?? 'Sin ciudad';
+    const city = groupMap.get(r.group_id)?.city ?? t('adminStatsScreen.common.noCity');
     ensureCity(city);
     cityData[city].events     += 1;
     cityData[city].commission += Number(r.commission_amount ?? 0);
@@ -357,7 +363,7 @@ export default function AdminStatsScreen({ navigation }: any) {
 
   // Bids → ciudad del grupo
   bidOrders.forEach(b => {
-    const city = (b.groups as any)?.city ?? groupMap.get(b.group_id)?.city ?? 'Sin ciudad';
+    const city = (b.groups as any)?.city ?? groupMap.get(b.group_id)?.city ?? t('adminStatsScreen.common.noCity');
     ensureCity(city);
     cityData[city].bids += Number(b.amount ?? 0);
   });
@@ -372,7 +378,7 @@ export default function AdminStatsScreen({ navigation }: any) {
 
   // Recomendaciones → ciudad del recommendation_order
   recOrders.forEach((r: any) => {
-    const city = r.city ?? groupMap.get(r.group_id)?.city ?? 'Sin ciudad';
+    const city = r.city ?? groupMap.get(r.group_id)?.city ?? t('adminStatsScreen.common.noCity');
     ensureCity(city);
     cityData[city].recs += Number(r.amount ?? 0);
   });
@@ -410,11 +416,11 @@ export default function AdminStatsScreen({ navigation }: any) {
     ? Math.round(((thisWeekTotal - lastWeekTotal) / lastWeekTotal) * 100) : 0;
 
   const alerts: { icon: string; text: string; color: string }[] = [];
-  if (weekDrop)    alerts.push({ icon: '⚠️', text: `Ingresos bajaron ${Math.abs(weekChangePct)}% esta semana`, color: COLORS.red });
-  if (adsBoom)     alerts.push({ icon: '🔥', text: 'Publicidad creciendo esta semana', color: COLORS.gold });
-  if (biddingBoom) alerts.push({ icon: '⚡', text: 'Bidding subiendo esta semana', color: '#A78BFA' });
+  if (weekDrop)    alerts.push({ icon: '⚠️', text: t('adminStatsScreen.finance.alertRevenueDrop', { pct: Math.abs(weekChangePct) }), color: COLORS.red });
+  if (adsBoom)     alerts.push({ icon: '🔥', text: t('adminStatsScreen.finance.alertAdsGrowing'), color: COLORS.gold });
+  if (biddingBoom) alerts.push({ icon: '⚡', text: t('adminStatsScreen.finance.alertBiddingGrowing'), color: '#A78BFA' });
   if (!weekDrop && !adsBoom && !biddingBoom && lastWeekTotal > 0)
-    alerts.push({ icon: '✅', text: `Ingresos estables esta semana (${weekChangePct >= 0 ? '+' : ''}${weekChangePct}%)`, color: COLORS.green });
+    alerts.push({ icon: '✅', text: t('adminStatsScreen.finance.alertStable', { sign: weekChangePct >= 0 ? '+' : '', pct: weekChangePct }), color: COLORS.green });
 
   console.log('[WALLET]', { total: walletTotal, eventos: walletEvents, publicidad: walletAds, bidding: walletBids, recomendaciones: walletRec });
 
@@ -444,7 +450,7 @@ export default function AdminStatsScreen({ navigation }: any) {
         <Pressable style={c.backBtn} onPress={() => navigation.goBack()}>
           <ArrowLeft size={20} color={COLORS.text} />
         </Pressable>
-        <Text style={c.headerTitle}>Estadísticas Admin</Text>
+        <Text style={c.headerTitle}>{t('adminStatsScreen.header.title')}</Text>
         <View style={{ width: 40 }} />
       </SafeAreaView>
 
@@ -478,42 +484,42 @@ export default function AdminStatsScreen({ navigation }: any) {
           {activeTab === 0 && (
             <View>
               <View style={c.statsGrid}>
-                <StatCard label="Eventos totales"   value={completed.length}          sub="Completados" />
-                <StatCard label="Este mes"           value={completedThisMonth.length} sub="Completados" color={COLORS.blue} />
-                <StatCard label="Ingresos brutos"    value={fmtM(totalRevenue)}        sub="Pagado por clientes" />
-                <StatCard label="Ganancia plataforma" value={fmtM(walletTotal)}        sub="Wallet real" color={COLORS.orange} />
+                <StatCard label={t('adminStatsScreen.platform.statTotalEvents')}   value={completed.length}          sub={t('adminStatsScreen.common.completed')} />
+                <StatCard label={t('adminStatsScreen.platform.statThisMonth')}           value={completedThisMonth.length} sub={t('adminStatsScreen.common.completed')} color={COLORS.blue} />
+                <StatCard label={t('adminStatsScreen.platform.statGrossRevenue')}    value={fmtM(totalRevenue)}        sub={t('adminStatsScreen.platform.statGrossRevenueSub')} />
+                <StatCard label={t('adminStatsScreen.platform.statPlatformProfit')} value={fmtM(walletTotal)}        sub={t('adminStatsScreen.platform.statPlatformProfitSub')} color={COLORS.orange} />
               </View>
 
               <View style={c.card}>
-                <SectionTitle title="Crecimiento y rendimiento" />
-                <Row2 label="Crecimiento mensual"    value={`${growth >= 0 ? '+' : ''}${pct(growth)}`}
+                <SectionTitle title={t('adminStatsScreen.platform.growthSection')} />
+                <Row2 label={t('adminStatsScreen.platform.monthlyGrowth')}    value={`${growth >= 0 ? '+' : ''}${pct(growth)}`}
                   color={growth >= 0 ? COLORS.green : COLORS.red} />
-                <Row2 label="Comisión este mes"        value={fmtM(walletEventsMonth)} color={COLORS.green} />
-                <Row2 label="Publicidad este mes"    value={fmtM(walletAdsMonth)} color={COLORS.gold} />
-                <Row2 label="Bidding este mes"       value={fmtM(walletBidsMonth)} color="#A78BFA" />
-                <Row2 label="⭐ Recom. este mes"     value={fmtM(walletRecMonth)} color="#FCD34D" />
-                <Row2 label="Ingreso total (mes)"    value={fmtM(walletTotalMonth)} color={COLORS.green} />
-                <Row2 label="Reservas pendientes"    value={String(pending.length)} color={COLORS.orange} />
-                <Row2 label="Reservas canceladas"    value={String(cancelled.length)} color={COLORS.red} />
-                <Row2 label="Total reservas"         value={String(reservations.length)} />
+                <Row2 label={t('adminStatsScreen.platform.commissionThisMonth')}        value={fmtM(walletEventsMonth)} color={COLORS.green} />
+                <Row2 label={t('adminStatsScreen.platform.adsThisMonth')}    value={fmtM(walletAdsMonth)} color={COLORS.gold} />
+                <Row2 label={t('adminStatsScreen.platform.biddingThisMonth')}       value={fmtM(walletBidsMonth)} color="#A78BFA" />
+                <Row2 label={t('adminStatsScreen.platform.recoThisMonth')}     value={fmtM(walletRecMonth)} color="#FCD34D" />
+                <Row2 label={t('adminStatsScreen.platform.totalIncomeMonth')}    value={fmtM(walletTotalMonth)} color={COLORS.green} />
+                <Row2 label={t('adminStatsScreen.platform.pendingReservations')}    value={String(pending.length)} color={COLORS.orange} />
+                <Row2 label={t('adminStatsScreen.platform.cancelledReservations')}    value={String(cancelled.length)} color={COLORS.red} />
+                <Row2 label={t('adminStatsScreen.platform.totalReservations')}         value={String(reservations.length)} />
                 {platformStats && <>
-                  <Row2 label="Solicitudes express (30d)"  value={String(platformStats.express_requests ?? 0)} color={COLORS.blue} />
-                  <Row2 label="Conversión express"         value={pct(platformStats.express_conversion ?? 0)}  color={COLORS.gold} />
-                  <Row2 label="Nuevos clientes (30d)"      value={String(platformStats.new_clients ?? 0)}      color={COLORS.green} />
-                  <Row2 label="Nuevos grupos (30d)"        value={String(platformStats.new_groups ?? 0)}       color={COLORS.blue} />
+                  <Row2 label={t('adminStatsScreen.platform.expressRequests30d')}  value={String(platformStats.express_requests ?? 0)} color={COLORS.blue} />
+                  <Row2 label={t('adminStatsScreen.platform.expressConversion')}         value={pct(platformStats.express_conversion ?? 0)}  color={COLORS.gold} />
+                  <Row2 label={t('adminStatsScreen.platform.newClients30d')}      value={String(platformStats.new_clients ?? 0)}      color={COLORS.green} />
+                  <Row2 label={t('adminStatsScreen.platform.newGroups30d')}        value={String(platformStats.new_groups ?? 0)}       color={COLORS.blue} />
                 </>}
               </View>
 
               <View style={c.card}>
-                <SectionTitle title="Últimos 6 meses" />
+                <SectionTitle title={t('adminStatsScreen.platform.last6Months')} />
                 <View style={{ flexDirection: 'row', gap: 16, marginBottom: 8 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
                     <View style={{ width: 10, height: 10, borderRadius: 2, backgroundColor: COLORS.green }} />
-                    <Text style={c.chartLegend}>Ingresos</Text>
+                    <Text style={c.chartLegend}>{t('adminStatsScreen.platform.legendRevenue')}</Text>
                   </View>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
                     <View style={{ width: 10, height: 10, borderRadius: 2, backgroundColor: COLORS.orange }} />
-                    <Text style={c.chartLegend}>Comisiones</Text>
+                    <Text style={c.chartLegend}>{t('adminStatsScreen.platform.legendCommissions')}</Text>
                   </View>
                 </View>
                 <BarChartV data={fillChartData(revenueChart)} />
@@ -526,45 +532,45 @@ export default function AdminStatsScreen({ navigation }: any) {
           {activeTab === 1 && (
             <View>
               <View style={c.statsGrid}>
-                <StatCard label="Grupos"    value={totalGroups}  color={COLORS.green} />
-                <StatCard label="Talentos"  value={totalTalents} color={COLORS.blue} />
-                <StatCard label="Clientes"  value={totalClients} color={COLORS.orange} />
-                <StatCard label="Activos"   value={activeGroups} sub="Grupos" color={COLORS.green} />
+                <StatCard label={t('adminStatsScreen.users.statGroups')}    value={totalGroups}  color={COLORS.green} />
+                <StatCard label={t('adminStatsScreen.users.statTalents')}  value={totalTalents} color={COLORS.blue} />
+                <StatCard label={t('adminStatsScreen.users.statClients')}  value={totalClients} color={COLORS.orange} />
+                <StatCard label={t('adminStatsScreen.users.statActive')}   value={activeGroups} sub={t('adminStatsScreen.users.statActiveSub')} color={COLORS.green} />
               </View>
 
               <View style={c.card}>
-                <SectionTitle title="Nuevos registros este mes" />
-                <Row2 label="Usuarios nuevos (todos los roles)" value={String(newProfilesThisMonth)} color={COLORS.green} />
-                <Row2 label="Grupos nuevos"                     value={String(newGroupsThisMonth)} color={COLORS.blue} />
+                <SectionTitle title={t('adminStatsScreen.users.newRegistrations')} />
+                <Row2 label={t('adminStatsScreen.users.newUsersAllRoles')} value={String(newProfilesThisMonth)} color={COLORS.green} />
+                <Row2 label={t('adminStatsScreen.users.newGroups')}                     value={String(newGroupsThisMonth)} color={COLORS.blue} />
               </View>
 
               <View style={c.card}>
-                <SectionTitle title="Distribución de usuarios" />
+                <SectionTitle title={t('adminStatsScreen.users.distribution')} />
                 <View style={{ marginBottom: 10 }}>
-                  <View style={c.row2}><Text style={c.row2Label}>Clientes</Text><Text style={[c.row2Val, { color: COLORS.orange }]}>{totalClients}</Text></View>
+                  <View style={c.row2}><Text style={c.row2Label}>{t('adminStatsScreen.users.clients')}</Text><Text style={[c.row2Val, { color: COLORS.orange }]}>{totalClients}</Text></View>
                   <ProgressBar value={totalClients} max={profiles.length || 1} color={COLORS.orange} />
                 </View>
                 <View style={{ marginBottom: 10 }}>
-                  <View style={c.row2}><Text style={c.row2Label}>Talentos</Text><Text style={[c.row2Val, { color: COLORS.blue }]}>{totalTalents}</Text></View>
+                  <View style={c.row2}><Text style={c.row2Label}>{t('adminStatsScreen.users.talents')}</Text><Text style={[c.row2Val, { color: COLORS.blue }]}>{totalTalents}</Text></View>
                   <ProgressBar value={totalTalents} max={profiles.length || 1} color={COLORS.blue} />
                 </View>
                 <View style={{ marginBottom: 10 }}>
-                  <View style={c.row2}><Text style={c.row2Label}>Grupos (dueños)</Text><Text style={[c.row2Val, { color: COLORS.green }]}>{totalGroupP}</Text></View>
+                  <View style={c.row2}><Text style={c.row2Label}>{t('adminStatsScreen.users.groupOwners')}</Text><Text style={[c.row2Val, { color: COLORS.green }]}>{totalGroupP}</Text></View>
                   <ProgressBar value={totalGroupP} max={profiles.length || 1} color={COLORS.green} />
                 </View>
               </View>
 
               {loyaltyMetrics && (
                 <View style={c.card}>
-                  <SectionTitle title="Fidelización de clientes" />
-                  <Row2 label="Clientes con puntos"    value={String(loyaltyMetrics.total_loyalty_clients ?? 0)} color={COLORS.green} />
-                  <Row2 label="🥈 Plata"               value={String(loyaltyMetrics.silver_clients ?? 0)} />
-                  <Row2 label="🥇 Oro"                 value={String(loyaltyMetrics.gold_clients ?? 0)} color={COLORS.gold} />
-                  <Row2 label="💎 VIP"                 value={String(loyaltyMetrics.vip_clients ?? 0)} color="#A78BFA" />
-                  <Row2 label="Promedio eventos/cliente" value={Number(loyaltyMetrics.avg_events_per_client ?? 0).toFixed(1)} />
-                  <Row2 label="% Clientes recurrentes"  value={pct(Number(loyaltyMetrics.repeat_rate_pct ?? 0))} color={COLORS.blue} />
-                  <Row2 label="Puntos otorgados (30d)"  value={String(loyaltyMetrics.points_awarded_period ?? 0)} />
-                  <Row2 label="Ingresos gold+VIP"       value={pct(Number(loyaltyMetrics.top_tier_revenue_pct ?? 0))} color={COLORS.gold} />
+                  <SectionTitle title={t('adminStatsScreen.users.loyalty')} />
+                  <Row2 label={t('adminStatsScreen.users.loyaltyClients')}    value={String(loyaltyMetrics.total_loyalty_clients ?? 0)} color={COLORS.green} />
+                  <Row2 label={t('adminStatsScreen.users.silver')}               value={String(loyaltyMetrics.silver_clients ?? 0)} />
+                  <Row2 label={t('adminStatsScreen.users.gold')}                 value={String(loyaltyMetrics.gold_clients ?? 0)} color={COLORS.gold} />
+                  <Row2 label={t('adminStatsScreen.users.vip')}                 value={String(loyaltyMetrics.vip_clients ?? 0)} color="#A78BFA" />
+                  <Row2 label={t('adminStatsScreen.users.avgEventsPerClient')} value={Number(loyaltyMetrics.avg_events_per_client ?? 0).toFixed(1)} />
+                  <Row2 label={t('adminStatsScreen.users.repeatClientsPct')}  value={pct(Number(loyaltyMetrics.repeat_rate_pct ?? 0))} color={COLORS.blue} />
+                  <Row2 label={t('adminStatsScreen.users.pointsAwarded30d')}  value={String(loyaltyMetrics.points_awarded_period ?? 0)} />
+                  <Row2 label={t('adminStatsScreen.users.goldVipRevenue')}       value={pct(Number(loyaltyMetrics.top_tier_revenue_pct ?? 0))} color={COLORS.gold} />
                 </View>
               )}
             </View>

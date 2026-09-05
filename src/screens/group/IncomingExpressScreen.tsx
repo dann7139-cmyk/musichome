@@ -14,6 +14,8 @@ import * as Location from 'expo-location';
 import * as Haptics from 'expo-haptics';
 import { ArrowLeft, Calendar, Clock, MapPin, Music, Users, Zap } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import { EARTH_STYLE } from '../../constants/mapStyle';
@@ -127,14 +129,14 @@ function lerpRoute(route: { latitude: number; longitude: number }[], t: number) 
   };
 }
 
-const EVENT_LABELS: Record<string, string> = {
-  fiesta_privada: '🎉 Fiesta privada',
-  boda:           '💍 Boda',
-  cumpleanos:     '🎂 Cumpleaños',
-  graduacion:     '🎓 Graduación',
-  empresarial:    '🏢 Empresarial',
-  otro:           '🎵 Evento',
-};
+const getEventLabels = (t: TFunction): Record<string, string> => ({
+  fiesta_privada: t('incomingExpressScreen.eventLabels.fiesta_privada'),
+  boda:           t('incomingExpressScreen.eventLabels.boda'),
+  cumpleanos:     t('incomingExpressScreen.eventLabels.cumpleanos'),
+  graduacion:     t('incomingExpressScreen.eventLabels.graduacion'),
+  empresarial:    t('incomingExpressScreen.eventLabels.empresarial'),
+  otro:           t('incomingExpressScreen.eventLabels.otro'),
+});
 
 function formatDate(d: string) {
   return new Date(d + 'T12:00:00').toLocaleDateString('es-MX', {
@@ -178,6 +180,7 @@ function cdBand(ms: number): number {
 
 // ── ExpressLoader ─────────────────────────────────────────────────────────────
 function ExpressLoader() {
+  const { t } = useTranslation();
   const bars = useRef(
     Array.from({ length: 5 }, (_, i) => new Animated.Value(i % 2 === 0 ? 0.4 : 0.2))
   ).current;
@@ -216,9 +219,9 @@ function ExpressLoader() {
       </View>
       <View style={sl.badge}>
         <Zap size={11} color={COLORS.green} />
-        <Text style={sl.badgeText}>SOLICITUD EXPRESS</Text>
+        <Text style={sl.badgeText}>{t('incomingExpressScreen.loader.badge')}</Text>
       </View>
-      <Text style={sl.hint}>Buscando información del evento…</Text>
+      <Text style={sl.hint}>{t('incomingExpressScreen.loader.hint')}</Text>
     </View>
   );
 }
@@ -341,6 +344,8 @@ function InfoRow({ icon, text }: { icon: React.ReactNode; text: string }) {
 
 // ── Main screen ───────────────────────────────────────────────────────────────
 export default function IncomingExpressScreen({ route, navigation }: any) {
+  const { t } = useTranslation();
+  const EVENT_LABELS = getEventLabels(t);
   const { dispatchId } = route.params as { dispatchId: string };
 
   const [request,        setRequest]        = useState<any>(null);
@@ -693,7 +698,7 @@ export default function IncomingExpressScreen({ route, navigation }: any) {
       {/* ── Map ── */}
       <MapView
         ref={mapRef}
-        style={StyleSheet.absoluteFillObject}
+        style={StyleSheet.absoluteFill}
         provider={PROVIDER_GOOGLE}
         customMapStyle={DARK_MAP_STYLE}
         initialRegion={region}
@@ -740,7 +745,7 @@ export default function IncomingExpressScreen({ route, navigation }: any) {
       {/* Dark overlay for taken/quoted states */}
       <Animated.View
         pointerEvents="none"
-        style={[StyleSheet.absoluteFillObject, { backgroundColor: '#000', opacity: mapOverlay }]}
+        style={[StyleSheet.absoluteFill, { backgroundColor: '#000', opacity: mapOverlay }]}
       />
 
       {/* Green ripple for quoted success */}
@@ -769,7 +774,7 @@ export default function IncomingExpressScreen({ route, navigation }: any) {
             </Pressable>
             <View style={s.expressBadge}>
               <Zap size={12} color={COLORS.green} style={{ marginRight: 5 }} />
-              <Text style={s.expressBadgeText}>SOLICITUD EXPRESS</Text>
+              <Text style={s.expressBadgeText}>{t('incomingExpressScreen.loader.badge')}</Text>
               <View style={s.badgeDot} />
             </View>
             <View style={{ width: 40 }} />
@@ -792,16 +797,16 @@ export default function IncomingExpressScreen({ route, navigation }: any) {
           <>
             {/* Event label */}
             <Animated.View style={{ opacity: itemFade[0] }}>
-              <Text style={s.eventLabel}>{EVENT_LABELS[request?.event_type] ?? '🎵 Evento express'}</Text>
+              <Text style={s.eventLabel}>{EVENT_LABELS[request?.event_type] ?? t('incomingExpressScreen.eventLabels.expressFallback')}</Text>
             </Animated.View>
 
             {/* Info grid */}
             <Animated.View style={[s.infoGrid, { opacity: itemFade[1] }]}>
               {request?.event_date   && <InfoRow icon={<Calendar size={14} color={COLORS.green} />} text={formatDate(request.event_date)} />}
-              {request?.hours        && <InfoRow icon={<Clock    size={14} color={COLORS.green} />} text={`${request.hours} ${request.hours === 1 ? 'hora' : 'horas'}`} />}
-              {request?.location_city && <InfoRow icon={<MapPin  size={14} color={COLORS.green} />} text={`Zona ${request.location_city}`} />}
+              {request?.hours        && <InfoRow icon={<Clock    size={14} color={COLORS.green} />} text={t('incomingExpressScreen.info.hours', { count: request.hours })} />}
+              {request?.location_city && <InfoRow icon={<MapPin  size={14} color={COLORS.green} />} text={t('incomingExpressScreen.info.zone', { city: request.location_city })} />}
               {request?.genre        && <InfoRow icon={<Music    size={14} color={COLORS.green} />} text={request.genre} />}
-              {request?.guest_count  && <InfoRow icon={<Users    size={14} color={COLORS.green} />} text={`≈${request.guest_count} invitados`} />}
+              {request?.guest_count  && <InfoRow icon={<Users    size={14} color={COLORS.green} />} text={t('incomingExpressScreen.info.guests', { count: request.guest_count })} />}
             </Animated.View>
 
             {/* Countdown */}
@@ -812,7 +817,7 @@ export default function IncomingExpressScreen({ route, navigation }: any) {
                   borderColor: curBorder,
                   transform: [{ translateX: cdShake }],
                 }]}>
-                  <Text style={[s.countdownLabel, { color: curColor }]}>Tiempo para cotizar</Text>
+                  <Text style={[s.countdownLabel, { color: curColor }]}>{t('incomingExpressScreen.countdown.label')}</Text>
                   <Animated.Text style={[s.countdownValue, {
                     color: curColor,
                     transform: [{ scale: cdValueScale }],
@@ -836,10 +841,10 @@ export default function IncomingExpressScreen({ route, navigation }: any) {
               >
                 {lockState === 'locking' ? (
                   // Mini spinner via rotation — no ActivityIndicator
-                  <Text style={s.btnPrimaryText}>Bloqueando…</Text>
+                  <Text style={s.btnPrimaryText}>{t('incomingExpressScreen.actions.locking')}</Text>
                 ) : (
                   <Text style={s.btnPrimaryText}>
-                    {lockState === 'locked' ? 'Cotizando…' : 'Cotizar ahora'}
+                    {lockState === 'locked' ? t('incomingExpressScreen.actions.quoting') : t('incomingExpressScreen.actions.quoteNow')}
                   </Text>
                 )}
               </Pressable>
@@ -848,7 +853,7 @@ export default function IncomingExpressScreen({ route, navigation }: any) {
             {/* Secondary */}
             <Animated.View style={{ opacity: itemFade[4] }}>
               <Pressable style={s.btnSecondary} onPress={handleIgnorar}>
-                <Text style={s.btnSecondaryText}>No disponible</Text>
+                <Text style={s.btnSecondaryText}>{t('incomingExpressScreen.actions.notAvailable')}</Text>
               </Pressable>
             </Animated.View>
           </>
@@ -860,6 +865,7 @@ export default function IncomingExpressScreen({ route, navigation }: any) {
 
 // ── TakenContent ──────────────────────────────────────────────────────────────
 function TakenContent({ groupCount, onContinue }: { groupCount: number | null; onContinue: () => void }) {
+  const { t } = useTranslation();
   const slideAnim = useRef(new Animated.Value(28)).current;
   const fadeAnim  = useRef(new Animated.Value(0)).current;
 
@@ -873,14 +879,14 @@ function TakenContent({ groupCount, onContinue }: { groupCount: number | null; o
   return (
     <Animated.View style={[s.takenContent, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
       <Text style={s.takenIcon}>⚡</Text>
-      <Text style={s.takenTitle}>Se fue.</Text>
-      <Text style={s.takenBody}>Otro grupo envió su cotización primero.</Text>
-      <Text style={s.takenCaption}>Así es esto — rápido.</Text>
+      <Text style={s.takenTitle}>{t('incomingExpressScreen.taken.title')}</Text>
+      <Text style={s.takenBody}>{t('incomingExpressScreen.taken.body')}</Text>
+      <Text style={s.takenCaption}>{t('incomingExpressScreen.taken.caption')}</Text>
       {groupCount !== null && groupCount > 1 && (
-        <Text style={s.takenStat}>{groupCount} grupos recibieron esta solicitud.</Text>
+        <Text style={s.takenStat}>{t('incomingExpressScreen.taken.stat', { count: groupCount })}</Text>
       )}
       <Pressable style={s.btnContinue} onPress={onContinue}>
-        <Text style={s.btnContinueText}>Seguir esperando</Text>
+        <Text style={s.btnContinueText}>{t('incomingExpressScreen.taken.continueBtn')}</Text>
       </Pressable>
     </Animated.View>
   );
@@ -888,6 +894,7 @@ function TakenContent({ groupCount, onContinue }: { groupCount: number | null; o
 
 // ── QuotedContent ─────────────────────────────────────────────────────────────
 function QuotedContent({ checkScale }: { checkScale: Animated.Value }) {
+  const { t } = useTranslation();
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -899,10 +906,10 @@ function QuotedContent({ checkScale }: { checkScale: Animated.Value }) {
       <Animated.View style={[s.checkCircle, { transform: [{ scale: checkScale }] }]}>
         <Text style={s.checkMark}>✓</Text>
       </Animated.View>
-      <Text style={s.quotedTitle}>Cotización enviada.</Text>
-      <Text style={s.quotedBody}>El cliente la está revisando ahora.</Text>
-      <Text style={s.quotedSub}>Responderá en las próximas horas.</Text>
-      <Text style={s.quotedHint}>Puedes cerrar esta pantalla.</Text>
+      <Text style={s.quotedTitle}>{t('incomingExpressScreen.quoted.title')}</Text>
+      <Text style={s.quotedBody}>{t('incomingExpressScreen.quoted.body')}</Text>
+      <Text style={s.quotedSub}>{t('incomingExpressScreen.quoted.sub')}</Text>
+      <Text style={s.quotedHint}>{t('incomingExpressScreen.quoted.hint')}</Text>
     </Animated.View>
   );
 }

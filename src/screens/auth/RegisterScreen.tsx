@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import {
   Alert,
+  Image,
   KeyboardAvoidingView,
   Linking,
   Platform,
@@ -32,6 +33,8 @@ interface RoleDef {
   desc:     string;
 }
 
+// Nota: label/subtitle/desc aquí son solo fallback interno (dbRole, defaults);
+// el texto mostrado en UI se resuelve vía t() en el render usando r.key.
 const ROLES: RoleDef[] = [
   { key: 'client', dbRole: 'client', label: 'Soy Cliente',   subtitle: '',                        emoji: '🎉', desc: 'Contrata artistas para tu evento' },
   { key: 'talent', dbRole: 'talent', label: 'Soy Talento',   subtitle: 'Músico',                  emoji: '🎤', desc: 'Bolsa de trabajo musical' },
@@ -105,8 +108,8 @@ export default function RegisterScreen({ navigation, route }: any) {
     }
     if (!termsAccepted) {
       Alert.alert(
-        '📜 Falta aceptar los términos',
-        'Para crear tu cuenta marca la casilla de aceptación de los Términos y condiciones y el Aviso de privacidad.',
+        t('registerScreen.alertTermsTitle'),
+        t('registerScreen.alertTermsMessage'),
       );
       return;
     }
@@ -123,7 +126,7 @@ export default function RegisterScreen({ navigation, route }: any) {
 
     if (error) {
       setLoading(false);
-      Alert.alert('Error', error.message);
+      Alert.alert(t('registerScreen.alertErrorTitle'), error.message);
       return;
     }
 
@@ -182,7 +185,7 @@ export default function RegisterScreen({ navigation, route }: any) {
       if (!refErr && (refData?.ok !== false)) {
         referralOk = true;
       } else {
-        referralErr = refData?.error ?? refErr?.message ?? 'Código inválido';
+        referralErr = refData?.error ?? refErr?.message ?? t('registerScreen.referralInvalidCode');
       }
     }
 
@@ -193,13 +196,13 @@ export default function RegisterScreen({ navigation, route }: any) {
     } else {
       const referralMsg = referralCode.trim()
         ? referralOk
-          ? '\n\n✅ Código aplicado correctamente. Recibirás un beneficio en tu primera reserva.'
-          : `\n\n⚠️ Código de referido no válido: ${referralErr}`
+          ? t('registerScreen.referralAppliedMsg')
+          : t('registerScreen.referralInvalidMsg', { error: referralErr })
         : '';
       Alert.alert(
-        '¡Listo!',
-        `Cuenta creada. Revisa tu correo para verificar tu cuenta.${referralMsg}`,
-        [{ text: 'OK', onPress: () => navigation?.navigate?.('Login') }]
+        t('registerScreen.alertDoneTitle'),
+        t('registerScreen.alertDoneMessage', { referralMsg }),
+        [{ text: t('common.ok'), onPress: () => navigation?.navigate?.('Login') }]
       );
     }
   };
@@ -233,19 +236,18 @@ export default function RegisterScreen({ navigation, route }: any) {
           <Particles />
           <SafeAreaView style={{ flex: 1, justifyContent: 'center' }}>
             <View style={styles.successContainer}>
-              <Text style={styles.successEmoji}>🎵</Text>
-              <Text style={styles.successTitle}>¡Bienvenido a Daricefy!</Text>
+              <Image source={require('../../../assets/images/icon.png')} style={styles.successLogoMark} resizeMode="contain" />
+              <Text style={styles.successTitle}>{t('registerScreen.successTalentTitle')}</Text>
               <Text style={styles.successSub}>
-                Tu perfil ya está visible en la bolsa de trabajo. Los grupos
-                podrán invitarte a tocadas o a formar parte de su banda.
+                {t('registerScreen.successTalentSub')}
               </Text>
               <Button
-                label="Entrar a la app →"
+                label={t('registerScreen.enterAppButton')}
                 onPress={() => navigation?.replace?.('Login')}
                 size="lg"
               />
               <Text style={styles.successHint}>
-                Recibirás notificaciones cuando un grupo te invite.
+                {t('registerScreen.successTalentHint')}
               </Text>
             </View>
           </SafeAreaView>
@@ -259,12 +261,12 @@ export default function RegisterScreen({ navigation, route }: any) {
         <SafeAreaView style={{ flex: 1, justifyContent: 'center' }}>
           <View style={styles.successContainer}>
             <Text style={styles.successEmoji}>🎉</Text>
-            <Text style={styles.successTitle}>¡Cuenta creada!</Text>
+            <Text style={styles.successTitle}>{t('registerScreen.successClientTitle')}</Text>
             <Text style={styles.successSub}>
-              Conecta tu cuenta bancaria para recibir pagos automáticamente cuando completes eventos.
+              {t('registerScreen.successClientSub')}
             </Text>
             <Button
-              label={stripeConnectLoading ? 'Abriendo...' : '💳 Conectar cuenta ahora'}
+              label={stripeConnectLoading ? t('registerScreen.connectButtonOpening') : t('registerScreen.connectButtonNow')}
               onPress={handleConnectAfterRegister}
               loading={stripeConnectLoading}
               size="lg"
@@ -274,7 +276,7 @@ export default function RegisterScreen({ navigation, route }: any) {
               onPress={() => navigation?.replace?.('Login')}
               disabled={stripeConnectLoading}
             >
-              <Text style={styles.skipText}>Después →</Text>
+              <Text style={styles.skipText}>{t('registerScreen.laterButton')}</Text>
             </Pressable>
           </View>
         </SafeAreaView>
@@ -298,7 +300,7 @@ export default function RegisterScreen({ navigation, route }: any) {
             {/* HEADER */}
             <View style={styles.header}>
               <Pressable onPress={() => navigation?.goBack?.()} style={styles.backBtn}>
-                <Text style={styles.backText}>← Volver</Text>
+                <Text style={styles.backText}>{t('registerScreen.backButton')}</Text>
               </Pressable>
               <View style={styles.logoRow}>
                 <Text style={styles.logoWhite}>Darice<Text style={styles.logoGreen}>fy</Text></Text>
@@ -306,10 +308,10 @@ export default function RegisterScreen({ navigation, route }: any) {
             </View>
 
             <Text style={styles.title}>{t('auth.register.title')}</Text>
-            <Text style={styles.subtitle}>Únete al ecosistema de entretenimiento</Text>
+            <Text style={styles.subtitle}>{t('registerScreen.subtitle')}</Text>
 
             {/* ROLE SELECTOR — 2×2 grid */}
-            <Text style={styles.label}>¿Cómo quieres usar Daricefy?</Text>
+            <Text style={styles.label}>{t('registerScreen.roleQuestion')}</Text>
             <View style={styles.roleGrid}>
               {ROLES.map((r) => {
                 const roleLabel = r.key === 'client'
@@ -322,6 +324,11 @@ export default function RegisterScreen({ navigation, route }: any) {
                   : r.key === 'talent'
                   ? t('auth.register.role_talent_desc')
                   : t('auth.register.role_provider_desc');
+                const roleSubtitle = r.key === 'talent'
+                  ? t('registerScreen.roleSubtitleTalent')
+                  : r.key === 'group'
+                  ? t('registerScreen.roleSubtitleGroup')
+                  : '';
                 return (
                   <Pressable
                     key={r.key}
@@ -332,10 +339,10 @@ export default function RegisterScreen({ navigation, route }: any) {
                     <Text style={[styles.roleLabel, role === r.key && styles.roleLabelActive]}>
                       {roleLabel}
                     </Text>
-                    {r.subtitle ? (
+                    {roleSubtitle ? (
                       <View style={[styles.roleSubtitlePill, role === r.key && styles.roleSubtitlePillActive]}>
                         <Text style={[styles.roleSubtitle, role === r.key && styles.roleSubtitleActive]}>
-                          {r.subtitle}
+                          {roleSubtitle}
                         </Text>
                       </View>
                     ) : null}
@@ -378,28 +385,28 @@ export default function RegisterScreen({ navigation, route }: any) {
               <View style={styles.extraSection}>
                 <View style={styles.sectionHeader}>
                   <Music size={16} color={COLORS.green} />
-                  <Text style={styles.sectionHeaderText}>Perfil de Talento · 🎵 Música</Text>
+                  <Text style={styles.sectionHeaderText}>{t('registerScreen.talentSectionTitle')}</Text>
                 </View>
 
                 <Input
-                  label="Instrumento o rol *"
-                  placeholder="Ej: Guitarrista, Vocalista, Baterista..."
+                  label={t('registerScreen.instrumentLabel')}
+                  placeholder={t('registerScreen.instrumentPlaceholder')}
                   value={instrument}
                   onChangeText={setInstrument}
                   icon={<Music size={18} color={COLORS.muted} />}
                 />
 
                 <Input
-                  label="Años de experiencia"
-                  placeholder="Ej: 5"
+                  label={t('registerScreen.experienceLabel')}
+                  placeholder={t('registerScreen.experiencePlaceholder')}
                   value={expYears}
                   onChangeText={setExpYears}
                   keyboardType="numeric"
                 />
 
                 <Input
-                  label="Bio (opcional)"
-                  placeholder="Cuéntanos sobre ti, tu estilo, lo que ofreces..."
+                  label={t('registerScreen.bioLabel')}
+                  placeholder={t('registerScreen.bioPlaceholder')}
                   value={bio}
                   onChangeText={setBio}
                   multiline
@@ -407,8 +414,8 @@ export default function RegisterScreen({ navigation, route }: any) {
                 />
 
                 <Input
-                  label="Teléfono de contacto"
-                  placeholder="Ej: 5512345678"
+                  label={t('registerScreen.phoneLabel')}
+                  placeholder={t('registerScreen.phonePlaceholder')}
                   value={phone}
                   onChangeText={setPhone}
                   keyboardType="phone-pad"
@@ -421,7 +428,7 @@ export default function RegisterScreen({ navigation, route }: any) {
               <View style={styles.extraSection}>
                 <View style={styles.sectionHeader}>
                   <Text style={styles.sectionEmoji}>🎪</Text>
-                  <Text style={styles.sectionHeaderText}>¿Qué tipo de servicio ofreces?</Text>
+                  <Text style={styles.sectionHeaderText}>{t('registerScreen.providerSectionTitle')}</Text>
                 </View>
                 <View style={styles.categoryGrid}>
                   {GRUPO_CATEGORIES.map((cat) => (
@@ -432,16 +439,16 @@ export default function RegisterScreen({ navigation, route }: any) {
                     >
                       <Text style={styles.categoryEmoji}>{cat.emoji}</Text>
                       <Text style={[styles.categoryLabel, category === cat.key && styles.categoryLabelActive]}>
-                        {cat.label}
+                        {t(`registerScreen.categories.${cat.key}.label`)}
                       </Text>
-                      <Text style={styles.categoryDesc}>{cat.desc}</Text>
+                      <Text style={styles.categoryDesc}>{t(`registerScreen.categories.${cat.key}.desc`)}</Text>
                     </Pressable>
                   ))}
                 </View>
 
                 <Input
-                  label="Teléfono de contacto"
-                  placeholder="Ej: 5512345678"
+                  label={t('registerScreen.phoneLabel')}
+                  placeholder={t('registerScreen.phonePlaceholder')}
                   value={phone}
                   onChangeText={setPhone}
                   keyboardType="phone-pad"
@@ -454,18 +461,18 @@ export default function RegisterScreen({ navigation, route }: any) {
               <View style={styles.referralSection}>
                 <View style={styles.referralHeader}>
                   <Gift size={14} color={COLORS.green} />
-                  <Text style={styles.referralLabel}>¿Tienes un código de referido?</Text>
+                  <Text style={styles.referralLabel}>{t('registerScreen.referralQuestion')}</Text>
                 </View>
                 <Input
                   label=""
-                  placeholder="Ej: TROVADORES10  (opcional)"
+                  placeholder={t('registerScreen.referralPlaceholder')}
                   value={referralCode}
-                  onChangeText={(t: string) => setReferralCode(t.toUpperCase())}
+                  onChangeText={(txt: string) => setReferralCode(txt.toUpperCase())}
                   autoCapitalize="characters"
                   icon={<Gift size={18} color={COLORS.muted} />}
                 />
                 <Text style={styles.referralHint}>
-                  Ingresa el código que te compartió el grupo · Recibirás un beneficio en tu primera reserva
+                  {t('registerScreen.referralHint')}
                 </Text>
               </View>
             )}
@@ -476,13 +483,13 @@ export default function RegisterScreen({ navigation, route }: any) {
                 {termsAccepted && <Text style={styles.legalCheckMark}>✓</Text>}
               </View>
               <Text style={styles.legalNote}>
-                Acepto los{' '}
+                {t('registerScreen.legalAccept')}
                 <Text style={styles.legalLink} onPress={() => navigation?.navigate?.('Legal', { doc: 'terms' })}>
-                  Términos y condiciones
-                </Text>{' '}
-                y el{' '}
+                  {t('registerScreen.legalTerms')}
+                </Text>
+                {t('registerScreen.legalAnd')}
                 <Text style={styles.legalLink} onPress={() => navigation?.navigate?.('Legal', { doc: 'privacy' })}>
-                  Aviso de privacidad
+                  {t('registerScreen.legalPrivacy')}
                 </Text>.
               </Text>
             </Pressable>
@@ -620,6 +627,7 @@ const styles = StyleSheet.create({
   // Success screen
   successContainer: { padding: SPACING.xl, alignItems: 'center', gap: 12 },
   successEmoji:     { fontSize: 64, marginBottom: 8 },
+  successLogoMark:  { width: 72, height: 72, marginBottom: 8, alignSelf: 'center' },
   successTitle:     { fontFamily: FONTS.title, fontSize: 28, color: COLORS.text, textAlign: 'center' },
   successSub:       { fontFamily: FONTS.body, fontSize: 15, color: COLORS.muted2, textAlign: 'center', lineHeight: 22, marginBottom: 12 },
   successHint:      { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted, textAlign: 'center', marginTop: 12 },

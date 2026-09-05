@@ -21,6 +21,7 @@ import {
 } from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useTranslation } from 'react-i18next';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import { EARTH_STYLE } from '../../constants/mapStyle';
@@ -217,6 +218,7 @@ function GroupMarker({ group, selected, onPress }: {
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
 export default function GroupsMapScreen({ navigation }: any) {
+  const { t } = useTranslation();
   const [groups,      setGroups]      = useState<GroupPin[]>([]);
   const [loading,     setLoading]     = useState(true);
   const [selected,    setSelected]    = useState<GroupPin | null>(null);
@@ -281,7 +283,7 @@ export default function GroupsMapScreen({ navigation }: any) {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permiso necesario', 'Activa la ubicación para ver grupos cercanos a ti.');
+        Alert.alert(t('groupsMapScreen.alerts.permissionTitle'), t('groupsMapScreen.alerts.permissionBody'));
         setLocating(false);
         return;
       }
@@ -293,7 +295,7 @@ export default function GroupsMapScreen({ navigation }: any) {
         longitudeDelta: 0.4,
       }, 900);
     } catch {
-      Alert.alert('Error', 'No se pudo obtener tu ubicación.');
+      Alert.alert(t('groupsMapScreen.alerts.error'), t('groupsMapScreen.alerts.locationError'));
     }
     setLocating(false);
   };
@@ -314,7 +316,7 @@ export default function GroupsMapScreen({ navigation }: any) {
               <Search size={15} color={COLORS.muted2} />
               <TextInput
                 style={gms.searchInput}
-                placeholder="Buscar grupo o ciudad..."
+                placeholder={t('groupsMapScreen.header.searchPlaceholder')}
                 placeholderTextColor={COLORS.muted}
                 value={searchText}
                 onChangeText={setSearchText}
@@ -328,9 +330,9 @@ export default function GroupsMapScreen({ navigation }: any) {
             </View>
           ) : (
             <View style={{ flex: 1 }}>
-              <Text style={gms.headerTitle}>Explorar grupos</Text>
+              <Text style={gms.headerTitle}>{t('groupsMapScreen.header.title')}</Text>
               <Text style={gms.headerSub}>
-                {loading ? 'Buscando...' : `${visible.length} grupo${visible.length !== 1 ? 's' : ''} disponibles`}
+                {loading ? t('groupsMapScreen.header.searching') : t('groupsMapScreen.header.countAvailable', { count: visible.length })}
               </Text>
             </View>
           )}
@@ -350,7 +352,7 @@ export default function GroupsMapScreen({ navigation }: any) {
             onPress={() => setGenreFilter(null)}
           >
             <Text style={[gms.filterChipText, !genreFilter && gms.filterChipTextActive]}>
-              🎵 Todos ({groups.length})
+              {t('groupsMapScreen.filters.all', { count: groups.length })}
             </Text>
           </Pressable>
           {allGenres.map(g => {
@@ -378,7 +380,7 @@ export default function GroupsMapScreen({ navigation }: any) {
       {loading ? (
         <View style={gms.center}>
           <ActivityIndicator color={COLORS.green} size="large" />
-          <Text style={gms.loadingText}>Buscando grupos cerca de ti...</Text>
+          <Text style={gms.loadingText}>{t('groupsMapScreen.loading.nearby')}</Text>
         </View>
       ) : (
         <View style={{ flex: 1 }}>
@@ -407,7 +409,7 @@ export default function GroupsMapScreen({ navigation }: any) {
           <View style={gms.statsOverlay} pointerEvents="none">
             <View style={gms.statsBubble}>
               <Music2 size={11} color={COLORS.green} />
-              <Text style={gms.statsText}>{visible.length} grupo{visible.length !== 1 ? 's' : ''}</Text>
+              <Text style={gms.statsText}>{t('groupsMapScreen.stats.groupCount', { count: visible.length })}</Text>
             </View>
             {genreFilter && (
               <View style={[gms.statsBubble, { borderColor: `${GENRE_COLORS[genreFilter]}55` }]}>
@@ -426,14 +428,14 @@ export default function GroupsMapScreen({ navigation }: any) {
           >
             <LinearGradient
               colors={['rgba(0,230,118,0.15)', 'rgba(0,200,83,0.15)']}
-              style={StyleSheet.absoluteFillObject}
+              style={StyleSheet.absoluteFill}
             />
             {locating
               ? <ActivityIndicator size="small" color={COLORS.green} />
               : <Navigation size={16} color={COLORS.green} />
             }
             <Text style={gms.nearMeText}>
-              {locating ? 'Localizando...' : 'Cerca de mí'}
+              {locating ? t('groupsMapScreen.nearMe.locating') : t('groupsMapScreen.nearMe.button')}
             </Text>
           </Pressable>
 
@@ -450,7 +452,7 @@ export default function GroupsMapScreen({ navigation }: any) {
                 colors={[`${accentColor}12`, 'transparent']}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
-                style={StyleSheet.absoluteFillObject}
+                style={StyleSheet.absoluteFill}
               />
 
               {/* Close */}
@@ -487,7 +489,7 @@ export default function GroupsMapScreen({ navigation }: any) {
                   </View>
                   {selected.price_from != null && (
                     <Text style={gms.priceTag}>
-                      Desde <Text style={{ color: accentColor, fontFamily: FONTS.bodySemiBold }}>
+                      {t('groupsMapScreen.card.priceFrom')} <Text style={{ color: accentColor, fontFamily: FONTS.bodySemiBold }}>
                         ${selected.price_from.toLocaleString()}
                       </Text>
                     </Text>
@@ -501,13 +503,13 @@ export default function GroupsMapScreen({ navigation }: any) {
                   style={gms.profileBtn}
                   onPress={() => navigation.navigate('GroupDetail', { group: selected })}
                 >
-                  <Text style={gms.profileBtnText}>Ver perfil</Text>
+                  <Text style={gms.profileBtnText}>{t('groupsMapScreen.card.viewProfile')}</Text>
                 </Pressable>
                 <Pressable
                   style={[gms.quoteBtn, { backgroundColor: accentColor }]}
                   onPress={() => navigation.navigate('QuoteForm', { group: selected })}
                 >
-                  <Text style={gms.quoteBtnText}>Pedir cotización</Text>
+                  <Text style={gms.quoteBtnText}>{t('groupsMapScreen.card.requestQuote')}</Text>
                 </Pressable>
               </View>
             </Animated.View>
@@ -520,8 +522,8 @@ export default function GroupsMapScreen({ navigation }: any) {
                 <Text style={gms.emptyEmoji}>🎵</Text>
                 <Text style={gms.emptyText}>
                   {genreFilter
-                    ? `No hay grupos de ${genreFilter} disponibles`
-                    : 'No hay grupos disponibles'}
+                    ? t('groupsMapScreen.empty.withFilter', { genre: genreFilter })
+                    : t('groupsMapScreen.empty.noFilter')}
                 </Text>
               </View>
             </View>

@@ -21,6 +21,7 @@ import {
   RefreshControl,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -54,7 +55,7 @@ const TYPE_LABELS: Record<string, { label: string; color: string; sign: string; 
   platform_income:        { label: 'Comisión de plataforma',     color: COLORS.green,  sign: '+' },
   commission_correction:  { label: 'Ajuste Stripe',              color: COLORS.muted2, sign: '-' },
   // 🎁 Regalos/donaciones (sql/566-568)
-  gift_income:            { label: 'Regalo recibido',            color: COLORS.gold,   sign: '+', icon: '🎁' },
+  gift_income:            { label: 'Regalo recibido',            color: COLORS.green,  sign: '+', icon: '🎁' },
   // Ingresos publicitarios (admin)
   ad_income:              { label: 'Publicidad',                 color: '#C9A84C',     sign: '+', icon: '📢' },
   bid_income:             { label: 'Posicionamiento (bid)',       color: '#A78BFA',     sign: '+', icon: '🔥' },
@@ -99,6 +100,12 @@ export default function WalletScreen({ navigation }: any) {
 
   // 🎁 Quién ha donado (solo grupo, sql/566-568)
   const [giftDonors, setGiftDonors] = useState<any[]>([]);
+  // sql/618 — el dueño decide si sus músicos ven esto en su propia Wallet
+  const [showGiftsToMembers, setShowGiftsToMembers] = useState(false);
+  const [savingGiftVisibility, setSavingGiftVisibility] = useState(false);
+  // sql/618 — para un talento que SOLO es integrante (no dueño): los
+  // regalos de cada grupo suyo que haya prendido el interruptor de arriba
+  const [memberGiftGroups, setMemberGiftGroups] = useState<any[]>([]);
   const hasBankData = !!(bankClabe && bankClabe.length === 18 && bankName.trim() && accountHolder.trim());
 
   const appStateRef = useRef(AppState.currentState);
@@ -119,7 +126,7 @@ export default function WalletScreen({ navigation }: any) {
     if (role === 'group') {
       const { data: grp } = await supabase
         .from('groups')
-        .select('id, stripe_account_id, stripe_onboarding_completed')
+        .select('id, stripe_account_id, stripe_onboarding_completed, show_gifts_to_members')
         .eq('owner_id', user.id)
         .maybeSingle();
       setStripeStatus({
@@ -128,6 +135,7 @@ export default function WalletScreen({ navigation }: any) {
         role,
         group_id: grp?.id ?? null,
       });
+      setShowGiftsToMembers(!!grp?.show_gifts_to_members);
 
       // 🎁 Quién le ha donado a este grupo — RLS ya lo permite (dueño del
       // grupo puede leer sus propios group_gifts, sql/566).
@@ -135,9 +143,14 @@ export default function WalletScreen({ navigation }: any) {
         // group_amount (60% del grupo) — NUNCA amount (precio completo del
         // regalo): la comisión de Daricefy es invisible para el grupo, aquí
         // solo debe ver lo que a ÉL le tocó, igual que en wallet_transactions.
+        // "amount" (bruto) se lee SOLO para detectar "Otro monto" — nunca se
+        // muestra en pantalla (eso violaría la regla de comisión invisible).
+        // "Otro monto" reutiliza por debajo el gift_id del Trofeo con un
+        // monto distinto al de catálogo, así que si no coincide con el
+        // precio de catálogo, es en realidad un regalo sorpresa (2026-09-05).
         const { data: giftsData } = await supabase
           .from('group_gifts')
-          .select('id, group_amount, currency_code, created_at, sender:profiles!sender_id(full_name, avatar_url), gift:gift_catalog(emoji, name)')
+          .select('id, amount, group_amount, currency_code, created_at, sender:profiles!sender_id(full_name, avatar_url), gift:gift_catalog(emoji, name, prices:gift_catalog_prices(currency_code, amount))')
           .eq('group_id', grp.id)
           .eq('status', 'paid')
           .order('created_at', { ascending: false })
@@ -173,6 +186,38 @@ export default function WalletScreen({ navigation }: any) {
         role,
         group_id: null,
       });
+
+      // sql/618 — si este talento es integrante FIJO (no dueño) de algún
+      // grupo que prendió "mostrar regalos a mis músicos", ver esos mismos
+      // regalos aquí en su propia Wallet — transparencia contra el
+      // encargado de la cuenta.
+      const { data: memberships } = await supabase
+        .from('job_invitations')
+        .select('group_id, group:groups(id, name, show_gifts_to_members)')
+        .eq('invited_user_id', user.id)
+        .eq('status', 'accepted')
+        .eq('invitation_type', 'membership')
+        .is('event_id', null);
+
+      const visibleGroups = ((memberships as any[]) ?? [])
+        .map(m => m.group)
+        .filter((g: any) => g?.show_gifts_to_members);
+
+      if (visibleGroups.length > 0) {
+        const results = await Promise.all(visibleGroups.map(async (g: any) => {
+          const { data: giftsData } = await supabase
+            .from('group_gifts')
+            .select('id, amount, group_amount, currency_code, created_at, sender:profiles!sender_id(full_name, avatar_url), gift:gift_catalog(emoji, name, prices:gift_catalog_prices(currency_code, amount))')
+            .eq('group_id', g.id)
+            .eq('status', 'paid')
+            .order('created_at', { ascending: false })
+            .limit(20);
+          return { group: g, donors: giftsData ?? [] };
+        }));
+        setMemberGiftGroups(results);
+      } else {
+        setMemberGiftGroups([]);
+      }
     }
 
     // RPC centralizado: bypasa RLS del cliente, devuelve wallet + transacciones
@@ -414,6 +459,23 @@ export default function WalletScreen({ navigation }: any) {
     }
   };
 
+  // sql/618 — el dueño prende/apaga que sus músicos vean los regalos del
+  // grupo en su propia Wallet (transparencia contra el encargado de la cuenta)
+  const handleToggleGiftVisibility = async (value: boolean) => {
+    if (!stripeStatus.group_id || savingGiftVisibility) return;
+    setSavingGiftVisibility(true);
+    setShowGiftsToMembers(value);
+    const { error } = await supabase
+      .from('groups')
+      .update({ show_gifts_to_members: value })
+      .eq('id', stripeStatus.group_id);
+    setSavingGiftVisibility(false);
+    if (error) {
+      setShowGiftsToMembers(!value);
+      Alert.alert('Error', 'No se pudo guardar el cambio. Intenta de nuevo.');
+    }
+  };
+
   if (loading) {
     return (
       <View style={{ flex: 1, backgroundColor: COLORS.bg, alignItems: 'center', justifyContent: 'center' }}>
@@ -520,9 +582,24 @@ export default function WalletScreen({ navigation }: any) {
             </View>
           )}
 
-          {stripeStatus.role === 'group' && giftDonors.length > 0 && (
+          {stripeStatus.role === 'group' && (
             <View style={st.giftCard}>
-              <Text style={st.giftCardTitle}>🎁 Quién te ha apoyado</Text>
+              <View style={st.giftCardHeaderRow}>
+                <Text style={st.giftCardTitle}>🎁 Quién te ha apoyado</Text>
+                <View style={st.giftVisibilityRow}>
+                  <Text style={st.giftVisibilityLabel}>Mostrar a mis músicos</Text>
+                  <Switch
+                    value={showGiftsToMembers}
+                    onValueChange={handleToggleGiftVisibility}
+                    disabled={savingGiftVisibility}
+                    trackColor={{ false: COLORS.border, true: COLORS.green }}
+                    thumbColor="#fff"
+                  />
+                </View>
+              </View>
+              {giftDonors.length === 0 && (
+                <Text style={st.giftVisibilityHint}>Todavía no te ha llegado ningún regalo.</Text>
+              )}
               {giftDonors.map(g => (
                 <View key={g.id} style={st.donorRow}>
                   {g.sender?.avatar_url ? (
@@ -534,7 +611,11 @@ export default function WalletScreen({ navigation }: any) {
                   )}
                   <Text style={st.donorText} numberOfLines={1}>
                     <Text style={st.donorName}>{g.sender?.full_name ?? 'Alguien'}</Text>
-                    {' te regaló '}{g.gift?.emoji} {g.gift?.name}
+                    {(() => {
+                      const basePrice = g.gift?.prices?.find((p: any) => p.currency_code === g.currency_code)?.amount;
+                      const isSurprise = basePrice == null || Number(g.amount) !== Number(basePrice);
+                      return isSurprise ? ' te mandó un regalo sorpresa 🎁' : ` te regaló ${g.gift?.emoji} ${g.gift?.name}`;
+                    })()}
                   </Text>
                   <Text style={st.donorAmount}>
                     {g.currency_code === 'USD' ? 'US$' : '$'}{g.group_amount}
@@ -543,6 +624,40 @@ export default function WalletScreen({ navigation }: any) {
               ))}
             </View>
           )}
+
+          {/* sql/618 — un talento que SOLO es integrante (no dueño) ve aquí
+              los regalos del/los grupo(s) donde el dueño prendió "mostrar
+              a mis músicos" — mismo formato que ve el dueño. */}
+          {memberGiftGroups.map(({ group, donors }) => (
+            <View key={group.id} style={st.giftCard}>
+              <Text style={st.giftCardTitle}>🎁 Regalos de {group.name}</Text>
+              {donors.length === 0 && (
+                <Text style={st.giftVisibilityHint}>Todavía no le ha llegado ningún regalo al grupo.</Text>
+              )}
+              {donors.map((g: any) => (
+                <View key={g.id} style={st.donorRow}>
+                  {g.sender?.avatar_url ? (
+                    <Image source={{ uri: g.sender.avatar_url }} style={st.donorAvatar} />
+                  ) : (
+                    <View style={[st.donorAvatar, st.donorAvatarPh]}>
+                      <User size={13} color={COLORS.muted} />
+                    </View>
+                  )}
+                  <Text style={st.donorText} numberOfLines={1}>
+                    <Text style={st.donorName}>{g.sender?.full_name ?? 'Alguien'}</Text>
+                    {(() => {
+                      const basePrice = g.gift?.prices?.find((p: any) => p.currency_code === g.currency_code)?.amount;
+                      const isSurprise = basePrice == null || Number(g.amount) !== Number(basePrice);
+                      return isSurprise ? ' le mandó un regalo sorpresa 🎁' : ` le regaló ${g.gift?.emoji} ${g.gift?.name}`;
+                    })()}
+                  </Text>
+                  <Text style={st.donorAmount}>
+                    {g.currency_code === 'USD' ? 'US$' : '$'}{g.group_amount}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          ))}
 
           {/* Fase P1D — el grupo ya NO retira dinero: solo puede avisar que
               quiere que le paguen una reserva específica. La transferencia
@@ -970,7 +1085,11 @@ const st = StyleSheet.create({
     padding: SPACING.lg, marginTop: 12, gap: 6,
   },
   giftCardTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.text },
-  giftCardAmount: { fontFamily: FONTS.title, fontSize: 20, color: COLORS.gold },
+  giftCardAmount: { fontFamily: FONTS.title, fontSize: 20, color: COLORS.green },
+  giftCardHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 2 },
+  giftVisibilityRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  giftVisibilityLabel: { fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted2 },
+  giftVisibilityHint: { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted, paddingVertical: 6 },
   donorRow: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
     paddingVertical: 6, borderTopWidth: 1, borderTopColor: COLORS.border,
@@ -979,7 +1098,7 @@ const st = StyleSheet.create({
   donorAvatarPh: { alignItems: 'center', justifyContent: 'center' },
   donorText: { flex: 1, fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2 },
   donorName: { fontFamily: FONTS.bodyMedium, color: COLORS.text },
-  donorAmount: { fontFamily: FONTS.bodySemiBold, fontSize: 12, color: COLORS.gold },
+  donorAmount: { fontFamily: FONTS.bodySemiBold, fontSize: 12, color: COLORS.green },
 
   noBalanceHint: {
     fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted,

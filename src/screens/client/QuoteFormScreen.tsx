@@ -19,6 +19,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ArrowLeft, CheckCircle, Clock, Send } from 'lucide-react-native';
 import { Calendar } from 'react-native-calendars';
+import { useTranslation } from 'react-i18next';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import TimePickerModal from '../../components/ui/TimePickerModal';
@@ -26,75 +27,79 @@ import MapAddressPicker, { AddressResult } from '../../components/ui/MapAddressP
 import { analyzeMessage, PHONE_WARNING } from '../../utils/phoneFilter';
 import { checkGroupLogistics } from '../../utils/logistics';
 import { containsBlockedContact } from '../../utils/contentModeration';
+import { getClientActiveEvents, resolveEventContext } from '../../utils/eventBuilder';
 import i18n from '../../i18n';
 
 // ─── Opciones ────────────────────────────────────────────────────────────────
+// Se generan con `t` dentro del componente (useMemo) para reaccionar a cambios de idioma.
 
-const EVENT_TYPES = [
-  { key: 'fiesta_privada', label: '🎉 Fiesta privada' },
-  { key: 'boda',           label: '💍 Boda' },
-  { key: 'cumpleanos',     label: '🎂 Cumpleaños' },
-  { key: 'graduacion',     label: '🎓 Graduación' },
-  { key: 'empresarial',    label: '🏢 Empresarial' },
-  { key: 'otro',           label: '🎵 Otro' },
+type TFn = (key: string, options?: Record<string, any>) => string;
+
+const getEventTypes = (t: TFn) => [
+  { key: 'fiesta_privada', label: t('quoteFormScreen.eventTypes.fiesta_privada') },
+  { key: 'boda',           label: t('quoteFormScreen.eventTypes.boda') },
+  { key: 'cumpleanos',     label: t('quoteFormScreen.eventTypes.cumpleanos') },
+  { key: 'graduacion',     label: t('quoteFormScreen.eventTypes.graduacion') },
+  { key: 'empresarial',    label: t('quoteFormScreen.eventTypes.empresarial') },
+  { key: 'otro',           label: t('quoteFormScreen.eventTypes.otro') },
 ];
 
 // Mínimo 3 horas por regla del negocio
-const DURATION_OPTIONS = [
-  { value: 3,  label: '3 horas' },
-  { value: 4,  label: '4 horas' },
-  { value: 5,  label: '5 horas' },
-  { value: 6,  label: '6 horas' },
-  { value: 7,  label: '7 horas' },
-  { value: 8,  label: '8+ horas' },
+const getDurationOptions = (t: TFn) => [
+  { value: 3,  label: t('quoteFormScreen.durationOptions.h3') },
+  { value: 4,  label: t('quoteFormScreen.durationOptions.h4') },
+  { value: 5,  label: t('quoteFormScreen.durationOptions.h5') },
+  { value: 6,  label: t('quoteFormScreen.durationOptions.h6') },
+  { value: 7,  label: t('quoteFormScreen.durationOptions.h7') },
+  { value: 8,  label: t('quoteFormScreen.durationOptions.h8') },
 ];
 
-const COVERED_OPTIONS = [
-  { key: 'si',    label: 'Sí' },
-  { key: 'no',    label: 'No' },
-  { key: 'no_se', label: 'No sé' },
+const getCoveredOptions = (t: TFn) => [
+  { key: 'si',    label: t('quoteFormScreen.coveredOptions.si') },
+  { key: 'no',    label: t('quoteFormScreen.coveredOptions.no') },
+  { key: 'no_se', label: t('quoteFormScreen.coveredOptions.no_se') },
 ];
 
-const VENUE_SIZES = [
-  { key: 'patio_pequeno',         label: '🏡 Patio pequeño' },
-  { key: 'salon_mediano',         label: '🏛️ Salón mediano' },
-  { key: 'jardin_grande',         label: '🌳 Jardín grande' },
-  { key: 'escenario_profesional', label: '🎤 Escenario profesional' },
+const getVenueSizes = (t: TFn) => [
+  { key: 'patio_pequeno',         label: t('quoteFormScreen.venueSizes.patio_pequeno') },
+  { key: 'salon_mediano',         label: t('quoteFormScreen.venueSizes.salon_mediano') },
+  { key: 'jardin_grande',         label: t('quoteFormScreen.venueSizes.jardin_grande') },
+  { key: 'escenario_profesional', label: t('quoteFormScreen.venueSizes.escenario_profesional') },
 ];
 
-const SOUND_OPTIONS = [
-  { key: 'no_group_brings', label: 'No (grupo trae)' },
-  { key: 'si_50',           label: 'Sí, hasta 50' },
-  { key: 'si_100',          label: 'Sí, hasta 100' },
-  { key: 'si_200',          label: 'Sí, hasta 200' },
-  { key: 'si_300',          label: 'Sí, 300+' },
+const getSoundOptions = (t: TFn) => [
+  { key: 'no_group_brings', label: t('quoteFormScreen.soundOptions.no_group_brings') },
+  { key: 'si_50',           label: t('quoteFormScreen.soundOptions.si_50') },
+  { key: 'si_100',          label: t('quoteFormScreen.soundOptions.si_100') },
+  { key: 'si_200',          label: t('quoteFormScreen.soundOptions.si_200') },
+  { key: 'si_300',          label: t('quoteFormScreen.soundOptions.si_300') },
 ];
 
-const LIGHTING_OPTIONS = [
-  { key: 'no',      label: 'No' },
-  { key: 'simple',  label: 'Sencilla' },
-  { key: 'pro',     label: 'Profesional' },
-  { key: 'premium', label: 'Premium' },
+const getLightingOptions = (t: TFn) => [
+  { key: 'no',      label: t('quoteFormScreen.lightingOptions.no') },
+  { key: 'simple',  label: t('quoteFormScreen.lightingOptions.simple') },
+  { key: 'pro',     label: t('quoteFormScreen.lightingOptions.pro') },
+  { key: 'premium', label: t('quoteFormScreen.lightingOptions.premium') },
 ];
 
-const STAGE_OPTIONS = [
-  { key: 'no',      label: 'No' },
-  { key: 'small',   label: 'Chico 3×2m' },
-  { key: 'medium',  label: 'Mediano 4×3m' },
-  { key: 'wedding', label: 'Grande boda 6×4m' },
+const getStageOptions = (t: TFn) => [
+  { key: 'no',      label: t('quoteFormScreen.stageOptions.no') },
+  { key: 'small',   label: t('quoteFormScreen.stageOptions.small') },
+  { key: 'medium',  label: t('quoteFormScreen.stageOptions.medium') },
+  { key: 'wedding', label: t('quoteFormScreen.stageOptions.wedding') },
 ];
 
-const LED_OPTIONS = [
-  { key: 'no',     label: 'No' },
-  { key: 'medium', label: 'Mediana' },
-  { key: 'large',  label: 'Grande' },
-  { key: 'xl',     label: 'XL boda' },
+const getLedOptions = (t: TFn) => [
+  { key: 'no',     label: t('quoteFormScreen.ledOptions.no') },
+  { key: 'medium', label: t('quoteFormScreen.ledOptions.medium') },
+  { key: 'large',  label: t('quoteFormScreen.ledOptions.large') },
+  { key: 'xl',     label: t('quoteFormScreen.ledOptions.xl') },
 ];
 
-const BREAK_OPTIONS = [
-  { type: 'A', label: '15 min por hora',  desc: 'Descanso de 15 min después de cada hora (excepto la última)' },
-  { type: 'B', label: '15 min único',     desc: 'Un solo descanso de 15 min a la mitad del evento' },
-  { type: 'D', label: 'Sin descanso',     desc: 'El grupo toca corrido sin pausas (solo para eventos de 3h exactas)' },
+const getBreakOptions = (t: TFn) => [
+  { type: 'A', label: t('quoteFormScreen.breakOptions.typeA.label'), desc: t('quoteFormScreen.breakOptions.typeA.desc') },
+  { type: 'B', label: t('quoteFormScreen.breakOptions.typeB.label'), desc: t('quoteFormScreen.breakOptions.typeB.desc') },
+  { type: 'D', label: t('quoteFormScreen.breakOptions.typeD.label'), desc: t('quoteFormScreen.breakOptions.typeD.desc') },
 ];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -140,7 +145,7 @@ function ChipRow<T extends string | number>({
 
 // ─── Equipment helpers ────────────────────────────────────────────────────────
 
-type InclusionLabel = '✅ Incluido' | '⚠️ Cotización extra';
+type InclusionLabel = 'included' | 'extra';
 
 type GroupEquip = {
   has_sound: boolean;           sound_capacity_max: number | null;
@@ -161,36 +166,74 @@ function getInclusionLabel(
   if (!equip) return null;
 
   if (category === 'sound') {
-    if (value === 'no_group_brings') return '✅ Incluido';
-    if (!equip.has_sound) return '⚠️ Cotización extra';
+    if (value === 'no_group_brings') return 'included';
+    if (!equip.has_sound) return 'extra';
     const capMap: Record<string, number> = { si_50: 50, si_100: 100, si_200: 200, si_300: 300 };
     return (capMap[value] ?? 0) <= (equip.sound_capacity_max ?? 0)
-      ? '✅ Incluido' : '⚠️ Cotización extra';
+      ? 'included' : 'extra';
   }
   if (category === 'lighting') {
     if (value === 'no') return null;
-    if (!equip.has_lighting) return '⚠️ Cotización extra';
+    if (!equip.has_lighting) return 'extra';
     const clientLevel = LIGHTING_HIERARCHY[value] ?? 0;
     const groupLevel  = LIGHTING_HIERARCHY[equip.lighting_level ?? ''] ?? 0;
-    return clientLevel <= groupLevel ? '✅ Incluido' : '⚠️ Cotización extra';
+    return clientLevel <= groupLevel ? 'included' : 'extra';
   }
   if (category === 'stage') {
     if (value === 'no') return null;
-    if (!equip.has_stage) return '⚠️ Cotización extra';
-    return equip.stage_sizes_available.includes(value) ? '✅ Incluido' : '⚠️ Cotización extra';
+    if (!equip.has_stage) return 'extra';
+    return equip.stage_sizes_available.includes(value) ? 'included' : 'extra';
   }
   if (category === 'led') {
     if (value === 'no') return null;
-    if (!equip.has_led_screen) return '⚠️ Cotización extra';
-    return equip.led_sizes_available.includes(value) ? '✅ Incluido' : '⚠️ Cotización extra';
+    if (!equip.has_led_screen) return 'extra';
+    return equip.led_sizes_available.includes(value) ? 'included' : 'extra';
   }
   return null;
 }
 
+// Géneros sin "horario de show" — petición explícita del usuario
+// (2026-09-01): "la comida esa si es a la hora que sea y brincolines o
+// muebles esas dos últimas no llevan temporizador". Comida es a
+// cualquier hora; brincolines/inflables y renta de mesas/sillas no
+// tienen concepto de horario. Mismos valores EXACTOS de
+// EventCategoryPickerScreen.tsx (deben coincidir con groups.genre).
+// El resto de "renta" (escenarios, generadores, plantas de luz,
+// toldos, tarimas) NO quedó exento — el usuario no lo mencionó.
+const TIMELESS_GENRES = [
+  'Comida', 'Renta de brincolines', 'Inflables acuáticos',
+  'Renta de mesas', 'Renta de sillas',
+];
+
 // ─── Screen ──────────────────────────────────────────────────────────────────
 
 export default function QuoteFormScreen({ route, navigation }: any) {
+  const { t } = useTranslation();
   const { group } = route.params as { group: any };
+  // sql/585 (Fase 1) — contexto de "agregar otro proveedor al mismo evento".
+  // presetEventId solo llega si el cliente vino de HomeScreen/GroupDetail
+  // con un evento activo; en el uso normal (cotización nueva, sin evento
+  // previo) queda null y nada de esto se activa.
+  const presetEventId      = route.params?.eventId ?? null;
+  const presetEventDate    = route.params?.eventDate ?? null;
+  const presetEventAddress = route.params?.eventAddress ?? null;
+  const [soundContext, setSoundContext] = useState<{ has_prior_declarations: boolean; declared_by?: string[] } | null>(null);
+  // sql/596 — este proveedor (`group`) ¿tiene horario de show que pueda
+  // chocar con otro proveedor del mismo evento? Comida/brincolines/muebles no.
+  const isTimedProvider = !TIMELESS_GENRES.includes(group.genre);
+  // Horarios ya tomados por OTROS proveedores "con temporizador" del mismo
+  // evento (sql/596) — para que el cliente no elija una hora que se encime.
+  const [eventConflictRanges, setEventConflictRanges] = useState<{ bs: number; be: number; group_name: string }[]>([]);
+
+  const eventTypeOptions    = useMemo(() => getEventTypes(t), [t]);
+  const durationOptions     = useMemo(() => getDurationOptions(t), [t]);
+  const coveredOptions      = useMemo(() => getCoveredOptions(t), [t]);
+  const venueSizeOptions    = useMemo(() => getVenueSizes(t), [t]);
+  const soundOptionsList    = useMemo(() => getSoundOptions(t), [t]);
+  const lightingOptionsList = useMemo(() => getLightingOptions(t), [t]);
+  const stageOptionsList    = useMemo(() => getStageOptions(t), [t]);
+  const ledOptionsList      = useMemo(() => getLedOptions(t), [t]);
+  const breakOptionsList    = useMemo(() => getBreakOptions(t), [t]);
 
   // ── Estado del formulario ────────────────────────────────────────────────
   const [eventType,    setEventType]    = useState<string | null>(null);
@@ -279,6 +322,40 @@ export default function QuoteFormScreen({ route, navigation }: any) {
   const [stageNeeded,    setStageNeeded]    = useState<string | null>(null);
   const [ledNeeded,      setLedNeeded]      = useState<string | null>(null);
 
+  // sql/585 (Fase 1) — prellenar fecha/dirección del evento existente (sugerencia,
+  // no bloquea los campos: el cliente puede ajustarlos si lo necesita) y
+  // traer el sonido ya declarado por otros proveedores del mismo evento como
+  // REFERENCIA. Nunca escribe en needsSound/lightingNeeded/etc — cada
+  // proveedor conserva su propia declaración, esto es solo informativo.
+  useEffect(() => {
+    if (presetEventDate) setEventDate(presetEventDate);
+    if (presetEventAddress) setAddress(presetEventAddress);
+    if (!presetEventId) return;
+    supabase.rpc('client_get_event_sound_context', { p_event_id: presetEventId })
+      .then(({ data, error }) => {
+        // RPC de sql/585 — todavía no existe en producción hasta que se aplique.
+        // Si falla (no existe / sin permiso), simplemente no se muestra el banner.
+        if (!error && data?.ok) setSoundContext(data);
+      });
+  }, [presetEventId, presetEventDate, presetEventAddress]);
+
+  // sql/596 — traer los horarios ya tomados por otros proveedores del mismo
+  // evento (solo si ESTE proveedor tiene horario de show; comida/brincolines/
+  // muebles no lo necesitan). Si falla, simplemente no se muestra el aviso.
+  useEffect(() => {
+    if (!presetEventId || !isTimedProvider) { setEventConflictRanges([]); return; }
+    supabase.rpc('client_get_event_time_conflicts', { p_event_id: presetEventId, p_exclude_group_id: group.id })
+      .then(({ data, error }) => {
+        if (error || !data?.ok) { setEventConflictRanges([]); return; }
+        const parsed = (data.ranges ?? []).map((r: any) => {
+          const [hh, mm] = String(r.time).split(':').map(Number);
+          const bs = hh + (mm || 0) / 60;
+          return { bs, be: bs + Number(r.hours ?? 3), group_name: r.group_name as string };
+        });
+        setEventConflictRanges(parsed);
+      });
+  }, [presetEventId, isTimedProvider, group.id]);
+
   useEffect(() => {
     supabase
       .from('groups')
@@ -326,6 +403,16 @@ export default function QuoteFormScreen({ route, navigation }: any) {
     return `${h12}:${mStr} ${ampm}`;
   };
 
+  // Formatea una hora fraccionaria (ej. 13.5 = 1:30pm) — usado para los
+  // rangos de eventConflictRanges (sql/596), que vienen en horas decimales.
+  const fmtHourFrac = (hf: number) => {
+    const hh = Math.floor(hf) % 24;
+    const mm = Math.round((hf - Math.floor(hf)) * 60);
+    const ampm = hh >= 12 ? 'PM' : 'AM';
+    const h12 = hh % 12 || 12;
+    return `${h12}:${String(mm).padStart(2, '0')} ${ampm}`;
+  };
+
   // ── Validación ───────────────────────────────────────────────────────────
   const canSubmit = () =>
     !!eventType && address.trim() && municipio.trim() && estado.trim() &&
@@ -353,10 +440,16 @@ export default function QuoteFormScreen({ route, navigation }: any) {
   const fitsWithGap = (startH: number, durH: number, gapH: number, ranges: { bs: number; be: number }[]) =>
     ranges.every(r => startH + durH + gapH <= r.bs || startH >= r.be + 1);
 
+  // sql/596 — ¿un evento de durH horas iniciando en startH se encima con
+  // OTRO proveedor del mismo evento compartido? Sin colchón (gap=0): son
+  // grupos independientes, uno puede empezar justo cuando el otro termina.
+  const eventConflictAt = (startH: number, durH: number) =>
+    eventConflictRanges.some(r => startH < r.be && startH + durH > r.bs);
+
   // ── Enviar ───────────────────────────────────────────────────────────────
   const handleSubmit = async () => {
     if (!canSubmit()) {
-      Alert.alert('Campos incompletos', 'Por favor completa todos los campos requeridos.');
+      Alert.alert(t('quoteFormScreen.incompleteFieldsTitle'), t('quoteFormScreen.incompleteFieldsBody'));
       return;
     }
 
@@ -366,12 +459,39 @@ export default function QuoteFormScreen({ route, navigation }: any) {
     }
 
     if (isGift && !giftRecipient.trim()) {
-      Alert.alert('¿Para quién es el regalo?', 'Escribe el nombre de la persona a quien le regalas el evento.');
+      Alert.alert(t('quoteFormScreen.giftRecipientMissingTitle'), t('quoteFormScreen.giftRecipientMissingBody'));
       return;
     }
 
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { Alert.alert('Error', 'Sesión no encontrada.'); return; }
+    if (!user) { Alert.alert(t('quoteFormScreen.error'), t('quoteFormScreen.sessionNotFound')); return; }
+
+    // sql/585 (Fase 1, ampliado 2026-09-06) — resolver SIEMPRE el contexto
+    // de evento al pedir una cotización, no solo cuando se llega desde
+    // "Agregar otro proveedor". Hallazgo real del cliente probando: pedir
+    // cotización a un 2º grupo obligaba a repetir fecha/dirección/necesidades
+    // desde cero porque la 1ª cotización nunca quedaba ligada a ningún
+    // evento. Con esto, toda cotización (la primera incluida) crea o
+    // reutiliza un event_id real — `events` ya existe hoy en producción
+    // (no depende de sql/585), así que esta parte funciona sin esperar
+    // ninguna autorización de SQL. Lo único que SÍ depende de sql/585 es
+    // que `client_get_my_events()` ya sepa ofrecer "¿agregar a tu evento
+    // activo?" para una cotización todavía pendiente (sin reserva) — hasta
+    // entonces, esta pregunta automática no aparece, pero el botón explícito
+    // "Agregar otro proveedor" SÍ funciona ya (viaja con presetEventId,
+    // sin pasar por esa RPC).
+    const activeEvents = presetEventId ? [] : await getClientActiveEvents();
+    let resolvedEventId = await resolveEventContext({ t, presetEventId, activeEvents });
+    if (!resolvedEventId) {
+      const { data: newEvent, error: newEventErr } = await supabase
+        .from('events')
+        .insert({ client_id: user.id, event_date: eventDate, event_time: eventTime || null, address: address.trim(), status: 'active' })
+        .select('id')
+        .single();
+      // Si falla, no bloquea el envío de la cotización — simplemente queda
+      // sin event_id, igual que el comportamiento de siempre.
+      if (!newEventErr && newEvent?.id) resolvedEventId = newEvent.id;
+    }
 
     const insertPayload = {
       group_id:        group.id,
@@ -403,7 +523,26 @@ export default function QuoteFormScreen({ route, navigation }: any) {
     };
 
     const sendQuote = async () => {
-    const { data: insertData, error } = await supabase.from('quotes').insert(insertPayload).select('id');
+    // sql/585 (Fase 1) — event_id todavía no es columna de `quotes` en
+    // producción (columna nueva de sql/585, no aplicado). Si resolvedEventId
+    // existe, se intenta incluirlo; si la columna no existe, se reintenta
+    // sin ese campo para no romper la cotización normal. PostgREST reporta
+    // columna desconocida como PGRST204 (schema cache), no como el 42703
+    // de Postgres — se aceptan ambos por si el insert llegara vía otra ruta.
+    let insertData: any = null;
+    let error: any = null;
+    if (resolvedEventId) {
+      const withEventId = await supabase.from('quotes').insert({ ...insertPayload, event_id: resolvedEventId }).select('id');
+      if (withEventId.error?.code === '42703' || withEventId.error?.code === 'PGRST204') {
+        const fallback = await supabase.from('quotes').insert(insertPayload).select('id');
+        insertData = fallback.data; error = fallback.error;
+      } else {
+        insertData = withEventId.data; error = withEventId.error;
+      }
+    } else {
+      const res = await supabase.from('quotes').insert(insertPayload).select('id');
+      insertData = res.data; error = res.error;
+    }
     setLoading(false);
 
     if (error) {
@@ -411,10 +550,10 @@ export default function QuoteFormScreen({ route, navigation }: any) {
       // Guards anti-spam (sql/484) lanzan mensajes legibles — mostrarlos limpios
       const emsg = error.message ?? '';
       if (emsg.includes('cotizaciones') || emsg.includes('límite') || emsg.includes('limite')) {
-        Alert.alert('🛑 Espera un momento', emsg);
+        Alert.alert(t('quoteFormScreen.waitMomentTitle'), emsg);
       } else {
         Alert.alert(
-          'Error detallado',
+          t('quoteFormScreen.errorDetailedTitle'),
           `Code: ${error.code ?? '—'}\nMessage: ${emsg || '—'}\nDetails: ${error.details ?? '—'}\nHint: ${error.hint ?? '—'}`,
         );
       }
@@ -431,8 +570,8 @@ export default function QuoteFormScreen({ route, navigation }: any) {
         await supabase.from('notifications').insert({
           user_id: groupData.owner_id,
           type:    'new_quote_request',
-          title:   '📋 Nueva solicitud de cotización',
-          body:    `Un cliente solicita cotización para un evento de ${duration}h. Revisa y envía el precio.`,
+          title:   t('quoteFormScreen.notifTitle'),
+          body:    t('quoteFormScreen.notifBodyOwner', { duration }),
           data:    { group_id: group.id, quote_id: insertData?.[0]?.id ?? null },
         });
 
@@ -449,8 +588,8 @@ export default function QuoteFormScreen({ route, navigation }: any) {
             members.map((m: any) => ({
               user_id: m.invited_user_id,
               type:    'new_quote_request',
-              title:   '📋 Nueva solicitud de cotización',
-              body:    `Tu grupo recibió una solicitud de cotización de ${duration}h. El dueño enviará el precio.`,
+              title:   t('quoteFormScreen.notifTitle'),
+              body:    t('quoteFormScreen.notifBodyMembers', { duration }),
               data:    { group_id: group.id },
             }))
           );
@@ -469,8 +608,8 @@ export default function QuoteFormScreen({ route, navigation }: any) {
             jobInvites.map((m: any) => ({
               user_id: m.invited_user_id,
               type:    'new_quote_request',
-              title:   '📋 Nueva solicitud de cotización',
-              body:    `Tu grupo recibió una solicitud de cotización de ${duration}h. El dueño enviará el precio.`,
+              title:   t('quoteFormScreen.notifTitle'),
+              body:    t('quoteFormScreen.notifBodyMembers', { duration }),
               data:    { group_id: group.id },
             }))
           );
@@ -493,9 +632,9 @@ export default function QuoteFormScreen({ route, navigation }: any) {
       } catch {}
 
       Alert.alert(
-        '✅ Solicitud enviada',
-        `Tu solicitud de cotización a "${group.name}" fue enviada. Te notificaremos cuando el grupo responda.`,
-        [{ text: 'Entendido', onPress: () => navigation.goBack() }],
+        t('quoteFormScreen.requestSentTitle'),
+        t('quoteFormScreen.requestSentBody', { groupName: group.name }),
+        [{ text: t('quoteFormScreen.understood'), onPress: () => navigation.goBack() }],
       );
     }
     };
@@ -523,9 +662,8 @@ export default function QuoteFormScreen({ route, navigation }: any) {
     if (logistics.conflict && !tightButPossible) {
       setLoading(false);
       Alert.alert(
-        '⏰ Ese horario no le da al grupo',
-        logistics.messageClient ??
-          'El grupo tiene otra tocada muy cerca de ese horario y no alcanzaría a llegar. Revisa la rejilla de horarios disponibles y elige otra hora.',
+        t('quoteFormScreen.logisticsConflictTitle'),
+        logistics.messageClient ?? t('quoteFormScreen.logisticsConflictBody'),
       );
       return;
     }
@@ -533,11 +671,11 @@ export default function QuoteFormScreen({ route, navigation }: any) {
     if (tightButPossible) {
       setLoading(false);
       Alert.alert(
-        '🕐 Hora muy cercana a otra tocada',
-        'Ese día el grupo tiene otra tocada y el tiempo para trasladarse queda muy justo. Puedes enviar tu solicitud de todos modos: el grupo verá los horarios y decidirá si alcanza a llegar.',
+        t('quoteFormScreen.tightTimeTitle'),
+        t('quoteFormScreen.tightTimeBody'),
         [
-          { text: 'Cambiar hora', style: 'cancel' },
-          { text: 'Enviar así', onPress: () => { setLoading(true); void sendQuote(); } },
+          { text: t('quoteFormScreen.changeTimeBtn'), style: 'cancel' },
+          { text: t('quoteFormScreen.sendAnywayBtn'), onPress: () => { setLoading(true); void sendQuote(); } },
         ],
       );
       return;
@@ -554,7 +692,7 @@ export default function QuoteFormScreen({ route, navigation }: any) {
           <ArrowLeft size={20} color={COLORS.text} />
         </Pressable>
         <View style={{ flex: 1 }}>
-          <Text style={s.headerTitle}>Solicitar cotización</Text>
+          <Text style={s.headerTitle}>{t('quoteFormScreen.headerTitle')}</Text>
           <Text style={s.headerSub}>{group.name}</Text>
         </View>
       </SafeAreaView>
@@ -580,7 +718,7 @@ export default function QuoteFormScreen({ route, navigation }: any) {
             <View style={s.progressTrack}>
               <View style={[s.progressFill, { width: `${Math.round((completed / total) * 100)}%` as any }]} />
             </View>
-            <Text style={s.progressLabel}>{completed} de {total} completadas</Text>
+            <Text style={s.progressLabel}>{t('quoteFormScreen.progressLabel', { completed, total })}</Text>
           </View>
         );
       })()}
@@ -599,14 +737,27 @@ export default function QuoteFormScreen({ route, navigation }: any) {
           {/* Info banner */}
           <View style={s.infoBanner}>
             <Text style={s.infoBannerText}>
-              📍 El grupo revisará tu solicitud y te enviará un precio personalizado. Mínimo 3 horas de servicio.
+              {t('quoteFormScreen.infoBanner')}
             </Text>
           </View>
 
+          {/* sql/585 (Fase 1) — evento existente: solo aparece si el cliente
+              viene de "agregar otro proveedor". Ausente en cotizaciones normales. */}
+          {!!presetEventId && (
+            <View style={s.infoBanner}>
+              <Text style={s.infoBannerText}>
+                {t('quoteFormScreen.eventContextBanner', {
+                  date: presetEventDate ?? '—',
+                  address: presetEventAddress ?? '',
+                })}
+              </Text>
+            </View>
+          )}
+
           {/* ─── 1. TIPO DE EVENTO ──────────────────────────────── */}
-          <SectionTitle>1. Tipo de evento *</SectionTitle>
+          <SectionTitle>{t('quoteFormScreen.section1Title')}</SectionTitle>
           <View style={s.chipGrid}>
-            {EVENT_TYPES.map(o => (
+            {eventTypeOptions.map(o => (
               <Pressable
                 key={o.key}
                 style={[s.chipWide, eventType === o.key && s.chipActive]}
@@ -620,7 +771,7 @@ export default function QuoteFormScreen({ route, navigation }: any) {
           </View>
 
           {/* ─── 2. UBICACIÓN ───────────────────────────────────── */}
-          <SectionTitle>2. Ubicación del evento *</SectionTitle>
+          <SectionTitle>{t('quoteFormScreen.section2Title')}</SectionTitle>
 
           {address && !showManualAddress ? (
             /* Address confirmed via map */
@@ -633,7 +784,7 @@ export default function QuoteFormScreen({ route, navigation }: any) {
                 ) : null}
               </View>
               <Pressable onPress={() => setMapPickerOpen(true)}>
-                <Text style={s.addressCardEdit}>Cambiar</Text>
+                <Text style={s.addressCardEdit}>{t('quoteFormScreen.addressChange')}</Text>
               </Pressable>
             </View>
           ) : showManualAddress ? (
@@ -641,7 +792,7 @@ export default function QuoteFormScreen({ route, navigation }: any) {
             <>
               <TextInput
                 style={s.input}
-                placeholder="Dirección completa"
+                placeholder={t('quoteFormScreen.addressPlaceholderFull')}
                 placeholderTextColor={COLORS.muted}
                 value={address}
                 onChangeText={t => { setAddress(t); setAddressConfirmed(false); }}
@@ -649,49 +800,49 @@ export default function QuoteFormScreen({ route, navigation }: any) {
               <View style={s.row2}>
                 <TextInput
                   style={[s.input, { flex: 1 }]}
-                  placeholder="Municipio"
+                  placeholder={t('quoteFormScreen.municipioPlaceholder')}
                   placeholderTextColor={COLORS.muted}
                   value={municipio}
                   onChangeText={t => { setMunicipio(t); setAddressConfirmed(false); }}
                 />
                 <TextInput
                   style={[s.input, { flex: 1 }]}
-                  placeholder="Estado"
+                  placeholder={t('quoteFormScreen.estadoPlaceholder')}
                   placeholderTextColor={COLORS.muted}
                   value={estado}
                   onChangeText={t => { setEstado(t); setAddressConfirmed(false); }}
                 />
               </View>
               <Pressable onPress={() => setMapPickerOpen(true)} style={s.useMapBtn}>
-                <Text style={s.useMapBtnText}>📍 Usar mapa</Text>
+                <Text style={s.useMapBtnText}>{t('quoteFormScreen.useMapBtn')}</Text>
               </Pressable>
             </>
           ) : (
             /* Default: open map picker */
             <>
               <Pressable style={s.mapPickerBtn} onPress={() => setMapPickerOpen(true)}>
-                <Text style={s.mapPickerBtnText}>📍 Seleccionar en el mapa</Text>
+                <Text style={s.mapPickerBtnText}>{t('quoteFormScreen.selectOnMapBtn')}</Text>
               </Pressable>
               <Pressable onPress={() => setShowManualAddress(true)} style={s.manualFallback}>
-                <Text style={s.manualFallbackText}>Escribir dirección manualmente</Text>
+                <Text style={s.manualFallbackText}>{t('quoteFormScreen.writeManualAddress')}</Text>
               </Pressable>
             </>
           )}
 
           {/* ─── 3. FECHA ────────────────────────────────────────── */}
-          <SectionTitle>3. Fecha del evento *</SectionTitle>
+          <SectionTitle>{t('quoteFormScreen.section3Title')}</SectionTitle>
           <Pressable style={s.dateBtn} onPress={() => setCalendarOpen(true)}>
             <Text style={[s.dateBtnText, !eventDate && { color: COLORS.muted }]}>
               {eventDate
                 ? new Date(eventDate + 'T12:00:00').toLocaleDateString('es-MX', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
-                : '📅 Seleccionar fecha'}
+                : t('quoteFormScreen.selectDatePlaceholder')}
             </Text>
           </Pressable>
 
           {/* Aviso: el grupo ya tiene evento ese día (se puede contratar en otro horario) */}
           {eventDate && busyByDate[eventDate]?.length ? (
             <View style={s.busyNotice}>
-              <Text style={s.busyNoticeTitle}>🎪 El grupo ya tiene evento este día:</Text>
+              <Text style={s.busyNoticeTitle}>{t('quoteFormScreen.busyNoticeTitle')}</Text>
               {busyByDate[eventDate].map((ev, i) => {
                 const fmt12 = (t: string) => {
                   const [h, m] = t.split(':').map(Number);
@@ -703,22 +854,42 @@ export default function QuoteFormScreen({ route, navigation }: any) {
                   : null;
                 return (
                   <Text key={i} style={s.busyNoticeLine}>
-                    · {start ? `De ${start}${end ? ` a ${end}` : ''}` : 'Horario por confirmar'}
+                    · {start
+                      ? (end ? t('quoteFormScreen.busyRangeFull', { start, end }) : t('quoteFormScreen.busyRangeStart', { start }))
+                      : t('quoteFormScreen.busyPending')}
                   </Text>
                 );
               })}
               <Text style={s.busyNoticeHint}>
-                Puedes contratarlo en un horario diferente — elige tu hora considerando este compromiso.
+                {t('quoteFormScreen.busyNoticeHint')}
+              </Text>
+            </View>
+          ) : null}
+
+          {/* sql/596 — Aviso: otro proveedor de tu evento ya tiene hora (se
+              excluyen comida/brincolines/muebles, que no tienen horario) */}
+          {eventConflictRanges.length > 0 ? (
+            <View style={s.busyNotice}>
+              <Text style={s.busyNoticeTitle}>{t('quoteFormScreen.eventConflictNoticeTitle')}</Text>
+              {eventConflictRanges.map((r, i) => (
+                <Text key={i} style={s.busyNoticeLine}>
+                  · {t('quoteFormScreen.eventConflictRangeLine', {
+                    group: r.group_name, start: fmtHourFrac(r.bs), end: fmtHourFrac(r.be),
+                  })}
+                </Text>
+              ))}
+              <Text style={s.busyNoticeHint}>
+                {t('quoteFormScreen.eventConflictNoticeHint')}
               </Text>
             </View>
           ) : null}
 
           {/* ─── 4. HORA ─────────────────────────────────────────── */}
-          <SectionTitle>4. Hora de inicio *</SectionTitle>
+          <SectionTitle>{t('quoteFormScreen.section4Title')}</SectionTitle>
 
-          {/* Día con evento del grupo: rejilla de horas disponibles vs
-              ocupadas (tocada + 2h de colchón para desconectar y trasladarse) */}
-          {eventDate && (busyByDate[eventDate]?.length ?? 0) > 0 && (() => {
+          {/* Día con evento del grupo Y/O choque con otro proveedor del mismo
+              evento (sql/596): rejilla de horas disponibles vs ocupadas */}
+          {eventDate && ((busyByDate[eventDate]?.length ?? 0) > 0 || eventConflictRanges.length > 0) && (() => {
             const dur = duration ?? 3;
             const ranges = rangesFor(eventDate);
             const fmtH = (h: number) => { const hh = h % 24; return `${hh % 12 || 12}${hh >= 12 ? 'pm' : 'am'}`; };
@@ -727,9 +898,12 @@ export default function QuoteFormScreen({ route, navigation }: any) {
             for (let h = 9; h <= 26; h++) {
               // La hora en que TERMINA la tocada también se pinta roja (h <= be)
               const insideBusy = ranges.some(r => h >= r.bs && h <= r.be);
+              // sql/596 — ¿un evento de `dur` horas iniciando en `h` se encima
+              // con otro proveedor del mismo evento? Sin colchón (gap=0).
+              const insideEventConflict = eventConflictAt(h, dur);
               // Antes de otra tocada: 2h obligatorias ("muy cercana" = justo en
               // el límite). Después de una tocada: 1h de quitar sonido y traslado.
-              const status = insideBusy ? 'busy'
+              const status = (insideBusy || insideEventConflict) ? 'busy'
                 : fitsWithGap(h, dur, 3, ranges) ? 'free'
                 : fitsWithGap(h, dur, 2, ranges) ? 'tight'
                 : 'buffer';
@@ -752,7 +926,14 @@ export default function QuoteFormScreen({ route, navigation }: any) {
             const afterPriorGig = selH != null && ranges.some(r => selH >= r.be);
             return (
               <View style={s.hourGridCard}>
-                <Text style={s.hourGridTitle}>Horarios de tu grupo ese día ({dur}h de evento)</Text>
+                <Text style={s.hourGridTitle}>
+                  {t(
+                    (busyByDate[eventDate]?.length ?? 0) > 0
+                      ? 'quoteFormScreen.hourGridTitle'
+                      : 'quoteFormScreen.hourGridTitleEventOnly',
+                    { dur },
+                  )}
+                </Text>
                 <View style={s.hourGrid}>
                   {slots.map(sl => {
                     const disabled = sl.status === 'busy' || sl.status === 'buffer';
@@ -787,22 +968,22 @@ export default function QuoteFormScreen({ route, navigation }: any) {
                   })}
                 </View>
                 <View style={s.hourLegend}>
-                  <Text style={s.hourLegendItem}>🟩 disponible</Text>
-                  <Text style={s.hourLegendItem}>🟨 muy cercana</Text>
-                  <Text style={s.hourLegendItem}>🟥 tocando</Text>
-                  <Text style={s.hourLegendItem}>⬜ traslado</Text>
+                  <Text style={s.hourLegendItem}>{t('quoteFormScreen.legendAvailable')}</Text>
+                  <Text style={s.hourLegendItem}>{t('quoteFormScreen.legendTight')}</Text>
+                  <Text style={s.hourLegendItem}>{t('quoteFormScreen.legendBusy')}</Text>
+                  <Text style={s.hourLegendItem}>{t('quoteFormScreen.legendTransfer')}</Text>
                 </View>
                 {selSlot?.status === 'tight' ? (
                   <Text style={s.hourTightTx}>
-                    🕐 Hora muy cercana a la otra tocada del grupo — el tiempo le queda justo. El grupo decidirá si la acepta al cotizarte.
+                    {t('quoteFormScreen.hourTightNote')}
                   </Text>
                 ) : afterPriorGig && selSlot ? (
                   <Text style={s.hourSuggestTx}>
-                    ℹ️ El grupo tiene un evento antes de tu horario. Verá si ese evento pide horas extra y te confirma al cotizarte.
+                    {t('quoteFormScreen.hourAfterPriorGigNote')}
                   </Text>
                 ) : firstFree.length > 0 && !eventTime ? (
                   <Text style={s.hourSuggestTx}>
-                    💡 Te sugerimos las {firstFree.map(fmtH).join(', ')} — le dan tiempo al grupo entre tocadas
+                    {t('quoteFormScreen.hourSuggestTimes', { times: firstFree.map(fmtH).join(', ') })}
                   </Text>
                 ) : null}
               </View>
@@ -815,47 +996,47 @@ export default function QuoteFormScreen({ route, navigation }: any) {
           >
             <Clock size={16} color={eventTime ? COLORS.green : COLORS.muted2} />
             <Text style={[s.timeChipText, !!eventTime && s.timeChipTextActive]}>
-              {eventTime ? formatTime12h(eventTime) : 'Toca para elegir la hora'}
+              {eventTime ? formatTime12h(eventTime) : t('quoteFormScreen.timeChipPlaceholder')}
             </Text>
           </Pressable>
 
           {/* ─── BANNER PROXIMIDAD — se muestra en tiempo real ──── */}
           {proximityLevel === 'ok' && (
             <View style={s.proximityOk}>
-              <Text style={s.proximityOkText}>✓ El grupo tiene tiempo para coordinarse</Text>
+              <Text style={s.proximityOkText}>{t('quoteFormScreen.proximityOk')}</Text>
             </View>
           )}
           {proximityLevel === 'warn' && (
             <View style={s.proximityWarn}>
               <Text style={s.proximityWarnText}>
-                ⏱ Evento próximo — el grupo tendrá ventana reducida para responder.
+                {t('quoteFormScreen.proximityWarn')}
               </Text>
             </View>
           )}
           {proximityLevel === 'block' && !bypassProximityBlock && (
             <View style={s.proximityBlock}>
-              <Text style={s.proximityBlockTitle}>🚨 Tu evento es en menos de 6 horas</Text>
+              <Text style={s.proximityBlockTitle}>{t('quoteFormScreen.proximityBlockTitle')}</Text>
               <Text style={s.proximityBlockBody}>
-                {'Las cotizaciones programadas no son rápidas — el grupo puede tardar en responder y no llegar a tiempo.\n\nPara eventos urgentes usa '}
-                <Text style={{ fontFamily: 'DMSans_600SemiBold' }}>Solicitar grupo ahora</Text>
-                {' — múltiples grupos disponibles te responderán al instante.'}
+                {t('quoteFormScreen.proximityBlockBodyPart1')}
+                <Text style={{ fontFamily: 'DMSans_600SemiBold' }}>{t('quoteFormScreen.proximityBlockBodyBold')}</Text>
+                {t('quoteFormScreen.proximityBlockBodyPart2')}
               </Text>
               <Pressable
                 style={s.proximityExpressBtn}
                 onPress={() => navigation.navigate('OpenRequest' as any)}
               >
-                <Text style={s.proximityExpressBtnText}>Solicitar grupo ahora →</Text>
+                <Text style={s.proximityExpressBtnText}>{t('quoteFormScreen.proximityExpressBtn')}</Text>
               </Pressable>
               <Pressable
                 style={s.proximityBypassLink}
                 onPress={() => {
                   Alert.alert(
-                    'Continuar con cotización programada',
-                    'El grupo podría no tener tiempo suficiente para organizarse y llegar al evento. ¿Seguro que quieres enviar la solicitud?',
+                    t('quoteFormScreen.proximityBypassAlertTitle'),
+                    t('quoteFormScreen.proximityBypassAlertBody'),
                     [
-                      { text: 'Cancelar', style: 'cancel' },
+                      { text: t('quoteFormScreen.cancel'), style: 'cancel' },
                       {
-                        text: 'Sí, enviar de todas formas',
+                        text: t('quoteFormScreen.proximityBypassConfirm'),
                         style: 'destructive',
                         onPress: () => setBypassProximityBlock(true),
                       },
@@ -863,20 +1044,20 @@ export default function QuoteFormScreen({ route, navigation }: any) {
                   );
                 }}
               >
-                <Text style={s.proximityBypassLinkText}>Entiendo, continuar de todas formas</Text>
+                <Text style={s.proximityBypassLinkText}>{t('quoteFormScreen.proximityBypassLink')}</Text>
               </Pressable>
             </View>
           )}
           {proximityLevel === 'past' && (
             <View style={s.proximityPast}>
               <Text style={s.proximityPastText}>
-                Este evento ya pasó. Selecciona una fecha y hora futura.
+                {t('quoteFormScreen.proximityPast')}
               </Text>
             </View>
           )}
 
           {/* ─── 5. DURACIÓN ─────────────────────────────────────── */}
-          <SectionTitle>5. Duración *  <Text style={s.minNote}>(mínimo 3 horas)</Text></SectionTitle>
+          <SectionTitle>{t('quoteFormScreen.section5Title')}  <Text style={s.minNote}>{t('quoteFormScreen.minNote')}</Text></SectionTitle>
           {(() => {
             // Día con otra tocada: solo las horas que dejan las 2h de traslado
             // (tocada 8pm → 3pm caben 3h, 2pm caben 4h, 1pm caben 5h). La
@@ -887,27 +1068,41 @@ export default function QuoteFormScreen({ route, navigation }: any) {
             // 12am/1am/2am = madrugada de esa noche
             const selH = selH0 != null && selH0 <= 2 ? selH0 + 24 : selH0;
             const constrained = ranges.length > 0 && selH != null;
-            const anyBlocked = constrained &&
-              DURATION_OPTIONS.some(d => !fitsWithGap(selH!, d.value, 2, ranges));
+            // sql/596 — duraciones que se encimarían con otro proveedor del
+            // mismo evento (sin colchón, ver eventConflictAt)
+            const eventConstrained = eventConflictRanges.length > 0 && selH != null;
+            const anyBlockedByOwn = constrained &&
+              durationOptions.some(d => !fitsWithGap(selH!, d.value, 2, ranges));
+            const anyBlockedByEvent = eventConstrained &&
+              durationOptions.some(d => eventConflictAt(selH!, d.value));
             return (
               <>
                 <ChipRow
-                  options={DURATION_OPTIONS.map(d => ({
-                    key: d.value, label: d.label,
-                    ...(constrained ? {
-                      disabled: !fitsWithGap(selH!, d.value, 2, ranges),
-                      warn:     fitsWithGap(selH!, d.value, 2, ranges) &&
-                                !fitsWithGap(selH!, d.value, 3, ranges),
-                    } : {}),
-                  }))}
+                  options={durationOptions.map(d => {
+                    const blockedByOwn = constrained && !fitsWithGap(selH!, d.value, 2, ranges);
+                    const blockedByEvent = eventConstrained && eventConflictAt(selH!, d.value);
+                    return {
+                      key: d.value, label: d.label,
+                      ...(constrained || eventConstrained ? {
+                        disabled: blockedByOwn || blockedByEvent,
+                        warn:     !blockedByEvent && constrained &&
+                                  fitsWithGap(selH!, d.value, 2, ranges) &&
+                                  !fitsWithGap(selH!, d.value, 3, ranges),
+                      } : {}),
+                    };
+                  })}
                   selected={duration}
                   onSelect={v => setDuration(Number(v))}
                 />
-                {anyBlocked && (
+                {anyBlockedByOwn ? (
                   <Text style={s.durLockTx}>
-                    🔒 Ese día tu grupo tiene otra tocada — solo puedes contratar las horas que le dan tiempo de llegar. Elige más temprano para contratar más horas.
+                    {t('quoteFormScreen.durationLockedNote')}
                   </Text>
-                )}
+                ) : anyBlockedByEvent ? (
+                  <Text style={s.durLockTx}>
+                    {t('quoteFormScreen.durationLockedNoteEvent')}
+                  </Text>
+                ) : null}
               </>
             );
           })()}
@@ -924,8 +1119,8 @@ export default function QuoteFormScreen({ route, navigation }: any) {
               <View style={s.extraHoursHint}>
                 <Text style={s.extraHoursHintText}>
                   {boxedIn
-                    ? 'ℹ️ Después de tu evento el grupo tiene otra tocada, así que NO habrá horas extra ese día. Contrata desde ahora todas las horas que necesitas.'
-                    : '💡 Elige bien las horas desde ahora. Si el evento se extiende, cada hora extra se cobra por separado y puede salir más caro que contratarlas de antemano.'}
+                    ? t('quoteFormScreen.extraHoursBoxedIn')
+                    : t('quoteFormScreen.extraHoursTip')}
                 </Text>
               </View>
             );
@@ -933,12 +1128,12 @@ export default function QuoteFormScreen({ route, navigation }: any) {
 
           {/* ─── 6. TIPO DE DESCANSO — oculto: el grupo elige en EventTimerScreen */}
           {false && (<>
-          <SectionTitle>6. Tipo de descanso *</SectionTitle>
+          <SectionTitle>{t('quoteFormScreen.section6Title')}</SectionTitle>
           <Text style={[s.minNote, { marginTop: -8, marginBottom: 12 }]}>
-            Todos los tipos están incluidos sin costo adicional.
+            {t('quoteFormScreen.section6Note')}
           </Text>
           <View style={s.breakOptions}>
-            {BREAK_OPTIONS.map(opt => (
+            {breakOptionsList.map(opt => (
               <Pressable
                 key={opt.type}
                 style={[s.breakOpt, breakType === opt.type && s.breakOptActive]}
@@ -954,10 +1149,10 @@ export default function QuoteFormScreen({ route, navigation }: any) {
           </>)}
 
           {/* ─── 7. NÚMERO DE PERSONAS ───────────────────────────── */}
-          <SectionTitle>7. Número aproximado de personas *</SectionTitle>
+          <SectionTitle>{t('quoteFormScreen.section7Title')}</SectionTitle>
           <TextInput
             style={s.input}
-            placeholder="Ej: 50"
+            placeholder={t('quoteFormScreen.numPersonasPlaceholder')}
             placeholderTextColor={COLORS.muted}
             value={numPersonas}
             onChangeText={t => setNumPersonas(t.replace(/[^0-9]/g, ''))}
@@ -966,17 +1161,17 @@ export default function QuoteFormScreen({ route, navigation }: any) {
           />
 
           {/* ─── 8. ¿TECHADO? ────────────────────────────────────── */}
-          <SectionTitle>8. ¿El lugar está techado? *</SectionTitle>
+          <SectionTitle>{t('quoteFormScreen.section8Title')}</SectionTitle>
           <ChipRow
-            options={COVERED_OPTIONS as any}
+            options={coveredOptions as any}
             selected={venueCovered}
             onSelect={setVenueCovered}
           />
 
           {/* ─── 9. ESPACIO ──────────────────────────────────────── */}
-          <SectionTitle>9. Espacio aproximado *</SectionTitle>
+          <SectionTitle>{t('quoteFormScreen.section9Title')}</SectionTitle>
           <View style={s.chipGrid}>
-            {VENUE_SIZES.map(o => (
+            {venueSizeOptions.map(o => (
               <Pressable
                 key={o.key}
                 style={[s.chipWide, venueSize === o.key && s.chipActive]}
@@ -990,12 +1185,27 @@ export default function QuoteFormScreen({ route, navigation }: any) {
           </View>
 
           {/* ─── 10. EQUIPO ──────────────────────────────────────── */}
-          <SectionTitle>10. ¿Qué necesitas para tu evento? *</SectionTitle>
+          <SectionTitle>{t('quoteFormScreen.section10Title')}</SectionTitle>
+
+          {/* sql/585 (Fase 1) — referencia de sonido ya declarado por otro
+              proveedor del mismo evento. Es solo informativo: NO prellena
+              needsSound/lightingNeeded, y no impide que este proveedor
+              declare algo distinto — cada uno conserva su propia respuesta. */}
+          {!!soundContext?.has_prior_declarations && (
+            <View style={s.soundRefBanner}>
+              <Text style={s.soundRefBannerText}>
+                {t('quoteFormScreen.soundContextBanner')}
+                {!!soundContext.declared_by?.length && (
+                  ` ${t('quoteFormScreen.soundContextBy', { names: soundContext.declared_by.join(', ') })}`
+                )}
+              </Text>
+            </View>
+          )}
 
           {/* Sonido */}
-          <Text style={s.equipSubTitle}>🎵 Sonido *</Text>
+          <Text style={s.equipSubTitle}>{t('quoteFormScreen.equipSoundTitle')}</Text>
           <View style={s.chipRow}>
-            {SOUND_OPTIONS.map(o => {
+            {soundOptionsList.map(o => {
               const lbl = getInclusionLabel('sound', o.key, groupEquip);
               return (
                 <View key={o.key} style={s.equipOptCol}>
@@ -1008,8 +1218,8 @@ export default function QuoteFormScreen({ route, navigation }: any) {
                     </Text>
                   </Pressable>
                   {lbl && (
-                    <Text style={lbl === '✅ Incluido' ? s.inclusionGreen : s.inclusionOrange}>
-                      {lbl}
+                    <Text style={lbl === 'included' ? s.inclusionGreen : s.inclusionOrange}>
+                      {lbl === 'included' ? t('quoteFormScreen.included') : t('quoteFormScreen.extraQuote')}
                     </Text>
                   )}
                 </View>
@@ -1018,9 +1228,9 @@ export default function QuoteFormScreen({ route, navigation }: any) {
           </View>
 
           {/* Iluminación */}
-          <Text style={s.equipSubTitle}>💡 Iluminación <Text style={s.optionalTag}>(opcional)</Text></Text>
+          <Text style={s.equipSubTitle}>{t('quoteFormScreen.equipLightingTitle')} <Text style={s.optionalTag}>{t('quoteFormScreen.optionalTag')}</Text></Text>
           <View style={s.chipRow}>
-            {LIGHTING_OPTIONS.map(o => {
+            {lightingOptionsList.map(o => {
               const lbl = getInclusionLabel('lighting', o.key, groupEquip);
               return (
                 <View key={o.key} style={s.equipOptCol}>
@@ -1033,8 +1243,8 @@ export default function QuoteFormScreen({ route, navigation }: any) {
                     </Text>
                   </Pressable>
                   {lbl && (
-                    <Text style={lbl === '✅ Incluido' ? s.inclusionGreen : s.inclusionOrange}>
-                      {lbl}
+                    <Text style={lbl === 'included' ? s.inclusionGreen : s.inclusionOrange}>
+                      {lbl === 'included' ? t('quoteFormScreen.included') : t('quoteFormScreen.extraQuote')}
                     </Text>
                   )}
                 </View>
@@ -1043,9 +1253,9 @@ export default function QuoteFormScreen({ route, navigation }: any) {
           </View>
 
           {/* Tarima */}
-          <Text style={s.equipSubTitle}>🎭 Tarima / Escenario <Text style={s.optionalTag}>(opcional)</Text></Text>
+          <Text style={s.equipSubTitle}>{t('quoteFormScreen.equipStageTitle')} <Text style={s.optionalTag}>{t('quoteFormScreen.optionalTag')}</Text></Text>
           <View style={s.chipRow}>
-            {STAGE_OPTIONS.map(o => {
+            {stageOptionsList.map(o => {
               const lbl = getInclusionLabel('stage', o.key, groupEquip);
               return (
                 <View key={o.key} style={s.equipOptCol}>
@@ -1058,8 +1268,8 @@ export default function QuoteFormScreen({ route, navigation }: any) {
                     </Text>
                   </Pressable>
                   {lbl && (
-                    <Text style={lbl === '✅ Incluido' ? s.inclusionGreen : s.inclusionOrange}>
-                      {lbl}
+                    <Text style={lbl === 'included' ? s.inclusionGreen : s.inclusionOrange}>
+                      {lbl === 'included' ? t('quoteFormScreen.included') : t('quoteFormScreen.extraQuote')}
                     </Text>
                   )}
                 </View>
@@ -1068,9 +1278,9 @@ export default function QuoteFormScreen({ route, navigation }: any) {
           </View>
 
           {/* LED */}
-          <Text style={s.equipSubTitle}>📺 Pantalla LED <Text style={s.optionalTag}>(opcional)</Text></Text>
+          <Text style={s.equipSubTitle}>{t('quoteFormScreen.equipLedTitle')} <Text style={s.optionalTag}>{t('quoteFormScreen.optionalTag')}</Text></Text>
           <View style={s.chipRow}>
-            {LED_OPTIONS.map(o => {
+            {ledOptionsList.map(o => {
               const lbl = getInclusionLabel('led', o.key, groupEquip);
               return (
                 <View key={o.key} style={s.equipOptCol}>
@@ -1083,8 +1293,8 @@ export default function QuoteFormScreen({ route, navigation }: any) {
                     </Text>
                   </Pressable>
                   {lbl && (
-                    <Text style={lbl === '✅ Incluido' ? s.inclusionGreen : s.inclusionOrange}>
-                      {lbl}
+                    <Text style={lbl === 'included' ? s.inclusionGreen : s.inclusionOrange}>
+                      {lbl === 'included' ? t('quoteFormScreen.included') : t('quoteFormScreen.extraQuote')}
                     </Text>
                   )}
                 </View>
@@ -1095,16 +1305,16 @@ export default function QuoteFormScreen({ route, navigation }: any) {
           {/* Nota resumen */}
           <View style={s.equipSummaryBox}>
             <Text style={s.equipSummaryText}>
-              📋 El grupo verá tu solicitud y enviará el precio total,{'\n'}
-              incluyendo cualquier equipo adicional que necesites rentar.
+              {t('quoteFormScreen.equipSummaryLine1')}{'\n'}
+              {t('quoteFormScreen.equipSummaryLine2')}
             </Text>
           </View>
 
           {/* ─── 11. COMENTARIOS ──────────────────────────────────── */}
-          <SectionTitle>11. Comentarios adicionales</SectionTitle>
+          <SectionTitle>{t('quoteFormScreen.section11Title')}</SectionTitle>
           <TextInput
             style={[s.input, s.inputMulti]}
-            placeholder={'Ej: "El evento es en rancho a 30 min de la ciudad"\n"Es al aire libre"\n"Queremos música variada"'}
+            placeholder={t('quoteFormScreen.commentsPlaceholder')}
             placeholderTextColor={COLORS.muted}
             value={comments}
             onChangeText={v => {
@@ -1119,7 +1329,7 @@ export default function QuoteFormScreen({ route, navigation }: any) {
             maxLength={500}
             textAlignVertical="top"
           />
-          <Text style={s.charCount}>{comments.length}/500</Text>
+          <Text style={s.charCount}>{t('quoteFormScreen.charCount', { count: comments.length })}</Text>
           {commentsWarn && (
             <View style={s.warnBox}>
               <Text style={s.warnText}>⚠️ {PHONE_WARNING}</Text>
@@ -1129,8 +1339,8 @@ export default function QuoteFormScreen({ route, navigation }: any) {
           {/* ─── 🎁 ¿ES UN REGALO? (switch opcional) ──────────────── */}
           <View style={s.giftToggleRow}>
             <View style={{ flex: 1 }}>
-              <Text style={s.giftToggleTitle}>🎁 ¿Es un regalo?</Text>
-              <Text style={s.giftToggleHint}>Actívalo para regalar este evento a otra persona.</Text>
+              <Text style={s.giftToggleTitle}>{t('quoteFormScreen.giftToggleTitle')}</Text>
+              <Text style={s.giftToggleHint}>{t('quoteFormScreen.giftToggleHint')}</Text>
             </View>
             <Switch
               value={isGift}
@@ -1142,23 +1352,23 @@ export default function QuoteFormScreen({ route, navigation }: any) {
           {isGift && (
             <View style={s.giftBox}>
               <Text style={s.giftBoxHint}>
-                Al pagar generamos un ticket de regalo para que se lo compartas a quien tú quieras (WhatsApp, correo, etc.), cuando tú decidas.
+                {t('quoteFormScreen.giftBoxHint')}
               </Text>
 
-              <Text style={s.giftLabel}>Para (nombre del festejado) *</Text>
+              <Text style={s.giftLabel}>{t('quoteFormScreen.giftRecipientLabel')}</Text>
               <TextInput
                 style={s.input}
-                placeholder="Ej: Mamá, Sofía, Familia López"
+                placeholder={t('quoteFormScreen.giftRecipientPlaceholder')}
                 placeholderTextColor={COLORS.muted}
                 value={giftRecipient}
                 onChangeText={setGiftRecipient}
                 maxLength={60}
               />
 
-              <Text style={s.giftLabel}>Mensaje personalizado</Text>
+              <Text style={s.giftLabel}>{t('quoteFormScreen.giftMessageLabel')}</Text>
               <TextInput
                 style={[s.input, s.inputMulti]}
-                placeholder={'Ej: "¡Feliz cumpleaños! Con todo mi cariño 🎉"'}
+                placeholder={t('quoteFormScreen.giftMessagePlaceholder')}
                 placeholderTextColor={COLORS.muted}
                 value={giftMessage}
                 onChangeText={setGiftMessage}
@@ -1167,10 +1377,10 @@ export default function QuoteFormScreen({ route, navigation }: any) {
                 textAlignVertical="top"
               />
 
-              <Text style={s.giftLabel}>Contacto del destinatario (opcional)</Text>
+              <Text style={s.giftLabel}>{t('quoteFormScreen.giftContactLabel')}</Text>
               <TextInput
                 style={s.input}
-                placeholder="WhatsApp o correo (opcional)"
+                placeholder={t('quoteFormScreen.giftContactPlaceholder')}
                 placeholderTextColor={COLORS.muted}
                 value={giftContact}
                 onChangeText={setGiftContact}
@@ -1187,7 +1397,7 @@ export default function QuoteFormScreen({ route, navigation }: any) {
           >
             <Send size={18} color={canSubmit() ? COLORS.bg : COLORS.muted} />
             <Text style={[s.submitBtnText, !canSubmit() && { color: COLORS.muted }]}>
-              {loading ? 'Enviando...' : 'Enviar solicitud de cotización'}
+              {loading ? t('quoteFormScreen.submitting') : t('quoteFormScreen.submitBtn')}
             </Text>
           </Pressable>
 
@@ -1199,11 +1409,11 @@ export default function QuoteFormScreen({ route, navigation }: any) {
       <Modal visible={calendarOpen} transparent animationType="slide">
         <View style={s.calOverlay}>
           <View style={s.calSheet}>
-            <Text style={s.calTitle}>Selecciona la fecha</Text>
+            <Text style={s.calTitle}>{t('quoteFormScreen.calendarTitle')}</Text>
             <Calendar
               onDayPress={(day: any) => {
                 if (unavailMarked[day.dateString]?.disabled) {
-                  Alert.alert('Fecha no disponible', 'El grupo no está disponible ese día. Elige otra fecha.');
+                  Alert.alert(t('quoteFormScreen.dateUnavailableTitle'), t('quoteFormScreen.dateUnavailableBody'));
                   return;
                 }
                 setEventDate(day.dateString);
@@ -1228,7 +1438,7 @@ export default function QuoteFormScreen({ route, navigation }: any) {
               }}
             />
             <Pressable style={s.calClose} onPress={() => setCalendarOpen(false)}>
-              <Text style={s.calCloseText}>Cancelar</Text>
+              <Text style={s.calCloseText}>{t('quoteFormScreen.cancel')}</Text>
             </Pressable>
           </View>
         </View>
@@ -1236,7 +1446,7 @@ export default function QuoteFormScreen({ route, navigation }: any) {
       <TimePickerModal
         visible={timePickerOpen}
         value={eventTime}
-        title="Hora de inicio"
+        title={t('quoteFormScreen.timePickerTitle')}
         onConfirm={(t) => { setEventTime(t); setTimePickerOpen(false); }}
         onClose={() => setTimePickerOpen(false)}
       />
@@ -1278,6 +1488,12 @@ const s = StyleSheet.create({
     borderRadius: RADIUS.lg, padding: 14, marginBottom: 24,
   },
   infoBannerText: { fontFamily: FONTS.body, fontSize: 13, color: COLORS.green, lineHeight: 20 },
+
+  soundRefBanner: {
+    backgroundColor: 'rgba(255,152,0,0.10)', borderWidth: 1, borderColor: 'rgba(255,152,0,0.30)',
+    borderRadius: RADIUS.lg, padding: 12, marginBottom: 14,
+  },
+  soundRefBannerText: { fontFamily: FONTS.body, fontSize: 12, color: COLORS.orange, lineHeight: 18 },
 
   sectionTitle: {
     fontFamily: FONTS.bodySemiBold, fontSize: 14, color: COLORS.text,

@@ -10,30 +10,44 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import Particles from '../../components/ui/Particles';
 import Badge from '../../components/ui/Badge';
 
-const DAYS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
-const MONTHS = [
-  'Enero','Febrero','Marzo','Abril','Mayo','Junio',
-  'Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'
+const getDays = (t: TFunction): string[] => [
+  t('groupCalendarScreen.daysShort.sun'), t('groupCalendarScreen.daysShort.mon'),
+  t('groupCalendarScreen.daysShort.tue'), t('groupCalendarScreen.daysShort.wed'),
+  t('groupCalendarScreen.daysShort.thu'), t('groupCalendarScreen.daysShort.fri'),
+  t('groupCalendarScreen.daysShort.sat'),
 ];
 
-const STATUS_MAP: Record<string, { label: string; variant: any }> = {
-  pending:     { label: 'Pendiente',  variant: 'orange' },
-  confirmed:   { label: 'Confirmada', variant: 'green' },
-  in_progress: { label: 'En curso',   variant: 'blue' },
-  completed:   { label: 'Completada', variant: 'muted' },
-  cancelled:   { label: 'Cancelada',  variant: 'red' },
-};
+const getMonths = (t: TFunction): string[] => [
+  t('groupCalendarScreen.months.jan'), t('groupCalendarScreen.months.feb'), t('groupCalendarScreen.months.mar'),
+  t('groupCalendarScreen.months.apr'), t('groupCalendarScreen.months.may'), t('groupCalendarScreen.months.jun'),
+  t('groupCalendarScreen.months.jul'), t('groupCalendarScreen.months.aug'), t('groupCalendarScreen.months.sep'),
+  t('groupCalendarScreen.months.oct'), t('groupCalendarScreen.months.nov'), t('groupCalendarScreen.months.dec'),
+];
+
+const getStatusMap = (t: TFunction): Record<string, { label: string; variant: any }> => ({
+  pending:     { label: t('groupCalendarScreen.status.pending'),  variant: 'orange' },
+  confirmed:   { label: t('groupCalendarScreen.status.confirmed'), variant: 'green' },
+  in_progress: { label: t('groupCalendarScreen.status.inProgress'),   variant: 'blue' },
+  completed:   { label: t('groupCalendarScreen.status.completed'), variant: 'muted' },
+  cancelled:   { label: t('groupCalendarScreen.status.cancelled'),  variant: 'red' },
+});
 
 function toDateStr(year: number, month: number, day: number) {
   return `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
 export default function GroupCalendarScreen({ navigation }: any) {
+  const { t } = useTranslation();
+  const DAYS = getDays(t);
+  const MONTHS = getMonths(t);
+  const STATUS_MAP = getStatusMap(t);
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth());
@@ -71,7 +85,7 @@ export default function GroupCalendarScreen({ navigation }: any) {
       .select('date')
       .eq('group_id', grp.id);
     if (unavError) {
-      Alert.alert('Error al cargar disponibilidad', 'No se pudieron cargar tus días bloqueados.');
+      Alert.alert(t('groupCalendarScreen.errors.loadAvailabilityTitle'), t('groupCalendarScreen.errors.loadAvailabilityMessage'));
     } else if (unavData) {
       setBlockedDates(new Set(unavData.map((d: any) => d.date)));
     }
@@ -120,20 +134,20 @@ export default function GroupCalendarScreen({ navigation }: any) {
     if (isPast) return;
 
     const gid = groupIdRef.current;
-    if (!gid) { Alert.alert('Error', 'No se encontró tu grupo. Sal y vuelve a entrar.'); return; }
+    if (!gid) { Alert.alert(t('groupCalendarScreen.common.error'), t('groupCalendarScreen.errors.groupNotFound')); return; }
 
     const wasBlocked = blockedDates.has(dateStr);
 
     // Confirmación simple antes del toggle
     Alert.alert(
-      wasBlocked ? '¿Volver a trabajar este día?' : '¿Bloquear este día?',
+      wasBlocked ? t('groupCalendarScreen.toggleAlert.unblockTitle') : t('groupCalendarScreen.toggleAlert.blockTitle'),
       wasBlocked
-        ? `${dateStr} volverá a estar disponible para reservas.`
-        : `${dateStr} dejará de estar disponible para reservas.`,
+        ? t('groupCalendarScreen.toggleAlert.unblockMessage', { date: dateStr })
+        : t('groupCalendarScreen.toggleAlert.blockMessage', { date: dateStr }),
       [
-        { text: 'Cancelar', style: 'cancel' },
+        { text: t('groupCalendarScreen.common.cancel'), style: 'cancel' },
         {
-          text: wasBlocked ? 'Sí, desbloquear' : 'Sí, bloquear',
+          text: wasBlocked ? t('groupCalendarScreen.toggleAlert.confirmUnblock') : t('groupCalendarScreen.toggleAlert.confirmBlock'),
           style: wasBlocked ? 'default' : 'destructive',
           onPress: async () => {
             // Actualización optimista
@@ -153,7 +167,7 @@ export default function GroupCalendarScreen({ navigation }: any) {
                 await fetchData();
               } else {
                 setBlockedDates(new Set(blockedDates)); // revert
-                Alert.alert('Error al guardar', dbError.message ?? 'No se pudo guardar.');
+                Alert.alert(t('groupCalendarScreen.errors.saveTitle'), dbError.message ?? t('groupCalendarScreen.errors.saveMessage'));
               }
             }
           },
@@ -184,20 +198,20 @@ export default function GroupCalendarScreen({ navigation }: any) {
           <Pressable style={styles.backBtn} onPress={() => navigation.goBack()}>
             <ArrowLeft size={20} color={COLORS.text} />
           </Pressable>
-          <Text style={styles.headerTitle}>Mi Disponibilidad</Text>
+          <Text style={styles.headerTitle}>{t('groupCalendarScreen.headerTitle')}</Text>
           <View style={{ width: 40 }} />
         </View>
 
         <ScrollView showsVerticalScrollIndicator={false}>
           {/* LEYENDA */}
           <View style={styles.legend}>
-            <View style={styles.legendItem}><View style={[styles.legendDot, { backgroundColor: COLORS.green }]} /><Text style={styles.legendText}>Libre</Text></View>
-            <View style={styles.legendItem}><View style={[styles.legendDot, { backgroundColor: COLORS.gold }]} /><Text style={styles.legendText}>Reservado</Text></View>
-            <View style={styles.legendItem}><View style={[styles.legendDot, { backgroundColor: COLORS.red }]} /><Text style={styles.legendText}>No disponible</Text></View>
-            <View style={styles.legendItem}><View style={[styles.legendDot, { backgroundColor: COLORS.muted }]} /><Text style={styles.legendText}>Pasado</Text></View>
+            <View style={styles.legendItem}><View style={[styles.legendDot, { backgroundColor: COLORS.green }]} /><Text style={styles.legendText}>{t('groupCalendarScreen.legend.free')}</Text></View>
+            <View style={styles.legendItem}><View style={[styles.legendDot, { backgroundColor: COLORS.gold }]} /><Text style={styles.legendText}>{t('groupCalendarScreen.legend.reserved')}</Text></View>
+            <View style={styles.legendItem}><View style={[styles.legendDot, { backgroundColor: COLORS.red }]} /><Text style={styles.legendText}>{t('groupCalendarScreen.legend.unavailable')}</Text></View>
+            <View style={styles.legendItem}><View style={[styles.legendDot, { backgroundColor: COLORS.muted }]} /><Text style={styles.legendText}>{t('groupCalendarScreen.legend.past')}</Text></View>
           </View>
 
-          <Text style={styles.hint}>Toca un día libre para bloquearlo · Toca un reservado para ver detalles</Text>
+          <Text style={styles.hint}>{t('groupCalendarScreen.hint')}</Text>
 
           {/* NAVEGACIÓN MES */}
           <View style={styles.monthNav}>

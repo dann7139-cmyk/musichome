@@ -11,6 +11,8 @@
 //   https://<project>.supabase.co/functions/v1/mercadopago-webhook
 // ═══════════════════════════════════════════════════════════════════
 
+import { resolveRefundClaimAction, applyRefundClaimAction } from '../_shared/refund_claim_guard.ts';
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -89,8 +91,27 @@ async function verifyMPSignature(
   return true;
 }
 
-Deno.serve(async (req) => {
+// Mercado Pago desactivado (auditoría 2026-08-08) — Stripe y Conekta son
+// los únicos proveedores activos de Daricefy. Tipado como `boolean` (no
+// literal `false`) a propósito: evita que TypeScript marque el resto de
+// esta función como código muerto y pierda el narrowing de tipos que ya
+// dependía del control de flujo existente.
+const MERCADOPAGO_ACTIVE: boolean = false;
+
+export async function handleRequest(req: Request): Promise<Response> {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+
+  // Corte explícito ANTES de leer cualquier secret
+  // (MERCADOPAGO_ACCESS_TOKEN/MERCADOPAGO_WEBHOOK_SECRET — ninguno de los
+  // dos debe configurarse) o de intentar resolver un pago: cero RPC, cero
+  // wallet, cero notificaciones financieras. 200 para que MP (si algo
+  // llegara a llamar) no reintente.
+  if (!MERCADOPAGO_ACTIVE) {
+    return new Response(JSON.stringify({ ok: false, error: 'mercadopago_disabled', message: 'Mercado Pago ya no es un proveedor activo de Daricefy.' }), {
+      status: 200,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
 
   const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
   const SERVICE_KEY  = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
@@ -208,18 +229,31 @@ Deno.serve(async (req) => {
         && !externalRef.startsWith('rec_')
         && !externalRef.startsWith('ad_');
       if (isReservation) {
-        // Llama process_refund_reversal: revierte solo el monto realmente reembolsado (idempotente)
-        const revRes = await fetch(`${SUPABASE_URL}/rest/v1/rpc/process_refund_reversal`, {
-          method:  'POST',
-          headers: adminHeaders,
-          body:    JSON.stringify({
-            p_reservation_id: externalRef,
-            p_mp_refund_id:   null,
-            p_refund_amount:  payment.transaction_amount ?? null,
-          }),
-        });
-        const revResult = await revRes.json() as any;
-        console.log('[process_refund_reversal] webhook result:', JSON.stringify(revResult));
+        // P1F: NUNCA asumir que este refund es 'full'. Se consulta el
+        // claim (creado por process-refund ANTES de llamar a MercadoPago)
+        // para saber si en realidad es una cancelación de cliente o de
+        // grupo — y en ese caso completar settle_cancellation/
+        // settle_group_cancellation directamente (nunca la RPC genérica),
+        // sin importar si este webhook ganó la carrera contra
+        // process-refund o llegó después.
+        const decision = await resolveRefundClaimAction(SUPABASE_URL, SERVICE_KEY, 'mercadopago', paymentId);
+
+        if (decision.action === 'already_done') {
+          console.log(`[MP Webhook] claim=${decision.claimId} ya estaba 'done' — idempotente, sin cambios (reserva=${externalRef})`);
+        } else {
+          const outcome = await applyRefundClaimAction(
+            SUPABASE_URL, SERVICE_KEY, externalRef, null, payment.transaction_amount ?? null, decision,
+            { provider: 'mercadopago', providerPaymentId: paymentId },
+          );
+          if (!outcome.ok) {
+            console.error(`[MP Webhook] Error ${outcome.rpc} (decision=${decision.action}):`, JSON.stringify(outcome.result));
+          } else if (outcome.rpc === 'none_fail_closed') {
+            console.warn(`[MP Webhook] FAIL CLOSED — sin claim, sin RPC contable ejecutada (reserva=${externalRef}) logged=${outcome.result.logged} notified=${outcome.result.notified}`);
+          } else {
+            const skipped = 'skipped' in outcome && outcome.skipped;
+            console.log(`[MP Webhook] ${outcome.rpc}${skipped ? ' (skip, ya liquidado por otra vía)' : ''}: reserva=${externalRef} decision=${decision.action}`, JSON.stringify(outcome.result));
+          }
+        }
 
         fetch(`${SUPABASE_URL}/rest/v1/rpc/log_payment_event`, {
           method:  'POST',
@@ -442,4 +476,8 @@ Deno.serve(async (req) => {
     console.error('Webhook internal error:', msg);
     return err(msg);
   }
-});
+}
+
+if (import.meta.main) {
+  Deno.serve(handleRequest);
+}

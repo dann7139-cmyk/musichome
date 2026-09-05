@@ -5,6 +5,7 @@ import {
   Alert,
   Animated,
   Easing,
+  Image,
   Keyboard,
   KeyboardAvoidingView,
   Platform,
@@ -57,7 +58,22 @@ export default function LoginScreen({ navigation }: any) {
     setLoading(true);
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     setLoading(false);
-    if (error) Alert.alert('Error', error.message);
+    if (error) Alert.alert(t('common.error'), error.message);
+  };
+
+  // "¿Olvidaste tu contraseña?" — hallazgo real (2026-09-05): el botón
+  // existía en pantalla pero no tenía onPress, nunca hacía nada. Mismo
+  // patrón ya probado y funcionando en IntroScreen.tsx.
+  const handleForgot = async () => {
+    if (!email.trim()) {
+      Alert.alert(t('auth.login.forgot_email_required_title'), t('auth.login.forgot_email_required_message'));
+      return;
+    }
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: 'daricefy://reset-password',
+    });
+    if (error) Alert.alert(t('common.error'), error.message);
+    else Alert.alert(t('auth.login.forgot_email_sent_title'), t('auth.login.forgot_email_sent_message'));
   };
 
   return (
@@ -83,9 +99,8 @@ export default function LoginScreen({ navigation }: any) {
             {/* ── HERO ── */}
             <View style={styles.hero}>
               <Animated.View style={{ opacity: logoFade, transform: [{ translateY: logoY }], alignItems: 'center' }}>
-                <View style={styles.logoIconWrap}>
-                  <Text style={styles.logoIconText}>🎵</Text>
-                </View>
+                {/* Marca (2026-09-05) — el logo real, igual que en SplashScreen.tsx */}
+                <Image source={require('../../../assets/images/icon.png')} style={styles.logoMark} resizeMode="contain" />
                 <Text style={styles.logoText} adjustsFontSizeToFit numberOfLines={1}>
                   Darice<Text style={styles.logoGreen}>fy</Text>
                 </Text>
@@ -129,7 +144,7 @@ export default function LoginScreen({ navigation }: any) {
               <View style={{ height: 4 }} />
               <Button label={t('auth.login.submit')} onPress={handleLogin} loading={loading} size="lg" />
 
-              <Pressable style={styles.forgotRow}>
+              <Pressable style={styles.forgotRow} onPress={handleForgot} hitSlop={10}>
                 <Text style={styles.forgotText}>{t('auth.login.forgot_password')}</Text>
               </Pressable>
             </Animated.View>
@@ -163,13 +178,7 @@ const styles = StyleSheet.create({
 
   // Hero
   hero: { alignItems: 'center', marginBottom: 36 },
-  logoIconWrap: {
-    width: 56, height: 56, borderRadius: 28,
-    backgroundColor: 'rgba(0,230,118,0.12)', borderWidth: 1,
-    borderColor: 'rgba(0,230,118,0.3)', alignItems: 'center',
-    justifyContent: 'center', marginBottom: 12,
-  },
-  logoIconText: { fontSize: 26 },
+  logoMark: { width: 56, height: 56, marginBottom: 12 },
   logoText: {
     fontFamily: FONTS.title, fontSize: 28,
     color: COLORS.text, letterSpacing: -0.5,

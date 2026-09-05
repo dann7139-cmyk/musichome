@@ -19,7 +19,9 @@ import { useNavigation } from '@react-navigation/native';
 import { supabase } from '../../config/supabase';
 import { useAuth } from '../../context/AuthContext';
 import { COLORS, FONTS, RADIUS } from '../../config/theme';
+import { useTranslation } from 'react-i18next';
 import { useClientProposals, ClientProposal } from '../../context/ClientProposalContext';
+import { getClientActiveEvents, resolveEventContext } from '../../utils/eventBuilder';
 import ProposalCard, {
   PROPOSAL_CARD_WIDTH,
   PROPOSAL_CARD_GAP,
@@ -88,6 +90,7 @@ const AnimatedCard = React.memo(function AnimatedCard({
 
 // ── ProposalCarousel ──────────────────────────────────────────────────────────
 export default function ProposalCarousel() {
+  const { t } = useTranslation();
   const { proposals, dismiss, dismissAll, reviveAll } = useClientProposals();
   const { profile } = useAuth();
   const navigation  = useNavigation<any>();
@@ -193,10 +196,28 @@ export default function ProposalCarousel() {
         console.log('[⚡ UPDATE] negotiating_group_id', updateErr ? `ERROR: ${updateErr.message}` : 'OK');
       }
 
-      // 2. Crear la reserva vía RPC (espera status 'en_negociacion')
-      const { data, error } = await supabase.rpc('client_accept_proposal', {
-        p_request_id: proposal.request_id,
-      });
+      // 2. Resolver contexto de evento — mismo patrón que OpenRequestScreen
+      //    (sql/585, pendiente de autorización). Gap encontrado y corregido:
+      //    esta ruta (confirmación de propuesta en vivo) llamaba a
+      //    client_accept_proposal SIN p_event_id, así que un cliente con un
+      //    evento activo que confirmara una propuesta express desde aquí
+      //    terminaría creando un evento nuevo en vez de reutilizar el suyo.
+      const activeEvents  = await getClientActiveEvents();
+      const resolvedEventId = await resolveEventContext({ t, activeEvents });
+
+      // 3. Crear la reserva vía RPC (espera status 'en_negociacion')
+      // sql/585 (no aplicado) — client_accept_proposal en producción
+      // TODAVÍA NO tiene p_event_id (confirmado por introspección directa
+      // 2026-08-31). Mandarlo siempre, aunque sea null, rompe el RPC con
+      // PGRST202 (PostgREST resuelve por el conjunto exacto de nombres de
+      // parámetro). Solo se incluye si hay un event_id real, con reintento
+      // defensivo sin él si el RPC de producción lo rechaza igual.
+      const acceptParams: Record<string, any> = { p_request_id: proposal.request_id };
+      if (resolvedEventId) acceptParams.p_event_id = resolvedEventId;
+      let { data, error } = await supabase.rpc('client_accept_proposal', acceptParams);
+      if (error?.code === 'PGRST202' && 'p_event_id' in acceptParams) {
+        ({ data, error } = await supabase.rpc('client_accept_proposal', { p_request_id: proposal.request_id }));
+      }
       console.log('[⚡ RPC] client_accept_proposal', JSON.stringify(data), error ? `ERROR: ${error.message}` : null);
 
       if (error || !data?.ok) {
@@ -251,6 +272,7 @@ export default function ProposalCarousel() {
       //    QuotePaymentScreen solo necesita id + total_price + display fields.
       const reservationForPayment = {
         id:          reservationId,
+        event_id:    resolvedEventId ?? undefined,
         total_price: Number(proposal.proposal_data.total_amount ?? 0),
         event_date:  proposal.request?.event_date ?? null,
         address:     proposal.request?.location_city ?? '',

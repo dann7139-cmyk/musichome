@@ -9,13 +9,14 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useTranslation } from 'react-i18next';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import Particles from '../../components/ui/Particles';
 
-const MONTHS = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-
 export default function GroupEarningsScreen({ navigation }: any) {
+  const { t } = useTranslation();
+  const MONTHS: string[] = t('groupEarningsScreen.months', { returnObjects: true }) as string[];
   const [reservations, setReservations] = useState<any[]>([]);
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [selectedYear] = useState(new Date().getFullYear());
@@ -59,8 +60,12 @@ export default function GroupEarningsScreen({ navigation }: any) {
     return d.getMonth() === selectedMonth && d.getFullYear() === selectedYear;
   });
 
-  const monthTotal = filtered.reduce((s, r) => s + (r.group_earnings ?? 0), 0);
-  const yearTotal = reservations.reduce((s, r) => s + (r.group_earnings ?? 0), 0);
+  // Monedas separadas — nunca sumar MXN + USD (mismo patrón que FinancialScreen.tsx).
+  const isUSD = (r: any) => r.currency_code === 'USD';
+  const monthTotalMXN = filtered.filter(r => !isUSD(r)).reduce((s, r) => s + (r.group_earnings ?? 0), 0);
+  const monthTotalUSD = filtered.filter(isUSD).reduce((s, r) => s + (r.group_earnings ?? 0), 0);
+  const yearTotalMXN = reservations.filter(r => !isUSD(r)).reduce((s, r) => s + (r.group_earnings ?? 0), 0);
+  const yearTotalUSD = reservations.filter(isUSD).reduce((s, r) => s + (r.group_earnings ?? 0), 0);
 
   return (
     <View style={styles.container}>
@@ -70,7 +75,7 @@ export default function GroupEarningsScreen({ navigation }: any) {
           <Pressable style={styles.backBtn} onPress={() => navigation.goBack()}>
             <ArrowLeft size={20} color={COLORS.text} />
           </Pressable>
-          <Text style={styles.headerTitle}>Mis Ganancias</Text>
+          <Text style={styles.headerTitle}>{t('groupEarningsScreen.headerTitle')}</Text>
           <View style={{ width: 40 }} />
         </View>
 
@@ -80,15 +85,21 @@ export default function GroupEarningsScreen({ navigation }: any) {
             <View style={styles.totalIcon}>
               <TrendingUp size={20} color={COLORS.green} />
             </View>
-            <Text style={styles.totalLabel}>Este mes</Text>
-            <Text style={styles.totalValue}>${monthTotal.toLocaleString()}</Text>
+            <Text style={styles.totalLabel}>{t('groupEarningsScreen.thisMonth')}</Text>
+            <Text style={styles.totalValue}>${monthTotalMXN.toLocaleString()} MXN</Text>
+            {monthTotalUSD > 0 && (
+              <Text style={[styles.totalLabel, { marginTop: 2 }]}>+ ${monthTotalUSD.toLocaleString()} USD</Text>
+            )}
           </View>
           <View style={[styles.totalCard, { borderColor: COLORS.blue }]}>
             <View style={[styles.totalIcon, { backgroundColor: 'rgba(66,133,244,0.1)' }]}>
               <DollarSign size={20} color={COLORS.blue} />
             </View>
-            <Text style={styles.totalLabel}>Total {selectedYear}</Text>
-            <Text style={[styles.totalValue, { color: COLORS.blue }]}>${yearTotal.toLocaleString()}</Text>
+            <Text style={styles.totalLabel}>{t('groupEarningsScreen.totalYear', { year: selectedYear })}</Text>
+            <Text style={[styles.totalValue, { color: COLORS.blue }]}>${yearTotalMXN.toLocaleString()} MXN</Text>
+            {yearTotalUSD > 0 && (
+              <Text style={[styles.totalLabel, { marginTop: 2 }]}>+ ${yearTotalUSD.toLocaleString()} USD</Text>
+            )}
           </View>
         </View>
 
@@ -112,8 +123,8 @@ export default function GroupEarningsScreen({ navigation }: any) {
           {filtered.length === 0 ? (
             <View style={styles.empty}>
               <DollarSign size={40} color={COLORS.muted} />
-              <Text style={styles.emptyTitle}>Sin ganancias</Text>
-              <Text style={styles.emptyText}>No hay eventos completados en {MONTHS[selectedMonth]}</Text>
+              <Text style={styles.emptyTitle}>{t('groupEarningsScreen.emptyTitle')}</Text>
+              <Text style={styles.emptyText}>{t('groupEarningsScreen.emptyText', { month: MONTHS[selectedMonth] })}</Text>
             </View>
           ) : (
             filtered.map(r => (
@@ -123,14 +134,14 @@ export default function GroupEarningsScreen({ navigation }: any) {
                     <Calendar size={16} color={COLORS.green} />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.rowClient}>{r.client?.full_name ?? 'Cliente'}</Text>
+                    <Text style={styles.rowClient}>{r.client?.full_name ?? t('groupEarningsScreen.defaultClient')}</Text>
                     <Text style={styles.rowPkg}>{r.quote?.event_type ?? '—'}</Text>
                     <Text style={styles.rowDate}>{r.event_date} {r.event_time ? `· ${r.event_time}` : ''}</Text>
                     {r.address ? <Text style={styles.rowAddr} numberOfLines={1}>{r.address}</Text> : null}
                   </View>
                 </View>
                 <View style={styles.rowRight}>
-                  <Text style={styles.rowEarnings}>${(r.group_earnings ?? 0).toLocaleString()}</Text>
+                  <Text style={styles.rowEarnings}>${(r.group_earnings ?? 0).toLocaleString()} {r.currency_code === 'USD' ? 'USD' : 'MXN'}</Text>
                   <Text style={styles.rowHours}>{r.hours_count ?? r.quote?.duration_hours ?? '?'}h</Text>
                 </View>
               </View>

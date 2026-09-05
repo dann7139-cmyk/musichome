@@ -553,6 +553,12 @@ export default function EventTimerScreen({ route, navigation }: any) {
   const [showMsiModal, setShowMsiModal] = useState(false);
   const [msiPendingChoice, setMsiPendingChoice] = useState<{ hours: number; price: number } | null>(null);
   const [msiSelectedMonths, setMsiSelectedMonths] = useState<number>(1);
+  // Moneda real de la reserva — SIN fallback silencioso a MXN. Varios
+  // caminos de navegación hacia esta pantalla no incluyen currency_code en
+  // su select (ver auditoría), así que se reconfirma aquí con un refetch
+  // aislado. Mientras sea null (fetch en curso o falló), los montos que
+  // dependen de esto se muestran SIN sufijo de moneda — nunca se asume MXN.
+  const [resCurrency, setResCurrency] = useState<'MXN' | 'USD' | null>(null);
   const [pendingPaymentExtra, setPendingPaymentExtra] = useState<{
     id: string; hours: number; price: number; msiMonths: number;
   } | null>(null);
@@ -690,6 +696,27 @@ export default function EventTimerScreen({ route, navigation }: any) {
         }
       });
   }, []);
+
+  // ── Moneda real de la reserva (aislado — no toca el efecto de arriba) ────
+  // Varios puntos de navegación hacia esta pantalla no traen currency_code
+  // en su select. Este refetch mínimo lo confirma directo desde la BD, sin
+  // asumir nada. Si falla, se loguea y resCurrency se queda en null — los
+  // montos que lo usan se muestran sin sufijo de moneda, nunca "MXN" por
+  // default.
+  useEffect(() => {
+    supabase
+      .from('reservations')
+      .select('currency_code')
+      .eq('id', reservation.id)
+      .single()
+      .then(({ data, error }) => {
+        if (error || !data?.currency_code) {
+          console.warn('[EventTimer] No se pudo confirmar currency_code:', error?.message ?? 'sin dato');
+          return;
+        }
+        setResCurrency(data.currency_code === 'USD' ? 'USD' : 'MXN');
+      });
+  }, [reservation.id]);
 
   // Restaurar estado de llegada y descanso al volver a la pantalla
   // (native-stack mantiene el componente montado: useFocusEffect re-corre en cada focus)
@@ -1331,6 +1358,12 @@ export default function EventTimerScreen({ route, navigation }: any) {
   // Trigger trg_notify_extra_hour_proposed (sql/395) notifica al grupo automáticamente.
   const handleRequestWithStripe = async (hours: number, price: number, msiMonths: number) => {
     if (stripeLoading) return;
+    // Fail-closed: sin resCurrency confirmado, no se crea el registro financiero.
+    // Nunca se asume MXN — ver auditoría de horas extra en USD.
+    if (!resCurrency) {
+      Alert.alert('Un momento', 'Confirmando datos de la reserva. Intenta de nuevo en unos segundos.');
+      return;
+    }
     setStripeLoading(true);
     try {
       const { data: existing } = await supabase
@@ -1356,6 +1389,7 @@ export default function EventTimerScreen({ route, navigation }: any) {
         status:               'awaiting_group_confirmation',
         payment_method:       'stripe',
         msi_months:           msiMonths,
+        currency_code:        resCurrency,
       }]);
       if (insertErr) { Alert.alert('Error', 'No se pudo crear la solicitud. Intenta de nuevo.'); return; }
       setClientPendingExtra({ hours, price });
@@ -1430,8 +1464,8 @@ export default function EventTimerScreen({ route, navigation }: any) {
   const _doStartFlow = () => {
     if (breakType === 'D') {
       Alert.alert(
-        '⚠️ Modo sin descanso',
-        'El cliente eligió modo corrido. Tu equipo tocará las 3 horas sin pausas. ¿Confirmas que están preparados?',
+        '⚠️ Sin descansos programados',
+        `Este tipo de servicio no maneja tandas ni descansos — contarán las ${contractHours} horas seguidas desde que inicien. ¿Confirmas que están listos?`,
         [
           { text: 'Cancelar', style: 'cancel' },
           { text: 'Sí, iniciar', onPress: () => confirmStart() },
@@ -1443,7 +1477,6 @@ export default function EventTimerScreen({ route, navigation }: any) {
   };
 
   const confirmStart = async (autoBreakType?: string) => {
-    const startTime = new Date();  // UTC real — toISOString() guarda timestamp correcto en DB
     const effectiveBreakType = autoBreakType ?? breakType;
     setLoading(true);
     const opt = BREAK_OPTIONS.find(o => o.type === effectiveBreakType) ?? BREAK_OPTIONS[1];
@@ -1451,12 +1484,22 @@ export default function EventTimerScreen({ route, navigation }: any) {
     const minsMusic = contractHours * 60 - minsBreak;
     if (!breakType) setBreakType(opt.type);
 
-    await supabase.from('reservations').update({
-      status: 'in_progress',
-      event_started_at: startTime.toISOString(),
-      break_type: opt.type,
-      music_minutes: minsMusic,
-    }).eq('id', reservation.id);
+    // El ancla del cronómetro (event_started_at) la fija el reloj del
+    // SERVIDOR (NOW() dentro del RPC), no el celular del grupo — así
+    // grupo/cliente/talento calculan el tiempo transcurrido contra el
+    // mismo punto de referencia real, sin depender de que el celular
+    // del grupo tenga la hora bien puesta.
+    const { data: startRes, error: startErr } = await supabase.rpc('start_event', {
+      p_reservation_id: reservation.id,
+      p_break_type: opt.type,
+      p_music_minutes: minsMusic,
+    });
+    if (startErr || !startRes?.ok) {
+      setLoading(false);
+      Alert.alert('No se pudo iniciar el evento', 'Intenta de nuevo en unos segundos.');
+      return;
+    }
+    const startTime = new Date(startRes.event_started_at);
 
     if (reservation.client_id) {
       await supabase.from('notifications').insert([{
@@ -1798,7 +1841,7 @@ export default function EventTimerScreen({ route, navigation }: any) {
 
 
   // ── Rating queue helpers ─────────────────────────────────────────────────
-  const startRatingFlow = () => {
+  const startRatingFlow = async () => {
     if (hasAlreadyRated) { return; }
     const queue: RatingSubject[] = [];
 
@@ -1825,12 +1868,17 @@ export default function EventTimerScreen({ route, navigation }: any) {
           });
         });
     } else if (userRole === 'client') {
-      // Cliente: califica al grupo
+      // Cliente: califica al grupo — de paso trae el país del grupo (no
+      // viene en `reservation.group`) para poder abrir el modal de
+      // propina (GiftPickerModal) con la moneda correcta.
+      const { data: grp } = await supabase
+        .from('groups').select('country').eq('id', reservation.group_id).single();
       queue.push({
         type: 'group',
         targetId: reservation.group_id,
         targetName: reservation.group?.name ?? 'el grupo',
         reservationId: reservation.id,
+        groupCountry: grp?.country ?? null,
       });
     }
 
@@ -2942,7 +2990,7 @@ export default function EventTimerScreen({ route, navigation }: any) {
             {unreadMessages > 0 && (
               <View style={st.chatFabBadge}>
                 <Text style={st.chatBadgeText}>
-                  {unreadMessages > 9 ? '9+' : unreadMessages}
+                  {unreadMessages > 99 ? '99+' : unreadMessages}
                 </Text>
               </View>
             )}
@@ -3056,12 +3104,6 @@ export default function EventTimerScreen({ route, navigation }: any) {
                           setPendingExtraRow(null);
                           return;
                         }
-                        supabase.rpc('credit_extra_hour_earnings', {
-                          p_reservation_id: reservation.id,
-                          p_extra_amount: total,
-                        }).then(({ error: rpcErr }) => {
-                          if (rpcErr) console.warn('credit_extra_hour_earnings:', rpcErr.message);
-                        });
                         if (reservation.client_id) {
                           supabase.from('notifications').insert([{
                             user_id: reservation.client_id,
@@ -3304,7 +3346,7 @@ export default function EventTimerScreen({ route, navigation }: any) {
             <Text style={st.nearEndTitle}>Selecciona tu plan</Text>
             {msiPendingChoice && (
               <Text style={[st.nearEndSub, { marginBottom: 8 }]}>
-                +{msiPendingChoice.hours}h extra — ${msiPendingChoice.price.toLocaleString()} MXN
+                +{msiPendingChoice.hours}h extra — ${msiPendingChoice.price.toLocaleString()}{resCurrency ? ` ${resCurrency}` : ''}
               </Text>
             )}
 
@@ -3333,12 +3375,12 @@ export default function EventTimerScreen({ route, navigation }: any) {
                       {months === 1 ? '1 pago' : `${months} meses`}
                     </Text>
                     <Text style={st.msiCardFee}>
-                      {months === 1 ? 'Sin cargo adicional' : `+${(fee * 100).toFixed(0)}% de cargo · $${monthly.toLocaleString()}/mes`}
+                      {months === 1 ? 'Sin cargo adicional' : `+${(fee * 100).toFixed(0)}% de cargo · $${monthly.toLocaleString()}${resCurrency ? ` ${resCurrency}` : ''}/mes`}
                     </Text>
                   </View>
                   <View style={{ alignItems: 'flex-end' }}>
                     <Text style={[st.msiCardPrice, isSelected && { color: '#16A34A' }]}>
-                      ${total.toLocaleString()}
+                      ${total.toLocaleString()}{resCurrency ? ` ${resCurrency}` : ''}
                     </Text>
                     {months > 1 && (
                       <Text style={st.msiCardTotal}>total</Text>

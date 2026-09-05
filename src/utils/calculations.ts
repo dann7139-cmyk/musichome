@@ -223,8 +223,15 @@ export function parseEventDateMX(
   return isNaN(result.getTime()) ? null : result;
 }
 
-export function formatCurrency(amount: number, symbol = '$') {
-  return `${symbol}${amount.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+// currencyCode es opcional a propósito — no rompe los 6 call-sites existentes
+// que aún no lo pasan. Cuando SÍ está disponible (reservations.currency_code
+// es la fuente de verdad), nunca dejar un "$" ambiguo: MXN se identifica como
+// "MXN", USD como "US$...USD" — nunca solo el símbolo.
+export function formatCurrency(amount: number, currencyCode?: 'MXN' | 'USD', symbol = '$') {
+  const numFmt = amount.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  if (currencyCode === 'USD') return `US$${numFmt} USD`;
+  if (currencyCode === 'MXN') return `${symbol}${numFmt} MXN`;
+  return `${symbol}${numFmt}`;
 }
 
 export function breakTypeLabel(type: string): string {

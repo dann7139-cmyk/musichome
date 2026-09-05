@@ -681,7 +681,7 @@ export default function BiddingScreen({ navigation, route }: any) {
             <View style={s.compCard}>
               <LinearGradient
                 colors={['rgba(251,146,60,0.10)', 'rgba(251,146,60,0.02)']}
-                style={StyleSheet.absoluteFillObject}
+                style={StyleSheet.absoluteFill}
                 start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
               />
 
@@ -818,7 +818,7 @@ export default function BiddingScreen({ navigation, route }: any) {
                 colors={isExpiringSoon
                   ? ['rgba(239,68,68,0.18)', 'rgba(239,68,68,0.05)']
                   : ['rgba(192,132,252,0.18)', 'rgba(192,132,252,0.05)']}
-                style={StyleSheet.absoluteFillObject}
+                style={StyleSheet.absoluteFill}
                 start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
               />
 
@@ -892,7 +892,7 @@ export default function BiddingScreen({ navigation, route }: any) {
           <View style={s.heroCard}>
             <LinearGradient
               colors={['rgba(0,230,118,0.10)', 'rgba(0,0,0,0)']}
-              style={StyleSheet.absoluteFillObject}
+              style={StyleSheet.absoluteFill}
               start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
             />
             <TrendingUp size={28} color={COLORS.green} />
@@ -961,7 +961,7 @@ export default function BiddingScreen({ navigation, route }: any) {
                 {isSelected && (
                   <LinearGradient
                     colors={['rgba(0,230,118,0.10)', 'rgba(0,0,0,0)']}
-                    style={StyleSheet.absoluteFillObject}
+                    style={StyleSheet.absoluteFill}
                     start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
                   />
                 )}
@@ -1056,7 +1056,7 @@ export default function BiddingScreen({ navigation, route }: any) {
             {customMode && (
               <LinearGradient
                 colors={['rgba(192,132,252,0.12)', 'rgba(0,0,0,0)']}
-                style={StyleSheet.absoluteFillObject}
+                style={StyleSheet.absoluteFill}
                 start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
               />
             )}
