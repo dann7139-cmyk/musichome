@@ -1,6 +1,6 @@
 -- ============================================================
 -- sql/602_regression_suite_notifications_referrals.sql
--- SUITE DE REGRESIÓN — ✅ CORRIÓ 23/23 PASS 2026-09-05. No aplica nada,
+-- SUITE DE REGRESIÓN — ✅ CORRIÓ 26/26 PASS 2026-09-05. No aplica nada,
 -- solo prueba. Correr esto ANTES y
 -- DESPUÉS de tocar cualquier función relacionada con notificaciones,
 -- referidos, o el choque de horarios entre proveedores. Si algo de esto
@@ -71,6 +71,17 @@
 --  23. trg_notify_gift_visibility_off — sql/620 (avisa a los integrantes
 --      actuales si el dueño apaga el interruptor de sql/618; no dispara
 --      en false->false ni cuando nunca hubo integrantes viéndolo)
+--  24. event_break_boundaries — matemática exacta tipo A+extras, debe
+--      coincidir siempre con generateBreakSchedule (calculations.ts) para
+--      que el timer del grupo y las notificaciones del servidor no se
+--      desincronicen (auditoría 2026-09-05)
+--  25. complete_event — candado de duración mínima + idempotencia
+--      (auditoría 2026-09-05, sin cambios, ya funcionaba bien)
+--  26. auto_finalize_stuck_events — sql/621 (columna event_request_id
+--      inexistente en job_invitations hacía que la función SIEMPRE
+--      tronara al intentar cerrar un evento realmente atorado — la red de
+--      seguridad para cuando el grupo cierra la app nunca había cerrado
+--      un solo evento)
 --
 -- Cómo leer el resultado: si TODO pasa, ves un solo error final que dice
 -- literalmente "REGRESSION_SUITE: TODO PASÓ" — ES EL RESULTADO ESPERADO
@@ -630,7 +641,98 @@ BEGIN
       '[23] REGRESIÓN: el trigger disparó de nuevo con false->false (sin cambio real) — revisar sql/620';
   END;
 
-  RAISE EXCEPTION 'REGRESSION_SUITE: TODO PASÓ (23/23) — temporizador, notificaciones de engagement, bono de referido MX/USD, descuento al cliente, choque de horarios, sin-temporizador por categoría (incluye fotógrafos), anuncios (clientes bloqueados, sin teléfonos, solo categoría distinta, correcto con dueños de varios grupos), cupo de Destacado/Recomendado por categoría, precio de publicidad calculado server-side (video +35%, Recomendado > Destacado), regalo/quite de Bidding del admin, ranking de Bidding por estado, TODOS los regalos (no solo Otro monto) abren GiftReveal, la notificación de admin ya no dice "Trofeo" para un monto personalizado, el interruptor de mostrar regalos a los músicos integrantes, notificar al integrante removido, y notificar a los integrantes al desactivar el interruptor siguen funcionando';
+  -- ══ 24. event_break_boundaries — matemática exacta, tipo A, 4h + 1 extra ══
+  -- (debe coincidir siempre con generateBreakSchedule en calculations.ts)
+  DECLARE
+    v_anchor24  TIMESTAMPTZ := '2030-01-01 00:00:00+00';
+    v_rows24    RECORD;
+    v_offsets24 INT[] := '{}';
+  BEGIN
+    FOR v_rows24 IN
+      SELECT break_index, break_start, break_end FROM event_break_boundaries(v_anchor24, 4, 'A', 1) ORDER BY break_index
+    LOOP
+      v_offsets24 := v_offsets24 || EXTRACT(EPOCH FROM (v_rows24.break_start - v_anchor24))::int / 60;
+      v_offsets24 := v_offsets24 || EXTRACT(EPOCH FROM (v_rows24.break_end   - v_anchor24))::int / 60;
+    END LOOP;
+    ASSERT v_offsets24 = ARRAY[45,60,105,120,165,180,225,240],
+      '[24] REGRESIÓN: event_break_boundaries tipo A cambió su matemática (desincroniza el timer del grupo vs las notificaciones del servidor): ' || v_offsets24::text;
+  END;
+
+  -- ══ 25. complete_event — candado de duración mínima + idempotencia — protege el fin de evento ══
+  DECLARE
+    v_g25 UUID; v_res25 UUID; v_result25 JSONB; v_status25 TEXT;
+  BEGIN
+    -- Fecha propia y única (+90) para no chocar con enforce_max_groups_per_event
+    -- (máx. 3 grupos por evento/fecha del mismo cliente) frente a las demás
+    -- reservas de v_client ya creadas más arriba en esta misma suite.
+    INSERT INTO public.groups (id, owner_id, name, genre, country_id) VALUES (gen_random_uuid(), v_owner, 'RT602 Timer25', 'Banda', v_country_mx) RETURNING id INTO v_g25;
+    INSERT INTO public.reservations (id, client_id, group_id, event_date, event_time, address, total_price, status, hours_count, event_started_at)
+      VALUES (gen_random_uuid(), v_client, v_g25, CURRENT_DATE + 90, '18:00', 'Dir', 9000, 'in_progress', 3, NOW() - INTERVAL '30 minutes')
+      RETURNING id INTO v_res25;
+
+    RESET role;
+    PERFORM set_config('request.jwt.claims', json_build_object('sub', v_owner::text, 'role','authenticated')::text, true);
+    PERFORM set_config('role','authenticated', true);
+    v_result25 := public.complete_event(v_res25);
+    RESET role;
+    ASSERT (v_result25->>'ok')::boolean = false, '[25] REGRESIÓN: complete_event dejó terminar un evento que apenas lleva 30 min de 3h contratadas';
+
+    UPDATE public.reservations SET event_started_at = NOW() - INTERVAL '200 minutes' WHERE id = v_res25;
+    RESET role;
+    PERFORM set_config('request.jwt.claims', json_build_object('sub', v_owner::text, 'role','authenticated')::text, true);
+    PERFORM set_config('role','authenticated', true);
+    v_result25 := public.complete_event(v_res25);
+    RESET role;
+    ASSERT (v_result25->>'ok')::boolean = true, '[25] REGRESIÓN: complete_event no dejó terminar un evento que ya cumplió su tiempo: ' || v_result25::text;
+    SELECT status INTO v_status25 FROM public.reservations WHERE id = v_res25;
+    ASSERT v_status25 = 'completed', '[25] REGRESIÓN: complete_event no marcó status=completed';
+
+    RESET role;
+    PERFORM set_config('request.jwt.claims', json_build_object('sub', v_owner::text, 'role','authenticated')::text, true);
+    PERFORM set_config('role','authenticated', true);
+    v_result25 := public.complete_event(v_res25);
+    RESET role;
+    ASSERT (v_result25->>'note') = 'already_completed', '[25] REGRESIÓN: complete_event ya no es idempotente en un evento ya finalizado';
+  END;
+
+  -- ══ 26. auto_finalize_stuck_events — sql/621 (columna event_request_id
+  -- inexistente en job_invitations tronaba la función CADA VEZ que de
+  -- verdad intentaba cerrar un evento atorado — nunca se había cerrado uno
+  -- por esta vía). No debe tocar eventos aún en su ventana de gracia, sí
+  -- debe cerrar los realmente atorados con notificación, y no duplicar. ══
+  DECLARE
+    v_g26a UUID; v_g26b UUID; v_res26 UUID; v_res26b UUID; v_status26 TEXT;
+  BEGIN
+    -- Fechas propias y únicas (+91/+92) — mismo motivo que en [25]
+    INSERT INTO public.groups (id, owner_id, name, genre, country_id) VALUES (gen_random_uuid(), v_owner, 'RT602 Timer26a', 'Banda', v_country_mx) RETURNING id INTO v_g26a;
+    INSERT INTO public.reservations (id, client_id, group_id, event_date, event_time, address, total_price, status, hours_count, event_started_at)
+      VALUES (gen_random_uuid(), v_client, v_g26a, CURRENT_DATE + 91, '18:00', 'Dir', 3000, 'in_progress', 1, NOW() - INTERVAL '2 hours')
+      RETURNING id INTO v_res26;
+
+    INSERT INTO public.groups (id, owner_id, name, genre, country_id) VALUES (gen_random_uuid(), v_owner, 'RT602 Timer26b', 'Banda', v_country_mx) RETURNING id INTO v_g26b;
+    INSERT INTO public.reservations (id, client_id, group_id, event_date, event_time, address, total_price, status, hours_count, event_started_at)
+      VALUES (gen_random_uuid(), v_client, v_g26b, CURRENT_DATE + 92, '18:00', 'Dir', 3000, 'in_progress', 1, NOW() - INTERVAL '5 hours')
+      RETURNING id INTO v_res26b;
+
+    PERFORM public.auto_finalize_stuck_events();
+
+    SELECT status INTO v_status26 FROM public.reservations WHERE id = v_res26;
+    ASSERT v_status26 = 'in_progress', '[26] REGRESIÓN: auto_finalize_stuck_events cerró un evento TODAVÍA en su ventana de gracia — riesgo de cortar un evento real en vivo — revisar sql/621';
+
+    SELECT status INTO v_status26 FROM public.reservations WHERE id = v_res26b;
+    ASSERT v_status26 = 'completed', '[26] REGRESIÓN: auto_finalize_stuck_events volvió a no cerrar un evento realmente atorado (¿volvió el bug de event_request_id?) — revisar sql/621';
+
+    ASSERT EXISTS(SELECT 1 FROM notifications WHERE type='event_finalized' AND user_id=v_client AND data->>'reservation_id'=v_res26b::text),
+      '[26] REGRESIÓN: no se notificó al cliente al cerrar el evento atorado';
+    ASSERT EXISTS(SELECT 1 FROM notifications WHERE type='event_finalized' AND data->>'reservation_id'=v_res26b::text AND user_id = v_owner),
+      '[26] REGRESIÓN: no se notificó al dueño del grupo al cerrar el evento atorado';
+
+    PERFORM public.auto_finalize_stuck_events();
+    ASSERT (SELECT count(*) FROM notifications WHERE type='event_finalized' AND user_id=v_client AND data->>'reservation_id'=v_res26b::text) = 1,
+      '[26] REGRESIÓN: auto_finalize_stuck_events duplicó la notificación en una segunda corrida';
+  END;
+
+  RAISE EXCEPTION 'REGRESSION_SUITE: TODO PASÓ (26/26) — temporizador, notificaciones de engagement, bono de referido MX/USD, descuento al cliente, choque de horarios, sin-temporizador por categoría (incluye fotógrafos), anuncios (clientes bloqueados, sin teléfonos, solo categoría distinta, correcto con dueños de varios grupos), cupo de Destacado/Recomendado por categoría, precio de publicidad calculado server-side (video +35%, Recomendado > Destacado), regalo/quite de Bidding del admin, ranking de Bidding por estado, TODOS los regalos (no solo Otro monto) abren GiftReveal, la notificación de admin ya no dice "Trofeo" para un monto personalizado, el interruptor de mostrar regalos a los músicos integrantes, notificar al integrante removido, notificar a los integrantes al desactivar el interruptor, la matemática de tandas/descansos, el candado+idempotencia de complete_event, y que auto_finalize_stuck_events por fin cierra eventos realmente atorados sin tronar siguen funcionando';
 END;
 $suite$;
 
