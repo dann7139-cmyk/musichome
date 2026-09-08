@@ -1,6 +1,6 @@
 -- ============================================================
 -- sql/602_regression_suite_notifications_referrals.sql
--- SUITE DE REGRESIÓN — ✅ CORRIÓ 26/26 PASS 2026-09-05. No aplica nada,
+-- SUITE DE REGRESIÓN — ✅ CORRIÓ 30/30 PASS 2026-09-05. No aplica nada,
 -- solo prueba. Correr esto ANTES y
 -- DESPUÉS de tocar cualquier función relacionada con notificaciones,
 -- referidos, o el choque de horarios entre proveedores. Si algo de esto
@@ -30,8 +30,10 @@
 --   9. apply_referral_client_discount  — sql/599 (descuento sin tocar al grupo)
 --  10. client_get_event_time_conflicts — sql/596 (comida/renta exentos)
 --  11. group_default_break_type        — sql/603 (sin temporizador para
---      Comediante/Payasos/Comida/renta de mesas-sillas-brincolines-
---      inflables; banda/solista/dj/luz y sonido sí conservan tandas)
+--      Comediante/Comida/renta de mesas-sillas-brincolines-inflables;
+--      banda/solista/dj/luz y sonido sí conservan tandas). Payasos YA NO
+--      está aquí (sql/625, 2026-09-05) — se fusionó con Shows y ahora
+--      elige libremente, verificado también en este mismo check [11]
 --  12. group_default_break_type (foto)  — sql/604 (Fotografía/Drones/
 --      Cabina 360/Cabina fotográfica también sin temporizador)
 --  13. create_advertisement_order       — sql/608 (clientes bloqueados,
@@ -82,6 +84,16 @@
 --      tronara al intentar cerrar un evento realmente atorado — la red de
 --      seguridad para cuando el grupo cierra la app nunca había cerrado
 --      un solo evento)
+--  27. group_default_break_type (Espectáculo/MC) — sql/622
+--  28. category_details jsonb (groups + quotes) — sql/623 (Comida/Renta/
+--      Payasos/Fotógrafos guardan y leen sus propias preguntas tal cual;
+--      filas viejas sin el campo nacen en '{}', nunca NULL)
+--  29. get_category_field_values — sql/624 (lista de opciones que crece
+--      sola por categoría, sin tabla nueva; dedup y aislada por categoría)
+--  30. group_category_key (Shows + MC) — sql/625 (Espectáculo/Payasos/
+--      Mago/Personajes/Animación clasifican como 'espectaculo', Maestro
+--      de Ceremonias como 'mc' — nunca se habían agregado desde sql/622,
+--      devolvía NULL para ambos)
 --
 -- Cómo leer el resultado: si TODO pasa, ves un solo error final que dice
 -- literalmente "REGRESSION_SUITE: TODO PASÓ" — ES EL RESULTADO ESPERADO
@@ -252,11 +264,18 @@ BEGIN
   END;
 
   -- ══ 11. Sin temporizador de descansos para categorías sin performance ══
+  -- 2026-09-05 (sql/625): Payasos se fusionó con Espectáculo ("Shows") y
+  -- DEJÓ de estar forzado a 'D' a propósito (ahora elige libremente, igual
+  -- que Espectáculo/Banda) — se reemplaza el ejemplo de "sí forzado" por
+  -- Comediante (que SÍ sigue forzado) y se agrega un caso explícito
+  -- confirmando que Payasos ahora es NULL (cambio intencional, no bug).
   DECLARE
-    v_group_banda UUID; v_group_payaso UUID;
+    v_group_banda UUID; v_group_comediante UUID; v_group_payaso UUID;
   BEGIN
     INSERT INTO public.groups (id, owner_id, name, genre, country_id)
       VALUES (gen_random_uuid(), v_owner, 'RT602 Banda11', 'Banda', v_country_mx) RETURNING id INTO v_group_banda;
+    INSERT INTO public.groups (id, owner_id, name, genre, country_id)
+      VALUES (gen_random_uuid(), v_owner, 'RT602 Comediante11', 'Comediante', v_country_mx) RETURNING id INTO v_group_comediante;
     INSERT INTO public.groups (id, owner_id, name, genre, country_id)
       VALUES (gen_random_uuid(), v_owner, 'RT602 Payaso11', 'Payasos', v_country_mx) RETURNING id INTO v_group_payaso;
 
@@ -278,7 +297,7 @@ BEGIN
     INSERT INTO public.quotes (id, group_id, client_id, event_date, event_time, duration_hours, status,
       event_type, event_address, event_municipio, event_estado, venue_covered, venue_size, needs_sound,
       base_price, commission_amount, total_amount, group_earnings)
-      VALUES (gen_random_uuid(), v_group_payaso, v_client, CURRENT_DATE + 8, '18:00', 3, 'pending',
+      VALUES (gen_random_uuid(), v_group_comediante, v_client, CURRENT_DATE + 8, '18:00', 3, 'pending',
         'boda', 'Dir', 'Muni', 'Edo', 'si', 'salon_mediano', 'no_group_brings', 3000, 600, 3600, 3000)
       RETURNING id INTO v_quote_id;
     RESET role;
@@ -288,7 +307,22 @@ BEGIN
     RESET role;
     SELECT * INTO v_res FROM public.reservations WHERE id = (v_result->>'reservation_id')::uuid;
     ASSERT v_res.break_type = 'D',
-      '[11] REGRESIÓN: Payasos ya no trae break_type=D automático (volvería a pedirle tandas/descansos que no aplican) — revisar sql/603';
+      '[11] REGRESIÓN: Comediante ya no trae break_type=D automático (volvería a pedirle tandas/descansos que no aplican) — revisar sql/603';
+
+    INSERT INTO public.quotes (id, group_id, client_id, event_date, event_time, duration_hours, status,
+      event_type, event_address, event_municipio, event_estado, venue_covered, venue_size, needs_sound,
+      base_price, commission_amount, total_amount, group_earnings)
+      VALUES (gen_random_uuid(), v_group_payaso, v_client, CURRENT_DATE + 8, '18:00', 3, 'pending',
+        'boda', 'Dir', 'Muni', 'Edo', 'si', 'salon_mediano', 'no_group_brings', 3000, 600, 3600, 3000)
+      RETURNING id INTO v_quote_id;
+    RESET role;
+    PERFORM set_config('request.jwt.claims', json_build_object('sub', v_client::text, 'role','authenticated')::text, true);
+    PERFORM set_config('role','authenticated', true);
+    v_result := public.client_accept_quote(v_quote_id, NULL, NULL);
+    RESET role;
+    SELECT * INTO v_res FROM public.reservations WHERE id = (v_result->>'reservation_id')::uuid;
+    ASSERT v_res.break_type IS NULL,
+      '[11] REGRESIÓN: Payasos ya no debería estar forzado a D — ahora se fusionó con Shows y elige libremente — revisar sql/625';
   END;
 
   -- ══ 12. Fotógrafos (Fotografía/Drones/Cabina 360/Cabina fotográfica) ══
@@ -732,7 +766,112 @@ BEGIN
       '[26] REGRESIÓN: auto_finalize_stuck_events duplicó la notificación en una segunda corrida';
   END;
 
-  RAISE EXCEPTION 'REGRESSION_SUITE: TODO PASÓ (26/26) — temporizador, notificaciones de engagement, bono de referido MX/USD, descuento al cliente, choque de horarios, sin-temporizador por categoría (incluye fotógrafos), anuncios (clientes bloqueados, sin teléfonos, solo categoría distinta, correcto con dueños de varios grupos), cupo de Destacado/Recomendado por categoría, precio de publicidad calculado server-side (video +35%, Recomendado > Destacado), regalo/quite de Bidding del admin, ranking de Bidding por estado, TODOS los regalos (no solo Otro monto) abren GiftReveal, la notificación de admin ya no dice "Trofeo" para un monto personalizado, el interruptor de mostrar regalos a los músicos integrantes, notificar al integrante removido, notificar a los integrantes al desactivar el interruptor, la matemática de tandas/descansos, el candado+idempotencia de complete_event, y que auto_finalize_stuck_events por fin cierra eventos realmente atorados sin tronar siguen funcionando';
+  -- ══ 27. group_default_break_type — Espectáculo/MC — sql/622 ════════════
+  DECLARE
+    v_g27a UUID; v_g27b UUID;
+  BEGIN
+    INSERT INTO public.groups (id, owner_id, name, genre, country_id) VALUES (gen_random_uuid(), v_owner, 'RT602 MC27', 'Maestro de Ceremonias', v_country_mx) RETURNING id INTO v_g27a;
+    INSERT INTO public.groups (id, owner_id, name, genre, country_id) VALUES (gen_random_uuid(), v_owner, 'RT602 Show27', 'Espectáculo', v_country_mx) RETURNING id INTO v_g27b;
+    ASSERT public.group_default_break_type(v_g27a) = 'D', '[27] REGRESIÓN: Maestro de Ceremonias ya no es sin-temporizador (D) — revisar sql/622';
+    ASSERT public.group_default_break_type(v_g27b) IS NULL, '[27] REGRESIÓN: Espectáculo ya no deja elegir tipo de descanso (debería ser NULL) — revisar sql/622';
+  END;
+
+  -- ══ 28. category_details jsonb — round-trip en groups y quotes — sql/623 ══
+  -- Comida/Renta/Payasos/Fotógrafos guardan sus propias preguntas (nada que
+  -- ver con sonido/tarima/LED) en esta columna nueva. Debe: (a) guardarse y
+  -- leerse tal cual en AMBAS tablas, (b) una fila vieja sin el campo debe
+  -- traer default '{}' y no romper nada aguas abajo.
+  DECLARE
+    v_g28 UUID; v_q28 UUID;
+    v_group_details JSONB := '{"service_type": "buffet", "dietary_notes": "sin nueces"}'::jsonb;
+    v_quote_details JSONB := '{"items_needed": ["mesas", "sillas"], "logistics_notes": "acceso por atrás"}'::jsonb;
+    v_read_back JSONB;
+  BEGIN
+    INSERT INTO public.groups (id, owner_id, name, genre, country_id, category_details)
+      VALUES (gen_random_uuid(), v_owner, 'RT602 Comida28', 'Comida', v_country_mx, v_group_details)
+      RETURNING id INTO v_g28;
+    SELECT category_details INTO v_read_back FROM public.groups WHERE id = v_g28;
+    ASSERT v_read_back = v_group_details, '[28] REGRESIÓN: category_details de groups no guardó/leyó tal cual — revisar sql/623';
+
+    INSERT INTO public.quotes (id, group_id, client_id, event_date, event_time, duration_hours, status,
+      event_type, event_address, event_municipio, event_estado, venue_covered, venue_size, needs_sound,
+      base_price, commission_amount, total_amount, group_earnings, category_details)
+      VALUES (gen_random_uuid(), v_g28, v_client, CURRENT_DATE + 93, '18:00', 3, 'pending',
+        'boda', 'Dir', 'Muni', 'Edo', 'si', 'salon_mediano', 'no_group_brings', 300, 60, 360, 300, v_quote_details)
+      RETURNING id INTO v_q28;
+    SELECT category_details INTO v_read_back FROM public.quotes WHERE id = v_q28;
+    ASSERT v_read_back = v_quote_details, '[28] REGRESIÓN: category_details de quotes no guardó/leyó tal cual — revisar sql/623';
+
+    -- Fila SIN category_details (comportamiento de siempre, ej. Banda) —
+    -- debe traer default '{}', nunca NULL, y no romper nada.
+    INSERT INTO public.groups (id, owner_id, name, genre, country_id)
+      VALUES (gen_random_uuid(), v_owner, 'RT602 Banda28', 'Banda', v_country_mx) RETURNING id INTO v_g28;
+    SELECT category_details INTO v_read_back FROM public.groups WHERE id = v_g28;
+    ASSERT v_read_back = '{}'::jsonb, '[28] REGRESIÓN: category_details de groups ya no nace en {} por default — revisar sql/623';
+  END;
+
+  -- ══ 29. get_category_field_values — lista que crece sola — sql/624 ══
+  -- Dos grupos de Comida con service_type distinto (uno de catálogo fijo,
+  -- otro texto libre que un proveedor escribió a mano) y uno de Renta con
+  -- un multiChips — debe regresar la UNIÓN correcta sin duplicados, y
+  -- nunca mezclar categorías (Comida no debe ver valores de Renta).
+  DECLARE
+    v_g29a UUID; v_g29b UUID; v_g29c UUID;
+    v_vals29 TEXT[];
+  BEGIN
+    INSERT INTO public.groups (id, owner_id, name, genre, country_id, category_details)
+      VALUES (gen_random_uuid(), v_owner, 'RT602 Comida29a', 'Comida', v_country_mx, '{"service_type":"buffet"}'::jsonb)
+      RETURNING id INTO v_g29a;
+    INSERT INTO public.groups (id, owner_id, name, genre, country_id, category_details)
+      VALUES (gen_random_uuid(), v_owner, 'RT602 Comida29b', 'Comida', v_country_mx, '{"service_type":"Rosticería"}'::jsonb)
+      RETURNING id INTO v_g29b;
+    -- Mismo valor "buffet" repetido — no debe duplicarse en el resultado
+    INSERT INTO public.groups (id, owner_id, name, genre, country_id, category_details)
+      VALUES (gen_random_uuid(), v_owner, 'RT602 Comida29c', 'Comida', v_country_mx, '{"service_type":"buffet"}'::jsonb)
+      RETURNING id INTO v_g29c;
+
+    SELECT array_agg(value ORDER BY value) INTO v_vals29 FROM public.get_category_field_values('comida', 'service_type');
+    ASSERT v_vals29 @> ARRAY['buffet', 'Rosticería'], '[29] REGRESIÓN: get_category_field_values no trae los valores de service_type (chips) — revisar sql/624: ' || array_to_string(v_vals29, ',');
+    ASSERT (SELECT count(*) FROM unnest(v_vals29) x WHERE x = 'buffet') = 1,
+      '[29] REGRESIÓN: get_category_field_values duplicó "buffet" en vez de deduplicar — revisar sql/624';
+
+    -- multiChips (Renta) — usa el grupo real "TEST — Renta de Mobiliario"
+    -- si existe, o crea uno propio para no depender de datos de prueba externos.
+    INSERT INTO public.groups (id, owner_id, name, genre, country_id, category_details)
+      VALUES (gen_random_uuid(), v_owner, 'RT602 Renta29', 'Renta de mesas', v_country_mx,
+        '{"items_needed":["mesas","brincolines"]}'::jsonb);
+    SELECT array_agg(value ORDER BY value) INTO v_vals29 FROM public.get_category_field_values('renta', 'items_needed');
+    ASSERT v_vals29 @> ARRAY['brincolines', 'mesas'], '[29] REGRESIÓN: get_category_field_values no trae los valores de items_needed (multiChips) — revisar sql/624: ' || array_to_string(v_vals29, ',');
+
+    -- Aislamiento entre categorías — Renta no debe "contaminar" Comida
+    SELECT array_agg(value) INTO v_vals29 FROM public.get_category_field_values('comida', 'service_type');
+    ASSERT NOT (v_vals29 @> ARRAY['mesas']), '[29] REGRESIÓN: get_category_field_values mezcló valores de Renta dentro de Comida — revisar group_category_key en sql/624';
+  END;
+
+  -- ══ 30. group_category_key — Shows (Espectáculo+Payasos+Mago+Personajes+
+  -- Animación) y Maestro de Ceremonias — sql/625 ══════════════════════════
+  -- Hallazgo real corrigiendo esta misma función: nunca se había agregado
+  -- Espectáculo ni Maestro de Ceremonias desde que existen (sql/622) —
+  -- devolvía NULL para ambos. Se corrige aquí y se bloquea que regrese.
+  DECLARE
+    v_g30a UUID; v_g30b UUID; v_g30c UUID; v_g30d UUID; v_g30e UUID; v_g30f UUID;
+  BEGIN
+    INSERT INTO public.groups (id, owner_id, name, genre, country_id) VALUES (gen_random_uuid(), v_owner, 'RT602 Show30a', 'Espectáculo', v_country_mx) RETURNING id INTO v_g30a;
+    INSERT INTO public.groups (id, owner_id, name, genre, country_id) VALUES (gen_random_uuid(), v_owner, 'RT602 Show30b', 'Payasos', v_country_mx) RETURNING id INTO v_g30b;
+    INSERT INTO public.groups (id, owner_id, name, genre, country_id) VALUES (gen_random_uuid(), v_owner, 'RT602 Show30c', 'Mago', v_country_mx) RETURNING id INTO v_g30c;
+    INSERT INTO public.groups (id, owner_id, name, genre, country_id) VALUES (gen_random_uuid(), v_owner, 'RT602 Show30d', 'Personajes', v_country_mx) RETURNING id INTO v_g30d;
+    INSERT INTO public.groups (id, owner_id, name, genre, country_id) VALUES (gen_random_uuid(), v_owner, 'RT602 Show30e', 'Animación', v_country_mx) RETURNING id INTO v_g30e;
+    INSERT INTO public.groups (id, owner_id, name, genre, country_id) VALUES (gen_random_uuid(), v_owner, 'RT602 MC30f', 'Maestro de Ceremonias', v_country_mx) RETURNING id INTO v_g30f;
+
+    ASSERT public.group_category_key(v_g30a) = 'espectaculo', '[30] REGRESIÓN: Espectáculo ya no clasifica como espectaculo — revisar sql/625';
+    ASSERT public.group_category_key(v_g30b) = 'espectaculo', '[30] REGRESIÓN: Payasos ya no clasifica dentro de Shows — revisar sql/625';
+    ASSERT public.group_category_key(v_g30c) = 'espectaculo', '[30] REGRESIÓN: Mago ya no clasifica dentro de Shows — revisar sql/625';
+    ASSERT public.group_category_key(v_g30d) = 'espectaculo', '[30] REGRESIÓN: Personajes ya no clasifica dentro de Shows — revisar sql/625';
+    ASSERT public.group_category_key(v_g30e) = 'espectaculo', '[30] REGRESIÓN: Animación ya no clasifica dentro de Shows — revisar sql/625';
+    ASSERT public.group_category_key(v_g30f) = 'mc', '[30] REGRESIÓN: Maestro de Ceremonias ya no clasifica como mc — revisar sql/625';
+  END;
+
+  RAISE EXCEPTION 'REGRESSION_SUITE: TODO PASÓ (30/30) — temporizador, notificaciones de engagement, bono de referido MX/USD, descuento al cliente, choque de horarios, sin-temporizador por categoría (incluye fotógrafos), anuncios (clientes bloqueados, sin teléfonos, solo categoría distinta, correcto con dueños de varios grupos), cupo de Destacado/Recomendado por categoría, precio de publicidad calculado server-side (video +35%, Recomendado > Destacado), regalo/quite de Bidding del admin, ranking de Bidding por estado, TODOS los regalos (no solo Otro monto) abren GiftReveal, la notificación de admin ya no dice "Trofeo" para un monto personalizado, el interruptor de mostrar regalos a los músicos integrantes, notificar al integrante removido, notificar a los integrantes al desactivar el interruptor, la matemática de tandas/descansos, el candado+idempotencia de complete_event, auto_finalize_stuck_events por fin cierra eventos realmente atorados sin tronar, las categorías Espectáculo/Maestro de Ceremonias siguen funcionando, category_details (preguntas por categoría de Comida/Renta/Shows/Fotógrafos) guarda y lee tal cual en groups y quotes, la lista de opciones por categoría que crece sola (get_category_field_values) deduplica y no mezcla categorías, Payasos ahora vive fusionado dentro de Shows (elige descanso libremente, ya no forzado), y group_category_key por fin clasifica Espectáculo/Maestro de Ceremonias correctamente';
 END;
 $suite$;
 
