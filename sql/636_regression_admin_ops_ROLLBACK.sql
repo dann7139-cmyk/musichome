@@ -1,0 +1,3 @@
+-- 636_regression_admin_ops_ROLLBACK.sql
+-- No aplica: sql/636 es una suite de PRUEBAS (BEGIN...ROLLBACK), no
+-- modifica el esquema ni funciones — no hay nada que revertir.
