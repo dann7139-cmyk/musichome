@@ -19,7 +19,11 @@ import './src/i18n';
 
 SplashScreenExpo.preventAutoHideAsync();
 
-const STRIPE_PK_PLACEHOLDER = 'pk_test_51T38FBRp9QVbbrs2mTzMnpmOCh2v0kkmxQvExfl55ZgMrKzy28xDHjya3Fx7Gq4tLAjq1lxrGT4IwLOkaWR6jDak00hkIWFDHQ';
+// Llave PUBLICABLE de Stripe (no es secreta — va en el cliente). Modo LIVE
+// desde 2026-09-09: los cobros por Stripe (regalos, pagar a meses, y todo
+// lo que caiga a create-payment-intent) son reales. DEBE ser del MISMO par
+// que STRIPE_SECRET_KEY / STRIPE_WEBHOOK_SECRET en Supabase (todos live).
+const STRIPE_PK_PLACEHOLDER = 'pk_live_51T38Eo2OHRU9DGsYsg0nvuuItrSpnKlXtzuFqnqsN1riwdkfQTVkVR11Y15RBj7FqVcArQ7fo2JTC9A08QmTyuol00Za0Nxt5n';
 
 export default function App() {
   const [fontsLoaded] = useFonts({

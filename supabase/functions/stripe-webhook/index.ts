@@ -137,6 +137,46 @@ export async function handleRequest(req: Request): Promise<Response> {
       return paidMxn >= Number(expected) - 1;
     };
 
+    // ── 🎁 ¿Es pago de un REGALO/donación a un grupo? ─────────────
+    // create-gift-payment-intent (Stripe, mientras Conekta no tenga
+    // tarjeta). Mismo patrón que la rama de regalo en conekta-webhook:
+    // verifica que lo cobrado cubra el monto, y llama a la MISMA RPC
+    // idempotente confirm_gift_payment (agnóstica del proveedor — el 2º
+    // parámetro solo se guarda como payment_ref de texto).
+    const giftOrderId = pi.metadata?.gift_order_id;
+    if (giftOrderId) {
+      const { data: giftRow } = await supabase
+        .from('group_gifts').select('amount, status').eq('id', giftOrderId).single();
+
+      if (giftRow?.status === 'paid') {
+        console.log(`[Stripe Webhook] gift ${giftOrderId} ya estaba pagado (idempotente)`);
+        return new Response('OK', { status: 200 });
+      }
+      if (!amountCovers(giftRow?.amount)) {
+        console.error(`[Stripe Webhook] ⚠️ MISMATCH regalo ${giftOrderId}: cobrado=${paidMxn} orden=${giftRow?.amount} — NO se acredita`);
+        return new Response('Amount mismatch', { status: 200 });
+      }
+
+      const { data: giftRes, error: giftErr } = await supabase.rpc('confirm_gift_payment', {
+        p_group_gift_id:    giftOrderId,
+        p_conekta_order_id: pi.id,   // se guarda como payment_ref (texto); aquí es el Stripe PI id
+      });
+
+      if (giftErr) {
+        console.error('[Stripe Webhook] Error confirm_gift_payment:', giftErr.message);
+        return new Response('DB Error', { status: 500 });  // Stripe reintenta — RPC idempotente
+      }
+      // La RPC devuelve {ok:false} como JSONB normal (no excepción) para
+      // currency no soportada u otras validaciones — no dejar pasar como 200.
+      if ((giftRes as any)?.ok === false && !(giftRes as any)?.skipped) {
+        console.error('[Stripe Webhook] confirm_gift_payment rechazado:', JSON.stringify(giftRes));
+        return new Response('Rejected', { status: 500 });
+      }
+
+      console.log(`[Stripe Webhook] 🎁 Regalo acreditado gift_order=${giftOrderId} pi=${pi.id}`);
+      return new Response('OK', { status: 200 });
+    }
+
     // ── ¿Es pago de recomendación? ────────────────────────────────
     const recOrderId = pi.metadata?.rec_order_id;
     if (recOrderId) {

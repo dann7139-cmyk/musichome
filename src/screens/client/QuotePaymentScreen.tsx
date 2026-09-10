@@ -279,13 +279,15 @@ export default function QuotePaymentScreen({ route, navigation }: any) {
       }
 
       // ── Router de cobro POR MÉTODO ──────────────────────────────────
-      //   Tarjeta / SPEI / Efectivo → Conekta (Hosted Checkout, México).
-      //   Pagar a meses (MSI)        → Stripe, que SÍ entrega mensualidades
-      //     reales mientras Conekta no tenga MSI habilitado. El cliente nunca
-      //     ve "Stripe" (la UI dice "meses con tarjeta de crédito").
-      //   Al habilitar MSI en Conekta: quitar `&& method !== 'msi'` y listo.
+      //   SPEI / Efectivo         → Conekta (Hosted Checkout, México).
+      //   Tarjeta y Pagar a meses → Stripe. Conekta aprobó la cuenta solo
+      //     para Efectivo/SPEI/BBVA (2026-09-09); tarjeta queda bloqueada
+      //     ~90 días, así que se cobra con Stripe igual que MSI. El cliente
+      //     nunca ve "Stripe".
+      //   Cuando Conekta habilite tarjeta y MSI: quitar `&& method !== 'msi'
+      //     && method !== 'card'` y listo.
       //   PAY_MX_WITH_CONEKTA=false → todo cae a Stripe (fallback US/rollback).
-      if (PAY_MX_WITH_CONEKTA && method !== 'msi') {
+      if (PAY_MX_WITH_CONEKTA && method !== 'msi' && method !== 'card') {
         const result = await startConektaCheckout(reservationId, method);
         if (result.status === 'paid') {
           setPaidAmount(chargeFor(method, months));

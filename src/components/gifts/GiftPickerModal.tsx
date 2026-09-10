@@ -3,9 +3,18 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Animated, Easing, Image, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import Svg, { Circle, Defs, Ellipse, LinearGradient, Path, Rect, Stop } from 'react-native-svg';
 import { useTranslation } from 'react-i18next';
+import { useStripe } from '@stripe/stripe-react-native';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import { startGiftConektaCheckout } from '../../utils/conektaCheckout';
+
+// ⚠️ ROLLOUT REGALOS (2026-09-09): Conekta aprobó la cuenta solo para
+// Efectivo/SPEI/BBVA — tarjeta queda bloqueada ~90 días. Los regalos son
+// SOLO tarjeta (confirmación instantánea para animar el emoji), así que
+// mientras tanto se cobran con Stripe (PaymentSheet), igual que ya se
+// hace con "pagar a meses". Cuando Conekta habilite tarjeta: poner esto
+// en false y todo vuelve a create-gift-order sin más cambios.
+const GIFTS_VIA_STRIPE = true;
 
 interface Props {
   visible: boolean;
@@ -273,6 +282,7 @@ function ConfettiBurst() {
 
 export default function GiftPickerModal({ visible, onClose, groupId, groupName, groupCountry, postId, reservationId, onSent }: Props) {
   const { t } = useTranslation();
+  const { initPaymentSheet, presentPaymentSheet } = useStripe();
   // Nombre del regalo en el idioma del teléfono (mismo criterio que el
   // resto de la app, src/i18n) — el nombre en español sigue siendo el
   // valor real en BD/keys internas, esto solo cambia lo que se muestra.
@@ -309,16 +319,72 @@ export default function GiftPickerModal({ visible, onClose, groupId, groupName, 
       });
   }, [visible, currency]);
 
+  // Cobro del regalo — enruta al procesador vigente (Stripe mientras
+  // Conekta no tenga tarjeta; ver GIFTS_VIA_STRIPE arriba). Devuelve el
+  // MISMO shape que startGiftConektaCheckout para no tocar la UX de
+  // celebración/pendiente/error de abajo. El webhook sigue siendo la
+  // fuente de verdad: sólo se celebra al ver group_gifts.status = 'paid'.
+  const runGiftCheckout = async (
+    giftId: string,
+    customAmount?: number,
+  ): Promise<{ ok: boolean; status: 'paid' | 'pending' | 'error'; error?: string }> => {
+    if (!GIFTS_VIA_STRIPE) {
+      return startGiftConektaCheckout(groupId, giftId, postId, customAmount, reservationId);
+    }
+
+    const { data: sd } = await supabase.auth.getSession();
+    const { data, error } = await supabase.functions.invoke('create-gift-payment-intent', {
+      body: {
+        group_id: groupId, gift_id: giftId, post_id: postId ?? null,
+        custom_amount: customAmount ?? null, reservation_id: reservationId ?? null,
+      },
+      headers: { Authorization: `Bearer ${sd.session?.access_token}` },
+    });
+    const clientSecret = (data as any)?.client_secret as string | undefined;
+    const giftOrderId  = (data as any)?.gift_order_id as string | undefined;
+    if (error || (data as any)?.error || !clientSecret || !giftOrderId) {
+      const msg = (data as any)?.error ?? error?.message ?? t('gifts.tryAgain');
+      console.warn('[gift-stripe] create-payment-intent falló:', msg);
+      return { ok: false, status: 'error', error: msg };
+    }
+
+    const { error: initErr } = await initPaymentSheet({
+      paymentIntentClientSecret: clientSecret,
+      merchantDisplayName: 'Daricefy',
+      style: 'alwaysDark',
+    });
+    if (initErr) return { ok: false, status: 'error', error: initErr.message };
+
+    const { error: payErr } = await presentPaymentSheet();
+    if (payErr) {
+      // El usuario cerró la hoja sin pagar → "pendiente" sin celebrar
+      // (mismo trato que cerrar el navegador de Conekta sin pagar).
+      if (payErr.code === 'Canceled') return { ok: true, status: 'pending' };
+      return { ok: false, status: 'error', error: payErr.message };
+    }
+
+    // Stripe aceptó el pago — el webhook acredita la wallet y marca 'paid'.
+    // Se consulta group_gifts.status unas veces antes de celebrar (idéntico
+    // al polling que hace startGiftConektaCheckout con reservas).
+    for (let i = 0; i < 4; i++) {
+      const { data: g } = await supabase
+        .from('group_gifts').select('status').eq('id', giftOrderId).single();
+      if (g?.status === 'paid') return { ok: true, status: 'paid' };
+      if (i < 3) await new Promise((r) => setTimeout(r, 1500));
+    }
+    return { ok: true, status: 'pending' };
+  };
+
   const handleSend = async (gift: any, customAmount?: number) => {
     if (sendingId) return;
     setSendingId(gift.id);
     const isTrophy = !!(GIFT_VISUALS[gift.name] ?? DEFAULT_VISUAL).isTrophyTier;
     const amountTxt = customAmount != null ? ` (${currency === 'USD' ? 'US$' : '$'}${customAmount})` : '';
     // El spinner de la tarjeta se queda activo hasta tener el resultado REAL
-    // (incluye el tiempo que el usuario pasa en Conekta + el polling de
-    // confirmación) — celebrar antes de eso es lo que causaba el bug real
+    // (incluye el tiempo que el usuario pasa en la hoja de pago + el polling
+    // de confirmación) — celebrar antes de eso es lo que causaba el bug real
     // reportado: cerrar sin pagar igual mostraba "regalo enviado".
-    const res = await startGiftConektaCheckout(groupId, gift.id, postId, customAmount, reservationId);
+    const res = await runGiftCheckout(gift.id, customAmount);
     setSendingId(null);
     if (!res.ok) {
       Alert.alert(t('gifts.couldNotSend'), res.error ?? t('gifts.tryAgain'));
@@ -360,8 +426,8 @@ export default function GiftPickerModal({ visible, onClose, groupId, groupName, 
     setCustomSending(true);
     const amountTxt = `${currency === 'USD' ? 'US$' : '$'}${val}`;
     // Igual que handleSend — celebra solo si el resultado REAL es 'paid',
-    // nunca solo porque el usuario volvió/cerró Conekta.
-    const res = await startGiftConektaCheckout(groupId, trofeo.id, postId, val, reservationId);
+    // nunca solo porque el usuario cerró la hoja de pago.
+    const res = await runGiftCheckout(trofeo.id, val);
     setCustomSending(false);
     if (!res.ok) {
       Alert.alert(t('gifts.couldNotSend'), res.error ?? t('gifts.tryAgain'));
