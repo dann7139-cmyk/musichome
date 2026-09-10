@@ -151,32 +151,44 @@
     "laterButton": "Después →",
     "categories": {
       "grupo": {
-        "label": "Grupo / Solista",
-        "desc": "Banda, conjunto musical o artista solista"
+        "label": "Grupo musical",
+        "desc": "Banda o conjunto musical en vivo"
+      },
+      "solista": {
+        "label": "Solista",
+        "desc": "Cantante o instrumentista solo"
       },
       "dj": {
         "label": "DJ",
         "desc": "Música electrónica y mezclas"
       },
-      "payaso": {
-        "label": "Payaso / Animación",
-        "desc": "Entretenimiento infantil"
+      "comediante": {
+        "label": "Comediante",
+        "desc": "Stand-up, imitaciones, humor en vivo"
       },
-      "fotografia": {
-        "label": "Foto / Video",
-        "desc": "Fotografía y videografía de eventos"
+      "espectaculo": {
+        "label": "Shows",
+        "desc": "Payasos, magia, animación y shows en general"
       },
-      "show": {
-        "label": "Espectáculo",
-        "desc": "Shows, magia, performance"
-      },
-      "maestro_ceremonias": {
+      "mc": {
         "label": "Maestro de Ceremonias",
         "desc": "MC y conducción de eventos"
       },
-      "animacion": {
-        "label": "Animación / Brincolines",
-        "desc": "Entretenimiento general"
+      "luzSonido": {
+        "label": "Luz y sonido",
+        "desc": "Equipo de sonido, iluminación, cabinas DJ"
+      },
+      "comida": {
+        "label": "Comida",
+        "desc": "Banquetes, food trucks, catering"
+      },
+      "renta": {
+        "label": "Renta de mobiliario",
+        "desc": "Mesas, sillas, brincolines, carpas, tarimas"
+      },
+      "fotografos": {
+        "label": "Foto / Video",
+        "desc": "Fotografía y videografía de eventos"
       }
     }
   },
@@ -441,7 +453,7 @@
     "timeAgoMonths_one": "Hace {{count}} mes",
     "timeAgoMonths_other": "Hace {{count}} meses",
     "plusExclusiveTitle": "🏆 Exclusivo de Plus",
-    "plusExclusiveBody": "Subir fotos de tus eventos es un beneficio de la insignia Plus — también desbloqueas ganar dinero con regalos de tus fans.",
+    "plusExclusiveBody": "Recibir regalos con dinero real de tus fans es un beneficio de la insignia Plus.",
     "notNow": "Ahora no",
     "seePlus": "Ver Plus",
     "uploadSuccessTitle": "✅ Publicación subida",
@@ -449,11 +461,13 @@
     "uploadErrorBody": "No se pudo subir la publicación.",
     "defaultGroupName": "este grupo",
     "shareMessage": "Mira esta publicación de {{groupName}} en Daricefy 🎵\ndaricefy://group/{{groupId}}",
-    "composerPlaceholder": "Cuenta algo de tu último evento...",
+    "composerLabel": "📸 Comparte fotos de tu evento",
+    "composerPlaceholder": "Escribe un pie de foto (opcional)...",
     "uploading": "Subiendo…",
-    "publish": "Publicar",
+    "publish": "Elegir foto",
+    "publishConfirm": "Publicar",
     "plusHintPrefix": "🏆 Con ",
-    "plusHintSuffix": " puedes publicar fotos y ganar dinero con regalos de tus fans →",
+    "plusHintSuffix": " ganas dinero con los regalos de tus fans →",
     "emptyFollowTitle": "Sigue grupos para ver sus publicaciones aquí",
     "emptyFollowText": "Explora grupos, entra a su perfil y dale seguir. Sus publicaciones van a aparecer en tu Inicio, como en un feed.",
     "exploreGroups": "Explorar grupos",
@@ -743,7 +757,8 @@
       "videos": "🎬 Videos",
       "posts": "Publicaciones",
       "seeMore": "Ver más",
-      "alsoLike": "También te puede gustar"
+      "alsoLike": "También te puede gustar",
+      "whatTheyOffer": "Lo que ofrece"
     },
     "guarantee": {
       "title": "Reserva protegida por Daricefy",
@@ -2424,10 +2439,94 @@
     "solista": "🎷 Solista / saxofonista",
     "dj": "🎧 DJ",
     "comediante": "🎤 Comediante",
-    "payasos": "🤡 Payasos",
+    "espectaculo": "🎪 Shows",
+    "mc": "🎙️ Maestro de Ceremonias",
     "luzSonido": "🔊 Luz y sonido",
     "comida": "🍔 Comida",
     "renta": "🪑 Renta (mesas, sillas, brincolines, carpas)",
     "fotografos": "📸 Fotógrafos"
+  },
+  "categoryDetails": {
+    "comida": {
+      "serviceType": {
+        "label": "Tipo de servicio",
+        "options": {
+          "buffet": "🍽️ Buffet",
+          "banquete": "🥂 Banquete",
+          "foodTruck": "🚚 Food truck",
+          "estaciones": "🍢 Estaciones de comida"
+        }
+      },
+      "dietaryNotes": {
+        "label": "Restricciones alimentarias o alergias",
+        "placeholder": "Ej. vegetariano, sin gluten, alergias..."
+      }
+    },
+    "renta": {
+      "itemsNeeded": {
+        "label": "¿Qué tienes disponible para rentar?",
+        "options": {
+          "mesas": "🍽️ Mesas",
+          "sillas": "🪑 Sillas",
+          "carpas": "⛺ Carpas / toldos",
+          "tarimas": "🎭 Tarimas",
+          "escenarios": "🎪 Escenarios",
+          "plantasLuz": "💡 Plantas de luz",
+          "generadores": "⚡ Generadores eléctricos",
+          "brincolines": "🏰 Brincolines",
+          "inflablesAcuaticos": "🌊 Inflables acuáticos",
+          "toroMecanico": "🐂 Toro mecánico"
+        }
+      },
+      "logisticsNotes": {
+        "label": "Cantidades y horario de entrega/recolección",
+        "placeholder": "Ej. 10 mesas, 80 sillas, entregar 2h antes..."
+      }
+    },
+    "espectaculo": {
+      "showType": {
+        "label": "Tipo de show",
+        "options": {
+          "payaso": "🤡 Payaso",
+          "mago": "🎩 Mago",
+          "personajes": "🦸 Personajes",
+          "animacion": "🎉 Animación general"
+        }
+      },
+      "audience": {
+        "label": "¿Para quién es el show?",
+        "options": {
+          "ninos": "🧒 Niños",
+          "adultos": "🔞 Adultos",
+          "todas": "👨‍👩‍👧‍👦 Todas las edades"
+        }
+      },
+      "gamesPackage": {
+        "label": "¿Quieres paquete con juegos/piñata?",
+        "options": {
+          "si": "Sí",
+          "no": "No"
+        }
+      }
+    },
+    "fotografos": {
+      "coverageType": {
+        "label": "¿Qué cobertura necesitas?",
+        "options": {
+          "fotos": "📷 Fotos",
+          "video": "🎥 Video",
+          "drone": "🚁 Drone",
+          "cabina": "📸 Cabina fotográfica"
+        }
+      },
+      "deliveryFormat": {
+        "label": "Entrega del material",
+        "options": {
+          "digital": "💻 Digital",
+          "fisico": "🖼️ Físico (álbum/impresiones)",
+          "ambos": "Ambos"
+        }
+      }
+    }
   }
 }

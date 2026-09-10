@@ -1,4 +1,4 @@
-import { Camera, Compass, Gift as GiftIcon, Heart, MessageCircle, Music2, Share2 } from 'lucide-react-native';
+import { Camera, Compass, Flag, Gift as GiftIcon, Heart, MessageCircle, Music2, Share2 } from 'lucide-react-native';
 import VerifiedBadge from '../../components/ui/VerifiedBadge';
 import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -25,7 +25,8 @@ import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import { useAuth } from '../../context/AuthContext';
 import GiftPickerModal from '../../components/gifts/GiftPickerModal';
-import { pickAndUploadGroupEventPost } from '../../utils/uploadGroupEventPhoto';
+import type { ImagePickerAsset } from 'expo-image-picker';
+import { pickGroupEventPhotos, uploadGroupEventPost } from '../../utils/uploadGroupEventPhoto';
 import BannerAdCarousel from '../../components/ui/BannerAdCarousel';
 
 function timeAgo(timestamp: string, t: (key: string, opts?: any) => string): string {
@@ -90,10 +91,13 @@ export default function FeedScreen({ navigation, route }: any) {
   const [likeBusy,    setLikeBusy]    = useState<Record<string, boolean>>({});
   // ➕ Publicar (solo grupo, sql/561) — accesible directo desde Inicio
   const [myGroupId,     setMyGroupId]     = useState<string | null>(null);
-  // 🏆 Publicar fotos es exclusivo de Plus vigente (sql/571)
+  // 🏆 Plus vigente — publicar fotos ya es gratis (sql/637); solo se usa
+  //    para el aviso de "con Plus ganas dinero con regalos".
   const [myGroupPlus,   setMyGroupPlus]   = useState(false);
   const [newCaption,    setNewCaption]    = useState('');
   const [posting,       setPosting]       = useState(false);
+  // Fotos ya elegidas pero AÚN sin publicar — vista previa (2026-09-05)
+  const [pendingPhotos, setPendingPhotos] = useState<ImagePickerAsset[] | null>(null);
   // 🎁 Regalar directo desde una tarjeta del feed (sql/566-568)
   const [giftTarget, setGiftTarget] = useState<{ groupId: string; groupName: string; groupCountry: string | null; postId: string } | null>(null);
 
@@ -106,24 +110,25 @@ export default function FeedScreen({ navigation, route }: any) {
       });
   }, [canPost, user]);
 
-  const handleUpload = async () => {
+  // Paso 1: elegir fotos — NO publica todavía, solo las guarda para
+  // previsualizar (hallazgo real 2026-09-05: antes un solo toque elegía Y
+  // publicaba de una vez).
+  const handlePickPhotos = async () => {
     if (!myGroupId || posting) return;
-    if (!myGroupPlus) {
-      Alert.alert(
-        t('feedScreen.plusExclusiveTitle'),
-        t('feedScreen.plusExclusiveBody'),
-        [
-          { text: t('feedScreen.notNow'), style: 'cancel' },
-          { text: t('feedScreen.seePlus'), onPress: () => navigation.navigate('Plus') },
-        ],
-      );
-      return;
-    }
+    // sql/637: publicar fotos ya NO requiere Plus (los regalos sí).
+    const assets = await pickGroupEventPhotos();
+    if (assets) setPendingPhotos(assets);
+  };
+
+  // Paso 2: publicar de verdad, con las fotos ya elegidas y el pie de foto actual.
+  const handlePublish = async () => {
+    if (!myGroupId || !pendingPhotos || posting) return;
     try {
       setPosting(true);
-      const post = await pickAndUploadGroupEventPost(myGroupId, newCaption);
+      const post = await uploadGroupEventPost(myGroupId, newCaption, pendingPhotos);
       if (post) {
         setNewCaption('');
+        setPendingPhotos(null);
         Alert.alert(t('feedScreen.uploadSuccessTitle'), t('feedScreen.uploadSuccessBody'));
       }
     } catch (e: any) {
@@ -223,25 +228,77 @@ export default function FeedScreen({ navigation, route }: any) {
     } catch (_) { /* usuario canceló */ }
   };
 
+  // 🚩 Reportar directo desde el feed (hallazgo real 2026-09-05: antes solo
+  // se podía reportar entrando al perfil del grupo — la gente ve las
+  // publicaciones aquí, no ahí). Mismas opciones y RPC que ya usa
+  // GroupDetailScreen.tsx (Términos §6, cierra el círculo del takedown).
+  const reportPost = (post: any) => {
+    const send = async (reason: string) => {
+      const { data, error } = await supabase.rpc('report_group_content', {
+        p_group_id: post.group_id,
+        p_reason:   reason,
+      });
+      if (error || (data as any)?.ok === false) {
+        Alert.alert(t('groupDetailScreen.report.sendErrorTitle'), (data as any)?.error ?? error?.message ?? t('groupDetailScreen.report.tryAgain'));
+        return;
+      }
+      Alert.alert(t('groupDetailScreen.report.sentTitle'), t('groupDetailScreen.report.sentBody'));
+    };
+    Alert.alert(t('groupDetailScreen.report.promptTitle'), t('groupDetailScreen.report.promptQuestion'), [
+      { text: t('groupDetailScreen.report.reasonCopyright'), onPress: () => send('Posible infracción de derechos de autor en foto/video/música') },
+      { text: t('groupDetailScreen.report.reasonInappropriate'), onPress: () => send('Contenido inapropiado en una publicación del feed') },
+      { text: t('groupDetailScreen.report.reasonFalseInfo'), onPress: () => send('Información falsa o engañosa en una publicación') },
+      { text: t('groupDetailScreen.report.cancel'), style: 'cancel' },
+    ]);
+  };
+
   return (
     <SafeAreaView style={s.safe} edges={['top']}>
       {/* Petición real (2026-09-03): "no es necesario que diga [el nombre
           de la pantalla], solo en Explorador lo de Daricefy sí déjalo" —
           el tab de abajo ya dice "Inicio", repetirlo arriba era redundante. */}
       {canPost && myGroupId && (
-        <View style={s.composer}>
-          <TextInput
-            style={s.composerInput}
-            value={newCaption}
-            onChangeText={setNewCaption}
-            placeholder={t('feedScreen.composerPlaceholder')}
-            placeholderTextColor={COLORS.muted}
-            maxLength={60}
-          />
-          <Pressable style={[s.composerBtn, posting && { opacity: 0.5 }]} disabled={posting} onPress={handleUpload}>
-            {posting ? <ActivityIndicator size="small" color="#04110A" /> : <Camera size={15} color="#04110A" />}
-            <Text style={s.composerBtnTx}>{posting ? t('feedScreen.uploading') : t('feedScreen.publish')}</Text>
-          </Pressable>
+        <View style={s.composerBlock}>
+          {/* Hallazgo real (2026-09-05): el input redondo estilo "píldora"
+              se confundía con un buscador, y "Publicar" no dejaba claro que
+              ahí mismo se elige la foto (un solo toque hace las dos cosas).
+              Se agrega una etiqueta arriba y se aclara el botón. */}
+          <Text style={s.composerLabel}>{t('feedScreen.composerLabel')}</Text>
+          <View style={s.composer}>
+            <TextInput
+              style={s.composerInput}
+              value={newCaption}
+              onChangeText={setNewCaption}
+              placeholder={t('feedScreen.composerPlaceholder')}
+              placeholderTextColor={COLORS.muted}
+              maxLength={60}
+            />
+            {!pendingPhotos && (
+              <Pressable style={s.composerBtn} onPress={handlePickPhotos}>
+                <Camera size={15} color="#04110A" />
+                <Text style={s.composerBtnTx}>{t('feedScreen.publish')}</Text>
+              </Pressable>
+            )}
+          </View>
+
+          {/* Vista previa — las fotos ya se eligieron pero TODAVÍA no se
+              publican, hasta tocar "Publicar" (2026-09-05). */}
+          {pendingPhotos && (
+            <View style={s.composerPreviewRow}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }}>
+                {pendingPhotos.map((a, i) => (
+                  <Image key={i} source={{ uri: a.uri }} style={s.composerPreviewThumb} />
+                ))}
+              </ScrollView>
+              <Pressable style={s.composerCancelBtn} disabled={posting} onPress={() => setPendingPhotos(null)}>
+                <Text style={s.composerCancelTx}>Cancelar</Text>
+              </Pressable>
+              <Pressable style={[s.composerBtn, posting && { opacity: 0.5 }]} disabled={posting} onPress={handlePublish}>
+                {posting && <ActivityIndicator size="small" color="#04110A" />}
+                <Text style={s.composerBtnTx}>{posting ? t('feedScreen.uploading') : t('feedScreen.publishConfirm')}</Text>
+              </Pressable>
+            </View>
+          )}
         </View>
       )}
       {canPost && myGroupId && !myGroupPlus && (
@@ -343,6 +400,9 @@ export default function FeedScreen({ navigation, route }: any) {
                     <Pressable style={s.shareBtn} onPress={() => sharePost(item)}>
                       <Share2 size={18} color={COLORS.muted2} />
                     </Pressable>
+                    <Pressable style={s.shareBtn} onPress={() => reportPost(item)} hitSlop={6}>
+                      <Flag size={16} color={COLORS.muted2} />
+                    </Pressable>
                   </View>
                 </View>
               </View>
@@ -381,13 +441,19 @@ const s = StyleSheet.create({
   },
   exploreBtnTx: { fontFamily: FONTS.bodySemiBold, fontSize: 13.5, color: '#04110A' },
 
+  composerBlock: {
+    paddingHorizontal: SPACING.xl, paddingTop: 10, paddingBottom: 10,
+    borderBottomWidth: 1, borderBottomColor: COLORS.border,
+    gap: 6,
+  },
+  composerLabel: { fontFamily: FONTS.bodySemiBold, fontSize: 12.5, color: COLORS.muted2 },
   composer: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
-    paddingHorizontal: SPACING.xl, paddingVertical: 10,
-    borderBottomWidth: 1, borderBottomColor: COLORS.border,
   },
+  // Antes RADIUS.full (píldora) — se confundía con un buscador. Ahora un
+  // rectángulo redondeado, mismo lenguaje visual que un cuadro de texto.
   composerInput: {
-    flex: 1, backgroundColor: COLORS.card2, borderRadius: RADIUS.full,
+    flex: 1, backgroundColor: COLORS.card2, borderRadius: RADIUS.md,
     paddingHorizontal: 14, paddingVertical: 9, fontSize: 13,
     fontFamily: FONTS.body, color: '#fff',
   },
@@ -397,6 +463,13 @@ const s = StyleSheet.create({
     paddingHorizontal: 14, paddingVertical: 9,
   },
   composerBtnTx: { fontFamily: FONTS.bodySemiBold, fontSize: 12.5, color: '#04110A' },
+  composerPreviewRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 },
+  composerPreviewThumb: {
+    width: 44, height: 44, borderRadius: RADIUS.md, marginRight: 6,
+    backgroundColor: COLORS.card2,
+  },
+  composerCancelBtn: { paddingHorizontal: 10, paddingVertical: 9 },
+  composerCancelTx: { fontFamily: FONTS.bodyMedium, fontSize: 12.5, color: COLORS.muted2 },
   plusHint: {
     paddingHorizontal: SPACING.xl, paddingVertical: 8,
     borderBottomWidth: 1, borderBottomColor: COLORS.border,

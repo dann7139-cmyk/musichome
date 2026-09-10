@@ -151,32 +151,44 @@
     "laterButton": "Later →",
     "categories": {
       "grupo": {
-        "label": "Group / Soloist",
-        "desc": "Band, musical ensemble or solo artist"
+        "label": "Live band",
+        "desc": "Band or musical ensemble"
+      },
+      "solista": {
+        "label": "Soloist",
+        "desc": "Solo singer or instrumentalist"
       },
       "dj": {
         "label": "DJ",
         "desc": "Electronic music and mixes"
       },
-      "payaso": {
-        "label": "Clown / Entertainment",
-        "desc": "Kids entertainment"
+      "comediante": {
+        "label": "Comedian",
+        "desc": "Stand-up, impressions, live comedy"
       },
-      "fotografia": {
-        "label": "Photo / Video",
-        "desc": "Event photography and videography"
+      "espectaculo": {
+        "label": "Shows",
+        "desc": "Clowns, magic, animation and shows in general"
       },
-      "show": {
-        "label": "Show",
-        "desc": "Shows, magic, performance"
-      },
-      "maestro_ceremonias": {
+      "mc": {
         "label": "Master of Ceremonies",
         "desc": "MC and event hosting"
       },
-      "animacion": {
-        "label": "Entertainment / Bounce Houses",
-        "desc": "General entertainment"
+      "luzSonido": {
+        "label": "Sound & lighting",
+        "desc": "Sound equipment, lighting, DJ booths"
+      },
+      "comida": {
+        "label": "Food",
+        "desc": "Catering, food trucks, banquets"
+      },
+      "renta": {
+        "label": "Rentals",
+        "desc": "Tables, chairs, bounce houses, tents, stages"
+      },
+      "fotografos": {
+        "label": "Photo / Video",
+        "desc": "Event photography and videography"
       }
     }
   },
@@ -441,7 +453,7 @@
     "timeAgoMonths_one": "{{count}} month ago",
     "timeAgoMonths_other": "{{count}} months ago",
     "plusExclusiveTitle": "🏆 Plus exclusive",
-    "plusExclusiveBody": "Uploading photos from your events is a Plus badge perk — you'll also unlock earning money from your fans' gifts.",
+    "plusExclusiveBody": "Receiving real-money gifts from your fans is a Plus badge perk.",
     "notNow": "Not now",
     "seePlus": "See Plus",
     "uploadSuccessTitle": "✅ Post uploaded",
@@ -449,11 +461,13 @@
     "uploadErrorBody": "Couldn't upload the post.",
     "defaultGroupName": "this group",
     "shareMessage": "Check out this post from {{groupName}} on Daricefy 🎵\ndaricefy://group/{{groupId}}",
-    "composerPlaceholder": "Tell us about your latest event...",
+    "composerLabel": "📸 Share photos from your event",
+    "composerPlaceholder": "Write a caption (optional)...",
     "uploading": "Uploading…",
-    "publish": "Post",
+    "publish": "Choose photo",
+    "publishConfirm": "Publish",
     "plusHintPrefix": "🏆 With ",
-    "plusHintSuffix": " you can post photos and earn money from your fans' gifts →",
+    "plusHintSuffix": " you earn money from your fans' gifts →",
     "emptyFollowTitle": "Follow groups to see their posts here",
     "emptyFollowText": "Explore groups, visit their profile and follow them. Their posts will show up on your Home, like a feed.",
     "exploreGroups": "Explore groups",
@@ -743,7 +757,8 @@
       "videos": "🎬 Videos",
       "posts": "Posts",
       "seeMore": "See more",
-      "alsoLike": "You may also like"
+      "alsoLike": "You may also like",
+      "whatTheyOffer": "What they offer"
     },
     "guarantee": {
       "title": "Booking protected by Daricefy",
@@ -2424,10 +2439,94 @@
     "solista": "🎷 Soloist / saxophonist",
     "dj": "🎧 DJ",
     "comediante": "🎤 Comedian",
-    "payasos": "🤡 Clowns",
+    "espectaculo": "🎪 Shows",
+    "mc": "🎙️ Master of Ceremonies",
     "luzSonido": "🔊 Sound & lighting",
     "comida": "🍔 Food",
     "renta": "🪑 Rentals (tables, chairs, bounce houses, tents)",
     "fotografos": "📸 Photographers"
+  },
+  "categoryDetails": {
+    "comida": {
+      "serviceType": {
+        "label": "Service type",
+        "options": {
+          "buffet": "🍽️ Buffet",
+          "banquete": "🥂 Sit-down banquet",
+          "foodTruck": "🚚 Food truck",
+          "estaciones": "🍢 Food stations"
+        }
+      },
+      "dietaryNotes": {
+        "label": "Dietary restrictions or allergies",
+        "placeholder": "E.g. vegetarian, gluten-free, allergies..."
+      }
+    },
+    "renta": {
+      "itemsNeeded": {
+        "label": "What do you have available to rent?",
+        "options": {
+          "mesas": "🍽️ Tables",
+          "sillas": "🪑 Chairs",
+          "carpas": "⛺ Tents / canopies",
+          "tarimas": "🎭 Stages",
+          "escenarios": "🎪 Staging / event structures",
+          "plantasLuz": "💡 Light towers",
+          "generadores": "⚡ Generators",
+          "brincolines": "🏰 Bounce houses",
+          "inflablesAcuaticos": "🌊 Water inflatables",
+          "toroMecanico": "🐂 Mechanical bull"
+        }
+      },
+      "logisticsNotes": {
+        "label": "Quantities and drop-off/pick-up schedule",
+        "placeholder": "E.g. 10 tables, 80 chairs, deliver 2h before..."
+      }
+    },
+    "espectaculo": {
+      "showType": {
+        "label": "Show type",
+        "options": {
+          "payaso": "🤡 Clown",
+          "mago": "🎩 Magician",
+          "personajes": "🦸 Characters",
+          "animacion": "🎉 General entertainment"
+        }
+      },
+      "audience": {
+        "label": "Who is the show for?",
+        "options": {
+          "ninos": "🧒 Kids",
+          "adultos": "🔞 Adults",
+          "todas": "👨‍👩‍👧‍👦 All ages"
+        }
+      },
+      "gamesPackage": {
+        "label": "Want a games/piñata package?",
+        "options": {
+          "si": "Yes",
+          "no": "No"
+        }
+      }
+    },
+    "fotografos": {
+      "coverageType": {
+        "label": "What coverage do you need?",
+        "options": {
+          "fotos": "📷 Photos",
+          "video": "🎥 Video",
+          "drone": "🚁 Drone",
+          "cabina": "📸 Photo booth"
+        }
+      },
+      "deliveryFormat": {
+        "label": "Delivery format",
+        "options": {
+          "digital": "💻 Digital",
+          "fisico": "🖼️ Physical (album/prints)",
+          "ambos": "Both"
+        }
+      }
+    }
   }
 }

@@ -33,6 +33,7 @@ import {
   RefreshControl,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -47,15 +48,23 @@ import VerifiedBadge from '../../components/ui/VerifiedBadge';
 import PlusDashboardCard from '../../components/ui/PlusDashboardCard';
 import { pickAndUploadGroupImage } from '../../utils/uploadGroupImage';
 import { pickAndUploadGroupVideo, pickAndUploadGroupVideoMulti } from '../../utils/uploadGroupVideo';
-import { pickAndUploadGroupEventPost } from '../../utils/uploadGroupEventPhoto';
+import type { ImagePickerAsset } from 'expo-image-picker';
+import { pickGroupEventPhotos, uploadGroupEventPost } from '../../utils/uploadGroupEventPhoto';
 import { normalizeCity } from '../../utils/cityUtils';
 import { stateToCountry } from '../../utils/locationUtils';
 import { validatePublicText } from '../../utils/textValidation';
+import {
+  categoryKeyForGenre,
+  EQUIPMENT_CATEGORIES,
+  SOUND_ONLY_CATEGORIES,
+  CATEGORY_DETAIL_FIELDS,
+} from '../../constants/providerCategories';
 import { useAuth } from '../../context/AuthContext';
 import { useExpress } from '../../context/ExpressContext';
 import { useGroupBadges } from '../../context/GroupBadgesContext';
 import { useBackgroundLocation } from '../../hooks/useBackgroundLocation';
 import * as Haptics from 'expo-haptics';
+import { useTranslation } from 'react-i18next';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -93,6 +102,7 @@ interface Group {
   needs_parking?:         boolean | null;
   setup_minutes?:         number | null;
   includes_text?:         string | null;
+  category_details?:      Record<string, any> | null;
 }
 
 interface FinancialStats {
@@ -154,6 +164,7 @@ function formatPhotoTimeAgo(timestamp: string): string {
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
 export default function GroupDashboardScreen({ navigation }: any) {
+  const { t } = useTranslation();
   const { profile: authProfile } = useAuth();
   const { setPendingQuotesCount } = useGroupBadges();
   const { dispatches: expressDispatches, hasDismissed: expressHasDismissed, reviveAll: expressReviveAll } = useExpress();
@@ -180,7 +191,29 @@ export default function GroupDashboardScreen({ navigation }: any) {
     has_stage: false,      stage_sizes_available: [] as string[],
     has_led_screen: false, led_sizes_available: [] as string[],
     power_amps: '', needs_parking: false, setup_minutes: '', includes_text: '',
+    category_details: {} as Record<string, any>,
   });
+  // 2026-09-05 — valores que otros proveedores de la MISMA categoría ya
+  // usaron en sus propios perfiles (sql/624 get_category_field_values,
+  // lee directo de groups.category_details — sin tabla nueva). Así "Mi
+  // Comida"/"Mi Renta" muestra "Buffet"/"Toro mecánico" como chip listo
+  // en vez de que cada proveedor tenga que volver a escribirlo.
+  const [communityValues, setCommunityValues] = useState<Record<string, string[]>>({});
+  useEffect(() => {
+    const catKey = categoryKeyForGenre(editForm.genre);
+    const fields = catKey != null ? (CATEGORY_DETAIL_FIELDS[catKey] ?? null) : null;
+    const chipFields = (fields ?? []).filter(f => f.type === 'chips' || f.type === 'multiChips');
+    if (!editVisible || chipFields.length === 0) { setCommunityValues({}); return; }
+    let cancelled = false;
+    (async () => {
+      const entries = await Promise.all(chipFields.map(async field => {
+        const { data } = await supabase.rpc('get_category_field_values', { p_category_key: catKey, p_field_key: field.key });
+        return [field.key, (data ?? []).map((r: any) => r.value)] as [string, string[]];
+      }));
+      if (!cancelled) setCommunityValues(Object.fromEntries(entries));
+    })();
+    return () => { cancelled = true; };
+  }, [editVisible, editForm.genre]);
   const [editSaving, setEditSaving] = useState(false);
   const [photoLoading, setPhotoLoading] = useState(false);
   const [videoLoading, setVideoLoading] = useState(false);
@@ -189,6 +222,8 @@ export default function GroupDashboardScreen({ navigation }: any) {
   const [myEventPosts, setMyEventPosts] = useState<any[]>([]);
   const [eventPhotoLoading, setEventPhotoLoading] = useState(false);
   const [newPhotoCaption, setNewPhotoCaption] = useState('');
+  // Fotos ya elegidas pero AÚN sin publicar — vista previa (2026-09-05)
+  const [pendingEventPhotos, setPendingEventPhotos] = useState<ImagePickerAsset[] | null>(null);
   const [videoSuccessMsg, setVideoSuccessMsg] = useState(false);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [ownerArtist, setOwnerArtist] = useState<any | null>(null);
@@ -210,6 +245,14 @@ export default function GroupDashboardScreen({ navigation }: any) {
   const [competitorAlert,    setCompetitorAlert]    = useState<'rising' | 'displaced' | null>(null);
   const [descriptionError, setDescriptionError] = useState<string | null>(null);
   const [includesError,    setIncludesError]    = useState<string | null>(null);
+  // Mismo candado anti-bypass que description/includes_text, ahora también
+  // para los campos de texto libre de categoría (dietary_notes, etc.).
+  const [categoryFieldErrors, setCategoryFieldErrors] = useState<Record<string, string>>({});
+  // "Agregar otro" en campos multiChips (ej. Renta: items que no están en la
+  // lista fija) — petición real 2026-09-05: "que pueda escribir y se agregue
+  // lo que tiene". Un input de texto libre por campo, keyed por field.key.
+  const [customItemInput, setCustomItemInput] = useState<Record<string, string>>({});
+  const [customItemError, setCustomItemError] = useState<Record<string, string>>({});
   const prevRankPosRef  = useRef<number | null>(null);
   const promoPulseAnim  = useRef(new Animated.Value(1)).current;
   const rankSuccessAnim = useRef(new Animated.Value(0)).current;
@@ -858,6 +901,7 @@ export default function GroupDashboardScreen({ navigation }: any) {
       needs_parking:         group.needs_parking ?? false,
       setup_minutes:         String(group.setup_minutes ?? ''),
       includes_text:         group.includes_text ?? '',
+      category_details:      group.category_details ?? {},
     });
     setEditVisible(true);
   };
@@ -875,6 +919,13 @@ export default function GroupDashboardScreen({ navigation }: any) {
     if (!descVal.valid) { Alert.alert('Texto no permitido', descVal.error); return; }
     const inclVal = validatePublicText(editForm.includes_text);
     if (!inclVal.valid) { Alert.alert('Texto no permitido', inclVal.error); return; }
+    // Solo los campos type:'text' guardan string libre — chips/multiChips
+    // guardan claves fijas (ej. 'buffet', ['mesas','sillas']), no aplica validar.
+    for (const field of editCategoryFields ?? []) {
+      if (field.type !== 'text') continue;
+      const v = validatePublicText(editForm.category_details[field.key]);
+      if (!v.valid) { Alert.alert('Texto no permitido', v.error); return; }
+    }
 
     // País se deriva del estado automáticamente; conservar country existente como fallback
     const country = stateToCountry(state) || group.country || 'México';
@@ -902,6 +953,7 @@ export default function GroupDashboardScreen({ navigation }: any) {
       needs_parking:         editForm.needs_parking,
       setup_minutes:         setupMins,
       includes_text:         editForm.includes_text.trim() || null,
+      category_details:      editForm.category_details,
     };
 
     setEditSaving(true);
@@ -1090,6 +1142,14 @@ export default function GroupDashboardScreen({ navigation }: any) {
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
+  // 2026-09-05 — categoría real del grupo (se lee de editForm.genre, no de
+  // group.genre, para que la sección de equipo/categoría cambie en vivo si
+  // el usuario edita el género dentro del mismo modal, antes de guardar).
+  const editCategoryKey       = categoryKeyForGenre(editForm.genre);
+  const showEquipmentSection  = editCategoryKey != null && EQUIPMENT_CATEGORIES.has(editCategoryKey);
+  const showSoundOnlySection  = editCategoryKey != null && SOUND_ONLY_CATEGORIES.has(editCategoryKey);
+  const editCategoryFields    = editCategoryKey != null ? (CATEGORY_DETAIL_FIELDS[editCategoryKey] ?? null) : null;
+
   return (
     <View style={s.container}>
       <Particles />
@@ -1187,12 +1247,7 @@ export default function GroupDashboardScreen({ navigation }: any) {
 
             {/* Fila de disponibilidad + calendario */}
             <View style={s.controlRow}>
-              <Pressable
-                style={[s.controlToggle, groupAvailability === 'available' && s.controlToggleActive]}
-                onPress={toggleAvailability}
-                disabled={availabilityLoading}
-              >
-                <View style={[s.controlToggleDot, groupAvailability === 'available' && { backgroundColor: COLORS.green }]} />
+              <View style={[s.controlToggle, groupAvailability === 'available' && s.controlToggleActive]}>
                 <View style={{ flex: 1 }}>
                   <Text style={[s.controlToggleTitle, groupAvailability === 'available' && { color: COLORS.green }]}>
                     {availabilityLoading ? 'Actualizando...' : groupAvailability === 'available' ? 'Express ON' : 'Express OFF'}
@@ -1201,7 +1256,14 @@ export default function GroupDashboardScreen({ navigation }: any) {
                     {groupAvailability === 'available' ? 'Recibes solicitudes' : 'Toca para activar'}
                   </Text>
                 </View>
-              </Pressable>
+                <Switch
+                  value={groupAvailability === 'available'}
+                  onValueChange={toggleAvailability}
+                  disabled={availabilityLoading}
+                  trackColor={{ false: COLORS.border, true: COLORS.green }}
+                  thumbColor="#fff"
+                />
+              </View>
 
               <Pressable style={s.controlCalBtn} onPress={() => navigation.navigate('GroupCalendar')}>
                 <CalendarDays size={17} color={COLORS.text} />
@@ -1656,8 +1718,8 @@ export default function GroupDashboardScreen({ navigation }: any) {
 
               {/* ── 📸 TUS PUBLICACIONES (sql/561) ────────────────────────────
                     Hasta 6 publicaciones activas por grupo, cada una con
-                    varias fotos (carrusel). Exclusivo de Plus vigente
-                    (sql/571) — mismo candado que recibir regalos. Cada
+                    varias fotos (carrusel). GRATIS desde sql/637 (antes
+                    exigía Plus). Los REGALOS sí siguen siendo de Plus. Cada
                     publicación pasa por revisión del admin, igual que los
                     videos. */}
               <Text style={s.equipSectionTitle}>
@@ -1705,34 +1767,46 @@ export default function GroupDashboardScreen({ navigation }: any) {
                 placeholderTextColor={COLORS.muted}
                 maxLength={60}
               />
+              {/* Vista previa — las fotos ya se eligieron pero TODAVÍA no se
+                  publican, hasta tocar "Publicar" (2026-09-05, mismo hallazgo
+                  real que en Inicio: un solo toque elegía Y publicaba). */}
+              {pendingEventPhotos && (
+                <View style={s.eventPhotoPreviewRow}>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }}>
+                    {pendingEventPhotos.map((a, i) => (
+                      <Image key={i} source={{ uri: a.uri }} style={s.eventPhotoPreviewThumb} />
+                    ))}
+                  </ScrollView>
+                  <Pressable disabled={eventPhotoLoading} onPress={() => setPendingEventPhotos(null)} hitSlop={8}>
+                    <Text style={s.eventPhotoCancelTx}>Cancelar</Text>
+                  </Pressable>
+                </View>
+              )}
               <Pressable
                 style={[s.videoBtnOutline, eventPhotoLoading && { opacity: 0.5 }]}
                 disabled={eventPhotoLoading}
                 onPress={async () => {
                   const gid = groupIdRef.current;
                   if (!gid) return;
-                  if (!plusOn) {
-                    Alert.alert(
-                      '🏆 Exclusivo de Plus',
-                      'Subir fotos de tus eventos es un beneficio de la insignia Plus — también desbloqueas ganar dinero con regalos de tus fans.',
-                      [
-                        { text: 'Ahora no', style: 'cancel' },
-                        { text: 'Ver Plus', onPress: () => navigation.navigate('Plus') },
-                      ],
-                    );
-                    return;
-                  }
                   const activas = myEventPosts.filter(p => p.status !== 'rejected').length;
                   if (activas >= 6) {
                     Alert.alert('📸 Límite alcanzado', 'Ya tienes 6 publicaciones (el máximo). Elimina una para subir otra.');
                     return;
                   }
+                  if (!pendingEventPhotos) {
+                    // Paso 1: solo elegir — no publica todavía
+                    const assets = await pickGroupEventPhotos();
+                    if (assets) setPendingEventPhotos(assets);
+                    return;
+                  }
+                  // Paso 2: publicar de verdad, con las fotos ya elegidas
                   try {
                     setEventPhotoLoading(true);
-                    const post = await pickAndUploadGroupEventPost(gid, newPhotoCaption);
+                    const post = await uploadGroupEventPost(gid, newPhotoCaption, pendingEventPhotos);
                     if (post) {
                       setMyEventPosts(prev => [post, ...prev]);
                       setNewPhotoCaption('');
+                      setPendingEventPhotos(null);
                       Alert.alert('✅ Publicación subida', 'Quedó en revisión — se publica en tu perfil al aprobarse.');
                     }
                   } catch (e: any) {
@@ -1746,19 +1820,27 @@ export default function GroupDashboardScreen({ navigation }: any) {
                   ? <ActivityIndicator size="small" color={COLORS.green} />
                   : <Camera size={15} color={COLORS.green} />}
                 <Text style={s.videoBtnOutlineText}>
-                  {eventPhotoLoading ? 'Subiendo…' : '➕ Subir publicación (hasta 6 fotos)'}
+                  {eventPhotoLoading
+                    ? 'Subiendo…'
+                    : pendingEventPhotos
+                      ? '✅ Publicar'
+                      : '➕ Elegir fotos (hasta 6)'}
                 </Text>
               </Pressable>
               <Text style={s.videoHint}>JPG · máx. 6 fotos · se publican al aprobarse</Text>
               {!plusOn && (
                 <Pressable style={s.plusUpsell} onPress={() => navigation.navigate('Plus')}>
                   <Text style={s.plusUpsellTx}>
-                    🏆 Con <Text style={{ color: COLORS.gold }}>Plus</Text> desbloqueas subir fotos de tus eventos y ganar dinero con regalos de tus fans →
+                    🏆 Con <Text style={{ color: COLORS.gold }}>Plus</Text> ganas dinero con los regalos de tus fans →
                   </Text>
                 </Pressable>
               )}
 
-              {/* ── Mi Equipo ──────────────────────────────────────────────── */}
+              {/* ── Mi Equipo — solo música/DJ/luz y sonido/espectáculo
+                  (2026-09-05). Antes se mostraba a TODOS los proveedores,
+                  incluyendo Comida/Renta/Payasos/Fotógrafos, a quienes
+                  preguntarles de tarima o pantalla LED no les sirve. ── */}
+              {showEquipmentSection && (<>
               <Text style={s.equipSectionTitle}>Mi Equipo</Text>
 
               {/* Sonido */}
@@ -1867,6 +1949,241 @@ export default function GroupDashboardScreen({ navigation }: any) {
                   ))}
                 </View>
               )}
+              </>)}
+
+              {/* Comediante/MC — solo declaran si cargan sonido/micrófono
+                  propio, no cargan tarima ni pantallas (2026-09-05). */}
+              {showSoundOnlySection && (<>
+              <Text style={s.equipSectionTitle}>Mi Equipo</Text>
+              <View style={s.equipRow}>
+                <Text style={s.equipLabel}>🔊 Sonido propio</Text>
+                <Pressable
+                  style={[s.equipToggle, editForm.has_sound && s.equipToggleOn]}
+                  onPress={() => setEditForm(f => ({ ...f, has_sound: !f.has_sound }))}
+                >
+                  <Text style={[s.equipToggleText, editForm.has_sound && s.equipToggleTextOn]}>
+                    {editForm.has_sound ? 'Sí' : 'No'}
+                  </Text>
+                </Pressable>
+              </View>
+              {editForm.has_sound && (
+                <TextInput
+                  style={s.input}
+                  placeholder="Capacidad máx. personas (ej: 200)"
+                  placeholderTextColor={COLORS.muted}
+                  keyboardType="numeric"
+                  value={editForm.sound_capacity_max}
+                  onChangeText={v => setEditForm(f => ({ ...f, sound_capacity_max: v.replace(/[^0-9]/g, '') }))}
+                />
+              )}
+              </>)}
+
+              {/* Preguntas propias de la categoría — Comida/Renta/Payasos/
+                  Fotógrafos (2026-09-05, sql/623 category_details). Mismo
+                  esquema que consume QuoteFormScreen, así lo que el
+                  proveedor declara aquí siempre coincide con lo que se le
+                  pregunta al cliente. */}
+              {!!editCategoryFields && (<>
+              <Text style={s.equipSectionTitle}>Mi {group?.genre || 'Categoría'}</Text>
+              {editCategoryFields.map(field => {
+                const value = editForm.category_details[field.key];
+                return (
+                  <View key={field.key}>
+                    <Text style={s.label}>{t(field.labelKey)}</Text>
+                    {field.type === 'text' && (
+                      <>
+                        <TextInput
+                          style={[s.input, !!categoryFieldErrors[field.key] && s.inputError]}
+                          placeholder={field.placeholderKey ? t(field.placeholderKey) : undefined}
+                          placeholderTextColor={COLORS.muted}
+                          value={value ?? ''}
+                          onChangeText={v => {
+                            setEditForm(f => ({ ...f, category_details: { ...f.category_details, [field.key]: v } }));
+                            const r = validatePublicText(v);
+                            setCategoryFieldErrors(prev => ({ ...prev, [field.key]: r.valid ? '' : r.error! }));
+                          }}
+                        />
+                        {!!categoryFieldErrors[field.key] && (
+                          <Text style={s.errorText}>⚠️ {categoryFieldErrors[field.key]}</Text>
+                        )}
+                      </>
+                    )}
+                    {field.type === 'number' && (
+                      <TextInput
+                        style={s.input}
+                        placeholder={field.placeholderKey ? t(field.placeholderKey) : undefined}
+                        placeholderTextColor={COLORS.muted}
+                        keyboardType="numeric"
+                        value={value ?? ''}
+                        onChangeText={v => setEditForm(f => ({ ...f, category_details: { ...f.category_details, [field.key]: v.replace(/[^0-9]/g, '') } }))}
+                      />
+                    )}
+                    {field.type === 'chips' && (() => {
+                      const knownKeys = new Set(field.options?.map(o => o.key));
+                      // Lo que otros proveedores de esta MISMA categoría ya
+                      // escribieron (sql/624) — se ofrece como opción lista,
+                      // sin que este proveedor tenga que volver a escribirlo.
+                      const community = (communityValues[field.key] ?? []).filter(v => !knownKeys.has(v));
+                      return (
+                        <>
+                          <View style={s.equipChipRow}>
+                            {field.options?.map(opt => (
+                              <Pressable
+                                key={opt.key}
+                                style={[s.equipChip, value === opt.key && s.equipChipActive]}
+                                onPress={() => setEditForm(f => ({ ...f, category_details: { ...f.category_details, [field.key]: opt.key } }))}
+                              >
+                                <Text style={[s.equipChipText, value === opt.key && s.equipChipTextActive]}>
+                                  {t(opt.labelKey)}
+                                </Text>
+                              </Pressable>
+                            ))}
+                            {community.map(v => (
+                              <Pressable
+                                key={v}
+                                style={[s.equipChip, value === v && s.equipChipActive]}
+                                onPress={() => setEditForm(f => ({ ...f, category_details: { ...f.category_details, [field.key]: v } }))}
+                              >
+                                <Text style={[s.equipChipText, value === v && s.equipChipTextActive]}>{v}</Text>
+                              </Pressable>
+                            ))}
+                          </View>
+                          <View style={s.addCustomItemRow}>
+                            <TextInput
+                              style={[s.input, s.addCustomItemInput]}
+                              placeholder="Agrega algo que no esté en la lista..."
+                              placeholderTextColor={COLORS.muted}
+                              value={customItemInput[field.key] ?? ''}
+                              onChangeText={v => {
+                                setCustomItemInput(prev => ({ ...prev, [field.key]: v }));
+                                const r = validatePublicText(v);
+                                setCustomItemError(prev => ({ ...prev, [field.key]: r.valid ? '' : r.error! }));
+                              }}
+                            />
+                            <Pressable
+                              style={s.addCustomItemBtn}
+                              onPress={() => {
+                                const raw = (customItemInput[field.key] ?? '').trim();
+                                if (!raw) return;
+                                const r = validatePublicText(raw);
+                                if (!r.valid) { setCustomItemError(prev => ({ ...prev, [field.key]: r.error! })); return; }
+                                setEditForm(f => ({ ...f, category_details: { ...f.category_details, [field.key]: raw } }));
+                                setCustomItemInput(prev => ({ ...prev, [field.key]: '' }));
+                                setCustomItemError(prev => ({ ...prev, [field.key]: '' }));
+                              }}
+                            >
+                              <Text style={s.addCustomItemBtnTx}>Agregar</Text>
+                            </Pressable>
+                          </View>
+                          {!!customItemError[field.key] && (
+                            <Text style={s.errorText}>⚠️ {customItemError[field.key]}</Text>
+                          )}
+                        </>
+                      );
+                    })()}
+                    {field.type === 'multiChips' && (() => {
+                      const arr: string[] = Array.isArray(value) ? value : [];
+                      const knownKeys = new Set(field.options?.map(o => o.key));
+                      // Lo que otros proveedores ya escribieron (sql/624) y
+                      // todavía no está en la lista fija — se ofrece como
+                      // chip normal, tocable, igual que las opciones fijas.
+                      const community = (communityValues[field.key] ?? []).filter(v => !knownKeys.has(v));
+                      const toggleableKeys = new Set([...knownKeys, ...community]);
+                      // Lo que el proveedor escribió a mano y AÚN no aparece
+                      // ni en la lista fija ni en la de la comunidad (recién
+                      // agregado, todavía no se reflejó en get_category_field_values).
+                      const customItems = arr.filter(v => !toggleableKeys.has(v));
+                      return (
+                        <>
+                          <View style={s.equipChipRow}>
+                            {field.options?.map(opt => {
+                              const selected = arr.includes(opt.key);
+                              return (
+                                <Pressable
+                                  key={opt.key}
+                                  style={[s.equipChip, selected && s.equipChipActive]}
+                                  onPress={() => setEditForm(f => {
+                                    const cur: string[] = Array.isArray(f.category_details[field.key]) ? f.category_details[field.key] : [];
+                                    const next = toggleItem(cur, opt.key);
+                                    return { ...f, category_details: { ...f.category_details, [field.key]: next } };
+                                  })}
+                                >
+                                  <Text style={[s.equipChipText, selected && s.equipChipTextActive]}>
+                                    {t(opt.labelKey)}
+                                  </Text>
+                                </Pressable>
+                              );
+                            })}
+                            {community.map(v => {
+                              const selected = arr.includes(v);
+                              return (
+                                <Pressable
+                                  key={v}
+                                  style={[s.equipChip, selected && s.equipChipActive]}
+                                  onPress={() => setEditForm(f => {
+                                    const cur: string[] = Array.isArray(f.category_details[field.key]) ? f.category_details[field.key] : [];
+                                    const next = toggleItem(cur, v);
+                                    return { ...f, category_details: { ...f.category_details, [field.key]: next } };
+                                  })}
+                                >
+                                  <Text style={[s.equipChipText, selected && s.equipChipTextActive]}>{v}</Text>
+                                </Pressable>
+                              );
+                            })}
+                            {customItems.map(item => (
+                              <Pressable
+                                key={item}
+                                style={[s.equipChip, s.equipChipActive]}
+                                onPress={() => setEditForm(f => {
+                                  const cur: string[] = Array.isArray(f.category_details[field.key]) ? f.category_details[field.key] : [];
+                                  return { ...f, category_details: { ...f.category_details, [field.key]: cur.filter(x => x !== item) } };
+                                })}
+                              >
+                                <Text style={[s.equipChipText, s.equipChipTextActive]}>{item} ✕</Text>
+                              </Pressable>
+                            ))}
+                          </View>
+                          <View style={s.addCustomItemRow}>
+                            <TextInput
+                              style={[s.input, s.addCustomItemInput]}
+                              placeholder="Agrega algo que no esté en la lista..."
+                              placeholderTextColor={COLORS.muted}
+                              value={customItemInput[field.key] ?? ''}
+                              onChangeText={v => {
+                                setCustomItemInput(prev => ({ ...prev, [field.key]: v }));
+                                const r = validatePublicText(v);
+                                setCustomItemError(prev => ({ ...prev, [field.key]: r.valid ? '' : r.error! }));
+                              }}
+                            />
+                            <Pressable
+                              style={s.addCustomItemBtn}
+                              onPress={() => {
+                                const raw = (customItemInput[field.key] ?? '').trim();
+                                if (!raw) return;
+                                const r = validatePublicText(raw);
+                                if (!r.valid) { setCustomItemError(prev => ({ ...prev, [field.key]: r.error! })); return; }
+                                setEditForm(f => {
+                                  const cur: string[] = Array.isArray(f.category_details[field.key]) ? f.category_details[field.key] : [];
+                                  if (cur.includes(raw)) return f;
+                                  return { ...f, category_details: { ...f.category_details, [field.key]: [...cur, raw] } };
+                                });
+                                setCustomItemInput(prev => ({ ...prev, [field.key]: '' }));
+                                setCustomItemError(prev => ({ ...prev, [field.key]: '' }));
+                              }}
+                            >
+                              <Text style={s.addCustomItemBtnTx}>Agregar</Text>
+                            </Pressable>
+                          </View>
+                          {!!customItemError[field.key] && (
+                            <Text style={s.errorText}>⚠️ {customItemError[field.key]}</Text>
+                          )}
+                        </>
+                      );
+                    })()}
+                  </View>
+                );
+              })}
+              </>)}
 
               {/* Corriente */}
               <Text style={s.label}>⚡ Corriente requerida (amperes)</Text>
@@ -1922,9 +2239,9 @@ export default function GroupDashboardScreen({ navigation }: any) {
               )}
 
               <Pressable
-                style={[s.saveBtn, (editSaving || !!descriptionError || !!includesError) && { opacity: 0.5 }]}
+                style={[s.saveBtn, (editSaving || !!descriptionError || !!includesError || Object.values(categoryFieldErrors).some(Boolean)) && { opacity: 0.5 }]}
                 onPress={saveEdit}
-                disabled={editSaving || !!descriptionError || !!includesError}
+                disabled={editSaving || !!descriptionError || !!includesError || Object.values(categoryFieldErrors).some(Boolean)}
               >
                 <Text style={s.saveBtnText}>{editSaving ? 'Guardando...' : 'Guardar perfil'}</Text>
               </Pressable>
@@ -2481,6 +2798,12 @@ const s = StyleSheet.create({
     borderRadius: RADIUS.lg, paddingVertical: 13, marginBottom: 4,
   },
   videoBtnOutlineText: { fontFamily: FONTS.bodyMedium, fontSize: 14, color: COLORS.green },
+  eventPhotoPreviewRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 },
+  eventPhotoPreviewThumb: {
+    width: 48, height: 48, borderRadius: RADIUS.md, marginRight: 6,
+    backgroundColor: COLORS.card2,
+  },
+  eventPhotoCancelTx: { fontFamily: FONTS.bodyMedium, fontSize: 12.5, color: COLORS.muted2 },
   videoBtnSolid: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
     backgroundColor: COLORS.green, borderRadius: RADIUS.lg, paddingVertical: 14, marginBottom: 4,
@@ -3148,11 +3471,10 @@ const s = StyleSheet.create({
   controlRow: { flexDirection: 'row', gap: 10 },
   controlToggle: {
     flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10,
-    backgroundColor: COLORS.card, borderRadius: RADIUS.lg,
+    backgroundColor: COLORS.card2, borderRadius: RADIUS.lg,
     borderWidth: 1, borderColor: COLORS.border, padding: 14,
   },
   controlToggleActive: { borderColor: 'rgba(0,230,118,0.4)', backgroundColor: 'rgba(0,230,118,0.06)' },
-  controlToggleDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: COLORS.muted },
   controlToggleTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.muted2 },
   controlToggleSub: { fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted, marginTop: 1 },
   controlCalBtn: {
@@ -3349,4 +3671,11 @@ const s = StyleSheet.create({
   equipChipActive:   { backgroundColor: 'rgba(0,230,118,0.12)', borderColor: COLORS.green },
   equipChipText:     { fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.muted2 },
   equipChipTextActive: { color: COLORS.green },
+  addCustomItemRow: { flexDirection: 'row', gap: 8, alignItems: 'center', marginBottom: 14 },
+  addCustomItemInput: { flex: 1, marginBottom: 0 },
+  addCustomItemBtn: {
+    paddingHorizontal: 16, paddingVertical: 12, borderRadius: RADIUS.md,
+    backgroundColor: COLORS.card2, borderWidth: 1, borderColor: COLORS.border,
+  },
+  addCustomItemBtnTx: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.green },
 });

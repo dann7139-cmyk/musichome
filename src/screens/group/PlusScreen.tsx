@@ -519,8 +519,7 @@ export default function PlusScreen({ navigation, route }: any) {
 const BENEFITS = [
   'Badge verde 🛡 en tu perfil y búsquedas',
   '🎬 2 videos MÁS en tu perfil (3 en total, en vez de 1)',
-  '📸 Sube fotos de tus eventos a tu perfil',
-  '💰 Gana dinero extra: tus fans te mandan regalos con dinero real',
+  '💰 Recibe regalos con dinero real de tus fans (exclusivo de Plus)',
   'Apareces antes que grupos sin Plus en tu zona',
   'Sello de confianza en cotizaciones express',
   'Con Bidding, llegas al top cuando quieras',
