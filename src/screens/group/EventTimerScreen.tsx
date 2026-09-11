@@ -48,6 +48,14 @@ const EXTRA_MSI_OPTIONS = [1, 3, 6, 9] as const;
 // el cliente veía un total distinto al que realmente se le cobraba).
 const EXTRA_MSI_FEE: Record<number, number> = { 1: 0, 3: 0.05, 6: 0.06, 9: 0.09 };
 
+// ⚠️ Debe coincidir EXACTO con la lista de complete_event (sql/639) — esta
+// solo decide qué botones mostrar; la regla real vive en el servidor.
+const SERVICE_DONE_CODE_GENRES = [
+  'Comida', 'Fotografía', 'Renta de mesas', 'Renta de sillas',
+  'Renta de brincolines', 'Inflables acuáticos',
+  'Drones', 'Cabina 360', 'Cabina fotográfica',
+];
+
 const VisaLogo = () => (
   <Svg width={38} height={24} viewBox="0 0 38 24">
     <Rect width={38} height={24} rx={4} fill="#1A1F71" />
@@ -544,6 +552,19 @@ export default function EventTimerScreen({ route, navigation }: any) {
   const codeRef1 = useRef<any>(null);
   const codeRef2 = useRef<any>(null);
   const codeRef3 = useRef<any>(null);
+  // 🍽️📸🪑 Código de "servicio terminado" (sql/639, 2026-09-10) — para
+  // categorías sin duración predecible (Comida, Fotografía, Renta de
+  // mesas/sillas/brincolines, Inflables acuáticos, Drones, Cabina 360,
+  // Cabina fotográfica). Se pide el mismo tipo de código que el de
+  // llegada, pero uno NUEVO y distinto — sin límite de tiempo.
+  const [needsServiceCode, setNeedsServiceCode] = useState(false);
+  const [showServiceCodeModal, setShowServiceCodeModal] = useState(false);
+  const [serviceCodeInput, setServiceCodeInput] = useState(['', '', '', '']);
+  const [serviceCodeLoading, setServiceCodeLoading] = useState(false);
+  const svcCodeRef0 = useRef<any>(null);
+  const svcCodeRef1 = useRef<any>(null);
+  const svcCodeRef2 = useRef<any>(null);
+  const svcCodeRef3 = useRef<any>(null);
   const [eventLatLng, setEventLatLng] = useState<{ lat: number; lng: number } | null>(null);
   const [approxDest,  setApproxDest]  = useState<{ latitude: number; longitude: number } | null>(null);
   const [groupOrigin, setGroupOrigin] = useState<{ latitude: number; longitude: number } | null>(null);
@@ -730,6 +751,24 @@ export default function EventTimerScreen({ route, navigation }: any) {
           return;
         }
         setResCurrency(data.currency_code === 'USD' ? 'USD' : 'MXN');
+      });
+  }, [reservation.id]);
+
+  // ── Categoría del proveedor (aislado, mismo criterio que arriba) ─────────
+  // Determina si esta reserva cierra por código de "servicio terminado"
+  // (sql/639) en vez de por duración — mismo listado de géneros que usa
+  // complete_event en el servidor, la fuente de verdad real es esa; esto
+  // solo decide qué botones mostrar.
+  useEffect(() => {
+    supabase
+      .from('reservations')
+      .select('group:groups(genre)')
+      .eq('id', reservation.id)
+      .single()
+      .then(({ data, error }) => {
+        const genre = (data as any)?.group?.genre;
+        if (error || !genre) return;
+        setNeedsServiceCode(SERVICE_DONE_CODE_GENRES.includes(genre));
       });
   }, [reservation.id]);
 
@@ -1381,6 +1420,11 @@ export default function EventTimerScreen({ route, navigation }: any) {
   // Gate: esperar a que extraHoursLoaded=true para evitar que el stop dispare
   // con totalMusicSecs calculado sin extras (race condition al re-entrar).
   useEffect(() => {
+    // 🍽️📸🪑 sql/639: estas categorías NO cierran por tiempo — cierran con
+    // el código de "servicio terminado" (botón manual). Sin este freno, al
+    // cumplirse las horas contratadas este efecto llamaría finishEvent()
+    // sin código una y otra vez (falla, reinicia el tick, vuelve a disparar).
+    if (needsServiceCode) return;
     if (!extraHoursLoaded) return;
     if (!isRunning || !startedAt || totalMusicSecs === 0) return;
     if (musicElapsed >= totalMusicSecs) {
@@ -1393,7 +1437,7 @@ export default function EventTimerScreen({ route, navigation }: any) {
         startRatingFlow();
       }
     }
-  }, [musicElapsed, totalMusicSecs, isRunning, startedAt, extraHoursLoaded]);
+  }, [musicElapsed, totalMusicSecs, isRunning, startedAt, extraHoursLoaded, needsServiceCode]);
 
   const startTick = (from: Date) => {
     if (intervalRef.current) clearInterval(intervalRef.current);
@@ -1532,9 +1576,15 @@ export default function EventTimerScreen({ route, navigation }: any) {
 
   const _doStartFlow = () => {
     if (breakType === 'D') {
+      // sql/639: para Comida/Fotografía/renta de cosas físicas no hay
+      // horas fijas que "contar" — el copy de siempre ("contarán las X
+      // horas seguidas") ya no aplica, cierran con el código de servicio
+      // terminado cuando de verdad acaben.
       Alert.alert(
         '⚠️ Sin descansos programados',
-        `Este tipo de servicio no maneja tandas ni descansos — contarán las ${contractHours} horas seguidas desde que inicien. ¿Confirmas que están listos?`,
+        needsServiceCode
+          ? 'Este tipo de servicio no maneja tandas ni descansos. Cuando terminen, pide al cliente el código de "servicio terminado" para cerrar el evento. ¿Confirmas que están listos?'
+          : `Este tipo de servicio no maneja tandas ni descansos — contarán las ${contractHours} horas seguidas desde que inicien. ¿Confirmas que están listos?`,
         [
           { text: 'Cancelar', style: 'cancel' },
           { text: 'Sí, iniciar', onPress: () => confirmStart() },
@@ -1808,7 +1858,46 @@ export default function EventTimerScreen({ route, navigation }: any) {
     _doStartFlow();
   };
 
-  const finishEvent = async () => {
+  // ── Código de "servicio terminado" (sql/639) — mismo patrón que el de
+  //    llegada, pero cierra el evento directo en vez de arrancarlo.
+  const handleServiceCodeDigit = (text: string, index: number) => {
+    const digit = text.replace(/[^0-9]/g, '').slice(-1);
+    const next = [...serviceCodeInput];
+    next[index] = digit;
+    setServiceCodeInput(next);
+    if (digit && index < 3) {
+      [svcCodeRef0, svcCodeRef1, svcCodeRef2, svcCodeRef3][index + 1].current?.focus();
+    }
+  };
+
+  const handleServiceCodeKeyPress = (key: string, index: number) => {
+    if (key === 'Backspace' && !serviceCodeInput[index] && index > 0) {
+      [svcCodeRef0, svcCodeRef1, svcCodeRef2, svcCodeRef3][index - 1].current?.focus();
+    }
+  };
+
+  const handleServiceCodeSubmit = async () => {
+    const code = serviceCodeInput.join('');
+    if (code.length < 4) return;
+    setServiceCodeLoading(true);
+    const result = await finishEvent(code);
+    setServiceCodeLoading(false);
+    if (result?.invalidCode) {
+      Alert.alert('Código inválido', 'Verifica el código con el cliente e intenta de nuevo.');
+      setServiceCodeInput(['', '', '', '']);
+      setTimeout(() => svcCodeRef0.current?.focus(), 100);
+      return;
+    }
+    if (result?.ok) {
+      setShowServiceCodeModal(false);
+    }
+  };
+
+  // serviceCode: solo para las categorías de sql/639 (Comida, Fotografía,
+  // renta de mesas/sillas/brincolines/inflables, Drones, cabinas) — el
+  // código de "servicio terminado" que el cliente le da al proveedor.
+  // Para las demás categorías se llama sin argumento, como siempre.
+  const finishEvent = async (serviceCode?: string) => {
     if (intervalRef.current) clearInterval(intervalRef.current);
     setIsRunning(false);
     setLoading(true);
@@ -1818,13 +1907,35 @@ export default function EventTimerScreen({ route, navigation }: any) {
       // Fix 1+3: capturar resultado — NO proceder si complete_event falla
       const { data: completeData, error: completeError } = await supabase.rpc('complete_event', {
         p_reservation_id: reservation.id,
+        ...(serviceCode ? { p_service_code: serviceCode } : {}),
       });
 
       if (completeError || completeData?.ok === false) {
+        // Código de servicio incorrecto: el evento sigue en curso, se deja
+        // que quien llamó (el modal de código) muestre su propio aviso y
+        // permita reintentar, en vez del genérico de abajo.
+        if (completeData?.error === 'invalid_service_code') {
+          setIsRunning(true);
+          if (startedAt) startTick(startedAt);
+          return { ok: false, invalidCode: true };
+        }
         Alert.alert('Error al finalizar', 'No se pudo registrar el fin del evento. Intenta de nuevo.');
         setIsRunning(true);
         if (startedAt) startTick(startedAt);
-        return;
+        return { ok: false };
+      }
+
+      // 🔒 Registro de horarios — mensaje de seguridad (petición del
+      // usuario 2026-09-10): que el proveedor sepa que quedó guardada la
+      // hora de inicio y fin, como respaldo si algo se disputa después.
+      if (completeData?.note !== 'already_completed' && startedAt) {
+        const endLabel = new Date(completeData?.completed_at ?? Date.now())
+          .toLocaleTimeString('es-MX', { hour: 'numeric', minute: '2-digit' });
+        const startLabel = startedAt.toLocaleTimeString('es-MX', { hour: 'numeric', minute: '2-digit' });
+        Alert.alert(
+          '✅ Evento finalizado',
+          `Inició a las ${startLabel} y terminó a las ${endLabel}. Guardamos este registro para tu seguridad, por si algo se disputa después.`,
+        );
       }
 
       // Fix 3: release SOLO después de confirmar éxito de complete_event
@@ -1902,11 +2013,13 @@ export default function EventTimerScreen({ route, navigation }: any) {
       }
 
       succeeded = true;
+      return { ok: true };
     } catch (err) {
       console.warn('[FinishEvent] Error general:', err);
       Alert.alert('Error inesperado', 'Ocurrió un error al finalizar el evento. Intenta de nuevo.');
       setIsRunning(true);
       if (startedAt) startTick(startedAt);
+      return { ok: false };
     } finally {
       setLoading(false);
       if (succeeded) startRatingFlow();
@@ -2776,9 +2889,27 @@ export default function EventTimerScreen({ route, navigation }: any) {
                       <View style={{ height: 10 }} />
                     </>
                   )}
-                  {/* Sin finalización manual: el evento termina SOLO cuando se
-                      cumple el tiempo (auto-stop) — decisión de producto 2026-07-12.
+                  {/* Sin finalización manual para el resto de categorías: el
+                      evento termina SOLO cuando se cumple el tiempo
+                      (auto-stop) — decisión de producto 2026-07-12.
                       Emergencias las resuelve el admin. */}
+                  {/* 🍽️📸🪑 Comida/Fotografía/renta de cosas físicas (sql/639,
+                      2026-09-10): sin duración predecible, así que aquí SÍ hay
+                      botón manual — pide el código nuevo que el cliente les
+                      da cuando de verdad terminaron. */}
+                  {needsServiceCode && hasArrived && (
+                    <>
+                      <View style={{ height: 10 }} />
+                      <Pressable
+                        style={({ pressed }) => [st.iconBtn, st.iconBtnPrimary, loading && st.iconBtnDisabled, pressed && !loading && { opacity: 0.8 }]}
+                        onPress={() => setShowServiceCodeModal(true)}
+                        disabled={loading}
+                      >
+                        <CheckCircle size={18} color={COLORS.black} />
+                        <Text style={[st.iconBtnLabel, { color: COLORS.black }]}>Marcar como terminado</Text>
+                      </Pressable>
+                    </>
+                  )}
                 </>
               )}
             </View>
@@ -3543,6 +3674,57 @@ export default function EventTimerScreen({ route, navigation }: any) {
             <Pressable
               style={st.codeCancelBtn}
               onPress={() => { Keyboard.dismiss(); setShowArrivalCodeModal(false); }}
+            >
+              <Text style={st.codeCancelBtnText}>Cancelar</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* ── CÓDIGO DE SERVICIO TERMINADO (sql/639) ──────────────────
+          Comida/Fotografía/renta de mesas-sillas-brincolines-inflables/
+          Drones/cabinas — cierra el evento sin importar cuánto tiempo
+          haya pasado, con un código NUEVO y distinto al de llegada. */}
+      <Modal visible={showServiceCodeModal} transparent animationType="fade">
+        <Pressable style={st.codeModalOverlay} onPress={() => { Keyboard.dismiss(); setShowServiceCodeModal(false); }}>
+          <Pressable style={st.codeModal}>
+            <Text style={st.codeModalTitle}>Marcar como terminado</Text>
+            <Text style={st.codeModalSub}>Pide al cliente sus 4 dígitos de "servicio terminado"</Text>
+
+            <View style={st.codeDigitsRow}>
+              {([svcCodeRef0, svcCodeRef1, svcCodeRef2, svcCodeRef3] as React.RefObject<any>[]).map((ref, i) => (
+                <TextInput
+                  key={i}
+                  ref={ref}
+                  style={[st.codeDigitInput, serviceCodeInput[i] ? st.codeDigitInputFilled : undefined]}
+                  value={serviceCodeInput[i]}
+                  onChangeText={text => handleServiceCodeDigit(text, i)}
+                  onKeyPress={({ nativeEvent }) => handleServiceCodeKeyPress(nativeEvent.key, i)}
+                  keyboardType="number-pad"
+                  maxLength={1}
+                  selectTextOnFocus
+                  caretHidden
+                />
+              ))}
+            </View>
+
+            <Pressable
+              style={[
+                st.codeConfirmBtn,
+                (serviceCodeInput.join('').length < 4 || serviceCodeLoading) && { opacity: 0.45 },
+              ]}
+              onPress={handleServiceCodeSubmit}
+              disabled={serviceCodeInput.join('').length < 4 || serviceCodeLoading}
+            >
+              {serviceCodeLoading
+                ? <ActivityIndicator color="#FFFFFF" />
+                : <Text style={st.codeConfirmBtnText}>Confirmar y terminar</Text>
+              }
+            </Pressable>
+
+            <Pressable
+              style={st.codeCancelBtn}
+              onPress={() => { Keyboard.dismiss(); setShowServiceCodeModal(false); }}
             >
               <Text style={st.codeCancelBtnText}>Cancelar</Text>
             </Pressable>

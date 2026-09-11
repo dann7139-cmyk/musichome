@@ -179,7 +179,7 @@ export default function ClientReservationsScreen({ navigation, route }: any) {
       if (acceptedIds.length > 0) {
         const { data: linkedRes } = await supabase
           .from('reservations')
-          .select('id,quote_id,folio,event_date,event_time,address,status,payment_status,total_price,event_started_at,break_type,group_id,client_id,notes,platform_commission,group_earnings')
+          .select('id,quote_id,folio,event_date,event_time,address,status,payment_status,total_price,event_started_at,event_ended_at,break_type,group_id,client_id,notes,platform_commission,group_earnings')
           .in('quote_id', acceptedIds);
         linkedRes?.forEach(r => {
           if (r.quote_id) reservationByQuote[r.quote_id] = r;
@@ -1547,6 +1547,16 @@ function ReservationCard({ reservation: r, navigation, onUpdate, isReviewed, isJ
         </Pressable>
       )}
 
+      {/* 🕐 Registro de horarios (petición del usuario 2026-09-10) — cuándo
+          inició y terminó, para cualquier categoría (temporizador o código). */}
+      {r.status === 'completed' && r.event_started_at && r.event_ended_at && (
+        <Text style={styles.scheduleRecordText}>
+          🕐 Inició: {new Date(r.event_started_at).toLocaleTimeString('es-MX', { hour: 'numeric', minute: '2-digit' })}
+          {' · '}
+          Terminó: {new Date(r.event_ended_at).toLocaleTimeString('es-MX', { hour: 'numeric', minute: '2-digit' })}
+        </Text>
+      )}
+
       {/* ── Acciones compactas del evento finalizado ── */}
       {r.status === 'completed' && !r._isQuote && (
         <View style={styles.completedActions}>
@@ -1934,6 +1944,7 @@ const styles = StyleSheet.create({
   },
   rateBtnText: { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: COLORS.gold },
   ratedText: { fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.muted2, textAlign: 'center', paddingVertical: 10 },
+  scheduleRecordText: { fontFamily: FONTS.body, fontSize: 11.5, color: COLORS.muted2, marginBottom: 6 },
 
   // ── Rating modal ──
   modalOverlay: {

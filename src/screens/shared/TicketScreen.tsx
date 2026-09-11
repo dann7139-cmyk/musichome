@@ -175,6 +175,17 @@ export default function TicketScreen({ navigation, route }: any) {
   const folio      = r.folio ?? '—';
   const code       = r.arrival_code ?? null;
   const digits     = code ? code.split('') : ['?', '?', '?', '?'];
+  // 🍽️📸🪑 Código de "servicio terminado" (sql/639, 2026-09-10) — solo para
+  // categorías sin duración predecible. r.service_done_code puede venir
+  // undefined si quien navegó aquí no lo incluyó en su select (mismo
+  // criterio de tolerancia que ya usa arrival_code arriba).
+  const serviceCode        = r.service_done_code ?? null;
+  const serviceDigits      = serviceCode ? serviceCode.split('') : ['?', '?', '?', '?'];
+  const needsServiceCodeUi = !!genre && [
+    'Comida', 'Fotografía', 'Renta de mesas', 'Renta de sillas',
+    'Renta de brincolines', 'Inflables acuáticos',
+    'Drones', 'Cabina 360', 'Cabina fotográfica',
+  ].includes(genre);
   const date       = r.event_date ? fmtDate(r.event_date) : '—';
   // Fecha compacta para el grid del boleto: "Sáb 27 jul 2026"
   const dateShort  = r.event_date
@@ -444,6 +455,22 @@ export default function TicketScreen({ navigation, route }: any) {
               <Text style={s.codeHint}>{t('ticketScreen.code.hint')}</Text>
             </View>
 
+            {/* 🍽️📸🪑 Código de servicio terminado (sql/639) — solo para
+                categorías sin duración predecible, y solo si el código llegó
+                en los datos de la reserva. */}
+            {needsServiceCodeUi && serviceCode && (
+              <>
+                <Perforation />
+                <View style={s.codeSection}>
+                  <Text style={s.codeLabel}>SERVICIO TERMINADO</Text>
+                  <View style={s.digitsRow}>
+                    {serviceDigits.map((d: string, i: number) => <DigitBox key={`svc-${i}`} digit={d} />)}
+                  </View>
+                  <Text style={s.codeHint}>Dáselo al proveedor solo cuando de verdad terminen</Text>
+                </View>
+              </>
+            )}
+
             {/* Perforación */}
             <Perforation />
 
@@ -589,6 +616,19 @@ export default function TicketScreen({ navigation, route }: any) {
                   </View>
                   <Text style={s.codeHint}>{t('ticketScreen.code.hint')}</Text>
                 </View>
+
+                {needsServiceCodeUi && serviceCode && (
+                  <>
+                    <Perforation />
+                    <View style={s.codeSection}>
+                      <Text style={s.codeLabel}>SERVICIO TERMINADO</Text>
+                      <View style={s.digitsRow}>
+                        {serviceDigits.map((d: string, i: number) => <DigitBox key={`ex-svc-${i}`} digit={d} />)}
+                      </View>
+                      <Text style={s.codeHint}>Dáselo al proveedor solo cuando de verdad terminen</Text>
+                    </View>
+                  </>
+                )}
 
                 <Perforation />
 

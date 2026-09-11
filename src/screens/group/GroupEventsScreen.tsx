@@ -270,16 +270,31 @@ function EventCard({ reservation: r, navigation, showMap = false, userLocation =
           </View>
         )}
         {isCompleted && (
-          <Pressable
-            style={st.earningsBtn}
-            onPress={(e) => {
-              e.stopPropagation?.();
-              navigation.navigate('EventPayouts', { reservationId: r.id, reservation: r });
-            }}
-          >
-            <TrendingUp size={13} color={COLORS.green} />
-            <Text style={st.earningsBtnText}>Ver detalles de ganancias</Text>
-          </Pressable>
+          <>
+            {/* 🕐 Registro de horarios (petición del usuario 2026-09-10) —
+                para que quede constancia de cuándo inició y terminó cada
+                evento, sea cual sea la categoría (temporizador o código). */}
+            {r.event_started_at && r.event_ended_at && (
+              <View style={st.metaRow}>
+                <Clock size={11} color={COLORS.muted} />
+                <Text style={st.metaText}>
+                  Inició: {new Date(r.event_started_at).toLocaleTimeString('es-MX', { hour: 'numeric', minute: '2-digit' })}
+                  {' · '}
+                  Terminó: {new Date(r.event_ended_at).toLocaleTimeString('es-MX', { hour: 'numeric', minute: '2-digit' })}
+                </Text>
+              </View>
+            )}
+            <Pressable
+              style={st.earningsBtn}
+              onPress={(e) => {
+                e.stopPropagation?.();
+                navigation.navigate('EventPayouts', { reservationId: r.id, reservation: r });
+              }}
+            >
+              <TrendingUp size={13} color={COLORS.green} />
+              <Text style={st.earningsBtnText}>Ver detalles de ganancias</Text>
+            </Pressable>
+          </>
         )}
       </View>
 
@@ -580,7 +595,7 @@ export default function GroupEventsScreen({ navigation }: any) {
       // quote_id nulo sin excluirlas. packages fue eliminada de la DB.
       const { data: resData, error: resError } = await supabase
         .from('reservations')
-        .select('id,client_id,group_id,event_date,event_time,address,status,payment_status,total_price,quote_id,event_started_at,group_arrived_at,break_type,notes,folio,created_at,hours_count,event_request_id,cancellation_type,cancel_reason,cancelled_at,quote:quotes!left(duration_hours,overtime_1h_price,overtime_2h_price,overtime_3h_price,event_type,latitude,longitude),event_request:event_requests!event_request_id(latitude,longitude,event_lat,event_lng)')
+        .select('id,client_id,group_id,event_date,event_time,address,status,payment_status,total_price,quote_id,event_started_at,event_ended_at,group_arrived_at,break_type,notes,folio,created_at,hours_count,event_request_id,cancellation_type,cancel_reason,cancelled_at,quote:quotes!left(duration_hours,overtime_1h_price,overtime_2h_price,overtime_3h_price,event_type,latitude,longitude),event_request:event_requests!event_request_id(latitude,longitude,event_lat,event_lng)')
         .eq('group_id', grp.id)
         .or('payment_status.eq.paid,payment_status.eq.deposit_paid,payment_status.eq.fully_paid,status.eq.in_progress,status.eq.accepted,status.eq.confirmed,status.eq.completed')
         .gte('event_date', floorDate)
