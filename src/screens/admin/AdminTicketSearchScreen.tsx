@@ -109,6 +109,36 @@ export default function AdminTicketSearchScreen({ navigation, route }: any) {
     setDetail(data);
   };
 
+  // 🔒 Válvula de escape (sql/640) — evento atorado porque el cliente nunca
+  // le dio al proveedor el código de "servicio terminado" (o cualquier otro
+  // motivo real). Cierra el evento y libera el pago del grupo a mano.
+  const handleForceComplete = (reservationId: string) => {
+    Alert.alert(
+      'Forzar cierre del evento',
+      'Esto marca el evento como terminado AHORA MISMO y libera el pago pendiente del grupo. Úsalo solo si ya confirmaste con ambas partes (llámalos con los botones de arriba) que el servicio sí se completó.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Sí, forzar cierre', style: 'destructive',
+          onPress: async () => {
+            setLoading(true);
+            const { data, error } = await supabase.rpc('admin_force_complete_event', {
+              p_reservation_id: reservationId,
+              p_reason: 'Confirmado por soporte vía AdminTicketSearchScreen',
+            });
+            setLoading(false);
+            if (error || (data as any)?.ok === false) {
+              Alert.alert('Error', (data as any)?.error ?? error?.message ?? 'No se pudo forzar el cierre.');
+              return;
+            }
+            Alert.alert('Listo', 'El evento quedó cerrado y el pago del grupo se liberó.');
+            openDetail(reservationId);
+          },
+        },
+      ],
+    );
+  };
+
   // Botón "Ver" de las colas del admin → expediente directo
   const reservationId: string | undefined = route?.params?.reservationId;
   useEffect(() => {
@@ -320,6 +350,17 @@ export default function AdminTicketSearchScreen({ navigation, route }: any) {
               >
                 <Text style={s.ticketBtnText}>{t('adminTicketSearchScreen.detail.viewTicketBtn')}</Text>
               </Pressable>
+              {/* 🔒 Forzar cierre (sql/640) — solo si el evento inició pero
+                  nunca se cerró: exactamente el caso de "el cliente no le
+                  dio el código de servicio terminado al proveedor". */}
+              {!!r.event_started_at && !r.event_ended_at && r.status !== 'completed' && (
+                <Pressable
+                  style={[s.ticketBtn, { backgroundColor: '#EF535022', borderColor: '#EF5350' }]}
+                  onPress={() => handleForceComplete(r.id)}
+                >
+                  <Text style={[s.ticketBtnText, { color: '#EF5350' }]}>🔒 Forzar cierre del evento</Text>
+                </Pressable>
+              )}
               {/* sql/588 (no aplicado) — event_id todavía no viene en admin_expediente_detail
                   en producción; el botón solo aparece cuando el campo existe, así que hoy
                   no se muestra (cero riesgo) y aparecerá solo cuando sql/588 se autorice. */}

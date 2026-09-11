@@ -2427,13 +2427,18 @@ export default function EventTimerScreen({ route, navigation }: any) {
                 Solo Texto nuevo, no toca CircleTimerVisual ni su lógica. */}
             {!readOnly && needsServiceCode && isRunning && (
               <Text style={st.serviceCodeHint}>
-                No necesitas esperar a que el círculo se complete — toca{' '}
+                No necesitas esperar a que el círculo se complete — pide al
+                cliente su código de "servicio terminado" y toca{' '}
                 <Text style={{ fontFamily: FONTS.bodySemiBold, color: COLORS.green }}>
                   "Marcar como terminado"
                 </Text>{' '}
-                en cuanto de verdad acaben.{'\n'}
+                en cuanto de verdad acaben (aunque sea al día siguiente, si
+                es una recolección).{'\n'}
                 Sí es necesario cerrarlo: así queda el registro de cuándo
-                iniciaron y terminaron, para tu seguridad.
+                iniciaron y terminaron, para tu seguridad, y es lo que
+                libera el resto de tu pago.{'\n'}
+                ¿El cliente no te lo quiere dar? Usa "¿Necesitas ayuda?
+                Contacta a soporte" arriba.
               </Text>
             )}
           </View>
@@ -2777,6 +2782,29 @@ export default function EventTimerScreen({ route, navigation }: any) {
                     <Text style={st.arrivedSub}>
                       El grupo está en el lugar y listo para comenzar.
                       {arrivedAt ? ` Llegaron a las ${new Date(arrivedAt).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}.` : ''}
+                      {/* Sello de verificado (petición del usuario 2026-09-10) —
+                          solo cuando el servidor pudo comparar el GPS contra la
+                          dirección real del evento (sql/424). */}
+                      {reservation.arrival_gps_verified ? ' ✅ Verificado por GPS.' : ''}
+                    </Text>
+                  </View>
+                </View>
+              )}
+              {/* 🍽️📸🪑 Responsabilidad del código de "servicio terminado"
+                  (sql/639) — el cliente necesita saber que le toca a ÉL
+                  dárselo al proveedor cuando de verdad terminen; sin eso el
+                  evento no se puede cerrar. */}
+              {userRole === 'client' && needsServiceCode && isRunning && (
+                <View style={st.punctualityBanner}>
+                  <Text style={st.punctualityIcon}>🔢</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={st.punctualityTitle}>Guarda tu código de "servicio terminado"</Text>
+                    <Text style={st.punctualitySub}>
+                      Este servicio no tiene horas fijas. Cuando de verdad
+                      terminen (aunque sea al día siguiente, si es una
+                      recolección), dale al proveedor el código que está en
+                      tu ticket — con eso se cierra el evento y se libera su
+                      pago. Sin el código, el evento se queda abierto.
                     </Text>
                   </View>
                 </View>
