@@ -7,13 +7,17 @@ export const COMMISSION_DIVISOR = 1.20;
 /** Descuento fijo en MXN para pagos SPEI (absorbido por Daricefy). */
 export const SPEI_DISCOUNT_MXN = 100;
 
-/** Tasas de cargo financiero MSI por número de meses (sobre el precio contado). */
+/** Tasas de cargo financiero MSI por número de meses (sobre el precio contado).
+ *  @deprecated sin usos reales — la fuente de verdad es PUBLIC_MSI_FEE_RATES
+ *  en publicPricing.ts (cliente) y MSI_FEE_RATES en
+ *  supabase/functions/_shared/constants.ts (servidor). Igualado aquí solo
+ *  por consistencia (2026-09-11, comisión real de Stripe MX). */
 export const MSI_FEE_RATES: Record<number, number> = {
   1:  0,
   3:  0.05,
-  6:  0.06,
-  9:  0.09,
-  12: 0.12,
+  6:  0.075,
+  9:  0.10,
+  12: 0.125,
 };
 
 /**

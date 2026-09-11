@@ -46,7 +46,10 @@ const EXTRA_MSI_OPTIONS = [1, 3, 6, 9] as const;
 // ⚠️ Debe coincidir EXACTO con MSI_FEE_RATES de supabase/functions/_shared/constants.ts
 // (hallazgo real 2026-09-10: aquí decía 6→8%/9→11%, el servidor cobra 6→6%/9→9% —
 // el cliente veía un total distinto al que realmente se le cobraba).
-const EXTRA_MSI_FEE: Record<number, number> = { 1: 0, 3: 0.05, 6: 0.06, 9: 0.09 };
+// Actualizado 2026-09-11: igualado a la comisión REAL de Stripe MSI México
+// (docs.stripe.com/payments/mx-installments) — antes 6%/9% cobraban menos de
+// lo que Stripe le cobra a Daricefy por esos plazos (7.5%/10%).
+const EXTRA_MSI_FEE: Record<number, number> = { 1: 0, 3: 0.05, 6: 0.075, 9: 0.10 };
 
 // ⚠️ Debe coincidir EXACTO con la lista de complete_event (sql/639) — esta
 // solo decide qué botones mostrar; la regla real vive en el servidor.

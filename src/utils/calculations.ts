@@ -11,7 +11,8 @@ export const SERVICE_FEE_RATE = 0.20;
 // Fee adicional que paga el cliente para financiar el costo de MSI a DARICEFY.
 // El grupo siempre recibe su ganancia calculada sobre total_price (sin MSI fee).
 // Tasas deben coincidir exactamente con PUBLIC_MSI_FEE_RATES en publicPricing.ts
-//   3 MSI → +5%  |  6 MSI → +8%  |  9 MSI → +11%  |  12 MSI → +14%
+// (comisión REAL de Stripe MSI México — corregido 2026-09-11):
+//   3 MSI → +5%  |  6 MSI → +7.5%  |  9 MSI → +10%  |  12 MSI → +12.5%
 
 /** @deprecated — usar publicPricing.ts PUBLIC_MSI_FEE_RATES para cálculos nuevos. */
 export const MSI_FEE_RATE_PER_MONTH = 0.01;
@@ -24,15 +25,16 @@ export interface MsiOption {
 }
 
 export const MSI_OPTIONS: MsiOption[] = [
-  { months: 1,  label: '1 pago',  key: '1_pago',  feeRate: 0    },
-  { months: 3,  label: '3 MSI',   key: '3_msi',   feeRate: 0.05 },
-  { months: 6,  label: '6 MSI',   key: '6_msi',   feeRate: 0.06 },
-  { months: 9,  label: '9 MSI',   key: '9_msi',   feeRate: 0.09 },
-  { months: 12, label: '12 MSI',  key: '12_msi',  feeRate: 0.12 },
+  { months: 1,  label: '1 pago',  key: '1_pago',  feeRate: 0     },
+  { months: 3,  label: '3 MSI',   key: '3_msi',   feeRate: 0.05  },
+  { months: 6,  label: '6 MSI',   key: '6_msi',   feeRate: 0.075 },
+  { months: 9,  label: '9 MSI',   key: '9_msi',   feeRate: 0.10  },
+  { months: 12, label: '12 MSI',  key: '12_msi',  feeRate: 0.125 },
 ];
 
 // Tasas MSI — espejo de PUBLIC_MSI_FEE_RATES (publicPricing.ts) para uso interno.
-const _MSI_RATES: Record<number, number> = { 1: 0, 3: 0.05, 6: 0.06, 9: 0.09, 12: 0.12 };
+// Igualadas a la comisión REAL de Stripe MSI México (corregido 2026-09-11).
+const _MSI_RATES: Record<number, number> = { 1: 0, 3: 0.05, 6: 0.075, 9: 0.10, 12: 0.125 };
 
 /**
  * Calcula el cargo MSI adicional que paga el cliente.
