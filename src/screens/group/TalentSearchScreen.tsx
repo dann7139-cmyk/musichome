@@ -308,23 +308,25 @@ export default function TalentSearchScreen({ navigation }: any) {
             {isAdmin && (
               <Text style={styles.adminBadge}>{t('talentSearchScreen.adminBadge')}</Text>
             )}
-            {filtered.map((t) => (
-              <TalentCard
-                key={t.id}
-                talent={t}
-                showInvite={!isAdmin}
-                isUsa={isUsa}
-                onInvite={(type) => openInviteModal(t, type)}
-                onViewProfile={() =>
-                  navigation.navigate('TalentProfile', {
-                    talent: t,
-                    isUsa,
-                    groupId,
-                    canInvite: !isAdmin && !!groupId,
-                  })
-                }
-              />
-            ))}
+            <View style={styles.talentGrid}>
+              {filtered.map((t) => (
+                <TalentCard
+                  key={t.id}
+                  talent={t}
+                  showInvite={!isAdmin}
+                  isUsa={isUsa}
+                  onInvite={(type) => openInviteModal(t, type)}
+                  onViewProfile={() =>
+                    navigation.navigate('TalentProfile', {
+                      talent: t,
+                      isUsa,
+                      groupId,
+                      canInvite: !isAdmin && !!groupId,
+                    })
+                  }
+                />
+              ))}
+            </View>
           </ScrollView>
         )}
       </SafeAreaView>
@@ -490,71 +492,42 @@ function TalentCard({
   const isAvailable = talent.availability_status === 'available';
   const initial = talent.full_name?.charAt(0)?.toUpperCase() ?? '?';
 
+  // Tarjeta compacta (grid de 2 columnas) — toda la tarjeta navega al
+  // perfil completo, donde sí se ve bio/años/trabajos/invitar.
   return (
-    <View style={card.container}>
-      {/* Header row: avatar + name/role + availability badge */}
-      <View style={card.headerRow}>
-        {/* Avatar */}
-        <View style={card.avatarWrap}>
-          {talent.avatar_url ? (
-            <Image source={{ uri: talent.avatar_url }} style={card.avatarImg} />
-          ) : (
-            <View style={card.avatarFallback}>
-              <Text style={card.avatarText}>{initial}</Text>
-            </View>
-          )}
-          <View style={[card.availDot, !isAvailable && card.availDotBusy]} />
-        </View>
-
-        {/* Name + role + availability */}
-        <View style={card.headerInfo}>
-          <View style={card.nameRow}>
-            <Text style={card.name} numberOfLines={1}>{talent.full_name}</Text>
-            <View style={[card.availBadge, !isAvailable && card.availBadgeBusy]}>
-              <Text style={[card.availBadgeText, !isAvailable && card.availBadgeTextBusy]}>
-                {isAvailable ? t('talentSearchScreen.available') : t('talentSearchScreen.busy')}
-              </Text>
-            </View>
+    <Pressable style={card.container} onPress={onViewProfile}>
+      <View style={card.avatarWrap}>
+        {talent.avatar_url ? (
+          <Image source={{ uri: talent.avatar_url }} style={card.avatarImg} />
+        ) : (
+          <View style={card.avatarFallback}>
+            <Text style={card.avatarText}>{initial}</Text>
           </View>
-          <Text style={card.role}>{talent.instrument_or_role}</Text>
-          {talent.distance_km != null && (
-            <View style={card.distanceRow}>
-              <MapPin size={11} color={COLORS.green} />
-              <Text style={card.distanceText}>{formatDistance(talent.distance_km, isUsa)}</Text>
-            </View>
-          )}
-          {talent.bio ? (
-            <Text style={card.bio} numberOfLines={1}>{talent.bio}</Text>
-          ) : null}
-        </View>
+        )}
+        <View style={[card.availDot, !isAvailable && card.availDotBusy]} />
       </View>
 
-      {/* Stats row */}
-      <View style={card.statsRow}>
-        <View style={card.statItem}>
-          <Star size={13} color={COLORS.green} fill={COLORS.green} />
-          <Text style={card.statValue}>{talent.rating?.toFixed(1) ?? '5.0'}</Text>
-          <Text style={card.statLabel}>{t('talentSearchScreen.rating')}</Text>
-        </View>
-        <View style={card.statDivider} />
-        <View style={card.statItem}>
-          <Text style={card.statValue}>{talent.experience_years}</Text>
-          <Text style={card.statLabel}>{t('talentSearchScreen.yearsExp')}</Text>
-        </View>
-        <View style={card.statDivider} />
-        <View style={card.statItem}>
-          <Text style={card.statValue}>{talent.total_jobs}</Text>
-          <Text style={card.statLabel}>{t('talentSearchScreen.jobs')}</Text>
-        </View>
+      <Text style={card.name} numberOfLines={1}>{talent.full_name}</Text>
+      <Text style={card.role} numberOfLines={1}>{talent.instrument_or_role}</Text>
+
+      <View style={card.metaRow}>
+        <Star size={10} color={COLORS.green} fill={COLORS.green} />
+        <Text style={card.metaText}>{talent.rating?.toFixed(1) ?? '5.0'}</Text>
+        {talent.distance_km != null && (
+          <>
+            <Text style={card.metaDot}>·</Text>
+            <MapPin size={10} color={COLORS.muted} />
+            <Text style={card.metaText} numberOfLines={1}>{formatDistance(talent.distance_km, isUsa)}</Text>
+          </>
+        )}
       </View>
 
-      {/* Ver perfil + Invite buttons */}
-      <View style={card.btnRow}>
-        <Pressable style={card.btnPerfil} onPress={onViewProfile}>
-          <Text style={card.btnPerfilText}>{t('talentSearchScreen.viewProfile')}</Text>
-        </Pressable>
+      <View style={[card.availBadge, !isAvailable && card.availBadgeBusy]}>
+        <Text style={[card.availBadgeText, !isAvailable && card.availBadgeTextBusy]}>
+          {isAvailable ? t('talentSearchScreen.available') : t('talentSearchScreen.busy')}
+        </Text>
       </View>
-    </View>
+    </Pressable>
   );
 }
 
@@ -593,7 +566,8 @@ const styles = StyleSheet.create({
   chipText:       { fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.muted },
   chipTextActive: { color: COLORS.green },
 
-  list:         { padding: SPACING.xl, gap: 12, paddingBottom: 32 },
+  list:         { padding: SPACING.xl, paddingBottom: 32 },
+  talentGrid:   { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   resultsText:  { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted, marginBottom: 4 },
   adminBadge:   { fontFamily: FONTS.bodyMedium, fontSize: 12, color: COLORS.muted2, textAlign: 'center', paddingVertical: 6, marginBottom: 4 },
   loadingText:  { fontFamily: FONTS.body, fontSize: 14, color: COLORS.muted2, marginTop: 12 },
@@ -602,86 +576,48 @@ const styles = StyleSheet.create({
 });
 
 const card = StyleSheet.create({
+  // Tarjeta compacta de grid (2 por fila) — toda la tarjeta es tocable y
+  // navega al perfil completo del talento (ahí sí se ve bio/años/trabajos).
   container: {
+    width: '47%',
     backgroundColor: COLORS.card, borderRadius: RADIUS.lg,
     borderWidth: 1, borderColor: COLORS.border,
-    overflow: 'hidden',
+    padding: 12, alignItems: 'center', gap: 3,
   },
-
-  // ── Header row ───────────────────────────────────────────────────────────
-  headerRow: {
-    flexDirection: 'row', alignItems: 'center',
-    gap: 10, padding: 10,
-  },
-  avatarWrap: { position: 'relative' },
+  avatarWrap: { position: 'relative', marginBottom: 4 },
   avatarImg: {
-    width: 46, height: 46, borderRadius: 23,
+    width: 56, height: 56, borderRadius: 28,
     borderWidth: 2, borderColor: COLORS.green,
   },
   avatarFallback: {
-    width: 46, height: 46, borderRadius: 23,
+    width: 56, height: 56, borderRadius: 28,
     backgroundColor: COLORS.greenMuted, borderWidth: 2, borderColor: COLORS.green,
     alignItems: 'center', justifyContent: 'center',
   },
-  avatarText: { fontFamily: FONTS.title, fontSize: 18, color: COLORS.green },
+  avatarText: { fontFamily: FONTS.title, fontSize: 20, color: COLORS.green },
   availDot: {
     position: 'absolute', bottom: 1, right: 1,
-    width: 11, height: 11, borderRadius: 6,
+    width: 12, height: 12, borderRadius: 6,
     backgroundColor: COLORS.green,
     borderWidth: 2, borderColor: COLORS.card,
   },
   availDotBusy: { backgroundColor: '#EF5350' },
 
-  headerInfo: { flex: 1, paddingTop: 0 },
-  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2, flexWrap: 'wrap' },
-  name: { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: COLORS.text, flexShrink: 1 },
+  name: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.text, textAlign: 'center' },
+  role: { fontFamily: FONTS.bodyMedium, fontSize: 11, color: COLORS.muted2, textAlign: 'center' },
+
+  metaRow: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 2 },
+  metaText: { fontFamily: FONTS.body, fontSize: 10, color: COLORS.muted },
+  metaDot: { color: COLORS.muted, fontSize: 10, marginHorizontal: 1 },
+
   availBadge: {
-    paddingHorizontal: 6, paddingVertical: 2, borderRadius: RADIUS.full,
+    marginTop: 4,
+    paddingHorizontal: 8, paddingVertical: 3, borderRadius: RADIUS.full,
     backgroundColor: COLORS.greenMuted, borderWidth: 1, borderColor: COLORS.green,
   },
   availBadgeBusy: { backgroundColor: 'rgba(239,83,80,0.12)', borderColor: '#EF5350' },
   availBadgeText: { fontFamily: FONTS.bodyMedium, fontSize: 9, color: COLORS.green },
   availBadgeTextBusy: { color: '#EF5350' },
-  role: { fontFamily: FONTS.bodyMedium, fontSize: 12, color: COLORS.muted2, marginBottom: 2 },
-  bio: { fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted, lineHeight: 15 },
-
-  // ── Stats row ────────────────────────────────────────────────────────────
-  statsRow: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around',
-    paddingVertical: 7,
-    borderTopWidth: 1, borderTopColor: COLORS.border,
-    borderBottomWidth: 1, borderBottomColor: COLORS.border,
-    backgroundColor: COLORS.card2,
-  },
-  statItem: { flex: 1, alignItems: 'center', gap: 1 },
-  statValue: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.text },
-  statLabel: { fontFamily: FONTS.body, fontSize: 9, color: COLORS.muted },
-  statDivider: { width: 1, height: 22, backgroundColor: COLORS.border },
-
-  // ── Buttons ──────────────────────────────────────────────────────────────
-  btnRow: { flexDirection: 'row' },
-  btnPerfil: {
-    flex: 3, alignItems: 'center', justifyContent: 'center',
-    backgroundColor: COLORS.card2, paddingVertical: 9,
-    borderTopWidth: 0,
-  },
-  btnPerfilText: { fontFamily: FONTS.bodySemiBold, fontSize: 12, color: COLORS.text },
-  btnTocada: {
-    flex: 1, alignItems: 'center', justifyContent: 'center',
-    borderLeftWidth: 1, borderLeftColor: COLORS.border,
-    backgroundColor: COLORS.green, paddingVertical: 9,
-  },
-  btnTocadaText: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.bg },
-  btnGrupo: {
-    flex: 1, alignItems: 'center', justifyContent: 'center',
-    borderLeftWidth: 1, borderLeftColor: COLORS.bg,
-    backgroundColor: COLORS.green, paddingVertical: 9, opacity: 0.82,
-  },
-  btnGrupoText: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.bg },
-
-  // ── Distance badge ───────────────────────────────────────────
-  distanceRow: { flexDirection: 'row', alignItems: 'center', gap: 3, marginBottom: 2 },
-  distanceText: { fontFamily: FONTS.bodyMedium, fontSize: 10, color: COLORS.green },
 });
 
 const modal = StyleSheet.create({
