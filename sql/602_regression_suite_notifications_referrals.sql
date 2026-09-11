@@ -1,6 +1,6 @@
 -- ============================================================
 -- sql/602_regression_suite_notifications_referrals.sql
--- SUITE DE REGRESIÓN — ✅ CORRIÓ 30/30 PASS 2026-09-05. No aplica nada,
+-- SUITE DE REGRESIÓN — ✅ CORRIÓ 31/31 PASS 2026-09-11. No aplica nada,
 -- solo prueba. Correr esto ANTES y
 -- DESPUÉS de tocar cualquier función relacionada con notificaciones,
 -- referidos, o el choque de horarios entre proveedores. Si algo de esto
@@ -94,6 +94,12 @@
 --      Mago/Personajes/Animación clasifican como 'espectaculo', Maestro
 --      de Ceremonias como 'mc' — nunca se habían agregado desde sql/622,
 --      devolvía NULL para ambos)
+--  31. send_event_reminders_2h — sql/643 (recordatorio de "2 horas antes"
+--      ahora usa reservations.event_tz, la zona horaria REAL del evento
+--      [sql/514], en vez de asumir siempre 'America/Mexico_City'. Antes
+--      de esto, un evento en EE.UU./Canadá o en un estado fronterizo de
+--      México podía recibir el recordatorio hasta ±4 horas fuera de
+--      tiempo)
 --
 -- Cómo leer el resultado: si TODO pasa, ves un solo error final que dice
 -- literalmente "REGRESSION_SUITE: TODO PASÓ" — ES EL RESULTADO ESPERADO
@@ -871,7 +877,41 @@ BEGIN
     ASSERT public.group_category_key(v_g30f) = 'mc', '[30] REGRESIÓN: Maestro de Ceremonias ya no clasifica como mc — revisar sql/625';
   END;
 
-  RAISE EXCEPTION 'REGRESSION_SUITE: TODO PASÓ (30/30) — temporizador, notificaciones de engagement, bono de referido MX/USD, descuento al cliente, choque de horarios, sin-temporizador por categoría (incluye fotógrafos), anuncios (clientes bloqueados, sin teléfonos, solo categoría distinta, correcto con dueños de varios grupos), cupo de Destacado/Recomendado por categoría, precio de publicidad calculado server-side (video +35%, Recomendado > Destacado), regalo/quite de Bidding del admin, ranking de Bidding por estado, TODOS los regalos (no solo Otro monto) abren GiftReveal, la notificación de admin ya no dice "Trofeo" para un monto personalizado, el interruptor de mostrar regalos a los músicos integrantes, notificar al integrante removido, notificar a los integrantes al desactivar el interruptor, la matemática de tandas/descansos, el candado+idempotencia de complete_event, auto_finalize_stuck_events por fin cierra eventos realmente atorados sin tronar, las categorías Espectáculo/Maestro de Ceremonias siguen funcionando, category_details (preguntas por categoría de Comida/Renta/Shows/Fotógrafos) guarda y lee tal cual en groups y quotes, la lista de opciones por categoría que crece sola (get_category_field_values) deduplica y no mezcla categorías, Payasos ahora vive fusionado dentro de Shows (elige descanso libremente, ya no forzado), y group_category_key por fin clasifica Espectáculo/Maestro de Ceremonias correctamente';
+  -- ══ 31. send_event_reminders_2h honra event_tz (no siempre MX) — sql/643 ══
+  DECLARE
+    v_g31       UUID;
+    v_res31     UUID;
+    v_country_us31 UUID;
+    v_event_time_ny TEXT;
+  BEGIN
+    SELECT id INTO v_country_us31 FROM public.countries WHERE currency_code='USD' LIMIT 1;
+
+    INSERT INTO public.groups (id, owner_id, name, genre, country_id, state, country)
+      VALUES (gen_random_uuid(), v_owner, 'RT602 NY31', 'Banda', v_country_us31, 'New York', 'Estados Unidos')
+      RETURNING id INTO v_g31;
+
+    -- Hora local en Nueva York que corresponde a "ahora + 2 horas" AHÍ MISMO
+    v_event_time_ny := to_char((NOW() AT TIME ZONE 'America/New_York') + INTERVAL '2 hours', 'HH24:MI');
+
+    INSERT INTO public.reservations
+      (id, client_id, group_id, event_date, event_time, address, total_price, status, hours_count)
+    VALUES
+      (gen_random_uuid(), v_client, v_g31,
+       ((NOW() AT TIME ZONE 'America/New_York') + INTERVAL '2 hours')::date,
+       v_event_time_ny::time, 'Dir NY', 5000, 'confirmed', 3)
+    RETURNING id INTO v_res31;
+
+    ASSERT (SELECT event_tz FROM public.reservations WHERE id = v_res31) = 'America/New_York',
+      '[31] REGRESIÓN: event_tz ya no se autopobla como America/New_York para un grupo de Nueva York — revisar sql/514 (tz_for_event / trg_01_set_busy_range)';
+
+    PERFORM public.send_event_reminders_2h();
+
+    ASSERT EXISTS(
+      SELECT 1 FROM notifications WHERE data->>'reservation_id' = v_res31::text AND type='event_reminder_2h'
+    ), '[31] REGRESIÓN: send_event_reminders_2h volvió a asumir America/Mexico_City para un evento de Nueva York — revisar sql/643';
+  END;
+
+  RAISE EXCEPTION 'REGRESSION_SUITE: TODO PASÓ (31/31) — temporizador, notificaciones de engagement, bono de referido MX/USD, descuento al cliente, choque de horarios, sin-temporizador por categoría (incluye fotógrafos), anuncios (clientes bloqueados, sin teléfonos, solo categoría distinta, correcto con dueños de varios grupos), cupo de Destacado/Recomendado por categoría, precio de publicidad calculado server-side (video +35%, Recomendado > Destacado), regalo/quite de Bidding del admin, ranking de Bidding por estado, TODOS los regalos (no solo Otro monto) abren GiftReveal, la notificación de admin ya no dice "Trofeo" para un monto personalizado, el interruptor de mostrar regalos a los músicos integrantes, notificar al integrante removido, notificar a los integrantes al desactivar el interruptor, la matemática de tandas/descansos, el candado+idempotencia de complete_event, auto_finalize_stuck_events por fin cierra eventos realmente atorados sin tronar, las categorías Espectáculo/Maestro de Ceremonias siguen funcionando, category_details (preguntas por categoría de Comida/Renta/Shows/Fotógrafos) guarda y lee tal cual en groups y quotes, la lista de opciones por categoría que crece sola (get_category_field_values) deduplica y no mezcla categorías, Payasos ahora vive fusionado dentro de Shows (elige descanso libremente, ya no forzado), group_category_key por fin clasifica Espectáculo/Maestro de Ceremonias correctamente, y los recordatorios de evento ya respetan la zona horaria real de cada evento (no siempre México)';
 END;
 $suite$;
 
