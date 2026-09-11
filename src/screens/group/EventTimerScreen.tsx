@@ -2300,6 +2300,9 @@ export default function EventTimerScreen({ route, navigation }: any) {
       return (preEventCountdown && eventStartLabel !== 'Hoy') ? `🕐 ${eventStartLabel}` : '';
     }
     if (isRunning) {
+      // 🍽️📸🪑 sql/639: "Restan Xh Ym" es engañoso aquí — no hay una hora
+      // fija que esperar, cierran con el código de servicio terminado.
+      if (needsServiceCode) return 'Cierra con código, no por tiempo';
       const h = Math.floor(remaining / 3600);
       const m = Math.floor((remaining % 3600) / 60);
       return `Restan ${h}h ${m}m`;
@@ -2417,6 +2420,22 @@ export default function EventTimerScreen({ route, navigation }: any) {
               progress={isCompleted ? 1 : progress}
               size={RING_SIZE}
             />
+
+            {/* 🍽️📸🪑 Aclaración (sql/639, 2026-09-10) — el círculo sigue
+                mostrando tiempo transcurrido de forma informativa, pero para
+                estas categorías NO hace falta esperar a que se complete.
+                Solo Texto nuevo, no toca CircleTimerVisual ni su lógica. */}
+            {!readOnly && needsServiceCode && isRunning && (
+              <Text style={st.serviceCodeHint}>
+                No necesitas esperar a que el círculo se complete — toca{' '}
+                <Text style={{ fontFamily: FONTS.bodySemiBold, color: COLORS.green }}>
+                  "Marcar como terminado"
+                </Text>{' '}
+                en cuanto de verdad acaben.{'\n'}
+                Sí es necesario cerrarlo: así queda el registro de cuándo
+                iniciaron y terminaron, para tu seguridad.
+              </Text>
+            )}
           </View>
 
           {/* ── OFRECER HORAS EXTRA (grupo dueño, solo durante evento activo).
@@ -4421,6 +4440,13 @@ const st = StyleSheet.create({
   punctualityIcon: { fontSize: 20, marginTop: 1 },
   punctualityTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: COLORS.gold, marginBottom: 3 },
   punctualitySub: { fontFamily: FONTS.body, fontSize: 13, color: COLORS.muted2, lineHeight: 19 },
+
+  // 🍽️📸🪑 sql/639 — aclaración bajo el círculo para categorías de código
+  serviceCodeHint: {
+    fontFamily: FONTS.body, fontSize: 12.5, color: COLORS.muted2,
+    textAlign: 'center', lineHeight: 18, marginTop: 10,
+    paddingHorizontal: SPACING.lg,
+  },
 
   // ── Arrived banner ─────────────────────────────────────────
   arrivedBanner: {
