@@ -98,6 +98,10 @@ export default function AdminDashboardScreen({ navigation }: any) {
   const [noShowsHistory,setNoShowsHistory]= useState<any[]>([]);
   const [noShowsTab,    setNoShowsTab]    = useState<'pending' | 'history'>('pending');
   const [stuckEvents,   setStuckEvents]   = useState<any[]>([]);
+  // 🔒 sql/641 (2026-09-11) — el otro tipo de "atorado": SÍ iniciaron pero
+  // nunca cerraron (p.ej. Comida/renta de mesas y el cliente nunca dio el
+  // código de "servicio terminado", sql/639).
+  const [stuckServiceEvents, setStuckServiceEvents] = useState<any[]>([]);
   const [unverifiedPayouts, setUnverifiedPayouts] = useState<any[]>([]);
   const [resolvingId,   setResolvingId]   = useState<string | null>(null);
 
@@ -220,10 +224,12 @@ export default function AdminDashboardScreen({ navigation }: any) {
     const { data: nsData }     = await supabase.rpc('admin_get_no_shows',         { p_limit: 50 });
     const { data: nsHistData } = await supabase.rpc('admin_get_no_shows_history', { p_limit: 50 });
     const { data: stuckData }  = await supabase.rpc('admin_get_stuck_events',     { p_limit: 50 });
+    const { data: stuckSvcData } = await supabase.rpc('admin_get_stuck_service_events', { p_limit: 50 });
     const { data: unverData }  = await supabase.rpc('admin_get_unverified_payouts',{ p_limit: 50 });
     setNoShows(nsData?.items ?? []);
     setNoShowsHistory(nsHistData?.items ?? []);
     setStuckEvents(stuckData?.items ?? []);
+    setStuckServiceEvents(stuckSvcData?.items ?? []);
     setUnverifiedPayouts(unverData?.items ?? []);
   };
 
@@ -299,6 +305,38 @@ export default function AdminDashboardScreen({ navigation }: any) {
     } finally {
       setResolvingId(null);
     }
+  };
+
+  // 🔒 sql/640 — evento que SÍ inició pero nunca cerró (el cliente nunca
+  // dio el código de "servicio terminado"). Cierra y libera el pago.
+  const forceCompleteEvent = (ev: any) => {
+    Alert.alert(
+      'Forzar cierre del evento',
+      `Esto marca el evento de ${ev.group_name ?? 'este grupo'} como terminado AHORA MISMO y libera el pago pendiente. Confírmalo primero con ambos por teléfono.`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Sí, forzar cierre', style: 'destructive',
+          onPress: async () => {
+            setResolvingId(ev.id);
+            try {
+              const { data, error } = await supabase.rpc('admin_force_complete_event', {
+                p_reservation_id: ev.id,
+                p_reason: 'Confirmado por soporte vía DashboardScreen',
+              });
+              if (error || (data as any)?.ok === false) {
+                Alert.alert('Error', (data as any)?.error ?? error?.message ?? t('adminDashboardScreen.common.tryAgain'));
+                return;
+              }
+              Alert.alert('Listo', 'El evento quedó cerrado y el pago se liberó.');
+              await fetchAll();
+            } finally {
+              setResolvingId(null);
+            }
+          },
+        },
+      ],
+    );
   };
 
   // Marcar/copiar teléfono — SOLO admin (los teléfonos no salen a otros usuarios).
@@ -529,7 +567,7 @@ export default function AdminDashboardScreen({ navigation }: any) {
   const maxBar = Math.max(...monthlyBars.map(b => b.count), 1);
   const maxTopCount = Math.max(...topGroups.map(g => g.count), 1);
   const totalRes = Object.values(statusCounts).reduce((a, b) => a + b, 0);
-  const hasAlerts = pendingVerif.length > 0 || openDisputes.length > 0 || statusCounts.pending > 0 || pendingMedia > 0 || pendingAds > 0 || noShows.length > 0 || stuckEvents.length > 0 || unverifiedPayouts.length > 0;
+  const hasAlerts = pendingVerif.length > 0 || openDisputes.length > 0 || statusCounts.pending > 0 || pendingMedia > 0 || pendingAds > 0 || noShows.length > 0 || stuckEvents.length > 0 || stuckServiceEvents.length > 0 || unverifiedPayouts.length > 0;
 
   const today = new Date();
   const dateStr = today.toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long' });
@@ -705,6 +743,12 @@ export default function AdminDashboardScreen({ navigation }: any) {
                   <View style={[s.alertChip, { borderColor: 'rgba(255,152,0,0.5)' }]}>
                     <Text style={[s.alertChipNum, { color: COLORS.orange }]}>{stuckEvents.length}</Text>
                     <Text style={s.alertChipLbl}>Atorados</Text>
+                  </View>
+                )}
+                {stuckServiceEvents.length > 0 && (
+                  <View style={[s.alertChip, { borderColor: 'rgba(255,152,0,0.5)' }]}>
+                    <Text style={[s.alertChipNum, { color: COLORS.orange }]}>{stuckServiceEvents.length}</Text>
+                    <Text style={s.alertChipLbl}>Sin cerrar</Text>
                   </View>
                 )}
                 {unverifiedPayouts.length > 0 && (
@@ -923,6 +967,56 @@ export default function AdminDashboardScreen({ navigation }: any) {
                     >
                       <Text style={s.resolveBtnText}>
                         {resolvingId === ev.id ? '…' : 'Resolver →'}
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      style={s.detailBtn}
+                      onPress={() => navigation.navigate('AdminTicketSearch', { reservationId: ev.id })}
+                    >
+                      <Text style={s.detailBtnText}>Ver</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              ))}
+            </View>
+          )}
+
+          {/* ── EVENTOS ATORADOS SIN CERRAR (sql/639+640+641, 2026-09-11) ──
+              El otro tipo de atorado: SÍ iniciaron pero nunca cerraron —
+              típico de Comida/renta de mesas/etc. cuando el cliente nunca
+              le dio al proveedor el código de "servicio terminado". */}
+          {stuckServiceEvents.length > 0 && (
+            <View style={[s.section, s.stuckSection]}>
+              <View style={s.sectionHeader}>
+                <AlertCircle size={14} color={COLORS.orange} />
+                <Text style={[s.sectionTitle, { color: COLORS.orange }]}>
+                  Eventos sin cerrar ({stuckServiceEvents.length})
+                </Text>
+              </View>
+              <Text style={s.stuckHint}>
+                Iniciaron pero nunca se cerraron — normalmente porque el cliente nunca le dio al proveedor el código de "servicio terminado". Confirma con ambos por teléfono antes de forzar el cierre; libera el pago pendiente del grupo.
+              </Text>
+              {stuckServiceEvents.map((ev: any) => (
+                <View key={ev.id} style={s.noShowRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.noShowFolio}>{ev.folio ?? ev.id.substring(0, 8)}</Text>
+                    <Text style={s.noShowGroup}>{ev.group_name ?? '—'}{ev.group_genre ? ` · ${ev.group_genre}` : ''}</Text>
+                    <Text style={s.noShowMeta}>
+                      {ev.client_name ?? '—'}  ·  {ev.event_date}{ev.event_time ? `  ${ev.event_time}` : ''}
+                    </Text>
+                    <Text style={s.noShowMeta}>
+                      ${(ev.total_price ?? 0).toLocaleString('es-MX', { maximumFractionDigits: 0 })} {ev.currency}{'  ·  '}⏱ lleva {ev.hours_stuck}h sin cerrarse
+                    </Text>
+                    {renderPhones(ev)}
+                  </View>
+                  <View style={s.noShowActions}>
+                    <Pressable
+                      style={[s.resolveBtn, resolvingId === ev.id && { opacity: 0.45 }]}
+                      onPress={() => forceCompleteEvent(ev)}
+                      disabled={resolvingId === ev.id}
+                    >
+                      <Text style={s.resolveBtnText}>
+                        {resolvingId === ev.id ? '…' : 'Forzar cierre →'}
                       </Text>
                     </Pressable>
                     <Pressable

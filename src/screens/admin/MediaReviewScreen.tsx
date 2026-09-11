@@ -64,39 +64,20 @@ export default function MediaReviewScreen({ navigation }: { navigation: any; rou
   const [refreshing, setRefreshing] = useState(false);
   const [processingId, setProcessingId] = useState<string | null>(null);
 
+  // sql/641 (2026-09-11) — antes eran 3 queries directas sin filtro (RLS
+  // restringía a role='admin', sin noción de país). Ahora es 1 sola RPC
+  // que ya separa por país: admin_ops (EE.UU.) solo ve/aprueba lo suyo,
+  // el admin completo sigue viendo todo igual que siempre.
   const fetchPending = useCallback(async () => {
-    const { data, error } = await supabase
-      .from('groups')
-      .select('id, name, profile_image, promo_video, photo_status, video_status, photo_reject_reason, video_reject_reason, owner_id')
-      .or('photo_status.eq.pending,video_status.eq.pending');
-
-    if (!error && data) {
-      setGroups(data as PendingGroup[]);
+    const { data, error } = await supabase.rpc('admin_get_pending_media', { p_limit: 50 });
+    if (error || (data as any)?.ok === false) {
+      console.warn('[MediaReview] admin_get_pending_media error:', error?.message ?? (data as any)?.error);
+      return;
     }
-
-    // 📸 Publicaciones de eventos pendientes (sql/561) — sin RPC, UPDATE
-    // directo (la política gep_posts_admin_update de RLS ya lo permite
-    // solo para admin).
-    const { data: posts, error: postsErr } = await supabase
-      .from('group_event_posts')
-      .select('id, group_id, caption, groups(name, owner_id), photos:group_event_photos(id, url, position)')
-      .eq('status', 'pending');
-
-    if (!postsErr && posts) {
-      setEventPosts(posts as any as PendingEventPost[]);
-    }
-
-    // 🎬 Videos del carrusel pendientes (sql/492) — nunca se revisaban
-    // desde ningún lado, se quedaban en 'pending' para siempre. RLS
-    // gv_admin_update ya permite el UPDATE directo, igual que las fotos.
-    const { data: vids, error: vidsErr } = await supabase
-      .from('group_videos')
-      .select('id, group_id, url, groups(name, owner_id)')
-      .eq('status', 'pending');
-
-    if (!vidsErr && vids) {
-      setPendingVideos(vids as any as PendingVideo[]);
-    }
+    const result = data as any;
+    setGroups((result.groups ?? []) as PendingGroup[]);
+    setEventPosts((result.event_posts ?? []) as PendingEventPost[]);
+    setPendingVideos((result.videos ?? []) as PendingVideo[]);
   }, []);
 
   useEffect(() => {

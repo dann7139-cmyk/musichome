@@ -15,7 +15,7 @@ import {
   View,
 } from 'react-native';
 import { initialWindowMetrics } from 'react-native-safe-area-context';
-import { Briefcase, Calendar, CalendarDays, Compass, Home, LayoutDashboard, Megaphone, User, Users } from 'lucide-react-native';
+import { Briefcase, Calendar, CalendarDays, Compass, Home, LayoutDashboard, Megaphone, Settings, User, Users } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 import Reanimated, {
   useSharedValue,
@@ -143,6 +143,8 @@ import GiftRevealScreen from '../src/screens/shared/GiftRevealScreen';
 import AdminTicketSearchScreen from '../src/screens/admin/AdminTicketSearchScreen';
 import AdminEventDetailScreen from '../src/screens/admin/EventDetailScreen';
 import AdminEventsReviewScreen from '../src/screens/admin/EventsReviewScreen';
+import AdminOpsHomeScreen from '../src/screens/admin/AdminOpsHomeScreen';
+import AdminSettingsScreen from '../src/screens/admin/AdminSettingsScreen';
 
 const Stack = createNativeStackNavigator();
 const Tab   = createBottomTabNavigator();
@@ -151,7 +153,7 @@ const Tab   = createBottomTabNavigator();
 
 type LocStatus = 'checking' | 'granted' | 'denied' | 'blocked';
 
-function LocationGate({ children }: { children: React.ReactNode }) {
+function LocationGate({ children, role }: { children: React.ReactNode; role: string | null }) {
   const [status, setStatus] = useState<LocStatus>('checking');
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
@@ -172,7 +174,11 @@ function LocationGate({ children }: { children: React.ReactNode }) {
     }
   }, [status]);
 
-  if (status === 'checking' || status === 'granted') return <>{children}</>;
+  // Admin exento — mismo criterio que el candado de estado/país de arriba
+  // ("pueden operar sin ubicación fija"), para no bloquear pruebas propias
+  // en emulador/escritorio sin GPS real. admin_ops (sql/627, 2026-09-08)
+  // es una cuenta de back-office que nunca necesita GPS — mismo criterio.
+  if (status === 'checking' || status === 'granted' || role === 'admin' || role === 'admin_ops') return <>{children}</>;
 
   return (
     <View style={lgStyles.container}>
@@ -183,7 +189,7 @@ function LocationGate({ children }: { children: React.ReactNode }) {
         <Text style={lgStyles.title}>Activa tu ubicación</Text>
         <Text style={lgStyles.body}>
           Necesitamos tu ubicación para mostrarte los grupos y talentos de tu estado.
-          Sin ella no podremos personalizar tu experiencia.
+          Es obligatoria para usar Daricefy.
         </Text>
         {status === 'blocked' ? (
           <>
@@ -201,9 +207,6 @@ function LocationGate({ children }: { children: React.ReactNode }) {
             <Text style={lgStyles.btnText}>Permitir ubicación</Text>
           </Pressable>
         )}
-        <Text style={lgStyles.skip} onPress={() => setStatus('granted')}>
-          Continuar sin ubicación →
-        </Text>
       </Animated.View>
     </View>
   );
@@ -250,10 +253,6 @@ const lgStyles = StyleSheet.create({
   },
   btnText: {
     fontFamily: FONTS.bodySemiBold, fontSize: 15, color: '#040404',
-  },
-  skip: {
-    fontFamily: FONTS.bodyMedium, fontSize: 13,
-    color: 'rgba(255,255,255,0.35)',
   },
 });
 
@@ -746,6 +745,14 @@ function AdminTabs() {
         component={ProfileScreen}
         options={{ tabBarLabel: t('tabs.profile'), tabBarIcon: ({ color }) => <User size={20} color={color} /> }}
       />
+      {/* sql/632 (2026-09-08) — interruptor de alertas por país para admin
+          con trabajadores contratados (admin_ops). Pantalla propia, no
+          comparte código con ProfileScreen/DashboardScreen. */}
+      <Tab.Screen
+        name="AjustesAdmin"
+        component={AdminSettingsScreen}
+        options={{ tabBarLabel: 'Ajustes', tabBarIcon: ({ color }) => <Settings size={20} color={color} /> }}
+      />
     </Tab.Navigator>
   );
 }
@@ -976,8 +983,10 @@ export default function AppNavigator() {
 
   // ── 4a. Guard de ubicación ────────────────────────────────────────────────
   // Bloquea el acceso hasta que profiles.state Y profiles.country estén llenos.
-  // Admins quedan exentos (pueden operar sin ubicación fija).
-  if (role !== 'admin' && (!profile?.state || !profile?.country)) {
+  // Admins quedan exentos (pueden operar sin ubicación fija). admin_ops
+  // (sql/627, 2026-09-08) también — cuenta de back-office creada directo
+  // en la base de datos, nunca pasa por el registro que llena esos campos.
+  if (role !== 'admin' && role !== 'admin_ops' && (!profile?.state || !profile?.country)) {
     return <LocationRequestScreen />;
   }
 
@@ -987,7 +996,7 @@ export default function AppNavigator() {
   // El usuario puede cambiar su ciudad en Perfil → "Cambiar ciudad".
 
   return (
-    <LocationGate>
+    <LocationGate role={role}>
     <NavigationContainer
       ref={navigationRef}
       onReady={() => {
@@ -1044,6 +1053,19 @@ export default function AppNavigator() {
             <Stack.Screen name="Withdraw"           component={WithdrawScreen} />
             <Stack.Screen name="Notifications"      component={NotificationsScreen} />
             <Stack.Screen name="EventPayouts"       component={EventPayoutsScreen} />
+          </>
+        )}
+
+        {/* sql/627 (2026-09-08) — admin con alcance por país: panel reducido,
+            solo 3 colas (no-shows/pagos/verificación), ya filtradas por país
+            del lado del servidor. No comparte pantallas con el admin completo. */}
+        {role === 'admin_ops' && (
+          <>
+            <Stack.Screen name="AdminHome" component={AdminOpsHomeScreen} />
+            {/* sql/641 (2026-09-11) — admin_get_pending_media ya separa por
+                país del lado del servidor, así que esta pantalla compartida
+                con el admin completo funciona igual de bien acotada a EE.UU. */}
+            <Stack.Screen name="AdminMediaReview" component={AdminMediaReviewScreen} />
           </>
         )}
 
