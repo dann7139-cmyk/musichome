@@ -360,6 +360,7 @@
   "wallet": {
     "title": "My Wallet",
     "available": "Available balance",
+    "previous_balance": "You had {{amount}} before",
     "pending": "Pending",
     "total_earned": "Total earned",
     "usd_balance": "🇺🇸 USD Balance",

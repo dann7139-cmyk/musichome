@@ -33,6 +33,7 @@ import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import Particles from '../../components/ui/Particles';
 import Button from '../../components/ui/Button';
 import { validateClabe, bankFromClabe } from '../../utils/clabe';
+import PaymentHistoryCard from '../../components/wallet/PaymentHistoryCard';
 
 function formatCurrency(n: number) {
   return '$' + Number(n ?? 0).toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
@@ -491,6 +492,15 @@ export default function WalletScreen({ navigation }: any) {
   const pendingUsd = wallet?.pending_balance_usd   ?? 0;
   const totalUsd   = wallet?.total_earned_usd      ?? 0;
   const hasUsd     = availUsd > 0 || pendingUsd > 0 || totalUsd > 0;
+  // 💚 Saldo anterior (sql/638) — SOLO el valor previo al último movimiento
+  // (nunca un historial completo, para eso están los "Movimientos" de abajo).
+  // Pedido del usuario: que quede claro cuánto había antes de un depósito,
+  // para que nadie piense que le faltó dinero. null = todavía no hay un
+  // cambio registrado desde que existe esta columna.
+  const previousMxn = wallet?.previous_balance;
+  const previousUsd = wallet?.previous_balance_usd;
+  const showPreviousMxn = previousMxn != null && Number(previousMxn) !== available;
+  const showPreviousUsd = previousUsd != null && Number(previousUsd) !== availUsd;
   // 🎁 Total de regalos — grupo (total_gift_income) o admin (total_gift_commission).
   // Mismo saldo de siempre, solo un desglose aparte para que no se confunda
   // con las ganancias de eventos (pedido explícito del usuario).
@@ -522,6 +532,11 @@ export default function WalletScreen({ navigation }: any) {
             <Wallet size={22} color={COLORS.green} style={{ marginBottom: 8 }} />
             <Text style={st.heroLabel}>{t('wallet.available')}</Text>
             <Text style={st.heroAmount} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>{formatCurrency(available)}</Text>
+            {showPreviousMxn && (
+              <Text style={st.heroPreviousTx}>
+                {t('wallet.previous_balance', { amount: formatCurrency(previousMxn) })}
+              </Text>
+            )}
             <View style={st.heroRow}>
               <View style={st.heroStat}>
                 <Clock size={14} color={COLORS.muted2} />
@@ -544,6 +559,11 @@ export default function WalletScreen({ navigation }: any) {
               <Text style={st.heroAmount} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>
                 US${availUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </Text>
+              {showPreviousUsd && (
+                <Text style={st.heroPreviousTx}>
+                  {t('wallet.previous_balance', { amount: `US$${Number(previousUsd).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` })}
+                </Text>
+              )}
               <View style={st.heroRow}>
                 <View style={st.heroStat}>
                   <Clock size={14} color={COLORS.muted2} />
@@ -572,10 +592,10 @@ export default function WalletScreen({ navigation }: any) {
                 🎁 {stripeStatus.role === 'group' ? 'Total recibido en regalos' : 'Comisión total por regalos'}
               </Text>
               {giftTotal > 0 && (
-                <Text style={st.giftCardAmount}>{formatCurrency(giftTotal)} MXN</Text>
+                <Text style={st.giftCardAmount} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>{formatCurrency(giftTotal)} MXN</Text>
               )}
               {giftTotalUsd > 0 && (
-                <Text style={st.giftCardAmount}>
+                <Text style={st.giftCardAmount} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>
                   US${giftTotalUsd.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
                 </Text>
               )}
@@ -584,18 +604,16 @@ export default function WalletScreen({ navigation }: any) {
 
           {stripeStatus.role === 'group' && (
             <View style={st.giftCard}>
-              <View style={st.giftCardHeaderRow}>
-                <Text style={st.giftCardTitle}>🎁 Quién te ha apoyado</Text>
-                <View style={st.giftVisibilityRow}>
-                  <Text style={st.giftVisibilityLabel}>Mostrar a mis músicos</Text>
-                  <Switch
-                    value={showGiftsToMembers}
-                    onValueChange={handleToggleGiftVisibility}
-                    disabled={savingGiftVisibility}
-                    trackColor={{ false: COLORS.border, true: COLORS.green }}
-                    thumbColor="#fff"
-                  />
-                </View>
+              <Text style={st.giftCardTitle}>🎁 Quién te ha apoyado</Text>
+              <View style={st.giftVisibilityRow}>
+                <Text style={st.giftVisibilityLabel} numberOfLines={2}>Mostrar a mis músicos los regalos y el dinero</Text>
+                <Switch
+                  value={showGiftsToMembers}
+                  onValueChange={handleToggleGiftVisibility}
+                  disabled={savingGiftVisibility}
+                  trackColor={{ false: COLORS.border, true: COLORS.green }}
+                  thumbColor="#fff"
+                />
               </View>
               {giftDonors.length === 0 && (
                 <Text style={st.giftVisibilityHint}>Todavía no te ha llegado ningún regalo.</Text>
@@ -658,6 +676,11 @@ export default function WalletScreen({ navigation }: any) {
               ))}
             </View>
           ))}
+
+          {/* sql/635 (2026-09-09) — historial de pagos ya recibidos con
+              comprobante reabrible en cualquier momento (antes solo se
+              podía ver tocando la notificación al momento en que llegaba). */}
+          {stripeStatus.role === 'group' && <PaymentHistoryCard />}
 
           {/* Fase P1D — el grupo ya NO retira dinero: solo puede avisar que
               quiere que le paguen una reserva específica. La transferencia
@@ -1072,6 +1095,7 @@ const st = StyleSheet.create({
   },
   heroLabel:     { fontFamily: FONTS.bodyMedium, fontSize: 11, color: COLORS.muted2, marginBottom: 2 },
   heroAmount:    { fontFamily: FONTS.title, fontSize: 28, color: COLORS.green, marginBottom: 10 },
+  heroPreviousTx: { fontFamily: FONTS.body, fontSize: 11.5, color: COLORS.muted2, marginTop: -6, marginBottom: 10 },
   heroRow:       { flexDirection: 'row', alignItems: 'center', width: '100%' },
   heroStat:      { flex: 1, alignItems: 'center', gap: 2 },
   heroStatLabel: { fontFamily: FONTS.body, fontSize: 10, color: COLORS.muted },
@@ -1086,9 +1110,13 @@ const st = StyleSheet.create({
   },
   giftCardTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.text },
   giftCardAmount: { fontFamily: FONTS.title, fontSize: 20, color: COLORS.green },
-  giftCardHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 2 },
-  giftVisibilityRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  giftVisibilityLabel: { fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted2 },
+  giftVisibilityRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+    backgroundColor: COLORS.card2, borderRadius: 12,
+    paddingVertical: 10, paddingHorizontal: 12,
+    marginTop: 8, marginBottom: 4,
+  },
+  giftVisibilityLabel: { flex: 1, fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2, lineHeight: 16 },
   giftVisibilityHint: { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted, paddingVertical: 6 },
   donorRow: {
     flexDirection: 'row', alignItems: 'center', gap: 8,

@@ -360,6 +360,7 @@
   "wallet": {
     "title": "Mi Billetera",
     "available": "Saldo disponible",
+    "previous_balance": "Antes tenías {{amount}}",
     "pending": "Pendiente",
     "total_earned": "Total ganado",
     "usd_balance": "🇺🇸 Saldo USD",
