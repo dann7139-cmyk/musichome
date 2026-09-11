@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   Alert,
   Animated,
+  AppState,
   Image,
   useWindowDimensions,
   Keyboard,
@@ -42,7 +43,10 @@ const RING_CIRC = 2 * Math.PI * RING_R; // ≈ 910.9
 const AnimatedSvgCircle = Animated.createAnimatedComponent(Circle);
 
 const EXTRA_MSI_OPTIONS = [1, 3, 6, 9] as const;
-const EXTRA_MSI_FEE: Record<number, number> = { 1: 0, 3: 0.05, 6: 0.08, 9: 0.11 };
+// ⚠️ Debe coincidir EXACTO con MSI_FEE_RATES de supabase/functions/_shared/constants.ts
+// (hallazgo real 2026-09-10: aquí decía 6→8%/9→11%, el servidor cobra 6→6%/9→9% —
+// el cliente veía un total distinto al que realmente se le cobraba).
+const EXTRA_MSI_FEE: Record<number, number> = { 1: 0, 3: 0.05, 6: 0.06, 9: 0.09 };
 
 const VisaLogo = () => (
   <Svg width={38} height={24} viewBox="0 0 38 24">
@@ -677,9 +681,20 @@ export default function EventTimerScreen({ route, navigation }: any) {
           // El auto-stop real lo maneja L1312 con totalMusicSecs (incluye extras).
           const elapsedSecs = Math.floor((Date.now() - new Date(data.event_started_at).getTime()) / 1000);
           if (elapsedSecs >= 0) {
-            setStartedAt(new Date(data.event_started_at));
+            const start = new Date(data.event_started_at);
+            setStartedAt(start);
             setElapsed(elapsedSecs);
             setIsRunning(true);
+            // [Fix 2026-09-09] Faltaba arrancar el conteo aquí — este branch
+            // solo corre cuando el prop `reservation` (nav params) NO traía
+            // event_started_at (p.ej. se llegó por una ruta con datos
+            // incompletos) y hubo que confirmarlo con un refetch directo a
+            // la BD. Sin este startTick(), isRunning quedaba en true pero
+            // el número del cronómetro se congelaba en el valor calculado
+            // una sola vez — nunca volvía a avanzar. startTick() ya limpia
+            // cualquier intervalo previo, así que llamarlo aquí es seguro
+            // incluso si el otro efecto de inicialización ya lo arrancó.
+            startTick(start);
           }
         } else if (
           !readOnly &&
@@ -1162,13 +1177,26 @@ export default function EventTimerScreen({ route, navigation }: any) {
       sentMilestones.current.add('15min');
       warned15MinRef.current = true;
       if (reservation.client_id) {
-        supabase.from('notifications').insert([{
-          user_id: reservation.client_id,
-          type: 'reservation',
-          title: '⏰ Quedan 15 minutos',
-          body: '¿Quieres más tiempo? Puedes agregar horas extra desde el temporizador.',
-          data: { reservation_id: reservation.id },
-        }]);
+        // [Fix 2026-09-09] sentMilestones es solo memoria del componente —
+        // se reinicia si la pantalla se vuelve a montar (p.ej. el SO mató
+        // la app a mitad del evento). Verificar contra la BD antes de
+        // insertar evita mandar este aviso dos veces en ese caso.
+        supabase
+          .from('notifications')
+          .select('id')
+          .eq('type', 'reservation')
+          .contains('data', { reservation_id: reservation.id, milestone: '15min' })
+          .limit(1)
+          .then(({ data: existing }) => {
+            if (existing && existing.length > 0) return;
+            supabase.from('notifications').insert([{
+              user_id: reservation.client_id,
+              type: 'reservation',
+              title: '⏰ Quedan 15 minutos',
+              body: '¿Quieres más tiempo? Puedes agregar horas extra desde el temporizador.',
+              data: { reservation_id: reservation.id, milestone: '15min' },
+            }]);
+          });
       }
     }
   }, [elapsed, isRunning]);
@@ -1205,13 +1233,25 @@ export default function EventTimerScreen({ route, navigation }: any) {
       warned2hRef.current = true;
       if (reservation.client_id) {
         const pricePerHour = Math.round((reservation.total_price ?? 0) / contractHours);
-        supabase.from('notifications').insert([{
-          user_id: reservation.client_id,
-          type: 'extra_hours_offer',
-          title: '🎵 ¡Ya llevan 2 horas de música!',
-          body: `¿Quieres que continúen? Puedes contratar horas extra desde $${pricePerHour.toLocaleString()}/hr.`,
-          data: { reservation_id: reservation.id, price_per_hour: pricePerHour },
-        }]);
+        // [Fix 2026-09-09] mismo caso que el aviso de 15 min: verificar
+        // contra la BD antes de insertar evita duplicados si la pantalla
+        // se remonta dentro de esta misma ventana de tiempo.
+        supabase
+          .from('notifications')
+          .select('id')
+          .eq('type', 'extra_hours_offer')
+          .contains('data', { reservation_id: reservation.id, milestone: '2h' })
+          .limit(1)
+          .then(({ data: existing }) => {
+            if (existing && existing.length > 0) return;
+            supabase.from('notifications').insert([{
+              user_id: reservation.client_id,
+              type: 'extra_hours_offer',
+              title: '🎵 ¡Ya llevan 2 horas de música!',
+              body: `¿Quieres que continúen? Puedes contratar horas extra desde $${pricePerHour.toLocaleString()}/hr.`,
+              data: { reservation_id: reservation.id, price_per_hour: pricePerHour, milestone: '2h' },
+            }]);
+          });
       }
     }
   }, [elapsed, isRunning]);
@@ -1225,13 +1265,23 @@ export default function EventTimerScreen({ route, navigation }: any) {
       warned30MinRef.current = true;
       if (reservation.client_id) {
         const pricePerHour = Math.round((reservation.total_price ?? 0) / contractHours);
-        supabase.from('notifications').insert([{
-          user_id: reservation.client_id,
-          type: 'extra_hours_offer',
-          title: '⏰ Quedan 30 minutos',
-          body: `El evento termina pronto. ¿Quieres agregar más tiempo? Desde $${pricePerHour.toLocaleString()}/hr.`,
-          data: { reservation_id: reservation.id, price_per_hour: pricePerHour },
-        }]);
+        // [Fix 2026-09-09] mismo caso que los avisos de 15 min / 2h.
+        supabase
+          .from('notifications')
+          .select('id')
+          .eq('type', 'extra_hours_offer')
+          .contains('data', { reservation_id: reservation.id, milestone: '30min' })
+          .limit(1)
+          .then(({ data: existing }) => {
+            if (existing && existing.length > 0) return;
+            supabase.from('notifications').insert([{
+              user_id: reservation.client_id,
+              type: 'extra_hours_offer',
+              title: '⏰ Quedan 30 minutos',
+              body: `El evento termina pronto. ¿Quieres agregar más tiempo? Desde $${pricePerHour.toLocaleString()}/hr.`,
+              data: { reservation_id: reservation.id, price_per_hour: pricePerHour, milestone: '30min' },
+            }]);
+          });
       }
     }
   }, [elapsed, isRunning]);
@@ -1352,6 +1402,25 @@ export default function EventTimerScreen({ route, navigation }: any) {
       setElapsed(diff);
     }, 1000);
   };
+
+  // [Fix 2026-09-09] Auditoría de temporizador/avisos: los `setInterval`
+  // de RN se congelan o se atrasan mucho tiempo en segundo plano (según
+  // plataforma/OS). Sin esto, "elapsed" solo se recalculaba hasta el
+  // siguiente tick natural al volver a primer plano — normalmente
+  // insignificante, pero si el tick llevaba mucho tiempo suspendido,
+  // recalcular YA (en vez de esperar) reduce la ventana en la que un
+  // aviso de tiempo (15 min / 2h / 30 min) puede quedar sin dispararse
+  // por encontrar el temporizador ya "congelado" al reabrir la app.
+  // No reemplaza los avisos de descanso (esos ya son 100% servidor).
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next === 'active' && isRunning && startedAt) {
+        setElapsed(Math.floor((Date.now() - startedAt.getTime()) / 1000));
+        startTick(startedAt);
+      }
+    });
+    return () => sub.remove();
+  }, [isRunning, startedAt]);
 
   // ── Solicitar horas extra con Stripe (PASO A: solo INSERT, no paga aún) ──
   // El grupo debe aceptar primero. El pago ocurre en handlePayNow.
@@ -1823,7 +1892,12 @@ export default function EventTimerScreen({ route, navigation }: any) {
             data: { reservation_id: reservation.id, target_screen: 'EventTimer' },
           });
         });
-      if (finishNotifs.length > 0) {
+      // [Fix 2026-09-09] complete_event() es idempotente (devuelve
+      // ok:true, note:'already_completed' si ya estaba cerrado — p.ej. la
+      // pantalla se remontó justo cuando este flujo ya había terminado
+      // antes). Sin este check, un segundo llamado a finishEvent() volvía
+      // a mandar "¡Tu evento ha terminado!" duplicado a cliente/grupo.
+      if (finishNotifs.length > 0 && completeData?.note !== 'already_completed') {
         await supabase.from('notifications').insert(finishNotifs);
       }
 
@@ -3357,8 +3431,17 @@ export default function EventTimerScreen({ route, navigation }: any) {
               <AmexLogo />
             </View>
 
-            {/* Opciones MSI */}
-            {EXTRA_MSI_OPTIONS.map(months => {
+            {/* Opciones MSI — MSI es exclusivo de MXN en toda la app (igual que
+                create-payment-intent/create-extra-hour-payment-intent, que
+                fuerzan 1 pago en USD). Hallazgo real 2026-09-10: antes se
+                mostraban 3/6/9 meses también en reservas USD, pero el
+                servidor las cobraba de un jalón sin avisar. */}
+            {resCurrency === 'USD' && (
+              <Text style={[st.msiCardFee, { marginBottom: 8 }]}>
+                Meses con tarjeta disponibles solo para reservas en pesos (MXN).
+              </Text>
+            )}
+            {(resCurrency === 'USD' ? [1] : EXTRA_MSI_OPTIONS).map(months => {
               const base = msiPendingChoice?.price ?? 0;
               const fee = EXTRA_MSI_FEE[months] ?? 0;
               const total = Math.round(base * (1 + fee));
