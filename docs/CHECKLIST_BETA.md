@@ -1,4 +1,23 @@
-# ✅ Checklist de auditoría — Beta cerrada Daricefy
+# ⚠️ HISTÓRICO — superado, ya no es la referencia de qué falta probar
+
+> **Este archivo es de julio 2026 y quedó desactualizado.** Se escribió
+> ANTES de que existieran: pagos con Stripe (tarjeta + MSI), la ruta
+> Stripe/Conekta actual, el sistema de regalos, admin_ops por país, y
+> varias correcciones reales encontradas en sesiones posteriores
+> (ver `MEMORY.md` del asistente para el registro completo y actualizado
+> de qué se ha probado/corregido y qué sigue pendiente).
+>
+> **No lo uses como checklist de lanzamiento.** Se deja aquí solo como
+> referencia histórica de lo que se auditó en julio 2026, no como lista
+> de pendientes vigente. Un recorrido de pantalla-por-pantalla en un
+> teléfono real (secciones 1-17 de abajo) SIGUE sin hacerse desde que se
+> agregaron los pagos con Stripe y los regalos — eso sí sigue pendiente
+> y requiere que un humano lo haga a mano, no algo que el asistente pueda
+> ejecutar por su cuenta.
+
+---
+
+# ✅ Checklist de auditoría — Beta cerrada Daricefy (julio 2026, ver aviso arriba)
 
 > Fecha de inicio: 2026-07-10
 > Regla: cada punto se marca solo cuando se probó **en el teléfono real** (no solo en código).

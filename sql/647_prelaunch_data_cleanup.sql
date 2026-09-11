@@ -1,0 +1,63 @@
+-- sql/647_prelaunch_data_cleanup.sql
+--
+-- REGISTRO HISTÓRICO — ejecutado una sola vez el 2026-09-11, NO diseñado
+-- para volver a correr (referencia IDs específicos de filas reales que ya
+-- no existen). No tiene _ROLLBACK.sql: un DELETE no se puede deshacer sin
+-- un respaldo externo, y no se tomó ninguno a propósito porque el objetivo
+-- era justamente borrar los datos de prueba.
+--
+-- Petición del usuario, previo a lanzar la app a usuarios reales:
+-- "borra todos los grupos y menos el grupo daniel rivera. el dinero real
+-- dejalo osea el que pague de regalo 30 pesos el demas dinero quitalo."
+--
+-- Estado ANTES de este archivo:
+--   - 34 grupos en total: 1 real (Daniel Rivera, dueño real, ha recibido
+--     tráfico real desde febrero) + 33 de prueba (demos con owner_id NULL,
+--     "TEST — X" de auditorías de categorías, "Grupo Prueba Sonido").
+--   - Daniel Rivera tenía: 8 reservas (TODAS de prueba — 2 canceladas con
+--     reseña falsa de 5 estrellas, 5 "completadas" sembradas en lote el
+--     mismo segundo para probar reportes, 1 "aceptada" nunca pagada),
+--     29 group_gifts (25 "pending" abandonados sin cobrar + 4 "paid":
+--     2 con payment_ref='manual-reconcile-2026-08-26' [falsos, insertados
+--     a mano], 1 con payment_ref='ord_31gqmwTcQWBkWCNrY' [Conekta SANDBOX,
+--     5 sept, antes de que Conekta aprobara producción], y 1 REAL con
+--     payment_ref='pi_3UE9EA2OHRU9DGsY0l7ir3Ir' [Stripe LIVE, 10 sept,
+--     $30 MXN → grupo $18 / plataforma $12]).
+--   - El wallet del grupo (group_wallets) tenía pending_balance=$9,000
+--     (de la reserva de prueba cancelada) y available_balance=$654
+--     (4 gift_income, solo $18 de ellos reales).
+--   - El wallet del admin (wallets) tenía available_balance=$5,931.20:
+--     $1,408.20 de platform_income de esa misma reserva fake, $4,087.00
+--     de 12 ad_income REALES (backfill histórico de MercadoPago, sql/548,
+--     cerrado y confirmado real — [[project_mp_ad_backfill_closed]]),
+--     y $436 de comisión de regalos (solo $12 real).
+--
+-- Qué se hizo (verificado en sandbox BEGIN...ROLLBACK antes de aplicar):
+--   1. Borrar TODAS las reseñas del grupo Daniel Rivera (ambas ligadas a
+--      reservas de prueba).
+--   2. Borrar del wallet del grupo TODAS las wallet_transactions salvo
+--      la del regalo real (gift_id b2e5539d-ab8b-412d-ae3e-f40f6542b2f7).
+--   3. Borrar del wallet del admin las wallet_transactions type='commission'
+--      de los 3 regalos falsos + la única type='platform_income' (de la
+--      reserva falsa). Se dejaron intactas las 12 de ad_income (reales)
+--      y la comisión de $12 del regalo real.
+--   4. Borrar los 28 group_gifts falsos/abandonados del grupo, dejando
+--      solo el real.
+--   5. Borrar las 8 reservas de prueba del grupo (ninguna era real).
+--   6. Borrar los 33 grupos de prueba (CASCADE se encargó de sus propias
+--      reservas/wallets/anuncios/etc. — 0 grupos más tenían dinero real).
+--   7. Fijar group_wallets del grupo real en:
+--      pending_balance=0, available_balance=18.00, total_earned=18.00,
+--      total_gift_income=18.00 (reflejo exacto del regalo real).
+--   8. Fijar wallets del admin en:
+--      available_balance=4099.00 (= $4,087 ad_income real + $12 comisión
+--      real), total_earned=4099.00, total_gift_commission=12.00.
+--   9. Resetear groups.rating/total_reviews del grupo real a NULL/0 (ya
+--      no tiene ninguna reseña, ni falsa ni real).
+--
+-- Estado DESPUÉS (verificado con SELECT count(*) tras aplicar):
+--   groups=1, group_gifts=1, reservations=0, reviews=0,
+--   group_wallets.available_balance=18.00, wallets.available_balance=4099.00.
+--
+-- Ver [[project_gift_split_and_corazon_price]], [[project_mp_ad_backfill_closed]].
+SELECT 'Ver comentario del archivo — limpieza de datos ya ejecutada el 2026-09-11, no replayable.' AS nota;

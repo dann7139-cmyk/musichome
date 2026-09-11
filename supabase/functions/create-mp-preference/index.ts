@@ -49,24 +49,22 @@ export async function handleRequest(req: Request): Promise<Response> {
   });
 
   try {
-    // ── Autenticar: decodificar JWT sin API call ───────────────────────
+    // ── Autenticar: verificar firma con Supabase Auth (no decodificar a ciegas) ──
+    // [Corregido 2026-09-11] Antes se leía el payload del JWT con atob() sin
+    // validar la firma — un token fabricado (payload editado, firma inválida)
+    // pasaba igual. admin.auth.getUser() sí valida criptográficamente contra
+    // Supabase Auth, igual que el resto de las Edge Functions de pago.
     const authHeader = req.headers.get('Authorization');
     if (!authHeader?.startsWith('Bearer ')) {
       return jsonRes({ error: 'No autorizado: sin header' });
     }
     const token = authHeader.slice(7);
 
-    let user: { id: string; email: string };
-    try {
-      const parts = token.split('.');
-      if (parts.length !== 3) throw new Error('bad jwt');
-      const pad = (s: string) => s + '='.repeat((4 - s.length % 4) % 4);
-      const payload = JSON.parse(atob(pad(parts[1].replace(/-/g, '+').replace(/_/g, '/'))));
-      if (!payload.sub) throw new Error('no sub');
-      user = { id: payload.sub, email: payload.email ?? '' };
-    } catch (_) {
+    const { data: authData, error: authErr } = await admin.auth.getUser(token);
+    if (authErr || !authData?.user) {
       return jsonRes({ error: 'No autorizado: token inválido' });
     }
+    const user = { id: authData.user.id, email: authData.user.email ?? '' };
 
     // ── Body ──────────────────────────────────────────────────────────
     const body = await req.json().catch(() => ({}));

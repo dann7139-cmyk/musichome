@@ -41,21 +41,19 @@ Deno.serve(async (req) => {
   });
 
   try {
-    // ── Autenticar ────────────────────────────────────────────────────
+    // ── Autenticar: verificar firma con Supabase Auth (no decodificar a ciegas) ──
+    // [Corregido 2026-09-11] Antes se leía el payload del JWT con atob() sin
+    // validar la firma — un token fabricado pasaba igual. admin.auth.getUser()
+    // sí valida criptográficamente contra Supabase Auth.
     const authHeader = req.headers.get('Authorization');
     if (!authHeader?.startsWith('Bearer ')) return jsonRes({ error: 'No autorizado' }, 401);
     const token = authHeader.slice(7);
 
-    let userId: string;
-    try {
-      const parts   = token.split('.');
-      const pad     = (s: string) => s + '='.repeat((4 - s.length % 4) % 4);
-      const payload = JSON.parse(atob(pad(parts[1].replace(/-/g, '+').replace(/_/g, '/'))));
-      if (!payload.sub) throw new Error('no sub');
-      userId = payload.sub;
-    } catch {
+    const { data: authData, error: authErr } = await admin.auth.getUser(token);
+    if (authErr || !authData?.user) {
       return jsonRes({ error: 'Token inválido' }, 401);
     }
+    const userId = authData.user.id;
 
     // ── Body ──────────────────────────────────────────────────────────
     const body     = await req.json().catch(() => ({}));
