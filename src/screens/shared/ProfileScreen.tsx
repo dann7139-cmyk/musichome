@@ -38,6 +38,7 @@ import * as Location from 'expo-location';
 
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { pickAndUploadProfileImage } from '../../utils/uploadProfileImage';
+import { pickAndUploadGroupImage } from '../../utils/uploadGroupImage';
 import { openSupportEmail, openSupportWhatsApp, SUPPORT_HOURS } from '../../utils/support';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
@@ -500,10 +501,22 @@ export default function ProfileScreen({ navigation }: any) {
     if (!uid) return;
     try {
       setAvatarLoading(true);
-      const url = await pickAndUploadProfileImage(uid);
-      if (url) {
-        setAvatarUrl(url);
-        await refetchProfile();
+      // [Corregido 2026-09-13] Para el dueño de un grupo, esta es LA foto
+      // pública que ven los clientes en el Explorador (groups.profile_image)
+      // — antes esta cámara siempre subía a profiles.avatar_url, un campo
+      // que nadie más ve, así que parecía "no hacer nada" para un grupo.
+      if (profile?.role === 'group' && groupRole === 'owner' && (group as any)?.id) {
+        const url = await pickAndUploadGroupImage((group as any).id);
+        if (url) {
+          setGroup((p: any) => p ? { ...p, profile_image: url } : p);
+          await refetchProfile();
+        }
+      } else {
+        const url = await pickAndUploadProfileImage(uid);
+        if (url) {
+          setAvatarUrl(url);
+          await refetchProfile();
+        }
       }
     } catch (e: any) {
       Alert.alert('Error', e.message ?? 'No se pudo subir la foto.');
@@ -573,6 +586,13 @@ export default function ProfileScreen({ navigation }: any) {
     }
   };
 
+  // Dueño de grupo: la foto grande es la pública del grupo (profile_image),
+  // no el avatar personal — es la que de verdad ven los clientes.
+  const heroPhotoUrl =
+    profile?.role === 'group' && groupRole === 'owner'
+      ? ((group as any)?.profile_image ?? null)
+      : avatarUrl;
+
   const roleLabel =
     profile?.role === 'talent' ? '🎸 Artista' :
     profile?.role === 'group'  ? '🎵 Músico / Dueño' :
@@ -606,9 +626,9 @@ export default function ProfileScreen({ navigation }: any) {
 
             {/* ── HERO ARTISTA (foto grande, full-width) ── */}
           <View style={st.artistHero}>
-            {avatarUrl ? (
+            {heroPhotoUrl ? (
               <ImageBackground
-                source={{ uri: avatarUrl }}
+                source={{ uri: heroPhotoUrl }}
                 style={st.artistHeroImg}
                 resizeMode="cover"
               >

@@ -1510,6 +1510,31 @@ export default function GroupDashboardScreen({ navigation }: any) {
               </View>
 
               <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 100 }}>
+              {/* ── Foto de portada — pedido real del usuario (2026-09-13):
+                  el lápiz de "Información del grupo" no dejaba cambiar la
+                  foto, solo texto. handlePhoto/pickAndUploadGroupImage ya
+                  existían y funcionaban, solo faltaba un botón que los
+                  llamara. ── */}
+              <Text style={s.label}>Foto de portada</Text>
+              <Pressable
+                style={s.editPhotoBox}
+                onPress={handlePhoto}
+                disabled={photoLoading}
+              >
+                {group?.profile_image ? (
+                  <Image source={{ uri: group.profile_image }} style={s.editPhotoPreview} resizeMode="cover" />
+                ) : (
+                  <View style={[s.editPhotoPreview, s.editPhotoPlaceholder]}>
+                    <Text style={{ fontSize: 32 }}>🎸</Text>
+                  </View>
+                )}
+                <View style={s.editPhotoBadge}>
+                  {photoLoading
+                    ? <ActivityIndicator size="small" color="#fff" />
+                    : <Pencil size={14} color="#fff" />}
+                </View>
+              </Pressable>
+
               <Text style={s.label}>Nombre del grupo *</Text>
               <TextInput style={s.input} value={editForm.name}
                 onChangeText={v => setEditForm(f => ({ ...f, name: v }))}
@@ -2768,6 +2793,21 @@ const s = StyleSheet.create({
   sheetTitle:  { fontFamily: FONTS.title, fontSize: 20, color: COLORS.text, flex: 1 },
   sheetClose:  { width: 32, height: 32, borderRadius: 8, backgroundColor: COLORS.bg, alignItems: 'center', justifyContent: 'center', marginLeft: 8 },
   label:       { fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.muted2, marginBottom: 8 },
+  editPhotoBox: {
+    width: 96, height: 96, borderRadius: RADIUS.lg, marginBottom: 16,
+    alignSelf: 'flex-start', position: 'relative',
+  },
+  editPhotoPreview: { width: 96, height: 96, borderRadius: RADIUS.lg },
+  editPhotoPlaceholder: {
+    backgroundColor: COLORS.bg, borderWidth: 1, borderColor: COLORS.border,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  editPhotoBadge: {
+    position: 'absolute', bottom: -4, right: -4,
+    width: 28, height: 28, borderRadius: 14,
+    backgroundColor: COLORS.green, borderWidth: 2, borderColor: COLORS.card,
+    alignItems: 'center', justifyContent: 'center',
+  },
   input: {
     backgroundColor: COLORS.bg, borderRadius: RADIUS.md,
     borderWidth: 1, borderColor: COLORS.border,
