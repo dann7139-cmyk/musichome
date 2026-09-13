@@ -35,7 +35,7 @@ import { stateToCountry } from '../../utils/locationUtils';
 import { useBackgroundLocation } from '../../hooks/useBackgroundLocation';
 import LocationBanner from '../../components/ui/LocationBanner';
 import { reviveClientProposals } from '../../context/ClientProposalContext';
-import { PROVIDER_CATEGORIES, NON_MUSICIAN_GENRES } from '../../constants/providerCategories';
+import { PROVIDER_CATEGORIES, NON_MUSICIAN_GENRES, CATEGORY_DETAIL_FIELDS } from '../../constants/providerCategories';
 
 interface Promotion {
   id: string;
@@ -123,6 +123,14 @@ export default function HomeScreen({ navigation, route }: any) {
   // (src/constants/providerCategories.ts), para que nunca se desincronicen.
   // selectedCategoryId guarda el `key` de PROVIDER_CATEGORIES, no un uuid.
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
+  // 2026-09-05 — sub-filtros dentro de una categoría (ej. Renta: qué
+  // renta) usando category_details. Keyed por field.key, valores = chips
+  // prendidos de ese campo. Se limpia cada vez que cambia la categoría.
+  const [categoryFilterSelections, setCategoryFilterSelections] = useState<Record<string, string[]>>({});
+  // 2026-09-05 — valores que los proveedores de esta categoría ya usaron
+  // en su propio perfil (sql/624 get_category_field_values) — se ofrecen
+  // como filtro extra en cuanto existan, sin que nadie los dé de alta a mano.
+  const [communityFilterValues, setCommunityFilterValues] = useState<Record<string, string[]>>({});
   // sql/585 (Fase 1) — contexto de "agregar otro proveedor a mi evento":
   // llega vía route.params desde EventCategoryPickerScreen. presetGenres es
   // un filtro EXACTO (nombres reales de categories.name), independiente del
@@ -140,6 +148,13 @@ export default function HomeScreen({ navigation, route }: any) {
   const [sendingInterest, setSendingInterest] = useState(false);
   const [profile, setProfile] = useState<any>(null);
   const [locationMode, setLocationMode] = useState<'home' | 'here'>('home');
+  // [Corregido 2026-09-13] El banner de "pareces estar en otro estado" se
+  // quedaba pegado en pantalla para siempre — su condición de visibilidad
+  // nunca revisaba si el usuario ya había elegido "Aquí"/"mi casa", solo
+  // comparaba profile.state vs GPS (que no cambian al presionar el botón).
+  // Los botones sí funcionaban (recargaban con el filtro correcto), pero
+  // parecía que "no hacían nada" porque el aviso nunca desaparecía.
+  const [locationBannerDismissed, setLocationBannerDismissed] = useState(false);
   // 🎁 Modo regalo: explorar grupos de otra ciudad para regalar (o contratar a distancia).
   // Todo va detrás de giftMode → cuando está apagado, el Home queda idéntico.
   const [giftMode,    setGiftMode]    = useState(false);
@@ -336,6 +351,30 @@ export default function HomeScreen({ navigation, route }: any) {
     return () => { supabase.removeChannel(sub); };
   }, [liveEvent]);
 
+  // 2026-09-05 — al cambiar de categoría, los sub-filtros de la categoría
+  // anterior (ej. "Brincolines" de Renta) no deben quedarse pegados al
+  // entrar a Comida.
+  useEffect(() => {
+    setCategoryFilterSelections({});
+  }, [selectedCategoryId]);
+
+  // 2026-09-05 — trae, por cada campo chips/multiChips de la categoría
+  // elegida, los valores que otros proveedores ya usaron (sql/624).
+  useEffect(() => {
+    const fields = (selectedCategoryId ? CATEGORY_DETAIL_FIELDS[selectedCategoryId] : null) ?? [];
+    const chipFields = fields.filter(f => f.type === 'chips' || f.type === 'multiChips');
+    if (chipFields.length === 0) { setCommunityFilterValues({}); return; }
+    let cancelled = false;
+    (async () => {
+      const entries = await Promise.all(chipFields.map(async field => {
+        const { data } = await supabase.rpc('get_category_field_values', { p_category_key: selectedCategoryId, p_field_key: field.key });
+        return [field.key, (data ?? []).map((r: any) => r.value)] as [string, string[]];
+      }));
+      if (!cancelled) setCommunityFilterValues(Object.fromEntries(entries));
+    })();
+    return () => { cancelled = true; };
+  }, [selectedCategoryId]);
+
   useEffect(() => {
     let result = groups;
     if (presetGenres) {
@@ -347,6 +386,18 @@ export default function HomeScreen({ navigation, route }: any) {
       // (PROVIDER_CATEGORIES), ya no se leen de la tabla `categories`.
       const cat = PROVIDER_CATEGORIES.find(c => c.key === selectedCategoryId);
       if (cat) result = result.filter(g => cat.genres.includes(g.genre));
+    }
+    // 2026-09-05 — sub-filtros por category_details ("qué tiene" el
+    // proveedor: items_needed de Renta, tipo de show de Payasos, etc.).
+    // Mismo campo = OR (Brincolines + Toro mecánico = cualquiera de los
+    // dos); campos distintos = AND (debe cumplir ambos).
+    const activeFilterEntries = Object.entries(categoryFilterSelections).filter(([, vals]) => vals.length > 0);
+    if (activeFilterEntries.length > 0) {
+      result = result.filter(g => activeFilterEntries.every(([fieldKey, vals]) => {
+        const gv = g.category_details?.[fieldKey];
+        if (Array.isArray(gv)) return vals.some(v => gv.includes(v));
+        return vals.includes(gv);
+      }));
     }
     if (search) result = result.filter(g =>
       g.name?.toLowerCase().includes(search.toLowerCase()) ||
@@ -360,7 +411,7 @@ export default function HomeScreen({ navigation, route }: any) {
       return cityMatch || serviceMatch;
     });
     setFiltered(result);
-  }, [groups, selectedCategoryId, presetGenres, search, nearbyCity]);
+  }, [groups, selectedCategoryId, presetGenres, search, nearbyCity, categoryFilterSelections]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -501,9 +552,22 @@ export default function HomeScreen({ navigation, route }: any) {
     // El RPC filtra por estado y país en DB; grupos con state/country=null son nacionales y siempre se incluyen.
     // En regalo actualizamos siempre (aunque venga vacío) para limpiar la lista al cambiar de estado.
     if (rawGroups.length > 0 || giftMode) {
+      // 2026-09-05 — category_details no lo regresa get_groups_ranked_by_city
+      // (RPC de ranking, no se toca); se pide aparte y se mezcla, mismo
+      // patrón que sponSet arriba. Necesario para los sub-filtros de
+      // Explorador (Renta: qué renta, Payasos: tipo de show, etc.).
+      const catDetailsMap = new Map<string, any>();
+      if (rawGroups.length > 0) {
+        const { data: catData } = await supabase
+          .from('groups')
+          .select('id, category_details')
+          .in('id', rawGroups.map(g => g.id));
+        (catData ?? []).forEach((row: any) => catDetailsMap.set(row.id, row.category_details));
+      }
       const scored = rawGroups.map(g => ({
         ...g,
         is_sponsored: sponSet.has(g.id),
+        category_details: catDetailsMap.get(g.id) ?? {},
       }));
       setGroups(scored);
       setFiltered(scored);
@@ -891,13 +955,14 @@ export default function HomeScreen({ navigation, route }: any) {
             </View>
           )}
 
-          {/* BANNER UBICACIÓN — solo si el usuario está viajando fuera de su estado */}
-          {profile?.state && gpsState && profile.state.toLowerCase() !== gpsState.toLowerCase() && (
+          {/* BANNER UBICACIÓN — solo si el usuario está viajando fuera de su estado
+              Y todavía no ha elegido "Aquí"/"mi casa" en esta visita. */}
+          {!locationBannerDismissed && profile?.state && gpsState && profile.state.toLowerCase() !== gpsState.toLowerCase() && (
             <LocationBanner
               profileState={profile.state}
               detectedState={gpsState}
-              onUseHere={() => setLocationMode('here')}
-              onUseHome={() => setLocationMode('home')}
+              onUseHere={() => { setLocationMode('here'); setLocationBannerDismissed(true); }}
+              onUseHome={() => { setLocationMode('home'); setLocationBannerDismissed(true); }}
             />
           )}
 
@@ -1257,6 +1322,72 @@ export default function HomeScreen({ navigation, route }: any) {
               </Pressable>
             ))}
           </ScrollView>
+
+          {/* SUB-FILTROS de la categoría activa — "qué tiene" el proveedor
+              (category_details, sql/623). Solo aparece en categorías con
+              campos chips/multiChips (Comida/Renta/Payasos/Fotógrafos);
+              música (Banda/DJ/etc.) no tiene, así que no cambia nada ahí.
+              2026-09-05 — petición real: "que pueda filtrar como en
+              Amazon" dentro de Renta (brincolines, toro mecánico...). */}
+          {selectedCategoryId && !presetGenres && (() => {
+            const fields = (CATEGORY_DETAIL_FIELDS[selectedCategoryId] ?? [])
+              .filter(f => f.type === 'chips' || f.type === 'multiChips');
+            if (fields.length === 0) return null;
+            return (
+              <View style={{ marginBottom: 14 }}>
+                {fields.map(field => (
+                  <View key={field.key} style={{ marginBottom: 10 }}>
+                    <Text style={styles.subFilterLabel}>{t(field.labelKey)}</Text>
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={styles.genreList}
+                    >
+                      {field.options?.map(opt => {
+                        const selected = (categoryFilterSelections[field.key] ?? []).includes(opt.key);
+                        return (
+                          <Pressable
+                            key={opt.key}
+                            style={[styles.subFilterChip, selected && styles.genreChipActive]}
+                            onPress={() => setCategoryFilterSelections(prev => {
+                              const cur = prev[field.key] ?? [];
+                              const next = cur.includes(opt.key) ? cur.filter(k => k !== opt.key) : [...cur, opt.key];
+                              return { ...prev, [field.key]: next };
+                            })}
+                          >
+                            <Text style={[styles.genreText, selected && styles.genreTextActive]}>
+                              {t(opt.labelKey)}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                      {/* Lo que otros proveedores ya escribieron y aún no
+                          está en la lista fija (sql/624) — mismo chip,
+                          sin traducir (es texto libre). */}
+                      {(communityFilterValues[field.key] ?? [])
+                        .filter(v => !field.options?.some(o => o.key === v))
+                        .map(v => {
+                          const selected = (categoryFilterSelections[field.key] ?? []).includes(v);
+                          return (
+                            <Pressable
+                              key={v}
+                              style={[styles.subFilterChip, selected && styles.genreChipActive]}
+                              onPress={() => setCategoryFilterSelections(prev => {
+                                const cur = prev[field.key] ?? [];
+                                const next = cur.includes(v) ? cur.filter(k => k !== v) : [...cur, v];
+                                return { ...prev, [field.key]: next };
+                              })}
+                            >
+                              <Text style={[styles.genreText, selected && styles.genreTextActive]}>{v}</Text>
+                            </Pressable>
+                          );
+                        })}
+                    </ScrollView>
+                  </View>
+                ))}
+              </View>
+            );
+          })()}
 
           {/* TODOS LOS GRUPOS — grid 3 columnas */}
           <View style={styles.groupsHeader}>
@@ -2070,6 +2201,14 @@ const styles = StyleSheet.create({
   genreChipActive: { backgroundColor: COLORS.greenMuted, borderColor: COLORS.green },
   genreText: { fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.muted2 },
   genreTextActive: { color: COLORS.green },
+  subFilterLabel: {
+    fontFamily: FONTS.body, fontSize: 12, color: 'rgba(255,255,255,0.5)',
+    marginBottom: 6, marginLeft: 2,
+  },
+  subFilterChip: {
+    paddingHorizontal: 13, paddingVertical: 7, borderRadius: RADIUS.full,
+    backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border,
+  },
 
   // Groups header
   groupsHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 14 },
