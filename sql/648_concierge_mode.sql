@@ -117,6 +117,7 @@ DECLARE
   v_quote       RECORD;
   v_group       RECORD;
   v_calc        JSONB;
+  v_group_total NUMERIC;
   v_total       NUMERIC;
   v_member_id   UUID;
 BEGIN
@@ -148,8 +149,17 @@ BEGIN
     RETURN jsonb_build_object('ok', false, 'error', 'not_admin');
   END IF;
 
-  v_calc  := public.calculate_final_price(p_base_price);
-  v_total := (v_calc->>'final_price')::numeric + COALESCE(p_travel_cost, 0);
+  -- El markup 20% aplica sobre base+traslado combinados — mismo criterio que
+  -- usa el grupo mismo al responder su propia cotización en
+  -- GroupQuoteDetailScreen (calcClientPrice(base+travel), no solo base).
+  -- Corrección 2026-09-13 (revisión de Parte 1 antes de manual testing):
+  -- la primera versión marcaba el traslado sin comisión (base*1.20 +
+  -- travel), cobrándole de menos al cliente y perdiendo comisión real cada
+  -- vez que había costo de traslado (confirmado con caso real: base=8000,
+  -- travel=500 daba total_amount=10100 en vez de 10200).
+  v_group_total := p_base_price + COALESCE(p_travel_cost, 0);
+  v_calc  := public.calculate_final_price(v_group_total);
+  v_total := (v_calc->>'final_price')::numeric;
 
   UPDATE public.quotes SET
     status            = 'quoted',
@@ -158,7 +168,7 @@ BEGIN
     commission_amount = (v_calc->>'commission_amount')::numeric,
     commission_pct    = 20,
     total_amount      = v_total,
-    group_earnings    = p_base_price,
+    group_earnings    = v_group_total,
     group_notes       = p_notes,
     updated_at        = NOW()
   WHERE id = p_quote_id;
@@ -181,7 +191,7 @@ BEGIN
       jsonb_build_object('quote_id', p_quote_id));
   END LOOP;
 
-  RETURN jsonb_build_object('ok', true, 'total_amount', v_total, 'group_earnings', p_base_price);
+  RETURN jsonb_build_object('ok', true, 'total_amount', v_total, 'group_earnings', v_group_total);
 END;
 $function$;
 

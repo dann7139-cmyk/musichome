@@ -1045,6 +1045,15 @@ BEGIN
       SELECT 1 FROM public.quotes WHERE id = v_q33 AND status = 'quoted' AND base_price = 8000
     ), '[33] REGRESIÓN: admin_respond_quote no dejó guardado el precio/estatus de la cotización — revisar sql/648';
 
+    -- El markup 20% debe aplicar sobre base+traslado combinados (8000+500=8500
+    -- → total 10200), NO solo sobre base (bug real encontrado y corregido
+    -- 2026-09-13: daba 10100, cobrándole de menos al cliente).
+    ASSERT (v_resp33->>'total_amount')::numeric = 10200,
+      '[33] REGRESIÓN: admin_respond_quote volvió a marcar el traslado sin comisión — revisar sql/648: total_amount=' || (v_resp33->>'total_amount');
+    ASSERT EXISTS(
+      SELECT 1 FROM public.quotes WHERE id = v_q33 AND commission_amount = 1700 AND group_earnings = 8500
+    ), '[33] REGRESIÓN: commission_amount/group_earnings ya no reflejan base+traslado — revisar sql/648';
+
     ASSERT EXISTS(
       SELECT 1 FROM notifications WHERE user_id = v_client AND type='quote_received' AND data->>'quote_id' = v_q33::text
     ), '[33] REGRESIÓN: admin_respond_quote no le avisó al cliente que ya tiene precio — revisar sql/648';
