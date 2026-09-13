@@ -558,62 +558,14 @@ export default function QuoteFormScreen({ route, navigation }: any) {
         );
       }
     } else {
-      // Notificar al grupo
-      const { data: groupData } = await supabase
-        .from('groups')
-        .select('owner_id')
-        .eq('id', group.id)
-        .single();
-      if (groupData?.owner_id) {
-        // Notificar al dueño — quote_id permite abrir el carrusel de
-        // programadas con esta cotización primero
-        await supabase.from('notifications').insert({
-          user_id: groupData.owner_id,
-          type:    'new_quote_request',
-          title:   t('quoteFormScreen.notifTitle'),
-          body:    t('quoteFormScreen.notifBodyOwner', { duration }),
-          data:    { group_id: group.id, quote_id: insertData?.[0]?.id ?? null },
-        });
-
-        // Notificar a los integrantes del grupo
-        const { data: members } = await supabase
-          .from('job_invitations')
-          .select('invited_user_id')
-          .eq('group_id', group.id)
-          .eq('invitation_type', 'membership')
-          .eq('status', 'accepted');
-
-        if (members && members.length > 0) {
-          await supabase.from('notifications').insert(
-            members.map((m: any) => ({
-              user_id: m.invited_user_id,
-              type:    'new_quote_request',
-              title:   t('quoteFormScreen.notifTitle'),
-              body:    t('quoteFormScreen.notifBodyMembers', { duration }),
-              data:    { group_id: group.id },
-            }))
-          );
-        }
-
-        // Notificar a invitados de trabajo aceptados
-        const { data: jobInvites } = await supabase
-          .from('job_invitations')
-          .select('invited_user_id')
-          .eq('group_id', group.id)
-          .eq('invitation_type', 'event')
-          .eq('status', 'accepted');
-
-        if (jobInvites && jobInvites.length > 0) {
-          await supabase.from('notifications').insert(
-            jobInvites.map((m: any) => ({
-              user_id: m.invited_user_id,
-              type:    'new_quote_request',
-              title:   t('quoteFormScreen.notifTitle'),
-              body:    t('quoteFormScreen.notifBodyMembers', { duration }),
-              data:    { group_id: group.id },
-            }))
-          );
-        }
+      // Notificar — RPC server-side (sql/648, 2026-09-13). Antes esto era
+      // 4 inserts a mano desde el cliente, siempre al dueño del grupo.
+      // Ahora el RPC decide: si el grupo todavía está en "modo conserjería"
+      // (no maneja su cuenta), avisa a Daniel/admin_ops de su país en vez
+      // del dueño — el cliente nunca nota la diferencia.
+      const newQuoteId = insertData?.[0]?.id ?? null;
+      if (newQuoteId) {
+        await supabase.rpc('notify_quote_request', { p_quote_id: newQuoteId });
       }
       // Si esta solicitud cae DESPUÉS de una tocada del grupo ese día, avisar:
       // al grupo (que pregunte por horas extra de su evento actual) y al

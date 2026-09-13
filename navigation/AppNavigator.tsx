@@ -137,6 +137,7 @@ import EventPayoutsScreen from '../src/screens/shared/EventPayoutsScreen';
 // "Rechazar" devolvía el saldo a la tabla equivocada. Todo vive en
 // AdminFinancial (admin_complete_payout, sql/469).
 import AdminMediaReviewScreen from '../src/screens/admin/MediaReviewScreen';
+import AdminManagedQuotesScreen from '../src/screens/admin/AdminManagedQuotesScreen';
 import AdApprovalScreen from '../src/screens/admin/AdApprovalScreen';
 import TicketScreen from '../src/screens/shared/TicketScreen';
 import GiftRevealScreen from '../src/screens/shared/GiftRevealScreen';
@@ -1044,6 +1045,7 @@ export default function AppNavigator() {
             <Stack.Screen name="GroupDetail"        component={GroupDetailScreen} />
             <Stack.Screen name="QuoteForm"          component={QuoteFormScreen} />
             <Stack.Screen name="AdminMediaReview"   component={AdminMediaReviewScreen} />
+            <Stack.Screen name="AdminManagedQuotes" component={AdminManagedQuotesScreen} />
             <Stack.Screen name="AdApproval"          component={AdApprovalScreen} />
             <Stack.Screen name="Ticket"              component={TicketScreen} />
             <Stack.Screen name="AdminTicketSearch"   component={AdminTicketSearchScreen} />
@@ -1066,6 +1068,10 @@ export default function AppNavigator() {
                 país del lado del servidor, así que esta pantalla compartida
                 con el admin completo funciona igual de bien acotada a EE.UU. */}
             <Stack.Screen name="AdminMediaReview" component={AdminMediaReviewScreen} />
+            {/* sql/648 (2026-09-13) — admin_get_concierge_quotes ya filtra por
+                país del lado del servidor, misma pantalla compartida con el
+                admin completo. */}
+            <Stack.Screen name="AdminManagedQuotes" component={AdminManagedQuotesScreen} />
           </>
         )}
 

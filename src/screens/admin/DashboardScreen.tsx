@@ -64,6 +64,7 @@ const getQuickActions = (t: TFunction) => ([
   { icon: Map,       label: t('adminDashboardScreen.quickActions.liveMap'),       colors: ['#001a2e','#000d17'], ic: '#40C4FF',  screen: 'AdminMap' },
   { icon: Wallet,    label: t('adminDashboardScreen.quickActions.withdrawals'),   colors: ['#002213','#000f09'], ic: COLORS.green, screen: 'AdminFinancial' },
   { icon: Megaphone, label: t('adminDashboardScreen.quickActions.ads'),           colors: ['#001a1a','#000d0d'], ic: '#00C4B4',    screen: 'AdApproval' },
+  { icon: Phone,     label: t('adminDashboardScreen.quickActions.concierge'),     colors: ['#002213','#000f09'], ic: COLORS.green, screen: 'AdminManagedQuotes' },
 ]);
 
 export default function AdminDashboardScreen({ navigation }: any) {

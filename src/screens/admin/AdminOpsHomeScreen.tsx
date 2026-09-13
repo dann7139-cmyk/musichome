@@ -83,6 +83,12 @@ export default function AdminOpsHomeScreen({ navigation }: any) {
         <Pressable style={s.tabBtn} onPress={() => navigation.navigate('AdminMediaReview')}>
           <Text style={s.tabBtnText}>📸 Fotos</Text>
         </Pressable>
+        {/* 📞 Cotizaciones que manejo — grupos en modo conserjería de tu
+            país (sql/648 ya acota admin_get_concierge_quotes del lado del
+            servidor). */}
+        <Pressable style={s.tabBtn} onPress={() => navigation.navigate('AdminManagedQuotes')}>
+          <Text style={s.tabBtnText}>📞 Cotizaciones</Text>
+        </Pressable>
       </ScrollView>
 
       {tab === 'resumen' && <ResumenTab />}

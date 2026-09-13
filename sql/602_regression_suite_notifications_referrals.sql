@@ -1,6 +1,6 @@
 -- ============================================================
 -- sql/602_regression_suite_notifications_referrals.sql
--- SUITE DE REGRESIÓN — ✅ CORRIÓ 31/31 PASS 2026-09-11. No aplica nada,
+-- SUITE DE REGRESIÓN — ✅ CORRIÓ 34/34 PASS 2026-09-13. No aplica nada,
 -- solo prueba. Correr esto ANTES y
 -- DESPUÉS de tocar cualquier función relacionada con notificaciones,
 -- referidos, o el choque de horarios entre proveedores. Si algo de esto
@@ -100,6 +100,19 @@
 --      de esto, un evento en EE.UU./Canadá o en un estado fronterizo de
 --      México podía recibir el recordatorio hasta ±4 horas fuera de
 --      tiempo)
+--  32. notify_quote_request (grupo normal) — sql/648 (un grupo que NO
+--      está en modo conserjería sigue notificando al dueño exactamente
+--      igual que siempre — cero cambio de comportamiento — y esa
+--      cotización no le llega de más al admin/admin_ops)
+--  33. notify_quote_request + admin_respond_quote (modo conserjería,
+--      EE.UU.) — sql/648 (un grupo en modo conserjería NO notifica al
+--      dueño; notifica al admin completo [respetando su mute de país] y
+--      al admin_ops de ese país; admin_ops puede poner precio y el
+--      cliente recibe la cotización normal, como si el grupo mismo
+--      hubiera respondido)
+--  34. admin_respond_quote rechaza grupo sin modo conserjería — sql/648
+--      (un admin no puede "ayudar" a un grupo que ya maneja su propia
+--      cuenta — la cotización se queda intacta en 'pending')
 --
 -- Cómo leer el resultado: si TODO pasa, ves un solo error final que dice
 -- literalmente "REGRESSION_SUITE: TODO PASÓ" — ES EL RESULTADO ESPERADO
@@ -911,7 +924,167 @@ BEGIN
     ), '[31] REGRESIÓN: send_event_reminders_2h volvió a asumir America/Mexico_City para un evento de Nueva York — revisar sql/643';
   END;
 
-  RAISE EXCEPTION 'REGRESSION_SUITE: TODO PASÓ (31/31) — temporizador, notificaciones de engagement, bono de referido MX/USD, descuento al cliente, choque de horarios, sin-temporizador por categoría (incluye fotógrafos), anuncios (clientes bloqueados, sin teléfonos, solo categoría distinta, correcto con dueños de varios grupos), cupo de Destacado/Recomendado por categoría, precio de publicidad calculado server-side (video +35%, Recomendado > Destacado), regalo/quite de Bidding del admin, ranking de Bidding por estado, TODOS los regalos (no solo Otro monto) abren GiftReveal, la notificación de admin ya no dice "Trofeo" para un monto personalizado, el interruptor de mostrar regalos a los músicos integrantes, notificar al integrante removido, notificar a los integrantes al desactivar el interruptor, la matemática de tandas/descansos, el candado+idempotencia de complete_event, auto_finalize_stuck_events por fin cierra eventos realmente atorados sin tronar, las categorías Espectáculo/Maestro de Ceremonias siguen funcionando, category_details (preguntas por categoría de Comida/Renta/Shows/Fotógrafos) guarda y lee tal cual en groups y quotes, la lista de opciones por categoría que crece sola (get_category_field_values) deduplica y no mezcla categorías, Payasos ahora vive fusionado dentro de Shows (elige descanso libremente, ya no forzado), group_category_key por fin clasifica Espectáculo/Maestro de Ceremonias correctamente, y los recordatorios de evento ya respetan la zona horaria real de cada evento (no siempre México)';
+  -- ══ 32. notify_quote_request — grupo normal sigue notificando al dueño igual que siempre — sql/648 ══
+  DECLARE
+    v_g32 UUID;
+    v_q32 UUID;
+  BEGIN
+    INSERT INTO public.groups (id, owner_id, name, genre, country_id, concierge_mode)
+      VALUES (gen_random_uuid(), v_owner, 'RT602 Normal32', 'Banda', v_country_mx, false)
+      RETURNING id INTO v_g32;
+
+    INSERT INTO public.quotes
+      (id, group_id, client_id, event_type, event_address, event_municipio, event_estado,
+       event_date, event_time, duration_hours, venue_covered, venue_size, needs_sound)
+    VALUES
+      (gen_random_uuid(), v_g32, v_client, 'boda', 'Dir32', 'Municipio32', 'Estado32',
+       CURRENT_DATE + 10, '19:00', 4, 'si', 'salon_mediano', 'no_group_brings')
+    RETURNING id INTO v_q32;
+
+    RESET role;
+    PERFORM set_config('request.jwt.claims', json_build_object('sub', v_client::text, 'role','authenticated')::text, true);
+    PERFORM set_config('role','authenticated', true);
+    PERFORM public.notify_quote_request(v_q32);
+    RESET role;
+
+    ASSERT EXISTS(
+      SELECT 1 FROM notifications WHERE user_id = v_owner AND type='new_quote_request' AND data->>'quote_id' = v_q32::text
+    ), '[32] REGRESIÓN: notify_quote_request ya no notifica al dueño de un grupo normal — revisar sql/648';
+
+    ASSERT NOT EXISTS(
+      SELECT 1 FROM notifications n JOIN public.profiles p ON p.id = n.user_id
+      WHERE p.role IN ('admin','admin_ops') AND n.data->>'quote_id' = v_q32::text
+    ), '[32] REGRESIÓN: una cotización de un grupo normal le está llegando al admin/admin_ops sin necesidad — revisar sql/648';
+  END;
+
+  -- ══ 33. notify_quote_request + admin_respond_quote — grupo en modo conserjería (EE.UU.) — sql/648 ══
+  DECLARE
+    v_admin33      UUID;
+    v_adminops33   UUID;
+    v_g33          UUID;
+    v_q33          UUID;
+    v_q33b         UUID;
+    v_resp33       JSONB;
+    v_muted_before TEXT[];
+  BEGIN
+    SELECT id INTO v_admin33 FROM public.profiles WHERE role='admin' LIMIT 1;
+    SELECT id INTO v_adminops33 FROM public.profiles WHERE role='admin_ops' AND admin_country_scope='US' LIMIT 1;
+    SELECT admin_muted_countries INTO v_muted_before FROM public.profiles WHERE id = v_admin33;
+
+    -- Caso A: admin completo SIN mutear Estados Unidos — debe verla igual que admin_ops
+    UPDATE public.profiles SET admin_muted_countries = '{}' WHERE id = v_admin33;
+
+    INSERT INTO public.groups (id, owner_id, name, genre, country_id, country, state, concierge_mode)
+      VALUES (gen_random_uuid(), v_owner2, 'RT602 Conserje33', 'Banda', v_country_us, 'Estados Unidos', 'New York', true)
+      RETURNING id INTO v_g33;
+
+    INSERT INTO public.quotes
+      (id, group_id, client_id, event_type, event_address, event_municipio, event_estado,
+       event_date, event_time, duration_hours, venue_covered, venue_size, needs_sound)
+    VALUES
+      (gen_random_uuid(), v_g33, v_client, 'boda', 'Dir33', 'CiudadNY33', 'New York',
+       CURRENT_DATE + 10, '19:00', 4, 'si', 'salon_mediano', 'no_group_brings')
+    RETURNING id INTO v_q33;
+
+    RESET role;
+    PERFORM set_config('request.jwt.claims', json_build_object('sub', v_client::text, 'role','authenticated')::text, true);
+    PERFORM set_config('role','authenticated', true);
+    PERFORM public.notify_quote_request(v_q33);
+    RESET role;
+
+    ASSERT NOT EXISTS(
+      SELECT 1 FROM notifications WHERE user_id = v_owner2 AND data->>'quote_id' = v_q33::text
+    ), '[33] REGRESIÓN: un grupo en modo conserjería SÍ le notificó al dueño — se supone que debe pasar por el admin — revisar sql/648';
+
+    ASSERT EXISTS(
+      SELECT 1 FROM notifications WHERE user_id = v_admin33 AND type='new_quote_request' AND data->>'quote_id' = v_q33::text
+    ), '[33] REGRESIÓN: el admin completo (sin mutear EE.UU.) no recibió el aviso de cotización para llamar — revisar sql/648';
+
+    ASSERT EXISTS(
+      SELECT 1 FROM notifications WHERE user_id = v_adminops33 AND type='new_quote_request' AND data->>'quote_id' = v_q33::text
+    ), '[33] REGRESIÓN: el admin_ops de EE.UU. no recibió el aviso de cotización para llamar — revisar sql/648';
+
+    -- Caso B: admin completo mutea Estados Unidos — deja de verla, admin_ops la sigue viendo
+    UPDATE public.profiles SET admin_muted_countries = ARRAY['US'] WHERE id = v_admin33;
+
+    INSERT INTO public.quotes
+      (id, group_id, client_id, event_type, event_address, event_municipio, event_estado,
+       event_date, event_time, duration_hours, venue_covered, venue_size, needs_sound)
+    VALUES
+      (gen_random_uuid(), v_g33, v_client, 'boda', 'Dir33b', 'CiudadNY33b', 'New York',
+       CURRENT_DATE + 11, '19:00', 4, 'si', 'salon_mediano', 'no_group_brings')
+    RETURNING id INTO v_q33b;
+
+    RESET role;
+    PERFORM set_config('request.jwt.claims', json_build_object('sub', v_client::text, 'role','authenticated')::text, true);
+    PERFORM set_config('role','authenticated', true);
+    PERFORM public.notify_quote_request(v_q33b);
+    RESET role;
+
+    ASSERT NOT EXISTS(
+      SELECT 1 FROM notifications WHERE user_id = v_admin33 AND data->>'quote_id' = v_q33b::text
+    ), '[33] REGRESIÓN: el admin completo ya había muteado Estados Unidos y aun así le llegó el aviso — revisar admin_is_country_muted en sql/648';
+
+    ASSERT EXISTS(
+      SELECT 1 FROM notifications WHERE user_id = v_adminops33 AND data->>'quote_id' = v_q33b::text
+    ), '[33] REGRESIÓN: el admin_ops de EE.UU. dejó de ver la cotización solo porque el admin completo muteó su país — revisar sql/648';
+
+    UPDATE public.profiles SET admin_muted_countries = v_muted_before WHERE id = v_admin33;
+
+    -- Round-trip: admin_ops pone precio → el cliente recibe la cotización normal
+    RESET role;
+    PERFORM set_config('request.jwt.claims', json_build_object('sub', v_adminops33::text, 'role','authenticated')::text, true);
+    PERFORM set_config('role','authenticated', true);
+    v_resp33 := public.admin_respond_quote(v_q33, 8000, 500, 'Confirmó por teléfono');
+    RESET role;
+
+    ASSERT (v_resp33->>'ok')::boolean = true,
+      '[33] REGRESIÓN: admin_respond_quote ya no deja responder a admin_ops sobre un grupo de su país en modo conserjería — revisar sql/648: ' || v_resp33::text;
+
+    ASSERT EXISTS(
+      SELECT 1 FROM public.quotes WHERE id = v_q33 AND status = 'quoted' AND base_price = 8000
+    ), '[33] REGRESIÓN: admin_respond_quote no dejó guardado el precio/estatus de la cotización — revisar sql/648';
+
+    ASSERT EXISTS(
+      SELECT 1 FROM notifications WHERE user_id = v_client AND type='quote_received' AND data->>'quote_id' = v_q33::text
+    ), '[33] REGRESIÓN: admin_respond_quote no le avisó al cliente que ya tiene precio — revisar sql/648';
+  END;
+
+  -- ══ 34. admin_respond_quote rechaza un grupo que NO está en modo conserjería — sql/648 ══
+  DECLARE
+    v_admin34 UUID;
+    v_g34     UUID;
+    v_q34     UUID;
+    v_resp34  JSONB;
+  BEGIN
+    SELECT id INTO v_admin34 FROM public.profiles WHERE role='admin' LIMIT 1;
+
+    INSERT INTO public.groups (id, owner_id, name, genre, country_id, concierge_mode)
+      VALUES (gen_random_uuid(), v_owner, 'RT602 NoConserje34', 'Banda', v_country_mx, false)
+      RETURNING id INTO v_g34;
+
+    INSERT INTO public.quotes
+      (id, group_id, client_id, event_type, event_address, event_municipio, event_estado,
+       event_date, event_time, duration_hours, venue_covered, venue_size, needs_sound)
+    VALUES
+      (gen_random_uuid(), v_g34, v_client, 'boda', 'Dir34', 'Municipio34', 'Estado34',
+       CURRENT_DATE + 10, '19:00', 4, 'si', 'salon_mediano', 'no_group_brings')
+    RETURNING id INTO v_q34;
+
+    RESET role;
+    PERFORM set_config('request.jwt.claims', json_build_object('sub', v_admin34::text, 'role','authenticated')::text, true);
+    PERFORM set_config('role','authenticated', true);
+    v_resp34 := public.admin_respond_quote(v_q34, 8000, 0, NULL);
+    RESET role;
+
+    ASSERT (v_resp34->>'ok')::boolean = false AND v_resp34->>'error' = 'group_not_in_concierge_mode',
+      '[34] REGRESIÓN: admin_respond_quote dejó poner precio a un grupo que NO está en modo conserjería — revisar sql/648: ' || v_resp34::text;
+
+    ASSERT EXISTS(SELECT 1 FROM public.quotes WHERE id = v_q34 AND status = 'pending'),
+      '[34] REGRESIÓN: admin_respond_quote modificó una cotización que debió rechazar — revisar sql/648';
+  END;
+
+  RAISE EXCEPTION 'REGRESSION_SUITE: TODO PASÓ (34/34) — temporizador, notificaciones de engagement, bono de referido MX/USD, descuento al cliente, choque de horarios, sin-temporizador por categoría (incluye fotógrafos), anuncios (clientes bloqueados, sin teléfonos, solo categoría distinta, correcto con dueños de varios grupos), cupo de Destacado/Recomendado por categoría, precio de publicidad calculado server-side (video +35%, Recomendado > Destacado), regalo/quite de Bidding del admin, ranking de Bidding por estado, TODOS los regalos (no solo Otro monto) abren GiftReveal, la notificación de admin ya no dice "Trofeo" para un monto personalizado, el interruptor de mostrar regalos a los músicos integrantes, notificar al integrante removido, notificar a los integrantes al desactivar el interruptor, la matemática de tandas/descansos, el candado+idempotencia de complete_event, auto_finalize_stuck_events por fin cierra eventos realmente atorados sin tronar, las categorías Espectáculo/Maestro de Ceremonias siguen funcionando, category_details (preguntas por categoría de Comida/Renta/Shows/Fotógrafos) guarda y lee tal cual en groups y quotes, la lista de opciones por categoría que crece sola (get_category_field_values) deduplica y no mezcla categorías, Payasos ahora vive fusionado dentro de Shows (elige descanso libremente, ya no forzado), group_category_key por fin clasifica Espectáculo/Maestro de Ceremonias correctamente, los recordatorios de evento ya respetan la zona horaria real de cada evento (no siempre México), y el modo conserjería (grupo normal sin cambios, grupo conserjería notifica al admin/admin_ops correcto en vez del dueño, y admin_respond_quote rechaza a un grupo que no está en modo conserjería)';
 END;
 $suite$;
 

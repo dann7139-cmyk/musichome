@@ -88,6 +88,7 @@ export default function AdminGroupsScreen({ navigation }: any) {
         id, name, city, state, genre, description,
         is_verified, admin_verified, is_active,
         is_plus_active, plus_expires_at, plus_subscription_id,
+        concierge_mode,
         rating, total_reviews, created_at,
         profile_image, owner_id,
         verification_status, strike_count,
@@ -393,6 +394,42 @@ export default function AdminGroupsScreen({ navigation }: any) {
               t('adminGroupsScreen.alerts.doneTitle'),
               t('adminGroupsScreen.alerts.plusRevoked')
             );
+          },
+        },
+      ],
+    );
+  };
+
+  // ── Modo conserjería (2026-09-13, sql/648) ──────────────────────────────
+  // Mientras esté prendido, las cotizaciones de este grupo NO le llegan a
+  // él — le llegan a Daniel (o al admin del país correspondiente), que
+  // llama por teléfono y pone el precio desde "Cotizaciones que manejo".
+  const handleToggleConcierge = () => {
+    if (!selected || actionLoading) return;
+    const turningOn = !selected.concierge_mode;
+    Alert.alert(
+      turningOn ? 'Activar modo conserjería' : 'Desactivar modo conserjería',
+      turningOn
+        ? `Desde ahora, las cotizaciones nuevas de ${selected.name} te van a llegar a ti (o al admin de su país) en vez de a ellos. Tú les llamas y pones el precio.`
+        : `${selected.name} volverá a recibir y responder sus propias cotizaciones.`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: turningOn ? 'Activar' : 'Desactivar',
+          onPress: async () => {
+            setActionLoading(true);
+            const { error } = await supabase
+              .from('groups')
+              .update({ concierge_mode: turningOn })
+              .eq('id', selected.id);
+            setActionLoading(false);
+            if (error) {
+              Alert.alert(t('adminGroupsScreen.alerts.genericErrorTitle'), error.message);
+              return;
+            }
+            const updated = { ...selected, concierge_mode: turningOn };
+            setSelected(updated);
+            setGroups(prev => prev.map(g => (g.id === selected.id ? { ...g, concierge_mode: turningOn } : g)));
           },
         },
       ],
@@ -904,6 +941,43 @@ export default function AdminGroupsScreen({ navigation }: any) {
                           <Text style={[s.modActionBtnText, { color: COLORS.bg }]}>
                             Activar Plus (cortesía)
                           </Text>
+                        </>}
+                  </Pressable>
+                </>
+              )}
+            </View>
+
+            {/* Modo conserjería — tú manejas sus cotizaciones */}
+            <View style={s.moderateCard}>
+              <Text style={s.moderateCardTitle}>🎯 Modo conserjería</Text>
+              {selected.concierge_mode ? (
+                <>
+                  <Text style={s.moderateCardHint}>
+                    📞 Activo — las cotizaciones de este grupo te llegan a ti (o al admin de su país), no a ellos.
+                  </Text>
+                  <Pressable
+                    style={[s.modActionBtn, s.modActionBtnOutlineRed, actionLoading && { opacity: 0.6 }]}
+                    onPress={handleToggleConcierge}
+                    disabled={actionLoading}
+                  >
+                    <Text style={[s.modActionBtnText, { color: '#EF5350' }]}>Desactivar — que ya maneje sus cotizaciones</Text>
+                  </Pressable>
+                </>
+              ) : (
+                <>
+                  <Text style={s.moderateCardHint}>
+                    Para grupos que aún no confían en manejar su cuenta. Tú (o el admin de su país) recibes y pones precio a sus cotizaciones en vez de ellos.
+                  </Text>
+                  <Pressable
+                    style={[s.modActionBtn, s.modActionBtnGreen, actionLoading && { opacity: 0.6 }]}
+                    onPress={handleToggleConcierge}
+                    disabled={actionLoading}
+                  >
+                    {actionLoading
+                      ? <ActivityIndicator size="small" color={COLORS.bg} />
+                      : <>
+                          <Phone size={16} color={COLORS.bg} />
+                          <Text style={[s.modActionBtnText, { color: COLORS.bg }]}>Activar modo conserjería</Text>
                         </>}
                   </Pressable>
                 </>
