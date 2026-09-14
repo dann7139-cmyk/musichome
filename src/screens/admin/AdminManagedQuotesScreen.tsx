@@ -73,6 +73,7 @@ interface LiveItem {
   event_started_at: string | null;
   address: string | null;
   country: string;
+  negotiated_hourly: number | null;
 }
 
 type TabKey = 'quotes' | 'live';
@@ -155,7 +156,10 @@ export default function AdminManagedQuotesScreen({ navigation }: any) {
   const openExtraModal = (item: LiveItem) => {
     setExtraModal(item);
     setExtraHours(1);
-    setExtraPrice('');
+    // El precio ya negociado (el que capturaste al poner el precio inicial)
+    // se precarga solo — no hay que volver a preguntarle al grupo, a menos
+    // que quieras cambiarlo.
+    setExtraPrice(item.negotiated_hourly ? String(item.negotiated_hourly) : '');
     setExtraNotes('');
   };
 
@@ -348,6 +352,7 @@ export default function AdminManagedQuotesScreen({ navigation }: any) {
               placeholderTextColor={COLORS.muted}
               keyboardType="numeric"
             />
+            <Text style={s.fieldNote}>Guárdalo una sola vez aquí — cuando el evento esté en curso, la pestaña "En vivo" ya trae este precio cargado solo, no hay que volver a preguntarlo.</Text>
 
             <Text style={s.label}>Nota interna (opcional)</Text>
             <TextInput
@@ -377,7 +382,10 @@ export default function AdminManagedQuotesScreen({ navigation }: any) {
           <View style={s.sheet}>
             <Text style={s.sheetTitle}>{extraModal?.group_name}</Text>
             <Text style={s.sheetHint}>
-              Se le manda al cliente para que apruebe y pague — igual que si el grupo se lo propusiera desde su propia cuenta. Si no escribes precio, se usa el que ya negociaste al poner el precio inicial.
+              Se le manda al cliente para que apruebe y pague — igual que si el grupo se lo propusiera desde su propia cuenta.
+              {extraModal?.negotiated_hourly
+                ? ' Ya trae cargado el precio que negociaste al poner el precio inicial — solo confirma o cámbialo si hace falta.'
+                : ' No hay un precio de hora extra guardado para este grupo — escribe cuánto cobra.'}
             </Text>
 
             <Text style={s.label}>Horas extra</Text>
@@ -389,12 +397,12 @@ export default function AdminManagedQuotesScreen({ navigation }: any) {
               ))}
             </View>
 
-            <Text style={s.label}>Precio por hora extra (neto, opcional)</Text>
+            <Text style={s.label}>Precio por hora extra (neto)</Text>
             <TextInput
               style={s.input}
               value={extraPrice}
               onChangeText={setExtraPrice}
-              placeholder="Déjalo vacío para usar el ya negociado"
+              placeholder="Ej. 500"
               placeholderTextColor={COLORS.muted}
               keyboardType="numeric"
             />
@@ -489,6 +497,7 @@ const s = StyleSheet.create({
   sheetTitle: { fontFamily: FONTS.title, fontSize: 18, color: COLORS.text, marginBottom: 6 },
   sheetHint: { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2, marginBottom: 16, lineHeight: 17 },
   label: { fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.muted2, marginBottom: 6 },
+  fieldNote: { fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted, marginTop: -10, marginBottom: 14, lineHeight: 15 },
   input: {
     backgroundColor: COLORS.bg, borderRadius: RADIUS.md,
     borderWidth: 1, borderColor: COLORS.border,
