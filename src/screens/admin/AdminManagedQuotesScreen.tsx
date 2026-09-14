@@ -73,7 +73,9 @@ interface LiveItem {
   event_started_at: string | null;
   address: string | null;
   country: string;
-  negotiated_hourly: number | null;
+  negotiated_1h: number | null;
+  negotiated_2h: number | null;
+  negotiated_3h: number | null;
 }
 
 type TabKey = 'quotes' | 'live';
@@ -87,7 +89,9 @@ export default function AdminManagedQuotesScreen({ navigation }: any) {
   const [priceModal, setPriceModal] = useState<QuoteItem | null>(null);
   const [basePrice, setBasePrice] = useState('');
   const [travelCost, setTravelCost] = useState('');
-  const [overtimeHourPrice, setOvertimeHourPrice] = useState('');
+  const [overtime1h, setOvertime1h] = useState('');
+  const [overtime2h, setOvertime2h] = useState('');
+  const [overtime3h, setOvertime3h] = useState('');
   const [notes, setNotes] = useState('');
   const [sending, setSending] = useState(false);
 
@@ -124,7 +128,9 @@ export default function AdminManagedQuotesScreen({ navigation }: any) {
     setPriceModal(item);
     setBasePrice('');
     setTravelCost('');
-    setOvertimeHourPrice('');
+    setOvertime1h('');
+    setOvertime2h('');
+    setOvertime3h('');
     setNotes('');
   };
 
@@ -140,7 +146,9 @@ export default function AdminManagedQuotesScreen({ navigation }: any) {
       p_quote_id: priceModal.quote_id,
       p_base_price: price,
       p_travel_cost: travelCost ? Number(travelCost.replace(',', '.')) : 0,
-      p_overtime_hour_price: overtimeHourPrice ? Number(overtimeHourPrice.replace(',', '.')) : null,
+      p_overtime_1h_price: overtime1h ? Number(overtime1h.replace(',', '.')) : null,
+      p_overtime_2h_price: overtime2h ? Number(overtime2h.replace(',', '.')) : null,
+      p_overtime_3h_price: overtime3h ? Number(overtime3h.replace(',', '.')) : null,
       p_notes: notes.trim() || null,
     });
     setSending(false);
@@ -153,14 +161,33 @@ export default function AdminManagedQuotesScreen({ navigation }: any) {
     Alert.alert('✅ Enviada', `Se le mandó la cotización al cliente. Total con tu comisión: $${Number(data.total_amount).toLocaleString('es-MX')}.`);
   };
 
+  // Cada número de horas extra (1/2/3) tiene su PROPIO precio total ya
+  // negociado — el grupo puede dar descuento por volumen (ej. 2h no es
+  // necesariamente el doble de 1h), exactamente igual que cuando el grupo
+  // responde su propia cotización. No es un precio por hora × N.
+  const negotiatedFor = (item: LiveItem | null, hours: number): number | null => {
+    if (!item) return null;
+    if (hours === 1) return item.negotiated_1h;
+    if (hours === 2) return item.negotiated_2h;
+    if (hours === 3) return item.negotiated_3h;
+    return null;
+  };
+
   const openExtraModal = (item: LiveItem) => {
     setExtraModal(item);
     setExtraHours(1);
-    // El precio ya negociado (el que capturaste al poner el precio inicial)
-    // se precarga solo — no hay que volver a preguntarle al grupo, a menos
-    // que quieras cambiarlo.
-    setExtraPrice(item.negotiated_hourly ? String(item.negotiated_hourly) : '');
+    // El precio ya negociado para 1h (el que capturaste al poner el precio
+    // inicial) se precarga solo — no hay que volver a preguntarle al grupo,
+    // a menos que quieras cambiarlo. Cambia solo si tocas otro chip de horas.
+    const pre = negotiatedFor(item, 1);
+    setExtraPrice(pre ? String(pre) : '');
     setExtraNotes('');
+  };
+
+  const selectExtraHours = (h: number) => {
+    setExtraHours(h);
+    const pre = negotiatedFor(extraModal, h);
+    setExtraPrice(pre ? String(pre) : '');
   };
 
   const sendExtraHours = async () => {
@@ -169,7 +196,7 @@ export default function AdminManagedQuotesScreen({ navigation }: any) {
     const { data, error } = await supabase.rpc('admin_propose_extra_hours', {
       p_reservation_id: extraModal.reservation_id,
       p_hours: extraHours,
-      p_price_per_hour: extraPrice ? Number(extraPrice.replace(',', '.')) : null,
+      p_bundle_price_net: extraPrice ? Number(extraPrice.replace(',', '.')) : null,
       p_notes: extraNotes.trim() || null,
     });
     setSendingExtra(false);
@@ -343,16 +370,43 @@ export default function AdminManagedQuotesScreen({ navigation }: any) {
               keyboardType="numeric"
             />
 
-            <Text style={s.label}>Precio por hora extra (neto, opcional)</Text>
-            <TextInput
-              style={s.input}
-              value={overtimeHourPrice}
-              onChangeText={setOvertimeHourPrice}
-              placeholder="Ej. 500 — pregúntale al grupo cuánto cobra la hora extra"
-              placeholderTextColor={COLORS.muted}
-              keyboardType="numeric"
-            />
-            <Text style={s.fieldNote}>Guárdalo una sola vez aquí — cuando el evento esté en curso, la pestaña "En vivo" ya trae este precio cargado solo, no hay que volver a preguntarlo.</Text>
+            <Text style={s.label}>Horas extra (opcional) — pregúntale al grupo cuánto cobra en total por quedarse 1, 2 o 3 horas más. Puede ser distinto a un simple múltiplo (ej. descuento por quedarse más tiempo).</Text>
+            <View style={s.row3}>
+              <View style={{ flex: 1 }}>
+                <Text style={s.miniLabel}>Total por 1h extra</Text>
+                <TextInput
+                  style={s.input}
+                  value={overtime1h}
+                  onChangeText={setOvertime1h}
+                  placeholder="Ej. 500"
+                  placeholderTextColor={COLORS.muted}
+                  keyboardType="numeric"
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={s.miniLabel}>Total por 2h extra</Text>
+                <TextInput
+                  style={s.input}
+                  value={overtime2h}
+                  onChangeText={setOvertime2h}
+                  placeholder="Ej. 900"
+                  placeholderTextColor={COLORS.muted}
+                  keyboardType="numeric"
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={s.miniLabel}>Total por 3h extra</Text>
+                <TextInput
+                  style={s.input}
+                  value={overtime3h}
+                  onChangeText={setOvertime3h}
+                  placeholder="Ej. 1300"
+                  placeholderTextColor={COLORS.muted}
+                  keyboardType="numeric"
+                />
+              </View>
+            </View>
+            <Text style={s.fieldNote}>Guárdalos una sola vez aquí — cuando el evento esté en curso, la pestaña "En vivo" ya los trae cargados, no hay que volver a preguntarlos.</Text>
 
             <Text style={s.label}>Nota interna (opcional)</Text>
             <TextInput
@@ -383,21 +437,21 @@ export default function AdminManagedQuotesScreen({ navigation }: any) {
             <Text style={s.sheetTitle}>{extraModal?.group_name}</Text>
             <Text style={s.sheetHint}>
               Se le manda al cliente para que apruebe y pague — igual que si el grupo se lo propusiera desde su propia cuenta.
-              {extraModal?.negotiated_hourly
-                ? ' Ya trae cargado el precio que negociaste al poner el precio inicial — solo confirma o cámbialo si hace falta.'
-                : ' No hay un precio de hora extra guardado para este grupo — escribe cuánto cobra.'}
+              {negotiatedFor(extraModal, extraHours)
+                ? ' Ya trae cargado el precio que negociaste al poner el precio inicial para estas horas — solo confirma o cámbialo si hace falta.'
+                : ' No hay un precio guardado para este número de horas — escribe cuánto cobra el grupo en total.'}
             </Text>
 
             <Text style={s.label}>Horas extra</Text>
             <View style={s.hoursRow}>
               {[1, 2, 3].map(h => (
-                <Pressable key={h} style={[s.hourChip, extraHours === h && s.hourChipActive]} onPress={() => setExtraHours(h)}>
+                <Pressable key={h} style={[s.hourChip, extraHours === h && s.hourChipActive]} onPress={() => selectExtraHours(h)}>
                   <Text style={[s.hourChipText, extraHours === h && s.hourChipTextActive]}>{h}h</Text>
                 </Pressable>
               ))}
             </View>
 
-            <Text style={s.label}>Precio por hora extra (neto)</Text>
+            <Text style={s.label}>Precio total por {extraHours}h extra (neto)</Text>
             <TextInput
               style={s.input}
               value={extraPrice}
@@ -498,6 +552,8 @@ const s = StyleSheet.create({
   sheetHint: { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2, marginBottom: 16, lineHeight: 17 },
   label: { fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.muted2, marginBottom: 6 },
   fieldNote: { fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted, marginTop: -10, marginBottom: 14, lineHeight: 15 },
+  row3: { flexDirection: 'row', gap: 8 },
+  miniLabel: { fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted2, marginBottom: 4 },
   input: {
     backgroundColor: COLORS.bg, borderRadius: RADIUS.md,
     borderWidth: 1, borderColor: COLORS.border,

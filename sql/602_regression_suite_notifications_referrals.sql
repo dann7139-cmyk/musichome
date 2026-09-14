@@ -1,6 +1,6 @@
 -- ============================================================
 -- sql/602_regression_suite_notifications_referrals.sql
--- SUITE DE REGRESIÓN — ✅ CORRIÓ 40/40 PASS 2026-09-14. No aplica nada,
+-- SUITE DE REGRESIÓN — ✅ CORRIÓ 41/41 PASS 2026-09-14. No aplica nada,
 -- solo prueba. Correr esto ANTES y
 -- DESPUÉS de tocar cualquier función relacionada con notificaciones,
 -- referidos, o el choque de horarios entre proveedores. Si algo de esto
@@ -132,8 +132,11 @@
 --      evento ya no está en curso)
 --  40. approve_extra_hour_payment_atomic + confirm_extra_hour_stripe_payment
 --      avisan al admin (modo conserjería) cuando se paga una hora extra
---      (saldo o tarjeta) + negotiated_hourly visible en
---      admin_get_concierge_live_reservations — sql/652
+--      (saldo o tarjeta) + negotiated_1h/2h/3h visible en
+--      admin_get_concierge_live_reservations — sql/652/653
+--  41. admin_respond_quote + admin_propose_extra_hours con paquetes
+--      independientes por número de horas (descuento por volumen, NO un
+--      precio por hora multiplicado) — sql/653
 --
 -- Cómo leer el resultado: si TODO pasa, ves un solo error final que dice
 -- literalmente "REGRESSION_SUITE: TODO PASÓ" — ES EL RESULTADO ESPERADO
@@ -1056,7 +1059,7 @@ BEGIN
     RESET role;
     PERFORM set_config('request.jwt.claims', json_build_object('sub', v_adminops33::text, 'role','authenticated')::text, true);
     PERFORM set_config('role','authenticated', true);
-    v_resp33 := public.admin_respond_quote(v_q33, 8000, 500, 400, 'Confirmó por teléfono');
+    v_resp33 := public.admin_respond_quote(v_q33, 8000, 500, 400, 750, 1100, 'Confirmó por teléfono');
     RESET role;
 
     ASSERT (v_resp33->>'ok')::boolean = true,
@@ -1075,12 +1078,14 @@ BEGIN
       SELECT 1 FROM public.quotes WHERE id = v_q33 AND commission_amount = 1700 AND group_earnings = 8500
     ), '[33] REGRESIÓN: commission_amount/group_earnings ya no reflejan base+traslado — revisar sql/648';
 
-    -- Precio de hora extra (sql/650) — 400 neto → 480/960/1440 con markup,
-    -- mismos campos que lee ExtraHoursScreen (overtime_Xh_price).
+    -- Precios de horas extra (sql/653) — CADA bundle es independiente
+    -- (1h=400, 2h=750 [con descuento, no 800], 3h=1100 [no 1200]) →
+    -- 480/900/1320 con markup — mismos campos que lee ExtraHoursScreen
+    -- (overtime_Xh_price), nunca un precio por hora multiplicado.
     ASSERT EXISTS(
       SELECT 1 FROM public.quotes WHERE id = v_q33
-        AND price_per_hour = 400 AND overtime_1h_price = 480 AND overtime_2h_price = 960 AND overtime_3h_price = 1440
-    ), '[33] REGRESIÓN: admin_respond_quote ya no calcula bien el precio de hora extra — revisar sql/650';
+        AND overtime_1h_price = 480 AND overtime_2h_price = 900 AND overtime_3h_price = 1320
+    ), '[33] REGRESIÓN: admin_respond_quote ya no calcula bien los paquetes de hora extra (con descuento por volumen) — revisar sql/653';
 
     ASSERT EXISTS(
       SELECT 1 FROM notifications WHERE user_id = v_client AND type='quote_received' AND data->>'quote_id' = v_q33::text
@@ -1111,7 +1116,7 @@ BEGIN
     RESET role;
     PERFORM set_config('request.jwt.claims', json_build_object('sub', v_admin34::text, 'role','authenticated')::text, true);
     PERFORM set_config('role','authenticated', true);
-    v_resp34 := public.admin_respond_quote(v_q34, 8000, 0, NULL, NULL);
+    v_resp34 := public.admin_respond_quote(v_q34, 8000, 0, NULL, NULL, NULL, NULL);
     RESET role;
 
     ASSERT (v_resp34->>'ok')::boolean = false AND v_resp34->>'error' = 'group_not_in_concierge_mode',
@@ -1264,19 +1269,19 @@ BEGIN
     SELECT id INTO v_admin39 FROM public.profiles WHERE role='admin' LIMIT 1;
     SELECT id INTO v_adminops39 FROM public.profiles WHERE role='admin_ops' AND admin_country_scope='US' LIMIT 1;
 
-    -- Grupo MX en conserjería, evento en curso, con price_per_hour ya negociado (sql/650)
+    -- Grupo MX en conserjería, evento en curso, con paquete de 1h extra ya negociado (sql/653)
     INSERT INTO public.groups (id, owner_id, name, genre, country_id, concierge_mode)
       VALUES (gen_random_uuid(), v_owner, 'RT602 ExtraMX39', 'Banda', v_country_mx, true) RETURNING id INTO v_g39;
     INSERT INTO public.quotes
       (id, group_id, client_id, event_type, event_address, event_municipio, event_estado,
-       event_date, event_time, duration_hours, venue_covered, venue_size, needs_sound, status, price_per_hour)
-    VALUES (gen_random_uuid(), v_g39, v_client, 'boda', 'D39', 'M39', 'E39', CURRENT_DATE, '18:00', 3, 'si', 'salon_mediano', 'no_group_brings', 'quoted', 300)
+       event_date, event_time, duration_hours, venue_covered, venue_size, needs_sound, status, overtime_1h_price)
+    VALUES (gen_random_uuid(), v_g39, v_client, 'boda', 'D39', 'M39', 'E39', CURRENT_DATE, '18:00', 3, 'si', 'salon_mediano', 'no_group_brings', 'quoted', 360)
     RETURNING id INTO v_quote39;
     INSERT INTO public.reservations (id, client_id, group_id, event_date, event_time, address, total_price, status, hours_count, event_started_at, quote_id)
       VALUES (gen_random_uuid(), v_client, v_g39, CURRENT_DATE, '18:00', 'Dir39', 3000, 'in_progress', 3, NOW() - INTERVAL '2 hours', v_quote39)
       RETURNING id INTO v_res39;
 
-    -- Grupo US en conserjería, evento en curso, SIN price_per_hour negociado
+    -- Grupo US en conserjería, evento en curso, SIN paquete de hora extra negociado
     INSERT INTO public.groups (id, owner_id, name, genre, country_id, country, state, concierge_mode)
       VALUES (gen_random_uuid(), v_owner2, 'RT602 ExtraUS39', 'Banda', v_country_us, 'Estados Unidos', 'New York', true) RETURNING id INTO v_g39_us;
     INSERT INTO public.reservations (id, client_id, group_id, event_date, event_time, address, total_price, status, hours_count, event_started_at)
@@ -1301,15 +1306,15 @@ BEGIN
     ASSERT EXISTS(SELECT 1 FROM jsonb_array_elements(v_resp39->'items') i WHERE (i->>'reservation_id')::uuid = v_res39_us),
       '[39] REGRESIÓN: el admin_ops de EE.UU. no ve su propio evento en vivo — revisar sql/651';
 
-    -- Usa el precio ya negociado (price_per_hour=300) sin mandar uno nuevo
+    -- Usa el paquete de 1h ya negociado (overtime_1h_price=360) sin mandar uno nuevo
     RESET role;
     PERFORM set_config('request.jwt.claims', json_build_object('sub', v_admin39::text, 'role','authenticated')::text, true);
     PERFORM set_config('role','authenticated', true);
     v_resp39 := public.admin_propose_extra_hours(v_res39, 1, NULL, 'prueba');
     RESET role;
-    ASSERT (v_resp39->>'ok')::boolean = true, '[39] REGRESIÓN: admin_propose_extra_hours falló usando el precio ya negociado — revisar sql/651: ' || v_resp39::text;
+    ASSERT (v_resp39->>'ok')::boolean = true, '[39] REGRESIÓN: admin_propose_extra_hours falló usando el paquete ya negociado — revisar sql/653: ' || v_resp39::text;
     ASSERT (v_resp39->>'total_extra_cost')::numeric = 360,
-      '[39] REGRESIÓN: total_extra_cost mal calculado (300 neto × 1h × 1.20 = 360) — revisar sql/651: ' || (v_resp39->>'total_extra_cost');
+      '[39] REGRESIÓN: total_extra_cost ya no toma el paquete de 1h ya guardado (360) — revisar sql/653: ' || (v_resp39->>'total_extra_cost');
     ASSERT EXISTS(SELECT 1 FROM notifications WHERE user_id=v_client AND type='extra_hour_proposed' AND data->>'reservation_id'=v_res39::text),
       '[39] REGRESIÓN: no se notificó al cliente la propuesta de hora extra — revisar el trigger trg_notify_extra_hour_proposed';
 
@@ -1352,11 +1357,11 @@ BEGIN
       VALUES (gen_random_uuid(), v_owner40, 'RT602 Extra40', 'Banda', v_country_mx, true) RETURNING id INTO v_g40;
     INSERT INTO public.quotes
       (id, group_id, client_id, event_type, event_address, event_municipio, event_estado,
-       event_date, event_time, duration_hours, venue_covered, venue_size, needs_sound, status, price_per_hour)
-    VALUES (gen_random_uuid(), v_g40, v_client, 'boda', 'D40', 'M40', 'E40', CURRENT_DATE, '18:00', 3, 'si', 'salon_mediano', 'no_group_brings', 'quoted', 300)
+       event_date, event_time, duration_hours, venue_covered, venue_size, needs_sound, status, overtime_1h_price)
+    VALUES (gen_random_uuid(), v_g40, v_client, 'boda', 'D40', 'M40', 'E40', CURRENT_DATE, '18:00', 3, 'si', 'salon_mediano', 'no_group_brings', 'quoted', 360)
     RETURNING id INTO v_quote40;
 
-    -- negotiated_hourly visible en la cola de eventos en vivo
+    -- negotiated_1h visible en la cola de eventos en vivo (360 client → 300 neto)
     INSERT INTO public.reservations (id, client_id, group_id, event_date, event_time, address, total_price, status, hours_count, event_started_at, quote_id, client_available_balance, currency_code)
       VALUES (gen_random_uuid(), v_client, v_g40, CURRENT_DATE, '18:00', 'Dir40', 3000, 'in_progress', 3, NOW() - INTERVAL '2 hours', v_quote40, 1000, 'MXN')
       RETURNING id INTO v_res40;
@@ -1368,8 +1373,8 @@ BEGIN
     RESET role;
     ASSERT EXISTS(
       SELECT 1 FROM jsonb_array_elements(v_resp40->'items') i
-      WHERE (i->>'reservation_id')::uuid = v_res40 AND (i->>'negotiated_hourly')::numeric = 300
-    ), '[40] REGRESIÓN: negotiated_hourly ya no viaja en admin_get_concierge_live_reservations — revisar sql/652';
+      WHERE (i->>'reservation_id')::uuid = v_res40 AND (i->>'negotiated_1h')::numeric = 300
+    ), '[40] REGRESIÓN: negotiated_1h ya no viaja en admin_get_concierge_live_reservations — revisar sql/653';
 
     -- Pago con SALDO — approve_extra_hour_payment_atomic debe avisar al admin
     INSERT INTO public.extra_hours (reservation_id, hours_added, price_per_hour, total_extra_cost, platform_commission, group_extra_earnings, status, is_cash_payment, payment_method, currency_code)
@@ -1400,7 +1405,51 @@ BEGIN
       '[40] REGRESIÓN: no se avisó al admin cuando se pagó una hora extra con tarjeta (grupo en conserjería) — revisar sql/652';
   END;
 
-  RAISE EXCEPTION 'REGRESSION_SUITE: TODO PASÓ (40/40) — temporizador, notificaciones de engagement, bono de referido MX/USD, descuento al cliente, choque de horarios, sin-temporizador por categoría (incluye fotógrafos), anuncios (clientes bloqueados, sin teléfonos, solo categoría distinta, correcto con dueños de varios grupos), cupo de Destacado/Recomendado por categoría, precio de publicidad calculado server-side (video +35%, Recomendado > Destacado), regalo/quite de Bidding del admin, ranking de Bidding por estado, TODOS los regalos (no solo Otro monto) abren GiftReveal, la notificación de admin ya no dice "Trofeo" para un monto personalizado, el interruptor de mostrar regalos a los músicos integrantes, notificar al integrante removido, notificar a los integrantes al desactivar el interruptor, la matemática de tandas/descansos, el candado+idempotencia de complete_event, auto_finalize_stuck_events por fin cierra eventos realmente atorados sin tronar, las categorías Espectáculo/Maestro de Ceremonias siguen funcionando, category_details (preguntas por categoría de Comida/Renta/Shows/Fotógrafos) guarda y lee tal cual en groups y quotes, la lista de opciones por categoría que crece sola (get_category_field_values) deduplica y no mezcla categorías, Payasos ahora vive fusionado dentro de Shows (elige descanso libremente, ya no forzado), group_category_key por fin clasifica Espectáculo/Maestro de Ceremonias correctamente, los recordatorios de evento ya respetan la zona horaria real de cada evento (no siempre México), el modo conserjería completo (cotización inicial + traslado marcado con comisión + precio de hora extra + proponer horas extra en nombre del grupo durante el evento en vivo + aviso al admin cuando se paga una hora extra por saldo o tarjeta + precio ya negociado visible en la app, todo aislado por país), y las solicitudes de proveedores nuevos (anon puede mandar, categoría inválida se rechaza, aislamiento por país, aprobar crea cuenta real en modo conserjería y bloquea doble aprobación, rechazar guarda motivo y bloquea re-procesar)';
+  -- ══ 41. Paquetes de hora extra independientes por número de horas (descuento por volumen) — sql/653 ══
+  DECLARE
+    v_admin41 UUID;
+    v_g41     UUID;
+    v_q41     UUID;
+    v_res41   UUID;
+    v_resp41  JSONB;
+  BEGIN
+    SELECT id INTO v_admin41 FROM public.profiles WHERE role='admin' LIMIT 1;
+
+    INSERT INTO public.groups (id, owner_id, name, genre, country_id, concierge_mode)
+      VALUES (gen_random_uuid(), v_owner, 'RT602 Bundle41', 'Banda', v_country_mx, true) RETURNING id INTO v_g41;
+    INSERT INTO public.quotes
+      (id, group_id, client_id, event_type, event_address, event_municipio, event_estado,
+       event_date, event_time, duration_hours, venue_covered, venue_size, needs_sound)
+    VALUES (gen_random_uuid(), v_g41, v_client, 'boda', 'D41', 'M41', 'E41', CURRENT_DATE + 70, '19:00', 4, 'si', 'salon_mediano', 'no_group_brings')
+    RETURNING id INTO v_q41;
+
+    -- 1h=$400, 2h=$750 (descuento — NO 800), 3h=$1100 (descuento — NO 1200)
+    RESET role;
+    PERFORM set_config('request.jwt.claims', json_build_object('sub', v_admin41::text, 'role','authenticated')::text, true);
+    PERFORM set_config('role','authenticated', true);
+    v_resp41 := public.admin_respond_quote(v_q41, 8000, 0, 400, 750, 1100, NULL);
+    RESET role;
+    ASSERT (v_resp41->>'ok')::boolean = true, '[41] REGRESIÓN: admin_respond_quote falló — revisar sql/653: ' || v_resp41::text;
+
+    INSERT INTO public.reservations (id, client_id, group_id, event_date, event_time, address, total_price, status, hours_count, event_started_at, quote_id)
+      VALUES (gen_random_uuid(), v_client, v_g41, CURRENT_DATE + 70, '19:00', 'Dir41', 9600, 'in_progress', 4, NOW() - INTERVAL '4 hours', v_q41)
+      RETURNING id INTO v_res41;
+
+    -- Proponer 2h extra SIN mandar precio — debe usar el bundle de 2h ($900
+    -- con markup), NUNCA 2 × precio de 1h ($480 × 2 = $960).
+    RESET role;
+    PERFORM set_config('request.jwt.claims', json_build_object('sub', v_admin41::text, 'role','authenticated')::text, true);
+    PERFORM set_config('role','authenticated', true);
+    v_resp41 := public.admin_propose_extra_hours(v_res41, 2, NULL, NULL);
+    RESET role;
+    ASSERT (v_resp41->>'ok')::boolean = true, '[41] REGRESIÓN: admin_propose_extra_hours falló — revisar sql/653: ' || v_resp41::text;
+    ASSERT (v_resp41->>'total_extra_cost')::numeric = 900,
+      '[41] REGRESIÓN: admin_propose_extra_hours volvió a multiplicar el precio de 1h en vez de usar el paquete de 2h con descuento — revisar sql/653: ' || (v_resp41->>'total_extra_cost');
+    ASSERT (v_resp41->>'group_extra_earnings')::numeric = 750,
+      '[41] REGRESIÓN: group_extra_earnings ya no refleja el neto real del paquete de 2h ($750) — revisar sql/653: ' || (v_resp41->>'group_extra_earnings');
+  END;
+
+  RAISE EXCEPTION 'REGRESSION_SUITE: TODO PASÓ (41/41) — temporizador, notificaciones de engagement, bono de referido MX/USD, descuento al cliente, choque de horarios, sin-temporizador por categoría (incluye fotógrafos), anuncios (clientes bloqueados, sin teléfonos, solo categoría distinta, correcto con dueños de varios grupos), cupo de Destacado/Recomendado por categoría, precio de publicidad calculado server-side (video +35%, Recomendado > Destacado), regalo/quite de Bidding del admin, ranking de Bidding por estado, TODOS los regalos (no solo Otro monto) abren GiftReveal, la notificación de admin ya no dice "Trofeo" para un monto personalizado, el interruptor de mostrar regalos a los músicos integrantes, notificar al integrante removido, notificar a los integrantes al desactivar el interruptor, la matemática de tandas/descansos, el candado+idempotencia de complete_event, auto_finalize_stuck_events por fin cierra eventos realmente atorados sin tronar, las categorías Espectáculo/Maestro de Ceremonias siguen funcionando, category_details (preguntas por categoría de Comida/Renta/Shows/Fotógrafos) guarda y lee tal cual en groups y quotes, la lista de opciones por categoría que crece sola (get_category_field_values) deduplica y no mezcla categorías, Payasos ahora vive fusionado dentro de Shows (elige descanso libremente, ya no forzado), group_category_key por fin clasifica Espectáculo/Maestro de Ceremonias correctamente, los recordatorios de evento ya respetan la zona horaria real de cada evento (no siempre México), el modo conserjería completo (cotización inicial con paquetes de hora extra INDEPENDIENTES por número de horas — nunca un precio por hora multiplicado — traslado marcado con comisión, proponer horas extra en nombre del grupo durante el evento en vivo, aviso al admin cuando se paga una hora extra por saldo o tarjeta, precio ya negociado visible en la app, todo aislado por país), y las solicitudes de proveedores nuevos (anon puede mandar, categoría inválida se rechaza, aislamiento por país, aprobar crea cuenta real en modo conserjería y bloquea doble aprobación, rechazar guarda motivo y bloquea re-procesar)';
 END;
 $suite$;
 
