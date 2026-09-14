@@ -28,6 +28,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
+import { PROVIDER_CATEGORIES } from '../../constants/providerCategories';
 
 const call = (phone?: string | null) => { if (phone) Linking.openURL(`tel:${phone}`); };
 const fecha = (d?: string | null) =>
@@ -89,14 +90,20 @@ export default function AdminProviderApplicationsScreen({ navigation }: any) {
   const openApprove = (item: AppItem) => {
     setApproveTarget(item);
     setEmail('');
-    setGenre('');
+    // Si su categoría solo tiene un género posible (DJ, Comida, MC,
+    // Comediante), se preselecciona — si tiene varios (grupo musical,
+    // show, luz y sonido, renta, fotógrafos), el admin elige de la lista
+    // real de abajo, nunca escribe a mano (evita que un typo lo deje
+    // invisible en esa categoría del Explorador).
+    const opts = PROVIDER_CATEGORIES.find(c => c.key === item.category)?.genres ?? [];
+    setGenre(opts.length === 1 ? opts[0] : '');
     setTempPassword('');
   };
 
   const sendApprove = async () => {
     if (!approveTarget) return;
     if (!email.trim() || !genre.trim()) {
-      Alert.alert('Faltan datos', 'Escribe el correo y el género exacto del grupo.');
+      Alert.alert('Faltan datos', 'Escribe el correo y elige el género exacto del grupo.');
       return;
     }
     setApproving(true);
@@ -252,14 +259,14 @@ export default function AdminProviderApplicationsScreen({ navigation }: any) {
               autoCapitalize="none"
             />
 
-            <Text style={s.label}>Género exacto (ej. Banda, Mariachi, DJ)</Text>
-            <TextInput
-              style={s.input}
-              value={genre}
-              onChangeText={setGenre}
-              placeholder="Ej. Banda"
-              placeholderTextColor={COLORS.muted}
-            />
+            <Text style={s.label}>Género exacto — de esto depende que aparezca en su categoría del Explorador</Text>
+            <View style={s.genreGrid}>
+              {(PROVIDER_CATEGORIES.find(c => c.key === approveTarget?.category)?.genres ?? []).map(g => (
+                <Pressable key={g} style={[s.genreChip, genre === g && s.genreChipActive]} onPress={() => setGenre(g)}>
+                  <Text style={[s.genreChipText, genre === g && s.genreChipTextActive]}>{g}</Text>
+                </Pressable>
+              ))}
+            </View>
 
             <Text style={s.label}>Contraseña temporal (opcional, se genera una si la dejas vacía)</Text>
             <TextInput
@@ -387,6 +394,14 @@ const s = StyleSheet.create({
     paddingHorizontal: 14, paddingVertical: 12,
     fontFamily: FONTS.body, fontSize: 15, color: COLORS.text, marginBottom: 14,
   },
+  genreGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 14 },
+  genreChip: {
+    paddingHorizontal: 12, paddingVertical: 8, borderRadius: RADIUS.full,
+    backgroundColor: COLORS.bg, borderWidth: 1, borderColor: COLORS.border,
+  },
+  genreChipActive: { backgroundColor: COLORS.green, borderColor: COLORS.green },
+  genreChipText: { fontFamily: FONTS.bodyMedium, fontSize: 12, color: COLORS.muted2 },
+  genreChipTextActive: { color: COLORS.bg },
   modalBtn: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 13, borderRadius: RADIUS.md },
   modalBtnCancel: { backgroundColor: COLORS.card2, borderWidth: 1, borderColor: COLORS.border },
   modalBtnCancelText: { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: COLORS.muted2 },

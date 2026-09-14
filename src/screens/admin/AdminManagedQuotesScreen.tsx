@@ -63,6 +63,7 @@ export default function AdminManagedQuotesScreen({ navigation }: any) {
   const [priceModal, setPriceModal] = useState<QuoteItem | null>(null);
   const [basePrice, setBasePrice] = useState('');
   const [travelCost, setTravelCost] = useState('');
+  const [overtimeHourPrice, setOvertimeHourPrice] = useState('');
   const [notes, setNotes] = useState('');
   const [sending, setSending] = useState(false);
 
@@ -81,6 +82,7 @@ export default function AdminManagedQuotesScreen({ navigation }: any) {
     setPriceModal(item);
     setBasePrice('');
     setTravelCost('');
+    setOvertimeHourPrice('');
     setNotes('');
   };
 
@@ -96,6 +98,7 @@ export default function AdminManagedQuotesScreen({ navigation }: any) {
       p_quote_id: priceModal.quote_id,
       p_base_price: price,
       p_travel_cost: travelCost ? Number(travelCost.replace(',', '.')) : 0,
+      p_overtime_hour_price: overtimeHourPrice ? Number(overtimeHourPrice.replace(',', '.')) : null,
       p_notes: notes.trim() || null,
     });
     setSending(false);
@@ -197,6 +200,16 @@ export default function AdminManagedQuotesScreen({ navigation }: any) {
               value={travelCost}
               onChangeText={setTravelCost}
               placeholder="0"
+              placeholderTextColor={COLORS.muted}
+              keyboardType="numeric"
+            />
+
+            <Text style={s.label}>Precio por hora extra (neto, opcional)</Text>
+            <TextInput
+              style={s.input}
+              value={overtimeHourPrice}
+              onChangeText={setOvertimeHourPrice}
+              placeholder="Ej. 500 — pregúntale al grupo cuánto cobra la hora extra"
               placeholderTextColor={COLORS.muted}
               keyboardType="numeric"
             />

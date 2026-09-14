@@ -109,7 +109,8 @@
 --      dueño; notifica al admin completo [respetando su mute de país] y
 --      al admin_ops de ese país; admin_ops puede poner precio y el
 --      cliente recibe la cotización normal, como si el grupo mismo
---      hubiera respondido)
+--      hubiera respondido) + markup 20% sobre base+traslado (sql/648 fix)
+--      + precio de hora extra opcional (sql/650)
 --  34. admin_respond_quote rechaza grupo sin modo conserjería — sql/648
 --      (un admin no puede "ayudar" a un grupo que ya maneja su propia
 --      cuenta — la cotización se queda intacta en 'pending')
@@ -1045,7 +1046,7 @@ BEGIN
     RESET role;
     PERFORM set_config('request.jwt.claims', json_build_object('sub', v_adminops33::text, 'role','authenticated')::text, true);
     PERFORM set_config('role','authenticated', true);
-    v_resp33 := public.admin_respond_quote(v_q33, 8000, 500, 'Confirmó por teléfono');
+    v_resp33 := public.admin_respond_quote(v_q33, 8000, 500, 400, 'Confirmó por teléfono');
     RESET role;
 
     ASSERT (v_resp33->>'ok')::boolean = true,
@@ -1063,6 +1064,13 @@ BEGIN
     ASSERT EXISTS(
       SELECT 1 FROM public.quotes WHERE id = v_q33 AND commission_amount = 1700 AND group_earnings = 8500
     ), '[33] REGRESIÓN: commission_amount/group_earnings ya no reflejan base+traslado — revisar sql/648';
+
+    -- Precio de hora extra (sql/650) — 400 neto → 480/960/1440 con markup,
+    -- mismos campos que lee ExtraHoursScreen (overtime_Xh_price).
+    ASSERT EXISTS(
+      SELECT 1 FROM public.quotes WHERE id = v_q33
+        AND price_per_hour = 400 AND overtime_1h_price = 480 AND overtime_2h_price = 960 AND overtime_3h_price = 1440
+    ), '[33] REGRESIÓN: admin_respond_quote ya no calcula bien el precio de hora extra — revisar sql/650';
 
     ASSERT EXISTS(
       SELECT 1 FROM notifications WHERE user_id = v_client AND type='quote_received' AND data->>'quote_id' = v_q33::text
@@ -1093,7 +1101,7 @@ BEGIN
     RESET role;
     PERFORM set_config('request.jwt.claims', json_build_object('sub', v_admin34::text, 'role','authenticated')::text, true);
     PERFORM set_config('role','authenticated', true);
-    v_resp34 := public.admin_respond_quote(v_q34, 8000, 0, NULL);
+    v_resp34 := public.admin_respond_quote(v_q34, 8000, 0, NULL, NULL);
     RESET role;
 
     ASSERT (v_resp34->>'ok')::boolean = false AND v_resp34->>'error' = 'group_not_in_concierge_mode',
