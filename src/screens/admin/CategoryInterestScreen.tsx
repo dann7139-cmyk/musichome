@@ -28,7 +28,7 @@ interface InterestRow {
   state: string | null;
   created_at: string;
   contacted_at: string | null;
-  client: { name: string | null; phone: string | null } | null;
+  client: { full_name: string | null; phone: string | null } | null;
 }
 
 type Tab = 'pending' | 'contacted';
@@ -48,7 +48,7 @@ export default function CategoryInterestScreen({ navigation }: any) {
   const fetchRows = async () => {
     const { data, error } = await supabase
       .from('category_interest_requests')
-      .select('id, category_label, genres, city, state, created_at, contacted_at, client:profiles!category_interest_requests_client_id_fkey(name, phone)')
+      .select('id, category_label, genres, city, state, created_at, contacted_at, client:profiles!category_interest_requests_client_id_fkey(full_name, phone)')
       .order('created_at', { ascending: false })
       .limit(200);
     if (error) {
@@ -124,7 +124,7 @@ export default function CategoryInterestScreen({ navigation }: any) {
                   <Text style={s.category}>{r.category_label}</Text>
                   <Text style={s.date}>{new Date(r.created_at).toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })}</Text>
                 </View>
-                <Text style={s.clientName}>{r.client?.name ?? '—'}</Text>
+                <Text style={s.clientName}>{r.client?.full_name ?? '—'}</Text>
                 {(r.city || r.state) && (
                   <View style={s.metaRow}>
                     <MapPin size={12} color={COLORS.muted} />
