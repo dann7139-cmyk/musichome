@@ -1,6 +1,6 @@
 -- ============================================================
 -- sql/602_regression_suite_notifications_referrals.sql
--- SUITE DE REGRESIÓN — ✅ CORRIÓ 34/34 PASS 2026-09-13. No aplica nada,
+-- SUITE DE REGRESIÓN — ✅ CORRIÓ 38/38 PASS 2026-09-13. No aplica nada,
 -- solo prueba. Correr esto ANTES y
 -- DESPUÉS de tocar cualquier función relacionada con notificaciones,
 -- referidos, o el choque de horarios entre proveedores. Si algo de esto
@@ -113,6 +113,16 @@
 --  34. admin_respond_quote rechaza grupo sin modo conserjería — sql/648
 --      (un admin no puede "ayudar" a un grupo que ya maneja su propia
 --      cuenta — la cotización se queda intacta en 'pending')
+--  35. submit_provider_application — sql/649 (anon puede mandar solicitud,
+--      queda pending y notifica al admin/admin_ops correcto; categoría
+--      inválida se rechaza)
+--  36. admin_get_provider_applications — sql/649 (aislamiento por país:
+--      admin_ops de EE.UU. no ve una solicitud de México)
+--  37. admin_approve_provider_application — sql/649 (crea auth.users +
+--      profiles + groups de verdad, concierge_mode=true por default,
+--      bloquea re-aprobar — evita crear una 2a cuenta por error)
+--  38. admin_reject_provider_application — sql/649 (guarda el motivo,
+--      bloquea re-procesar una solicitud ya resuelta)
 --
 -- Cómo leer el resultado: si TODO pasa, ves un solo error final que dice
 -- literalmente "REGRESSION_SUITE: TODO PASÓ" — ES EL RESULTADO ESPERADO
@@ -1093,7 +1103,136 @@ BEGIN
       '[34] REGRESIÓN: admin_respond_quote modificó una cotización que debió rechazar — revisar sql/648';
   END;
 
-  RAISE EXCEPTION 'REGRESSION_SUITE: TODO PASÓ (34/34) — temporizador, notificaciones de engagement, bono de referido MX/USD, descuento al cliente, choque de horarios, sin-temporizador por categoría (incluye fotógrafos), anuncios (clientes bloqueados, sin teléfonos, solo categoría distinta, correcto con dueños de varios grupos), cupo de Destacado/Recomendado por categoría, precio de publicidad calculado server-side (video +35%, Recomendado > Destacado), regalo/quite de Bidding del admin, ranking de Bidding por estado, TODOS los regalos (no solo Otro monto) abren GiftReveal, la notificación de admin ya no dice "Trofeo" para un monto personalizado, el interruptor de mostrar regalos a los músicos integrantes, notificar al integrante removido, notificar a los integrantes al desactivar el interruptor, la matemática de tandas/descansos, el candado+idempotencia de complete_event, auto_finalize_stuck_events por fin cierra eventos realmente atorados sin tronar, las categorías Espectáculo/Maestro de Ceremonias siguen funcionando, category_details (preguntas por categoría de Comida/Renta/Shows/Fotógrafos) guarda y lee tal cual en groups y quotes, la lista de opciones por categoría que crece sola (get_category_field_values) deduplica y no mezcla categorías, Payasos ahora vive fusionado dentro de Shows (elige descanso libremente, ya no forzado), group_category_key por fin clasifica Espectáculo/Maestro de Ceremonias correctamente, los recordatorios de evento ya respetan la zona horaria real de cada evento (no siempre México), y el modo conserjería (grupo normal sin cambios, grupo conserjería notifica al admin/admin_ops correcto en vez del dueño, y admin_respond_quote rechaza a un grupo que no está en modo conserjería)';
+  -- ══ 35. submit_provider_application (anon) — pending + notifica admin/admin_ops, categoría inválida se rechaza — sql/649 ══
+  DECLARE
+    v_admin35 UUID;
+    v_resp35  JSONB;
+    v_app35   UUID;
+  BEGIN
+    SELECT id INTO v_admin35 FROM public.profiles WHERE role='admin' LIMIT 1;
+    UPDATE public.profiles SET admin_muted_countries = '{}' WHERE id = v_admin35;
+
+    RESET role;
+    PERFORM set_config('role','anon', true);
+    v_resp35 := public.submit_provider_application('RT602 Solicitante35', '3311112222', 'grupo', 4, 2, 'México', 'Jalisco', 'Zapopan', 'nota de prueba');
+    RESET role;
+    ASSERT (v_resp35->>'ok')::boolean = true, '[35] REGRESIÓN: submit_provider_application falló para un caso válido — revisar sql/649: ' || v_resp35::text;
+    v_app35 := (v_resp35->>'application_id')::uuid;
+
+    ASSERT EXISTS(SELECT 1 FROM public.provider_applications WHERE id=v_app35 AND status='pending'),
+      '[35] REGRESIÓN: la solicitud no quedó pending — revisar sql/649';
+    ASSERT EXISTS(SELECT 1 FROM notifications WHERE user_id=v_admin35 AND type='provider_application' AND data->>'application_id'=v_app35::text),
+      '[35] REGRESIÓN: no se notificó al admin de la nueva solicitud — revisar sql/649';
+
+    RESET role;
+    PERFORM set_config('role','anon', true);
+    v_resp35 := public.submit_provider_application('RT602 Malo35', '3313334444', 'categoria_inexistente');
+    RESET role;
+    ASSERT (v_resp35->>'ok')::boolean = false AND v_resp35->>'error' = 'invalid_category',
+      '[35] REGRESIÓN: submit_provider_application dejó pasar una categoría inválida — revisar sql/649: ' || v_resp35::text;
+  END;
+
+  -- ══ 36. admin_get_provider_applications — aislamiento por país (admin_ops de EE.UU. no ve una solicitud de México) — sql/649 ══
+  DECLARE
+    v_adminops36 UUID;
+    v_resp36     JSONB;
+    v_resp36b    JSONB;
+    v_app36      UUID;
+  BEGIN
+    SELECT id INTO v_adminops36 FROM public.profiles WHERE role='admin_ops' AND admin_country_scope='US' LIMIT 1;
+
+    RESET role;
+    PERFORM set_config('role','anon', true);
+    v_resp36 := public.submit_provider_application('RT602 SoloMX36', '3315556666', 'dj', NULL, NULL, 'México', NULL, NULL, NULL);
+    RESET role;
+    v_app36 := (v_resp36->>'application_id')::uuid;
+
+    RESET role;
+    PERFORM set_config('request.jwt.claims', json_build_object('sub', v_adminops36::text, 'role','authenticated')::text, true);
+    PERFORM set_config('role','authenticated', true);
+    v_resp36b := public.admin_get_provider_applications('pending');
+    RESET role;
+
+    ASSERT NOT EXISTS(SELECT 1 FROM jsonb_array_elements(v_resp36b->'items') i WHERE (i->>'id')::uuid = v_app36),
+      '[36] REGRESIÓN: el admin_ops de EE.UU. vio una solicitud de México — revisar sql/649';
+  END;
+
+  -- ══ 37. admin_approve_provider_application — crea auth.users+profiles+groups (concierge_mode=true), bloquea doble aprobación — sql/649 ══
+  DECLARE
+    v_admin37 UUID;
+    v_resp37  JSONB;
+    v_app37   UUID;
+    v_user37  UUID;
+    v_group37 UUID;
+  BEGIN
+    SELECT id INTO v_admin37 FROM public.profiles WHERE role='admin' LIMIT 1;
+
+    RESET role;
+    PERFORM set_config('role','anon', true);
+    v_resp37 := public.submit_provider_application('RT602 Aprobar37', '3317778888', 'dj');
+    RESET role;
+    v_app37 := (v_resp37->>'application_id')::uuid;
+
+    RESET role;
+    PERFORM set_config('request.jwt.claims', json_build_object('sub', v_admin37::text, 'role','authenticated')::text, true);
+    PERFORM set_config('role','authenticated', true);
+    v_resp37 := public.admin_approve_provider_application(v_app37, 'rt602_37@example.com', 'DJ', 'clave_rt602');
+    RESET role;
+    ASSERT (v_resp37->>'ok')::boolean = true, '[37] REGRESIÓN: admin_approve_provider_application falló — revisar sql/649: ' || v_resp37::text;
+    v_user37  := (v_resp37->>'user_id')::uuid;
+    v_group37 := (v_resp37->>'group_id')::uuid;
+
+    ASSERT EXISTS(SELECT 1 FROM auth.users WHERE id=v_user37 AND email='rt602_37@example.com'),
+      '[37] REGRESIÓN: no se creó la cuenta real en auth.users — revisar sql/649';
+    ASSERT EXISTS(SELECT 1 FROM public.profiles WHERE id=v_user37 AND role='group' AND full_name='RT602 Aprobar37'),
+      '[37] REGRESIÓN: profiles no quedó con los datos de la solicitud — revisar sql/649';
+    ASSERT EXISTS(SELECT 1 FROM public.groups WHERE id=v_group37 AND genre='DJ' AND concierge_mode=true AND owner_id=v_user37),
+      '[37] REGRESIÓN: el grupo no nació en modo conserjería (o el dueño/género quedó mal) — revisar sql/649';
+    ASSERT EXISTS(SELECT 1 FROM public.provider_applications WHERE id=v_app37 AND status='approved' AND linked_group_id=v_group37),
+      '[37] REGRESIÓN: la solicitud no quedó approved con su linked_group_id — revisar sql/649';
+
+    RESET role;
+    PERFORM set_config('request.jwt.claims', json_build_object('sub', v_admin37::text, 'role','authenticated')::text, true);
+    PERFORM set_config('role','authenticated', true);
+    v_resp37 := public.admin_approve_provider_application(v_app37, 'otro_rt602_37@example.com', 'Banda', NULL);
+    RESET role;
+    ASSERT (v_resp37->>'ok')::boolean = false AND v_resp37->>'error' = 'already_approved',
+      '[37] REGRESIÓN: dejó re-aprobar una solicitud ya aprobada (riesgo: crearía una 2a cuenta) — revisar sql/649';
+  END;
+
+  -- ══ 38. admin_reject_provider_application — marca rechazada con motivo, bloquea re-procesar — sql/649 ══
+  DECLARE
+    v_admin38 UUID;
+    v_resp38  JSONB;
+    v_app38   UUID;
+  BEGIN
+    SELECT id INTO v_admin38 FROM public.profiles WHERE role='admin' LIMIT 1;
+
+    RESET role;
+    PERFORM set_config('role','anon', true);
+    v_resp38 := public.submit_provider_application('RT602 Rechazar38', '3319990000', 'comida');
+    RESET role;
+    v_app38 := (v_resp38->>'application_id')::uuid;
+
+    RESET role;
+    PERFORM set_config('request.jwt.claims', json_build_object('sub', v_admin38::text, 'role','authenticated')::text, true);
+    PERFORM set_config('role','authenticated', true);
+    v_resp38 := public.admin_reject_provider_application(v_app38, 'RT602 motivo de prueba');
+    RESET role;
+    ASSERT (v_resp38->>'ok')::boolean = true, '[38] REGRESIÓN: admin_reject_provider_application falló — revisar sql/649: ' || v_resp38::text;
+    ASSERT EXISTS(SELECT 1 FROM public.provider_applications WHERE id=v_app38 AND status='rejected' AND admin_notes='RT602 motivo de prueba'),
+      '[38] REGRESIÓN: el rechazo no quedó guardado con su motivo — revisar sql/649';
+
+    RESET role;
+    PERFORM set_config('request.jwt.claims', json_build_object('sub', v_admin38::text, 'role','authenticated')::text, true);
+    PERFORM set_config('role','authenticated', true);
+    v_resp38 := public.admin_reject_provider_application(v_app38, 'segundo intento');
+    RESET role;
+    ASSERT (v_resp38->>'ok')::boolean = false AND v_resp38->>'error' = 'already_resolved',
+      '[38] REGRESIÓN: dejó re-procesar una solicitud ya rechazada — revisar sql/649';
+  END;
+
+  RAISE EXCEPTION 'REGRESSION_SUITE: TODO PASÓ (38/38) — temporizador, notificaciones de engagement, bono de referido MX/USD, descuento al cliente, choque de horarios, sin-temporizador por categoría (incluye fotógrafos), anuncios (clientes bloqueados, sin teléfonos, solo categoría distinta, correcto con dueños de varios grupos), cupo de Destacado/Recomendado por categoría, precio de publicidad calculado server-side (video +35%, Recomendado > Destacado), regalo/quite de Bidding del admin, ranking de Bidding por estado, TODOS los regalos (no solo Otro monto) abren GiftReveal, la notificación de admin ya no dice "Trofeo" para un monto personalizado, el interruptor de mostrar regalos a los músicos integrantes, notificar al integrante removido, notificar a los integrantes al desactivar el interruptor, la matemática de tandas/descansos, el candado+idempotencia de complete_event, auto_finalize_stuck_events por fin cierra eventos realmente atorados sin tronar, las categorías Espectáculo/Maestro de Ceremonias siguen funcionando, category_details (preguntas por categoría de Comida/Renta/Shows/Fotógrafos) guarda y lee tal cual en groups y quotes, la lista de opciones por categoría que crece sola (get_category_field_values) deduplica y no mezcla categorías, Payasos ahora vive fusionado dentro de Shows (elige descanso libremente, ya no forzado), group_category_key por fin clasifica Espectáculo/Maestro de Ceremonias correctamente, los recordatorios de evento ya respetan la zona horaria real de cada evento (no siempre México), el modo conserjería (grupo normal sin cambios, grupo conserjería notifica al admin/admin_ops correcto en vez del dueño, y admin_respond_quote rechaza a un grupo que no está en modo conserjería), y las solicitudes de proveedores nuevos (anon puede mandar, categoría inválida se rechaza, aislamiento por país, aprobar crea cuenta real en modo conserjería y bloquea doble aprobación, rechazar guarda motivo y bloquea re-procesar)';
 END;
 $suite$;
 

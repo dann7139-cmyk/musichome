@@ -18,11 +18,11 @@ import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
-import { Gift, Lock, Mail, Music, User } from 'lucide-react-native';
+import { ArrowRight, Gift, Lock, Mail, Music, User } from 'lucide-react-native';
 import Particles from '../../components/ui/Particles';
 
-type RoleKey = 'client' | 'talent' | 'group';
-type DbRole  = 'client' | 'talent' | 'group';
+type RoleKey = 'client' | 'talent';
+type DbRole  = 'client' | 'talent';
 
 interface RoleDef {
   key:      RoleKey;
@@ -35,36 +35,14 @@ interface RoleDef {
 
 // Nota: label/subtitle/desc aquí son solo fallback interno (dbRole, defaults);
 // el texto mostrado en UI se resuelve vía t() en el render usando r.key.
+// 2026-09-13 — "Soy Prestador" se quitó del registro directo: antes
+// cualquiera creaba cuenta de grupo al instante, sin revisión ninguna.
+// Ahora todo proveedor nuevo pasa por ProviderApplyScreen (solicitud que
+// el admin aprueba manualmente, sql/649) — ver el enlace más abajo.
 const ROLES: RoleDef[] = [
-  { key: 'client', dbRole: 'client', label: 'Soy Cliente',   subtitle: '',                        emoji: '🎉', desc: 'Contrata artistas para tu evento' },
-  { key: 'talent', dbRole: 'talent', label: 'Soy Talento',   subtitle: 'Músico',                  emoji: '🎤', desc: 'Bolsa de trabajo musical' },
-  { key: 'group',  dbRole: 'group',  label: 'Soy Prestador', subtitle: 'Grupo · DJ · Show · Foto', emoji: '🎸', desc: 'Recibe cotizaciones y gestiona eventos' },
+  { key: 'client', dbRole: 'client', label: 'Soy Cliente',   subtitle: '',       emoji: '🎉', desc: 'Contrata artistas para tu evento' },
+  { key: 'talent', dbRole: 'talent', label: 'Soy Talento',   subtitle: 'Músico', emoji: '🎤', desc: 'Bolsa de trabajo musical' },
 ];
-
-interface CategoryDef {
-  key:   string;
-  label: string;
-  emoji: string;
-  desc:  string;
-}
-
-/** Todas las categorías de servicio para prestadores */
-const GRUPO_CATEGORIES: CategoryDef[] = [
-  { key: 'grupo',              label: 'Grupo / Solista',    emoji: '🎸', desc: 'Banda, conjunto musical o artista solista' },
-  { key: 'dj',                 label: 'DJ',                 emoji: '🎧', desc: 'Música electrónica y mezclas' },
-  { key: 'payaso',             label: 'Payaso / Animación', emoji: '🤡', desc: 'Entretenimiento infantil' },
-  { key: 'fotografia',         label: 'Foto / Video',       emoji: '📸', desc: 'Fotografía y videografía de eventos' },
-  { key: 'show',               label: 'Espectáculo',        emoji: '🎪', desc: 'Shows, magia, performance' },
-  { key: 'maestro_ceremonias', label: 'Maestro de Ceremonias', emoji: '🎙️', desc: 'MC y conducción de eventos' },
-  { key: 'animacion',          label: 'Animación / Brincolines', emoji: '🎠', desc: 'Entretenimiento general' },
-];
-
-/** Categoría por defecto según rol */
-const DEFAULT_CATEGORY: Record<RoleKey, string> = {
-  client: 'client',
-  talent: 'music',
-  group:  'grupo',
-};
 
 export default function RegisterScreen({ navigation, route }: any) {
   const { t } = useTranslation();
@@ -72,7 +50,6 @@ export default function RegisterScreen({ navigation, route }: any) {
   const [email, setEmail]                    = useState('');
   const [password, setPassword]              = useState('');
   const [role, setRole]                      = useState<RoleKey>('client');
-  const [category, setCategory]              = useState<string>('client');
 
   // Talent-specific
   const [instrument, setInstrument]          = useState('');
@@ -94,7 +71,6 @@ export default function RegisterScreen({ navigation, route }: any) {
 
   const handleSelectRole = (r: RoleKey) => {
     setRole(r);
-    setCategory(DEFAULT_CATEGORY[r]);
   };
 
   const handleRegister = async () => {
@@ -140,7 +116,7 @@ export default function RegisterScreen({ navigation, route }: any) {
           email: email.trim(),
           full_name: fullName.trim(),
           role: dbRole,
-          phone: (role === 'talent' || role === 'group') && phone.trim() ? phone.trim() : null,
+          phone: role === 'talent' && phone.trim() ? phone.trim() : null,
           phone_verified: false,
           id_verified: false,
           // Registro de aceptación (clickwrap) — columna de sql/482
@@ -157,17 +133,6 @@ export default function RegisterScreen({ navigation, route }: any) {
             experience_years:    parseInt(expYears) || 0,
             bio:                 bio.trim() || null,
             is_visible:          true,
-            availability_status: 'available',
-          },
-          { onConflict: 'user_id' }
-        );
-      } else if (role === 'group') {
-        // Guardar tipo de grupo/show para clasificación
-        await supabase.from('job_board_profiles').upsert(
-          {
-            user_id:             userId,
-            instrument_or_role:  category,
-            is_visible:          false,
             availability_status: 'available',
           },
           { onConflict: 'user_id' }
@@ -191,7 +156,7 @@ export default function RegisterScreen({ navigation, route }: any) {
 
     setLoading(false);
 
-    if (selectedRole.dbRole === 'talent' || selectedRole.dbRole === 'group') {
+    if (selectedRole.dbRole === 'talent') {
       setRegistered(true);
     } else {
       const referralMsg = referralCode.trim()
@@ -316,18 +281,12 @@ export default function RegisterScreen({ navigation, route }: any) {
               {ROLES.map((r) => {
                 const roleLabel = r.key === 'client'
                   ? t('auth.register.role_client')
-                  : r.key === 'talent'
-                  ? t('auth.register.role_talent')
-                  : t('auth.register.role_provider');
+                  : t('auth.register.role_talent');
                 const roleDesc = r.key === 'client'
                   ? t('auth.register.role_client_desc')
-                  : r.key === 'talent'
-                  ? t('auth.register.role_talent_desc')
-                  : t('auth.register.role_provider_desc');
+                  : t('auth.register.role_talent_desc');
                 const roleSubtitle = r.key === 'talent'
                   ? t('registerScreen.roleSubtitleTalent')
-                  : r.key === 'group'
-                  ? t('registerScreen.roleSubtitleGroup')
                   : '';
                 return (
                   <Pressable
@@ -423,38 +382,18 @@ export default function RegisterScreen({ navigation, route }: any) {
               </View>
             )}
 
-            {/* ── SOY PRESTADOR — Todas las categorías ─────────────────── */}
-            {role === 'group' && (
-              <View style={styles.extraSection}>
-                <View style={styles.sectionHeader}>
-                  <Text style={styles.sectionEmoji}>🎪</Text>
-                  <Text style={styles.sectionHeaderText}>{t('registerScreen.providerSectionTitle')}</Text>
-                </View>
-                <View style={styles.categoryGrid}>
-                  {GRUPO_CATEGORIES.map((cat) => (
-                    <Pressable
-                      key={cat.key}
-                      style={[styles.categoryCard, category === cat.key && styles.categoryCardActive]}
-                      onPress={() => setCategory(cat.key)}
-                    >
-                      <Text style={styles.categoryEmoji}>{cat.emoji}</Text>
-                      <Text style={[styles.categoryLabel, category === cat.key && styles.categoryLabelActive]}>
-                        {t(`registerScreen.categories.${cat.key}.label`)}
-                      </Text>
-                      <Text style={styles.categoryDesc}>{t(`registerScreen.categories.${cat.key}.desc`)}</Text>
-                    </Pressable>
-                  ))}
-                </View>
-
-                <Input
-                  label={t('registerScreen.phoneLabel')}
-                  placeholder={t('registerScreen.phonePlaceholder')}
-                  value={phone}
-                  onChangeText={setPhone}
-                  keyboardType="phone-pad"
-                />
-              </View>
-            )}
+            {/* "Soy Prestador" se quitó del registro directo (2026-09-13) —
+                todo proveedor nuevo pasa por la solicitud que el admin
+                revisa manualmente antes de crear la cuenta (sql/649). */}
+            <Pressable
+              style={styles.providerLinkRow}
+              onPress={() => navigation?.navigate?.('ProviderApply')}
+            >
+              <Text style={styles.providerLinkText}>
+                🎪 ¿Tienes un grupo o servicio? <Text style={styles.providerLinkHighlight}>Postúlate aquí</Text>
+              </Text>
+              <ArrowRight size={16} color={COLORS.green} />
+            </Pressable>
 
             {/* Código de referido — solo para clientes */}
             {role === 'client' && (
@@ -604,6 +543,15 @@ const styles = StyleSheet.create({
   referralHeader: { flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 4 },
   referralLabel:  { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.green },
   referralHint:   { fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted, marginTop: -4 },
+
+  providerLinkRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    backgroundColor: COLORS.card, borderRadius: RADIUS.lg,
+    borderWidth: 1, borderColor: COLORS.border,
+    paddingHorizontal: SPACING.lg, paddingVertical: 14, marginBottom: 16,
+  },
+  providerLinkText:      { flex: 1, fontFamily: FONTS.body, fontSize: 13, color: COLORS.muted2, marginRight: 8 },
+  providerLinkHighlight: { fontFamily: FONTS.bodySemiBold, color: COLORS.green },
 
   footer:     { flexDirection: 'row', justifyContent: 'center', marginTop: 24 },
   footerText: { fontFamily: FONTS.body, fontSize: 14, color: COLORS.muted2 },

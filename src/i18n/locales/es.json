@@ -2162,7 +2162,8 @@
       "liveMap": "Mapa en vivo",
       "withdrawals": "Retiros",
       "ads": "Anuncios",
-      "concierge": "Cotizaciones que manejo"
+      "concierge": "Cotizaciones que manejo",
+      "providerApplications": "Solicitudes de proveedores"
     },
     "common": {
       "close": "Cerrar",

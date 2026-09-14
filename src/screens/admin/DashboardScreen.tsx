@@ -10,6 +10,7 @@ import {
   RefreshCw,
   Shield,
   TrendingUp,
+  UserPlus,
   Users,
   Wallet,
   Zap,
@@ -65,6 +66,7 @@ const getQuickActions = (t: TFunction) => ([
   { icon: Wallet,    label: t('adminDashboardScreen.quickActions.withdrawals'),   colors: ['#002213','#000f09'], ic: COLORS.green, screen: 'AdminFinancial' },
   { icon: Megaphone, label: t('adminDashboardScreen.quickActions.ads'),           colors: ['#001a1a','#000d0d'], ic: '#00C4B4',    screen: 'AdApproval' },
   { icon: Phone,     label: t('adminDashboardScreen.quickActions.concierge'),     colors: ['#002213','#000f09'], ic: COLORS.green, screen: 'AdminManagedQuotes' },
+  { icon: UserPlus,  label: t('adminDashboardScreen.quickActions.providerApplications'), colors: ['#1a0d3d','#0d0617'], ic: '#CE93D8', screen: 'AdminProviderApplications' },
 ]);
 
 export default function AdminDashboardScreen({ navigation }: any) {

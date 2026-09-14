@@ -38,6 +38,7 @@ import IntroScreen    from '../src/screens/auth/IntroScreen';
 import LoginScreen    from '../src/screens/auth/LoginScreen';
 import NewPasswordScreen from '../src/screens/auth/NewPasswordScreen';
 import RegisterScreen         from '../src/screens/auth/RegisterScreen';
+import ProviderApplyScreen    from '../src/screens/auth/ProviderApplyScreen';
 import LocationRequestScreen from '../src/screens/auth/LocationRequestScreen';
 
 // Client
@@ -138,6 +139,7 @@ import EventPayoutsScreen from '../src/screens/shared/EventPayoutsScreen';
 // AdminFinancial (admin_complete_payout, sql/469).
 import AdminMediaReviewScreen from '../src/screens/admin/MediaReviewScreen';
 import AdminManagedQuotesScreen from '../src/screens/admin/AdminManagedQuotesScreen';
+import AdminProviderApplicationsScreen from '../src/screens/admin/AdminProviderApplicationsScreen';
 import AdApprovalScreen from '../src/screens/admin/AdApprovalScreen';
 import TicketScreen from '../src/screens/shared/TicketScreen';
 import GiftRevealScreen from '../src/screens/shared/GiftRevealScreen';
@@ -963,6 +965,9 @@ export default function AppNavigator() {
           <Stack.Screen name="Intro"    component={IntroScreen} />
           <Stack.Screen name="Login"    component={LoginScreen} />
           <Stack.Screen name="Register" component={RegisterScreen} />
+          {/* sql/649 (2026-09-13) — solicitud de proveedores nuevos, sin
+              sesión. Reemplaza el registro directo como "Soy Prestador". */}
+          <Stack.Screen name="ProviderApply" component={ProviderApplyScreen} />
           <Stack.Screen name="Legal"    component={LegalScreen} />
         </Stack.Navigator>
       </NavigationContainer>
@@ -1046,6 +1051,7 @@ export default function AppNavigator() {
             <Stack.Screen name="QuoteForm"          component={QuoteFormScreen} />
             <Stack.Screen name="AdminMediaReview"   component={AdminMediaReviewScreen} />
             <Stack.Screen name="AdminManagedQuotes" component={AdminManagedQuotesScreen} />
+            <Stack.Screen name="AdminProviderApplications" component={AdminProviderApplicationsScreen} />
             <Stack.Screen name="AdApproval"          component={AdApprovalScreen} />
             <Stack.Screen name="Ticket"              component={TicketScreen} />
             <Stack.Screen name="AdminTicketSearch"   component={AdminTicketSearchScreen} />
@@ -1072,6 +1078,9 @@ export default function AppNavigator() {
                 país del lado del servidor, misma pantalla compartida con el
                 admin completo. */}
             <Stack.Screen name="AdminManagedQuotes" component={AdminManagedQuotesScreen} />
+            {/* sql/649 (2026-09-13) — admin_get_provider_applications ya
+                filtra por país del lado del servidor. */}
+            <Stack.Screen name="AdminProviderApplications" component={AdminProviderApplicationsScreen} />
           </>
         )}
 

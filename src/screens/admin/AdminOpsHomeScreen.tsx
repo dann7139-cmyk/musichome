@@ -89,6 +89,10 @@ export default function AdminOpsHomeScreen({ navigation }: any) {
         <Pressable style={s.tabBtn} onPress={() => navigation.navigate('AdminManagedQuotes')}>
           <Text style={s.tabBtnText}>📞 Cotizaciones</Text>
         </Pressable>
+        {/* 📝 Solicitudes de proveedores — sql/649, ya acotado por país. */}
+        <Pressable style={s.tabBtn} onPress={() => navigation.navigate('AdminProviderApplications')}>
+          <Text style={s.tabBtnText}>📝 Solicitudes</Text>
+        </Pressable>
       </ScrollView>
 
       {tab === 'resumen' && <ResumenTab />}

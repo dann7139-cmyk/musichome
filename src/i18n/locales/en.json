@@ -2162,7 +2162,8 @@
       "liveMap": "Live map",
       "withdrawals": "Withdrawals",
       "ads": "Ads",
-      "concierge": "Quotes I'm handling"
+      "concierge": "Quotes I'm handling",
+      "providerApplications": "Provider applications"
     },
     "common": {
       "close": "Close",
