@@ -1,6 +1,6 @@
 -- ============================================================
 -- sql/602_regression_suite_notifications_referrals.sql
--- SUITE DE REGRESIÓN — ✅ CORRIÓ 38/38 PASS 2026-09-13. No aplica nada,
+-- SUITE DE REGRESIÓN — ✅ CORRIÓ 39/39 PASS 2026-09-13. No aplica nada,
 -- solo prueba. Correr esto ANTES y
 -- DESPUÉS de tocar cualquier función relacionada con notificaciones,
 -- referidos, o el choque de horarios entre proveedores. Si algo de esto
@@ -124,6 +124,12 @@
 --      bloquea re-aprobar — evita crear una 2a cuenta por error)
 --  38. admin_reject_provider_application — sql/649 (guarda el motivo,
 --      bloquea re-procesar una solicitud ya resuelta)
+--  39. admin_propose_extra_hours + admin_get_concierge_live_reservations —
+--      sql/651 (el admin puede proponerle horas extra al cliente en
+--      nombre de un grupo en conserjería mientras el evento está en
+--      curso, aislado por país, usa el precio ya negociado si no se
+--      manda uno nuevo, rechaza sin precio disponible y rechaza si el
+--      evento ya no está en curso)
 --
 -- Cómo leer el resultado: si TODO pasa, ves un solo error final que dice
 -- literalmente "REGRESSION_SUITE: TODO PASÓ" — ES EL RESULTADO ESPERADO
@@ -1240,7 +1246,90 @@ BEGIN
       '[38] REGRESIÓN: dejó re-procesar una solicitud ya rechazada — revisar sql/649';
   END;
 
-  RAISE EXCEPTION 'REGRESSION_SUITE: TODO PASÓ (38/38) — temporizador, notificaciones de engagement, bono de referido MX/USD, descuento al cliente, choque de horarios, sin-temporizador por categoría (incluye fotógrafos), anuncios (clientes bloqueados, sin teléfonos, solo categoría distinta, correcto con dueños de varios grupos), cupo de Destacado/Recomendado por categoría, precio de publicidad calculado server-side (video +35%, Recomendado > Destacado), regalo/quite de Bidding del admin, ranking de Bidding por estado, TODOS los regalos (no solo Otro monto) abren GiftReveal, la notificación de admin ya no dice "Trofeo" para un monto personalizado, el interruptor de mostrar regalos a los músicos integrantes, notificar al integrante removido, notificar a los integrantes al desactivar el interruptor, la matemática de tandas/descansos, el candado+idempotencia de complete_event, auto_finalize_stuck_events por fin cierra eventos realmente atorados sin tronar, las categorías Espectáculo/Maestro de Ceremonias siguen funcionando, category_details (preguntas por categoría de Comida/Renta/Shows/Fotógrafos) guarda y lee tal cual en groups y quotes, la lista de opciones por categoría que crece sola (get_category_field_values) deduplica y no mezcla categorías, Payasos ahora vive fusionado dentro de Shows (elige descanso libremente, ya no forzado), group_category_key por fin clasifica Espectáculo/Maestro de Ceremonias correctamente, los recordatorios de evento ya respetan la zona horaria real de cada evento (no siempre México), el modo conserjería (grupo normal sin cambios, grupo conserjería notifica al admin/admin_ops correcto en vez del dueño, y admin_respond_quote rechaza a un grupo que no está en modo conserjería), y las solicitudes de proveedores nuevos (anon puede mandar, categoría inválida se rechaza, aislamiento por país, aprobar crea cuenta real en modo conserjería y bloquea doble aprobación, rechazar guarda motivo y bloquea re-procesar)';
+  -- ══ 39. admin_propose_extra_hours + admin_get_concierge_live_reservations — sql/651 ══
+  DECLARE
+    v_admin39     UUID;
+    v_adminops39  UUID;
+    v_g39         UUID;
+    v_g39_us      UUID;
+    v_res39       UUID;
+    v_res39_us    UUID;
+    v_quote39     UUID;
+    v_resp39      JSONB;
+  BEGIN
+    SELECT id INTO v_admin39 FROM public.profiles WHERE role='admin' LIMIT 1;
+    SELECT id INTO v_adminops39 FROM public.profiles WHERE role='admin_ops' AND admin_country_scope='US' LIMIT 1;
+
+    -- Grupo MX en conserjería, evento en curso, con price_per_hour ya negociado (sql/650)
+    INSERT INTO public.groups (id, owner_id, name, genre, country_id, concierge_mode)
+      VALUES (gen_random_uuid(), v_owner, 'RT602 ExtraMX39', 'Banda', v_country_mx, true) RETURNING id INTO v_g39;
+    INSERT INTO public.quotes
+      (id, group_id, client_id, event_type, event_address, event_municipio, event_estado,
+       event_date, event_time, duration_hours, venue_covered, venue_size, needs_sound, status, price_per_hour)
+    VALUES (gen_random_uuid(), v_g39, v_client, 'boda', 'D39', 'M39', 'E39', CURRENT_DATE, '18:00', 3, 'si', 'salon_mediano', 'no_group_brings', 'quoted', 300)
+    RETURNING id INTO v_quote39;
+    INSERT INTO public.reservations (id, client_id, group_id, event_date, event_time, address, total_price, status, hours_count, event_started_at, quote_id)
+      VALUES (gen_random_uuid(), v_client, v_g39, CURRENT_DATE, '18:00', 'Dir39', 3000, 'in_progress', 3, NOW() - INTERVAL '2 hours', v_quote39)
+      RETURNING id INTO v_res39;
+
+    -- Grupo US en conserjería, evento en curso, SIN price_per_hour negociado
+    INSERT INTO public.groups (id, owner_id, name, genre, country_id, country, state, concierge_mode)
+      VALUES (gen_random_uuid(), v_owner2, 'RT602 ExtraUS39', 'Banda', v_country_us, 'Estados Unidos', 'New York', true) RETURNING id INTO v_g39_us;
+    INSERT INTO public.reservations (id, client_id, group_id, event_date, event_time, address, total_price, status, hours_count, event_started_at)
+      VALUES (gen_random_uuid(), v_client, v_g39_us, CURRENT_DATE, '18:00', 'Dir US39', 3000, 'in_progress', 3, NOW() - INTERVAL '1 hour')
+      RETURNING id INTO v_res39_us;
+
+    RESET role;
+    PERFORM set_config('request.jwt.claims', json_build_object('sub', v_admin39::text, 'role','authenticated')::text, true);
+    PERFORM set_config('role','authenticated', true);
+    v_resp39 := public.admin_get_concierge_live_reservations(500);
+    RESET role;
+    ASSERT EXISTS(SELECT 1 FROM jsonb_array_elements(v_resp39->'items') i WHERE (i->>'reservation_id')::uuid = v_res39),
+      '[39] REGRESIÓN: admin completo no ve el evento en vivo del grupo MX — revisar sql/651';
+
+    RESET role;
+    PERFORM set_config('request.jwt.claims', json_build_object('sub', v_adminops39::text, 'role','authenticated')::text, true);
+    PERFORM set_config('role','authenticated', true);
+    v_resp39 := public.admin_get_concierge_live_reservations(500);
+    RESET role;
+    ASSERT NOT EXISTS(SELECT 1 FROM jsonb_array_elements(v_resp39->'items') i WHERE (i->>'reservation_id')::uuid = v_res39),
+      '[39] REGRESIÓN: el admin_ops de EE.UU. vio un evento en vivo de México — revisar sql/651';
+    ASSERT EXISTS(SELECT 1 FROM jsonb_array_elements(v_resp39->'items') i WHERE (i->>'reservation_id')::uuid = v_res39_us),
+      '[39] REGRESIÓN: el admin_ops de EE.UU. no ve su propio evento en vivo — revisar sql/651';
+
+    -- Usa el precio ya negociado (price_per_hour=300) sin mandar uno nuevo
+    RESET role;
+    PERFORM set_config('request.jwt.claims', json_build_object('sub', v_admin39::text, 'role','authenticated')::text, true);
+    PERFORM set_config('role','authenticated', true);
+    v_resp39 := public.admin_propose_extra_hours(v_res39, 1, NULL, 'prueba');
+    RESET role;
+    ASSERT (v_resp39->>'ok')::boolean = true, '[39] REGRESIÓN: admin_propose_extra_hours falló usando el precio ya negociado — revisar sql/651: ' || v_resp39::text;
+    ASSERT (v_resp39->>'total_extra_cost')::numeric = 360,
+      '[39] REGRESIÓN: total_extra_cost mal calculado (300 neto × 1h × 1.20 = 360) — revisar sql/651: ' || (v_resp39->>'total_extra_cost');
+    ASSERT EXISTS(SELECT 1 FROM notifications WHERE user_id=v_client AND type='extra_hour_proposed' AND data->>'reservation_id'=v_res39::text),
+      '[39] REGRESIÓN: no se notificó al cliente la propuesta de hora extra — revisar el trigger trg_notify_extra_hour_proposed';
+
+    -- Sin precio negociado y sin mandar uno → error claro, no adivina
+    RESET role;
+    PERFORM set_config('request.jwt.claims', json_build_object('sub', v_adminops39::text, 'role','authenticated')::text, true);
+    PERFORM set_config('role','authenticated', true);
+    v_resp39 := public.admin_propose_extra_hours(v_res39_us, 1, NULL, NULL);
+    RESET role;
+    ASSERT (v_resp39->>'ok')::boolean = false AND v_resp39->>'error' = 'missing_price',
+      '[39] REGRESIÓN: dejó proponer horas extra sin ningún precio disponible — revisar sql/651: ' || v_resp39::text;
+
+    -- No se puede proponer si el evento ya no está en curso
+    UPDATE public.reservations SET status = 'confirmed' WHERE id = v_res39;
+    RESET role;
+    PERFORM set_config('request.jwt.claims', json_build_object('sub', v_admin39::text, 'role','authenticated')::text, true);
+    PERFORM set_config('role','authenticated', true);
+    v_resp39 := public.admin_propose_extra_hours(v_res39, 1, 300, NULL);
+    RESET role;
+    ASSERT (v_resp39->>'ok')::boolean = false AND v_resp39->>'error' = 'event_not_in_progress',
+      '[39] REGRESIÓN: dejó proponer horas extra sin el evento en curso — revisar sql/651: ' || v_resp39::text;
+  END;
+
+  RAISE EXCEPTION 'REGRESSION_SUITE: TODO PASÓ (39/39) — temporizador, notificaciones de engagement, bono de referido MX/USD, descuento al cliente, choque de horarios, sin-temporizador por categoría (incluye fotógrafos), anuncios (clientes bloqueados, sin teléfonos, solo categoría distinta, correcto con dueños de varios grupos), cupo de Destacado/Recomendado por categoría, precio de publicidad calculado server-side (video +35%, Recomendado > Destacado), regalo/quite de Bidding del admin, ranking de Bidding por estado, TODOS los regalos (no solo Otro monto) abren GiftReveal, la notificación de admin ya no dice "Trofeo" para un monto personalizado, el interruptor de mostrar regalos a los músicos integrantes, notificar al integrante removido, notificar a los integrantes al desactivar el interruptor, la matemática de tandas/descansos, el candado+idempotencia de complete_event, auto_finalize_stuck_events por fin cierra eventos realmente atorados sin tronar, las categorías Espectáculo/Maestro de Ceremonias siguen funcionando, category_details (preguntas por categoría de Comida/Renta/Shows/Fotógrafos) guarda y lee tal cual en groups y quotes, la lista de opciones por categoría que crece sola (get_category_field_values) deduplica y no mezcla categorías, Payasos ahora vive fusionado dentro de Shows (elige descanso libremente, ya no forzado), group_category_key por fin clasifica Espectáculo/Maestro de Ceremonias correctamente, los recordatorios de evento ya respetan la zona horaria real de cada evento (no siempre México), el modo conserjería completo (cotización inicial + traslado marcado con comisión + precio de hora extra + proponer horas extra en nombre del grupo durante el evento en vivo, todo aislado por país), y las solicitudes de proveedores nuevos (anon puede mandar, categoría inválida se rechaza, aislamiento por país, aprobar crea cuenta real en modo conserjería y bloquea doble aprobación, rechazar guarda motivo y bloquea re-procesar)';
 END;
 $suite$;
 

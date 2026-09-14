@@ -1,16 +1,21 @@
 /**
  * AdminManagedQuotesScreen — "Cotizaciones que manejo" (modo conserjería).
  *
- * Lista las cotizaciones pendientes de grupos que todavía no manejan su
- * propia cuenta (groups.concierge_mode = true, sql/648). El admin llama
- * al grupo por teléfono, le pregunta su precio, y lo captura aquí —
- * admin_respond_quote (sql/648) hace el resto exactamente como si el
- * grupo mismo hubiera respondido.
+ * Dos pestañas:
+ * - Cotizaciones: solicitudes pendientes de grupos que todavía no manejan
+ *   su propia cuenta (groups.concierge_mode = true, sql/648). El admin
+ *   llama al grupo por teléfono, le pregunta su precio, y lo captura
+ *   aquí — admin_respond_quote hace el resto exactamente como si el
+ *   grupo mismo hubiera respondido.
+ * - En vivo: eventos de esos mismos grupos que ya están en curso — el
+ *   admin puede proponerle horas extra al cliente en nombre del grupo
+ *   (admin_propose_extra_hours, sql/651), ya que el grupo normalmente no
+ *   entra a la app a hacerlo él mismo desde EventTimerScreen.
  *
  * Compartida entre role='admin' (ve todos los países) y role='admin_ops'
- * (solo su país) — el RPC ya filtra, la pantalla no necesita saberlo.
+ * (solo su país) — los RPCs ya filtran, la pantalla no necesita saberlo.
  */
-import { ArrowLeft, Phone, DollarSign, Calendar, MapPin } from 'lucide-react-native';
+import { ArrowLeft, Phone, DollarSign, Calendar, MapPin, Clock } from 'lucide-react-native';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -56,7 +61,25 @@ interface QuoteItem {
   comments: string | null;
 }
 
+interface LiveItem {
+  reservation_id: string;
+  group_id: string;
+  group_name: string;
+  group_phone: string | null;
+  client_name: string | null;
+  client_phone: string | null;
+  event_date: string;
+  hours_count: number | null;
+  event_started_at: string | null;
+  address: string | null;
+  country: string;
+}
+
+type TabKey = 'quotes' | 'live';
+
 export default function AdminManagedQuotesScreen({ navigation }: any) {
+  const [tab, setTab] = useState<TabKey>('quotes');
+
   const [items, setItems] = useState<QuoteItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -67,16 +90,34 @@ export default function AdminManagedQuotesScreen({ navigation }: any) {
   const [notes, setNotes] = useState('');
   const [sending, setSending] = useState(false);
 
-  const load = useCallback(async () => {
+  const [liveItems, setLiveItems] = useState<LiveItem[]>([]);
+  const [liveLoading, setLiveLoading] = useState(true);
+  const [liveRefreshing, setLiveRefreshing] = useState(false);
+  const [extraModal, setExtraModal] = useState<LiveItem | null>(null);
+  const [extraHours, setExtraHours] = useState(1);
+  const [extraPrice, setExtraPrice] = useState('');
+  const [extraNotes, setExtraNotes] = useState('');
+  const [sendingExtra, setSendingExtra] = useState(false);
+
+  const loadQuotes = useCallback(async () => {
     const { data, error } = await supabase.rpc('admin_get_concierge_quotes', { p_limit: 100 });
     if (!error && data?.ok) setItems(data.items ?? []);
     setLoading(false);
     setRefreshing(false);
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  const loadLive = useCallback(async () => {
+    const { data, error } = await supabase.rpc('admin_get_concierge_live_reservations', { p_limit: 100 });
+    if (!error && data?.ok) setLiveItems(data.items ?? []);
+    setLiveLoading(false);
+    setLiveRefreshing(false);
+  }, []);
 
-  const onRefresh = () => { setRefreshing(true); load(); };
+  useEffect(() => { loadQuotes(); }, [loadQuotes]);
+  useEffect(() => { loadLive(); }, [loadLive]);
+
+  const onRefresh = () => { setRefreshing(true); loadQuotes(); };
+  const onRefreshLive = () => { setLiveRefreshing(true); loadLive(); };
 
   const openPriceModal = (item: QuoteItem) => {
     setPriceModal(item);
@@ -111,6 +152,36 @@ export default function AdminManagedQuotesScreen({ navigation }: any) {
     Alert.alert('✅ Enviada', `Se le mandó la cotización al cliente. Total con tu comisión: $${Number(data.total_amount).toLocaleString('es-MX')}.`);
   };
 
+  const openExtraModal = (item: LiveItem) => {
+    setExtraModal(item);
+    setExtraHours(1);
+    setExtraPrice('');
+    setExtraNotes('');
+  };
+
+  const sendExtraHours = async () => {
+    if (!extraModal) return;
+    setSendingExtra(true);
+    const { data, error } = await supabase.rpc('admin_propose_extra_hours', {
+      p_reservation_id: extraModal.reservation_id,
+      p_hours: extraHours,
+      p_price_per_hour: extraPrice ? Number(extraPrice.replace(',', '.')) : null,
+      p_notes: extraNotes.trim() || null,
+    });
+    setSendingExtra(false);
+    if (error || !data?.ok) {
+      const err = data?.error;
+      const msg =
+        err === 'missing_price' ? 'No hay un precio de hora extra guardado para este grupo — escribe cuánto cobra.' :
+        err === 'event_not_in_progress' ? 'Este evento ya no está en curso.' :
+        error?.message ?? err ?? 'No se pudo proponer la hora extra.';
+      Alert.alert('No se pudo', msg);
+      return;
+    }
+    setExtraModal(null);
+    Alert.alert('✅ Propuesta enviada', `Se le mandó al cliente ${extraHours}h extra por $${Number(data.total_extra_cost).toLocaleString('es-MX')}. Falta que la apruebe y pague.`);
+  };
+
   return (
     <View style={s.container}>
       <SafeAreaView style={{ flex: 1 }}>
@@ -122,62 +193,126 @@ export default function AdminManagedQuotesScreen({ navigation }: any) {
           <View style={{ width: 40 }} />
         </View>
 
-        {loading ? (
-          <View style={s.center}><ActivityIndicator size="large" color={COLORS.green} /></View>
-        ) : items.length === 0 ? (
-          <View style={s.center}>
-            <Text style={{ fontSize: 40 }}>📞</Text>
-            <Text style={s.emptyTitle}>Nada pendiente</Text>
-            <Text style={s.emptyText}>Aquí aparecen las cotizaciones de grupos en modo conserjería.</Text>
-          </View>
-        ) : (
-          <ScrollView
-            contentContainerStyle={{ padding: SPACING.xl, gap: 12 }}
-            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.green} />}
-          >
-            {items.map(item => (
-              <View key={item.quote_id} style={s.card}>
-                <View style={s.cardHeader}>
-                  <Text style={s.groupName} numberOfLines={1}>{item.group_name}</Text>
-                  <Text style={s.genre}>{item.group_genre ?? ''} · {item.country}</Text>
-                </View>
+        <View style={s.tabs}>
+          <Pressable style={[s.tabBtn, tab === 'quotes' && s.tabBtnActive]} onPress={() => setTab('quotes')}>
+            <Text style={[s.tabBtnText, tab === 'quotes' && s.tabBtnTextActive]}>Cotizaciones</Text>
+          </Pressable>
+          <Pressable style={[s.tabBtn, tab === 'live' && s.tabBtnActive]} onPress={() => setTab('live')}>
+            <Text style={[s.tabBtnText, tab === 'live' && s.tabBtnTextActive]}>🔴 En vivo</Text>
+          </Pressable>
+        </View>
 
-                <Pressable style={s.callRow} onPress={() => call(item.group_phone)} disabled={!item.group_phone}>
-                  <Phone size={13} color={COLORS.green} />
-                  <Text style={s.callText}>Grupo: {item.group_phone ?? 'sin teléfono'}</Text>
-                </Pressable>
-                <Pressable style={s.callRow} onPress={() => call(item.client_phone)} disabled={!item.client_phone}>
-                  <Phone size={13} color={COLORS.gold} />
-                  <Text style={s.callText}>{item.client_name ?? 'Cliente'}: {item.client_phone ?? 'sin teléfono'}</Text>
-                </Pressable>
+        {tab === 'quotes' ? (
+          loading ? (
+            <View style={s.center}><ActivityIndicator size="large" color={COLORS.green} /></View>
+          ) : items.length === 0 ? (
+            <View style={s.center}>
+              <Text style={{ fontSize: 40 }}>📞</Text>
+              <Text style={s.emptyTitle}>Nada pendiente</Text>
+              <Text style={s.emptyText}>Aquí aparecen las cotizaciones de grupos en modo conserjería.</Text>
+            </View>
+          ) : (
+            <ScrollView
+              contentContainerStyle={{ padding: SPACING.xl, gap: 12 }}
+              refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.green} />}
+            >
+              {items.map(item => (
+                <View key={item.quote_id} style={s.card}>
+                  <View style={s.cardHeader}>
+                    <Text style={s.groupName} numberOfLines={1}>{item.group_name}</Text>
+                    <Text style={s.genre}>{item.group_genre ?? ''} · {item.country}</Text>
+                  </View>
 
-                <View style={s.infoRow}>
-                  <Calendar size={13} color={COLORS.muted2} />
-                  <Text style={s.infoText}>
-                    {fecha(item.event_date)}{item.event_time ? ` · ${hora(item.event_time)}` : ''}
-                    {item.duration_hours ? ` · ${item.duration_hours}h` : ''}
-                  </Text>
-                </View>
-                {(item.event_address || item.event_municipio) && (
+                  <Pressable style={s.callRow} onPress={() => call(item.group_phone)} disabled={!item.group_phone}>
+                    <Phone size={13} color={COLORS.green} />
+                    <Text style={s.callText}>Grupo: {item.group_phone ?? 'sin teléfono'}</Text>
+                  </Pressable>
+                  <Pressable style={s.callRow} onPress={() => call(item.client_phone)} disabled={!item.client_phone}>
+                    <Phone size={13} color={COLORS.gold} />
+                    <Text style={s.callText}>{item.client_name ?? 'Cliente'}: {item.client_phone ?? 'sin teléfono'}</Text>
+                  </Pressable>
+
                   <View style={s.infoRow}>
-                    <MapPin size={13} color={COLORS.muted2} />
-                    <Text style={s.infoText} numberOfLines={2}>
-                      {[item.event_address, item.event_municipio, item.event_estado].filter(Boolean).join(', ')}
+                    <Calendar size={13} color={COLORS.muted2} />
+                    <Text style={s.infoText}>
+                      {fecha(item.event_date)}{item.event_time ? ` · ${hora(item.event_time)}` : ''}
+                      {item.duration_hours ? ` · ${item.duration_hours}h` : ''}
                     </Text>
                   </View>
-                )}
-                {item.comments ? <Text style={s.comments} numberOfLines={3}>"{item.comments}"</Text> : null}
+                  {(item.event_address || item.event_municipio) && (
+                    <View style={s.infoRow}>
+                      <MapPin size={13} color={COLORS.muted2} />
+                      <Text style={s.infoText} numberOfLines={2}>
+                        {[item.event_address, item.event_municipio, item.event_estado].filter(Boolean).join(', ')}
+                      </Text>
+                    </View>
+                  )}
+                  {item.comments ? <Text style={s.comments} numberOfLines={3}>"{item.comments}"</Text> : null}
 
-                <Pressable style={s.priceBtn} onPress={() => openPriceModal(item)}>
-                  <DollarSign size={16} color={COLORS.bg} />
-                  <Text style={s.priceBtnText}>Poner precio</Text>
-                </Pressable>
-              </View>
-            ))}
-          </ScrollView>
+                  <Pressable style={s.priceBtn} onPress={() => openPriceModal(item)}>
+                    <DollarSign size={16} color={COLORS.bg} />
+                    <Text style={s.priceBtnText}>Poner precio</Text>
+                  </Pressable>
+                </View>
+              ))}
+            </ScrollView>
+          )
+        ) : (
+          liveLoading ? (
+            <View style={s.center}><ActivityIndicator size="large" color={COLORS.green} /></View>
+          ) : liveItems.length === 0 ? (
+            <View style={s.center}>
+              <Text style={{ fontSize: 40 }}>🔴</Text>
+              <Text style={s.emptyTitle}>Nada en curso</Text>
+              <Text style={s.emptyText}>Aquí aparecen los eventos que ya empezaron de grupos en modo conserjería, para proponerles horas extra al cliente.</Text>
+            </View>
+          ) : (
+            <ScrollView
+              contentContainerStyle={{ padding: SPACING.xl, gap: 12 }}
+              refreshControl={<RefreshControl refreshing={liveRefreshing} onRefresh={onRefreshLive} tintColor={COLORS.green} />}
+            >
+              {liveItems.map(item => (
+                <View key={item.reservation_id} style={s.card}>
+                  <View style={s.cardHeader}>
+                    <Text style={s.groupName} numberOfLines={1}>🔴 {item.group_name}</Text>
+                    <Text style={s.genre}>{item.country}</Text>
+                  </View>
+
+                  <Pressable style={s.callRow} onPress={() => call(item.group_phone)} disabled={!item.group_phone}>
+                    <Phone size={13} color={COLORS.green} />
+                    <Text style={s.callText}>Grupo: {item.group_phone ?? 'sin teléfono'}</Text>
+                  </Pressable>
+                  <Pressable style={s.callRow} onPress={() => call(item.client_phone)} disabled={!item.client_phone}>
+                    <Phone size={13} color={COLORS.gold} />
+                    <Text style={s.callText}>{item.client_name ?? 'Cliente'}: {item.client_phone ?? 'sin teléfono'}</Text>
+                  </Pressable>
+
+                  <View style={s.infoRow}>
+                    <Clock size={13} color={COLORS.muted2} />
+                    <Text style={s.infoText}>
+                      Contratadas: {item.hours_count ?? '—'}h
+                      {item.event_started_at ? ` · empezó ${new Date(item.event_started_at).toLocaleTimeString('es-MX', { hour: 'numeric', minute: '2-digit' })}` : ''}
+                    </Text>
+                  </View>
+                  {item.address && (
+                    <View style={s.infoRow}>
+                      <MapPin size={13} color={COLORS.muted2} />
+                      <Text style={s.infoText} numberOfLines={2}>{item.address}</Text>
+                    </View>
+                  )}
+
+                  <Pressable style={s.priceBtn} onPress={() => openExtraModal(item)}>
+                    <Clock size={16} color={COLORS.bg} />
+                    <Text style={s.priceBtnText}>Proponer horas extra</Text>
+                  </Pressable>
+                </View>
+              ))}
+            </ScrollView>
+          )
         )}
       </SafeAreaView>
 
+      {/* Modal: poner precio de cotización */}
       <Modal visible={!!priceModal} transparent animationType="slide" onRequestClose={() => setPriceModal(null)}>
         <View style={s.overlay}>
           <View style={s.sheet}>
@@ -235,6 +370,56 @@ export default function AdminManagedQuotesScreen({ navigation }: any) {
           </View>
         </View>
       </Modal>
+
+      {/* Modal: proponer horas extra */}
+      <Modal visible={!!extraModal} transparent animationType="slide" onRequestClose={() => setExtraModal(null)}>
+        <View style={s.overlay}>
+          <View style={s.sheet}>
+            <Text style={s.sheetTitle}>{extraModal?.group_name}</Text>
+            <Text style={s.sheetHint}>
+              Se le manda al cliente para que apruebe y pague — igual que si el grupo se lo propusiera desde su propia cuenta. Si no escribes precio, se usa el que ya negociaste al poner el precio inicial.
+            </Text>
+
+            <Text style={s.label}>Horas extra</Text>
+            <View style={s.hoursRow}>
+              {[1, 2, 3].map(h => (
+                <Pressable key={h} style={[s.hourChip, extraHours === h && s.hourChipActive]} onPress={() => setExtraHours(h)}>
+                  <Text style={[s.hourChipText, extraHours === h && s.hourChipTextActive]}>{h}h</Text>
+                </Pressable>
+              ))}
+            </View>
+
+            <Text style={s.label}>Precio por hora extra (neto, opcional)</Text>
+            <TextInput
+              style={s.input}
+              value={extraPrice}
+              onChangeText={setExtraPrice}
+              placeholder="Déjalo vacío para usar el ya negociado"
+              placeholderTextColor={COLORS.muted}
+              keyboardType="numeric"
+            />
+
+            <Text style={s.label}>Nota interna (opcional)</Text>
+            <TextInput
+              style={[s.input, { height: 70, textAlignVertical: 'top' }]}
+              value={extraNotes}
+              onChangeText={setExtraNotes}
+              placeholder="Ej. el grupo confirmó por teléfono que puede quedarse"
+              placeholderTextColor={COLORS.muted}
+              multiline
+            />
+
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 8 }}>
+              <Pressable style={[s.modalBtn, s.modalBtnCancel]} onPress={() => setExtraModal(null)}>
+                <Text style={s.modalBtnCancelText}>Cancelar</Text>
+              </Pressable>
+              <Pressable style={[s.modalBtn, s.modalBtnSend, sendingExtra && { opacity: 0.6 }]} onPress={sendExtraHours} disabled={sendingExtra}>
+                {sendingExtra ? <ActivityIndicator size="small" color={COLORS.bg} /> : <Text style={s.modalBtnSendText}>Enviar al cliente</Text>}
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -253,6 +438,16 @@ const s = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   headerTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 16, color: COLORS.text },
+
+  tabs: { flexDirection: 'row', paddingHorizontal: SPACING.xl, paddingVertical: 10, gap: 8 },
+  tabBtn: {
+    flex: 1, paddingVertical: 9, borderRadius: RADIUS.md, alignItems: 'center',
+    backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border,
+  },
+  tabBtnActive: { backgroundColor: COLORS.greenMuted, borderColor: COLORS.green },
+  tabBtnText: { fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.muted2 },
+  tabBtnTextActive: { color: COLORS.green },
+
   emptyTitle: { fontFamily: FONTS.title, fontSize: 18, color: COLORS.text, marginTop: 4 },
   emptyText: { fontFamily: FONTS.body, fontSize: 13, color: COLORS.muted2, textAlign: 'center' },
 
@@ -276,6 +471,15 @@ const s = StyleSheet.create({
     backgroundColor: COLORS.green, borderRadius: RADIUS.md, paddingVertical: 11, marginTop: 8,
   },
   priceBtnText: { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: COLORS.bg },
+
+  hoursRow: { flexDirection: 'row', gap: 8, marginBottom: 14 },
+  hourChip: {
+    flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: RADIUS.md,
+    backgroundColor: COLORS.bg, borderWidth: 1, borderColor: COLORS.border,
+  },
+  hourChipActive: { backgroundColor: COLORS.green, borderColor: COLORS.green },
+  hourChipText: { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: COLORS.muted2 },
+  hourChipTextActive: { color: COLORS.bg },
 
   overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
   sheet: {
