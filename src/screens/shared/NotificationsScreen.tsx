@@ -422,6 +422,14 @@ export default function NotificationsScreen({ navigation }: any) {
 
       // ── Other types ────────────────────────────────────────────────────────
       case 'payment': {
+        // Modo conserjería (sql/648) — "✅ Pagaron — confirma con X" le
+        // llega al admin/admin_ops cuando el cliente pagó un grupo en
+        // conserjería. La lógica de abajo (comprobante/reserva) es del
+        // grupo/cliente normal — para el admin, ir a la cola de cotizaciones.
+        if ((role === 'admin' || role === 'admin_ops') && notif.data?.screen === 'AdminManagedQuotes') {
+          navigation.navigate('AdminManagedQuotes' as any);
+          break;
+        }
         // Reembolso manual ENVIADO → abrir el comprobante directo (el evento
         // ya se ocultó de Mis Eventos al completarse el reembolso).
         const receiptPath = notif.data?.receipt_path as string | undefined;
@@ -462,6 +470,14 @@ export default function NotificationsScreen({ navigation }: any) {
 
       // ── Cotizaciones ───────────────────────────────────────────────────────
       case 'new_quote_request': {
+        // Modo conserjería (sql/648) — este mismo tipo ahora también le
+        // llega al admin/admin_ops cuando el grupo aún no maneja su cuenta.
+        // La lógica de abajo (carrusel/GroupQuoteDetail) es del grupo — para
+        // el admin, ir directo a la cola de "Cotizaciones que manejo".
+        if ((role === 'admin' || role === 'admin_ops') && notif.data?.screen === 'AdminManagedQuotes') {
+          navigation.navigate('AdminManagedQuotes' as any);
+          break;
+        }
         // Pendiente → carrusel 📅 sobre el dashboard. Ya respondida/expirada →
         // directo al detalle (el carrusel solo muestra pendientes y el tap
         // quedaría muerto). Sin quote_id o sin fila → lista de cotizaciones.

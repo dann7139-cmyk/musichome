@@ -97,6 +97,11 @@ export default function AdminDashboardScreen({ navigation }: any) {
   const [openDisputes,  setOpenDisputes]  = useState<any[]>([]);
   const [pendingMedia,  setPendingMedia]  = useState(0);
   const [pendingAds,    setPendingAds]    = useState(0);
+  // Modo conserjería + solicitudes de proveedores (sql/648+649, 2026-09-13) —
+  // mismo patrón que pendingMedia/pendingAds, visibles aquí y no solo en la
+  // campana de notificaciones.
+  const [pendingConciergeQuotes, setPendingConciergeQuotes] = useState(0);
+  const [pendingProviderApps,    setPendingProviderApps]    = useState(0);
   const [noShows,       setNoShows]       = useState<any[]>([]);
   const [noShowsHistory,setNoShowsHistory]= useState<any[]>([]);
   const [noShowsTab,    setNoShowsTab]    = useState<'pending' | 'history'>('pending');
@@ -163,6 +168,12 @@ export default function AdminDashboardScreen({ navigation }: any) {
       .select('id', { count: 'exact', head: true })
       .eq('status', 'pending_review');
     setPendingAds(adsData.count ?? 0);
+
+    const conciergeData = await supabase.rpc('admin_get_concierge_quotes', { p_limit: 500 });
+    setPendingConciergeQuotes(conciergeData.data?.items?.length ?? 0);
+
+    const providerAppsData = await supabase.rpc('admin_get_provider_applications', { p_status: 'pending' });
+    setPendingProviderApps(providerAppsData.data?.items?.length ?? 0);
 
     const [resAll, verData, todayData, disputeData, liveData, groupsData, clientsData, reqData] = await Promise.all([
       supabase.from('reservations').select('status, total_price, created_at, group_id, group:groups(name)'),
@@ -570,7 +581,7 @@ export default function AdminDashboardScreen({ navigation }: any) {
   const maxBar = Math.max(...monthlyBars.map(b => b.count), 1);
   const maxTopCount = Math.max(...topGroups.map(g => g.count), 1);
   const totalRes = Object.values(statusCounts).reduce((a, b) => a + b, 0);
-  const hasAlerts = pendingVerif.length > 0 || openDisputes.length > 0 || statusCounts.pending > 0 || pendingMedia > 0 || pendingAds > 0 || noShows.length > 0 || stuckEvents.length > 0 || stuckServiceEvents.length > 0 || unverifiedPayouts.length > 0;
+  const hasAlerts = pendingVerif.length > 0 || openDisputes.length > 0 || statusCounts.pending > 0 || pendingMedia > 0 || pendingAds > 0 || noShows.length > 0 || stuckEvents.length > 0 || stuckServiceEvents.length > 0 || unverifiedPayouts.length > 0 || pendingConciergeQuotes > 0 || pendingProviderApps > 0;
 
   const today = new Date();
   const dateStr = today.toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long' });
@@ -759,6 +770,18 @@ export default function AdminDashboardScreen({ navigation }: any) {
                     <Text style={[s.alertChipNum, { color: '#40C4FF' }]}>{unverifiedPayouts.length}</Text>
                     <Text style={s.alertChipLbl}>Verificar</Text>
                   </View>
+                )}
+                {pendingConciergeQuotes > 0 && (
+                  <Pressable style={[s.alertChip, { borderColor: 'rgba(0,230,118,0.5)' }]} onPress={() => navigation.navigate('AdminManagedQuotes')}>
+                    <Text style={[s.alertChipNum, { color: COLORS.green }]}>{pendingConciergeQuotes}</Text>
+                    <Text style={s.alertChipLbl}>Por llamar</Text>
+                  </Pressable>
+                )}
+                {pendingProviderApps > 0 && (
+                  <Pressable style={[s.alertChip, { borderColor: 'rgba(206,147,216,0.5)' }]} onPress={() => navigation.navigate('AdminProviderApplications')}>
+                    <Text style={[s.alertChipNum, { color: '#CE93D8' }]}>{pendingProviderApps}</Text>
+                    <Text style={s.alertChipLbl}>Solicitudes</Text>
+                  </Pressable>
                 )}
               </View>
             </View>

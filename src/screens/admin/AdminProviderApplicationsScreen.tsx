@@ -151,7 +151,7 @@ export default function AdminProviderApplicationsScreen({ navigation }: any) {
           <View style={{ width: 40 }} />
         </View>
 
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.tabs}>
+        <View style={s.tabs}>
           {([
             ['pending', 'Pendientes'],
             ['approved', 'Aprobadas'],
@@ -162,7 +162,7 @@ export default function AdminProviderApplicationsScreen({ navigation }: any) {
               <Text style={[s.tabBtnText, tab === key && s.tabBtnTextActive]}>{label}</Text>
             </Pressable>
           ))}
-        </ScrollView>
+        </View>
 
         {loading ? (
           <View style={s.center}><ActivityIndicator size="large" color={COLORS.green} /></View>
@@ -337,14 +337,14 @@ const s = StyleSheet.create({
   },
   headerTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 15, color: COLORS.text },
 
-  tabs: { paddingHorizontal: SPACING.xl, paddingVertical: 10, gap: 8 },
+  tabs: { flexDirection: 'row', paddingHorizontal: SPACING.xl, paddingVertical: 10, gap: 8 },
   tabBtn: {
-    paddingHorizontal: 14, paddingVertical: 8, borderRadius: RADIUS.full,
-    backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border, marginRight: 8,
+    flex: 1, paddingVertical: 9, borderRadius: RADIUS.md, alignItems: 'center',
+    backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border,
   },
-  tabBtnActive: { backgroundColor: COLORS.green, borderColor: COLORS.green },
+  tabBtnActive: { backgroundColor: COLORS.greenMuted, borderColor: COLORS.green },
   tabBtnText: { fontFamily: FONTS.bodyMedium, fontSize: 12, color: COLORS.muted2 },
-  tabBtnTextActive: { color: COLORS.bg },
+  tabBtnTextActive: { color: COLORS.green },
 
   emptyTitle: { fontFamily: FONTS.title, fontSize: 18, color: COLORS.text, marginTop: 4 },
 

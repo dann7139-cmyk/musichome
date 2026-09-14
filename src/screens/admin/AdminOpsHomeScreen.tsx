@@ -95,7 +95,7 @@ export default function AdminOpsHomeScreen({ navigation }: any) {
         </Pressable>
       </ScrollView>
 
-      {tab === 'resumen' && <ResumenTab />}
+      {tab === 'resumen' && <ResumenTab navigation={navigation} />}
       {tab === 'noshows' && <NoShowsTab />}
       {tab === 'pagos' && <PagosTab />}
       {tab === 'verificacion' && <VerificacionTab />}
@@ -110,14 +110,25 @@ export default function AdminOpsHomeScreen({ navigation }: any) {
 // en Estados Unidos", el equivalente a lo que el admin completo ve para
 // México en su panel de finanzas. Nunca muestra el dinero de otro país.)
 // ─────────────────────────────────────────────────────────────────────────
-function ResumenTab() {
+function ResumenTab({ navigation }: any) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [data, setData] = useState<any>(null);
+  // Modo conserjería + solicitudes de proveedores (sql/648+649, 2026-09-13) —
+  // visibles aquí y no solo en la campana de notificaciones.
+  const [pendingConcierge, setPendingConcierge] = useState(0);
+  const [pendingApps, setPendingApps] = useState(0);
 
   const load = useCallback(async () => {
     const { data: res, error } = await supabase.rpc('admin_ops_country_summary');
     if (!error && (res as any)?.ok) setData(res);
+
+    const conciergeRes = await supabase.rpc('admin_get_concierge_quotes', { p_limit: 500 });
+    setPendingConcierge((conciergeRes.data as any)?.items?.length ?? 0);
+
+    const appsRes = await supabase.rpc('admin_get_provider_applications', { p_status: 'pending' });
+    setPendingApps((appsRes.data as any)?.items?.length ?? 0);
+
     setLoading(false);
     setRefreshing(false);
   }, []);
@@ -133,6 +144,23 @@ function ResumenTab() {
       contentContainerStyle={s.list}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={COLORS.green} />}
     >
+      {(pendingConcierge > 0 || pendingApps > 0) && (
+        <View style={s.pendingRow}>
+          {pendingConcierge > 0 && (
+            <Pressable style={s.pendingCard} onPress={() => navigation.navigate('AdminManagedQuotes')}>
+              <Text style={s.pendingCardNum}>{pendingConcierge}</Text>
+              <Text style={s.pendingCardLbl}>📞 Por llamar</Text>
+            </Pressable>
+          )}
+          {pendingApps > 0 && (
+            <Pressable style={s.pendingCard} onPress={() => navigation.navigate('AdminProviderApplications')}>
+              <Text style={s.pendingCardNum}>{pendingApps}</Text>
+              <Text style={s.pendingCardLbl}>📝 Solicitudes</Text>
+            </Pressable>
+          )}
+        </View>
+      )}
+
       <Text style={s.sectionLabel}>Ingresos de {data?.country === 'US' ? 'Estados Unidos' : data?.country} (histórico)</Text>
       <View style={s.card}>
         <View style={s.summaryRow}>
@@ -748,6 +776,16 @@ const s = StyleSheet.create({
   tabBtnTextActive: { color: COLORS.green },
 
   list: { padding: SPACING.xl, paddingTop: 4, gap: 12 },
+
+  pendingRow: { flexDirection: 'row', gap: 10, marginBottom: 4 },
+  pendingCard: {
+    flex: 1, alignItems: 'center', gap: 4, paddingVertical: 14,
+    backgroundColor: COLORS.greenMuted, borderRadius: RADIUS.lg,
+    borderWidth: 1, borderColor: COLORS.green,
+  },
+  pendingCardNum: { fontFamily: FONTS.title, fontSize: 22, color: COLORS.green },
+  pendingCardLbl: { fontFamily: FONTS.bodyMedium, fontSize: 12, color: COLORS.text },
+
   sectionLabel: {
     fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.muted2,
     textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 10, marginBottom: 2,
