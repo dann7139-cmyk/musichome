@@ -195,12 +195,20 @@ BEGIN
   -- (grupo NUEVO y separado del [1] — mismo group_id con 2 reservas hoy
   -- chocaría con el trigger real de disponibilidad, que sí debe seguir
   -- bloqueando eso; no es parte de lo que esta prueba busca cubrir)
-  DECLARE v_group3 UUID;
+  -- ⚠️ Usa la fecha de HOY en México (no CURRENT_DATE del servidor, que
+  -- corre en UTC) — notify_today_events compara contra el "hoy" de la
+  -- zona horaria del evento (sql/643); durante la ventana nocturna en que
+  -- UTC ya cambió de día pero México no, CURRENT_DATE(UTC) queda un día
+  -- adelantado y esta prueba fallaba en falso (hallazgo real 2026-09-14 —
+  -- no era un bug de la función, era la prueba comparando mal).
+  DECLARE
+    v_group3 UUID;
+    v_today_mx DATE := (NOW() AT TIME ZONE 'America/Mexico_City')::date;
   BEGIN
     INSERT INTO public.groups (id, owner_id, name, genre, country_id)
       VALUES (gen_random_uuid(), v_owner, 'RT602 HoyEvento', 'Banda', v_country_mx) RETURNING id INTO v_group3;
     INSERT INTO public.reservations (id, client_id, group_id, event_date, event_time, address, total_price, status)
-      VALUES (gen_random_uuid(), v_client, v_group3, CURRENT_DATE, '20:00', 'Dir', 9000, 'confirmed')
+      VALUES (gen_random_uuid(), v_client, v_group3, v_today_mx, '20:00', 'Dir', 9000, 'confirmed')
       RETURNING id INTO v_res_id;
   END;
   PERFORM public.notify_today_events();
