@@ -10,7 +10,7 @@
  *
  * Compartida entre role='admin' y role='admin_ops' — el RPC ya filtra por país.
  */
-import { ArrowLeft, Briefcase, Calendar, Clock, MapPin, Phone } from 'lucide-react-native';
+import { ArrowLeft, Briefcase, Calendar, Clock, MapPin, Phone, Plus } from 'lucide-react-native';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -28,7 +28,15 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
+import { useAuth } from '../../context/AuthContext';
 import { PROVIDER_CATEGORIES } from '../../constants/providerCategories';
+import { STATES_BY_COUNTRY } from '../../utils/locationUtils';
+
+// admin_country_scope ('MX'/'US'/'CA') → nombre de país tal cual se guarda
+// en groups/provider_applications. Solo para preseleccionar y limitar las
+// opciones en pantalla — el RPC ya rechaza del lado del servidor cualquier
+// intento de un admin_ops de dar de alta fuera de su país (sql/649/653).
+const SCOPE_TO_COUNTRY: Record<string, string> = { MX: 'México', US: 'Estados Unidos', CA: 'Canadá' };
 
 const call = (phone?: string | null) => { if (phone) Linking.openURL(`tel:${phone}`); };
 const fecha = (d?: string | null) =>
@@ -39,6 +47,8 @@ const CATEGORY_LABELS: Record<string, string> = {
   espectaculo: 'Show', mc: 'Maestro de Ceremonias', luzSonido: 'Luz y sonido',
   comida: 'Comida', renta: 'Renta de mobiliario', fotografos: 'Fotografía/Video',
 };
+
+const APPLY_COUNTRIES = ['México', 'Estados Unidos', 'Canadá'];
 
 type TabKey = 'pending' | 'approved' | 'rejected' | 'all';
 
@@ -60,6 +70,11 @@ interface AppItem {
 }
 
 export default function AdminProviderApplicationsScreen({ navigation }: any) {
+  const { profile } = useAuth();
+  // Un admin_ops (ej. cuenta de tu novia, alcance EE.UU.) solo puede dar de
+  // alta proveedores de su propio país — aquí nomás se le oculta la opción
+  // para que no se equivoque, el RPC ya lo bloquea de todos modos.
+  const scopedCountry = profile?.role === 'admin_ops' ? SCOPE_TO_COUNTRY[profile.admin_country_scope ?? ''] : null;
   const [tab, setTab] = useState<TabKey>('pending');
   const [items, setItems] = useState<AppItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -74,6 +89,73 @@ export default function AdminProviderApplicationsScreen({ navigation }: any) {
   const [rejectTarget, setRejectTarget] = useState<AppItem | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [rejecting, setRejecting] = useState(false);
+
+  // Alta directa: tú ya llamaste al proveedor y tienes sus datos — esto
+  // manda la misma solicitud que llenaría él en ProviderApplyScreen (aquí
+  // no aparece en tu navegación porque es pantalla pública sin sesión), y
+  // en cuanto se crea, abre de una vez el modal de "Aprobar" de arriba para
+  // que en un solo flujo quede la cuenta+grupo listos.
+  const [addModal, setAddModal] = useState(false);
+  const [addName, setAddName] = useState('');
+  const [addPhone, setAddPhone] = useState('');
+  const [addCategory, setAddCategory] = useState<string | null>(null);
+  const [addYears, setAddYears] = useState('');
+  const [addMinHours, setAddMinHours] = useState('');
+  const [addCountry, setAddCountry] = useState('México');
+  const [addState, setAddState] = useState('');
+  const [addCity, setAddCity] = useState('');
+  const [addNotes, setAddNotes] = useState('');
+  const [adding, setAdding] = useState(false);
+
+  const openAdd = () => {
+    setAddModal(true);
+    setAddName(''); setAddPhone(''); setAddCategory(null);
+    setAddYears(''); setAddMinHours('');
+    setAddCountry(scopedCountry ?? 'México'); setAddState(''); setAddCity(''); setAddNotes('');
+  };
+
+  const sendAdd = async () => {
+    if (!addName.trim() || addPhone.trim().length < 7 || !addCategory) {
+      Alert.alert('Faltan datos', 'Escribe el nombre, teléfono y elige la categoría.');
+      return;
+    }
+    setAdding(true);
+    const { data, error } = await supabase.rpc('submit_provider_application', {
+      p_full_name: addName.trim(),
+      p_phone: addPhone.trim(),
+      p_category: addCategory,
+      p_years_experience: addYears ? parseInt(addYears, 10) : null,
+      p_min_hours: addMinHours ? parseFloat(addMinHours) : null,
+      p_country: addCountry,
+      p_state: addState.trim() || null,
+      p_city: addCity.trim() || null,
+      p_notes: addNotes.trim() || null,
+    });
+    setAdding(false);
+    if (error || !data?.ok) {
+      Alert.alert('Error', error?.message ?? data?.error ?? 'No se pudo crear la solicitud.');
+      return;
+    }
+    setAddModal(false);
+    // Encadena directo al modal de aprobar — no hace falta ir a buscarla
+    // en la pestaña "Pendientes".
+    openApprove({
+      id: data.application_id,
+      full_name: addName.trim(),
+      phone: addPhone.trim(),
+      category: addCategory,
+      years_experience: addYears ? parseInt(addYears, 10) : null,
+      min_hours: addMinHours ? parseFloat(addMinHours) : null,
+      country: addCountry,
+      state: addState.trim() || null,
+      city: addCity.trim() || null,
+      notes: addNotes.trim() || null,
+      status: 'pending',
+      admin_notes: null,
+      linked_group_id: null,
+      created_at: new Date().toISOString(),
+    });
+  };
 
   const load = useCallback(async (t: TabKey) => {
     const p_status = t === 'all' ? null : t;
@@ -155,7 +237,9 @@ export default function AdminProviderApplicationsScreen({ navigation }: any) {
             <ArrowLeft size={20} color={COLORS.text} />
           </Pressable>
           <Text style={s.headerTitle}>📝 Solicitudes de proveedores</Text>
-          <View style={{ width: 40 }} />
+          <Pressable style={s.backBtn} onPress={openAdd}>
+            <Plus size={20} color={COLORS.green} />
+          </Pressable>
         </View>
 
         <View style={s.tabs}>
@@ -312,6 +396,90 @@ export default function AdminProviderApplicationsScreen({ navigation }: any) {
               </Pressable>
             </View>
           </View>
+        </View>
+      </Modal>
+
+      {/* Modal agregar directo — tú ya hablaste con el proveedor por teléfono */}
+      <Modal visible={addModal} transparent animationType="slide" onRequestClose={() => setAddModal(false)}>
+        <View style={s.overlay}>
+          <ScrollView style={[s.sheet, { maxHeight: '85%' }]} contentContainerStyle={{ paddingBottom: 40 }}>
+            <Text style={s.sheetTitle}>Agregar proveedor</Text>
+            <Text style={s.sheetHint}>Para uno que ya contactaste tú mismo por teléfono. Al enviar, sigue directo al paso de crear su cuenta.</Text>
+
+            <Text style={s.label}>Nombre o nombre del grupo</Text>
+            <TextInput style={s.input} value={addName} onChangeText={setAddName} placeholder="Ej. Banda Los Ejemplares" placeholderTextColor={COLORS.muted} />
+
+            <Text style={s.label}>Teléfono (WhatsApp)</Text>
+            <TextInput style={s.input} value={addPhone} onChangeText={setAddPhone} placeholder="Ej. 33 1234 5678" placeholderTextColor={COLORS.muted} keyboardType="phone-pad" />
+
+            <Text style={s.label}>Categoría</Text>
+            <View style={s.genreGrid}>
+              {PROVIDER_CATEGORIES.map(cat => (
+                <Pressable key={cat.key} style={[s.genreChip, addCategory === cat.key && s.genreChipActive]} onPress={() => setAddCategory(cat.key)}>
+                  <Text style={[s.genreChipText, addCategory === cat.key && s.genreChipTextActive]}>
+                    {cat.emoji} {CATEGORY_LABELS[cat.key] ?? cat.key}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+
+            <View style={{ flexDirection: 'row', gap: 12 }}>
+              <View style={{ flex: 1 }}>
+                <Text style={s.label}>Años de trayectoria</Text>
+                <TextInput style={s.input} value={addYears} onChangeText={t => setAddYears(t.replace(/[^0-9]/g, ''))} placeholder="Ej. 5" placeholderTextColor={COLORS.muted} keyboardType="numeric" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={s.label}>Horas mínimas</Text>
+                <TextInput style={s.input} value={addMinHours} onChangeText={t => setAddMinHours(t.replace(/[^0-9.]/g, ''))} placeholder="Ej. 3" placeholderTextColor={COLORS.muted} keyboardType="numeric" />
+              </View>
+            </View>
+
+            <Text style={s.label}>País{scopedCountry ? ` — tu cuenta solo da de alta en ${scopedCountry}` : ''}</Text>
+            <View style={s.genreGrid}>
+              {(scopedCountry ? [scopedCountry] : APPLY_COUNTRIES).map(c => (
+                <Pressable key={c} style={[s.genreChip, addCountry === c && s.genreChipActive]} onPress={() => { setAddCountry(c); setAddState(''); }}>
+                  <Text style={[s.genreChipText, addCountry === c && s.genreChipTextActive]}>{c}</Text>
+                </Pressable>
+              ))}
+            </View>
+
+            {/* Estado por botones, no texto libre — un typo aquí rompe filtros
+                que comparan el estado exacto (recomendados, patrocinados). */}
+            <Text style={s.label}>Estado</Text>
+            <View style={s.genreGrid}>
+              {(STATES_BY_COUNTRY[addCountry] ?? []).map(st => (
+                <Pressable key={st} style={[s.genreChip, addState === st && s.genreChipActive]} onPress={() => setAddState(st)}>
+                  <Text style={[s.genreChipText, addState === st && s.genreChipTextActive]}>{st}</Text>
+                </Pressable>
+              ))}
+            </View>
+
+            <View style={{ flexDirection: 'row', gap: 12 }}>
+              <View style={{ flex: 1 }}>
+                <Text style={s.label}>Ciudad</Text>
+                <TextInput style={s.input} value={addCity} onChangeText={setAddCity} placeholder="Ej. Zapopan" placeholderTextColor={COLORS.muted} />
+              </View>
+            </View>
+
+            <Text style={s.label}>Notas (opcional)</Text>
+            <TextInput
+              style={[s.input, { height: 70, textAlignVertical: 'top' }]}
+              value={addNotes}
+              onChangeText={setAddNotes}
+              placeholder="Ej. tocan en bodas, tienen equipo propio..."
+              placeholderTextColor={COLORS.muted}
+              multiline
+            />
+
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 8 }}>
+              <Pressable style={[s.modalBtn, s.modalBtnCancel]} onPress={() => setAddModal(false)}>
+                <Text style={s.modalBtnCancelText}>Cancelar</Text>
+              </Pressable>
+              <Pressable style={[s.modalBtn, s.modalBtnSend, adding && { opacity: 0.6 }]} onPress={sendAdd} disabled={adding}>
+                {adding ? <ActivityIndicator size="small" color={COLORS.bg} /> : <Text style={s.modalBtnSendText}>Siguiente</Text>}
+              </Pressable>
+            </View>
+          </ScrollView>
         </View>
       </Modal>
     </View>

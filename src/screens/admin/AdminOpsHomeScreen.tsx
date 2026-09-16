@@ -93,6 +93,10 @@ export default function AdminOpsHomeScreen({ navigation }: any) {
         <Pressable style={s.tabBtn} onPress={() => navigation.navigate('AdminProviderApplications')}>
           <Text style={s.tabBtnText}>📝 Solicitudes</Text>
         </Pressable>
+        {/* ✈️ Demanda entre países — sql/657, ya acotado por país. */}
+        <Pressable style={s.tabBtn} onPress={() => navigation.navigate('AdminCrossBorder')}>
+          <Text style={s.tabBtnText}>✈️ Visa</Text>
+        </Pressable>
       </ScrollView>
 
       {tab === 'resumen' && <ResumenTab navigation={navigation} />}

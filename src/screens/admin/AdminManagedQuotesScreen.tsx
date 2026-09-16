@@ -15,7 +15,8 @@
  * Compartida entre role='admin' (ve todos los países) y role='admin_ops'
  * (solo su país) — los RPCs ya filtran, la pantalla no necesita saberlo.
  */
-import { ArrowLeft, Phone, DollarSign, Calendar, MapPin, Clock } from 'lucide-react-native';
+import { ArrowLeft, Phone, DollarSign, Calendar, MapPin, Clock, Copy, Check } from 'lucide-react-native';
+import * as Clipboard from 'expo-clipboard';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -35,6 +36,7 @@ import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 
 const call = (phone?: string | null) => { if (phone) Linking.openURL(`tel:${phone}`); };
+const openInMaps = (addr: string) => Linking.openURL(`https://maps.google.com/maps?q=${encodeURIComponent(addr)}`);
 const fecha = (d?: string | null) =>
   d ? new Date(String(d).substring(0, 10) + 'T12:00:00').toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: '2-digit' }) : '—';
 const hora = (t?: string | null) => {
@@ -103,6 +105,39 @@ export default function AdminManagedQuotesScreen({ navigation }: any) {
   const [extraPrice, setExtraPrice] = useState('');
   const [extraNotes, setExtraNotes] = useState('');
   const [sendingExtra, setSendingExtra] = useState(false);
+
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const copyText = async (key: string, value: string) => {
+    await Clipboard.setStringAsync(value);
+    setCopiedKey(key);
+    setTimeout(() => setCopiedKey(k => (k === key ? null : k)), 2000);
+  };
+
+  // Apagar conserjería desde aquí mismo, sin ir a la pantalla de Grupos —
+  // mismo texto/patrón que AdminGroupsScreen (sql/648). Lo pendiente que
+  // ya esté en esta lista no se pierde: al desactivar, el grupo simplemente
+  // puede entrar a su propia cuenta y responderlo él mismo desde ahora.
+  const turnOffConcierge = (groupId: string, groupName: string) => {
+    Alert.alert(
+      'Desactivar modo conserjería',
+      `${groupName} volverá a recibir y responder sus propias cotizaciones desde su cuenta.`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Desactivar',
+          onPress: async () => {
+            const { error } = await supabase.from('groups').update({ concierge_mode: false }).eq('id', groupId);
+            if (error) {
+              Alert.alert('Error', error.message);
+              return;
+            }
+            setItems(prev => prev.filter(i => i.group_id !== groupId));
+            setLiveItems(prev => prev.filter(i => i.group_id !== groupId));
+          },
+        },
+      ],
+    );
+  };
 
   const loadQuotes = useCallback(async () => {
     const { data, error } = await supabase.rpc('admin_get_concierge_quotes', { p_limit: 100 });
@@ -250,7 +285,12 @@ export default function AdminManagedQuotesScreen({ navigation }: any) {
               {items.map(item => (
                 <View key={item.quote_id} style={s.card}>
                   <View style={s.cardHeader}>
-                    <Text style={s.groupName} numberOfLines={1}>{item.group_name}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <Text style={s.groupName} numberOfLines={1}>{item.group_name}</Text>
+                      <Pressable onPress={() => turnOffConcierge(item.group_id, item.group_name)}>
+                        <Text style={s.conciergeOffText}>Apagar conserjería</Text>
+                      </Pressable>
+                    </View>
                     <Text style={s.genre}>{item.group_genre ?? ''} · {item.country}</Text>
                   </View>
 
@@ -270,15 +310,34 @@ export default function AdminManagedQuotesScreen({ navigation }: any) {
                       {item.duration_hours ? ` · ${item.duration_hours}h` : ''}
                     </Text>
                   </View>
-                  {(item.event_address || item.event_municipio) && (
-                    <View style={s.infoRow}>
-                      <MapPin size={13} color={COLORS.muted2} />
-                      <Text style={s.infoText} numberOfLines={2}>
-                        {[item.event_address, item.event_municipio, item.event_estado].filter(Boolean).join(', ')}
-                      </Text>
+                  {(item.event_address || item.event_municipio) && (() => {
+                    const fullAddr = [item.event_address, item.event_municipio, item.event_estado].filter(Boolean).join(', ');
+                    const addrKey = `q-${item.quote_id}`;
+                    return (
+                      <View style={s.infoRow}>
+                        <MapPin size={13} color={COLORS.muted2} />
+                        <Text style={[s.infoText, { flex: 1 }]}>{fullAddr}</Text>
+                        <Pressable style={s.copyBtn} onPress={() => openInMaps(fullAddr)}>
+                          <Text style={s.copyBtnText}>Ver mapa</Text>
+                        </Pressable>
+                        <Pressable style={s.copyBtn} onPress={() => copyText(addrKey, fullAddr)}>
+                          {copiedKey === addrKey
+                            ? <Check size={13} color={COLORS.green} />
+                            : <Copy size={13} color={COLORS.muted2} />}
+                        </Pressable>
+                      </View>
+                    );
+                  })()}
+                  {item.comments ? (
+                    <View style={s.commentsRow}>
+                      <Text style={s.comments}>"{item.comments}"</Text>
+                      <Pressable style={s.copyBtn} onPress={() => copyText(`qc-${item.quote_id}`, item.comments!)}>
+                        {copiedKey === `qc-${item.quote_id}`
+                          ? <Check size={13} color={COLORS.green} />
+                          : <Copy size={13} color={COLORS.muted2} />}
+                      </Pressable>
                     </View>
-                  )}
-                  {item.comments ? <Text style={s.comments} numberOfLines={3}>"{item.comments}"</Text> : null}
+                  ) : null}
 
                   <Pressable style={s.priceBtn} onPress={() => openPriceModal(item)}>
                     <DollarSign size={16} color={COLORS.bg} />
@@ -305,7 +364,12 @@ export default function AdminManagedQuotesScreen({ navigation }: any) {
               {liveItems.map(item => (
                 <View key={item.reservation_id} style={s.card}>
                   <View style={s.cardHeader}>
-                    <Text style={s.groupName} numberOfLines={1}>🔴 {item.group_name}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <Text style={s.groupName} numberOfLines={1}>🔴 {item.group_name}</Text>
+                      <Pressable onPress={() => turnOffConcierge(item.group_id, item.group_name)}>
+                        <Text style={s.conciergeOffText}>Apagar conserjería</Text>
+                      </Pressable>
+                    </View>
                     <Text style={s.genre}>{item.country}</Text>
                   </View>
 
@@ -328,7 +392,15 @@ export default function AdminManagedQuotesScreen({ navigation }: any) {
                   {item.address && (
                     <View style={s.infoRow}>
                       <MapPin size={13} color={COLORS.muted2} />
-                      <Text style={s.infoText} numberOfLines={2}>{item.address}</Text>
+                      <Text style={[s.infoText, { flex: 1 }]}>{item.address}</Text>
+                      <Pressable style={s.copyBtn} onPress={() => openInMaps(item.address!)}>
+                        <Text style={s.copyBtnText}>Ver mapa</Text>
+                      </Pressable>
+                      <Pressable style={s.copyBtn} onPress={() => copyText(`l-${item.reservation_id}`, item.address!)}>
+                        {copiedKey === `l-${item.reservation_id}`
+                          ? <Check size={13} color={COLORS.green} />
+                          : <Copy size={13} color={COLORS.muted2} />}
+                      </Pressable>
                     </View>
                   )}
 
@@ -518,6 +590,7 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: COLORS.border, padding: 14, gap: 6,
   },
   cardHeader: { marginBottom: 4 },
+  conciergeOffText: { fontFamily: FONTS.bodyMedium, fontSize: 11, color: COLORS.muted2, textDecorationLine: 'underline' },
   groupName: { fontFamily: FONTS.bodySemiBold, fontSize: 15, color: COLORS.text },
   genre: { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2 },
 
@@ -526,7 +599,14 @@ const s = StyleSheet.create({
 
   infoRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginTop: 2 },
   infoText: { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2, flex: 1 },
-  comments: { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted, fontStyle: 'italic', marginTop: 2 },
+  comments: { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted, fontStyle: 'italic', flex: 1 },
+  commentsRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginTop: 4 },
+  copyBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 3,
+    paddingHorizontal: 7, paddingVertical: 3, borderRadius: RADIUS.sm,
+    backgroundColor: COLORS.card2,
+  },
+  copyBtnText: { fontFamily: FONTS.bodyMedium, fontSize: 11, color: COLORS.muted2 },
 
   priceBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,

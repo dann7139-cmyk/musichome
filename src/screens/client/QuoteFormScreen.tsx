@@ -29,6 +29,14 @@ import { checkGroupLogistics } from '../../utils/logistics';
 import { containsBlockedContact } from '../../utils/contentModeration';
 import { getClientActiveEvents, resolveEventContext } from '../../utils/eventBuilder';
 import i18n from '../../i18n';
+import {
+  categoryKeyForGenre,
+  EQUIPMENT_CATEGORIES,
+  SOUND_ONLY_CATEGORIES,
+  CATEGORY_DETAIL_FIELDS,
+  FLAT_RATE_CATEGORIES,
+  FLAT_RATE_DEFAULT_HOURS,
+} from '../../constants/providerCategories';
 
 // ─── Opciones ────────────────────────────────────────────────────────────────
 // Se generan con `t` dentro del componente (useMemo) para reaccionar a cambios de idioma.
@@ -221,6 +229,23 @@ export default function QuoteFormScreen({ route, navigation }: any) {
   // sql/596 — este proveedor (`group`) ¿tiene horario de show que pueda
   // chocar con otro proveedor del mismo evento? Comida/brincolines/muebles no.
   const isTimedProvider = !TIMELESS_GENRES.includes(group.genre);
+  // 2026-09-05 — categoría real del proveedor (grupo/comida/renta/payasos/
+  // fotografos/etc.), para mostrar solo las preguntas que le aplican en vez
+  // del formulario único orientado a música que había antes.
+  const categoryKey = categoryKeyForGenre(group.genre);
+  const showEquipmentSection = categoryKey != null && EQUIPMENT_CATEGORIES.has(categoryKey);
+  const showSoundOnly        = categoryKey != null && SOUND_ONLY_CATEGORIES.has(categoryKey);
+  const categoryFields       = categoryKey != null ? (CATEGORY_DETAIL_FIELDS[categoryKey] ?? null) : null;
+  // Comida/Renta cobran por contrato, no por hora (2026-09-05) — no se le
+  // pregunta duración al cliente, se manda fija (mismo default que ya usa
+  // complete_event cuando duration_hours viene NULL, ver providerCategories.ts).
+  const isFlatRate           = categoryKey != null && FLAT_RATE_CATEGORIES.has(categoryKey);
+  // Respuestas de los campos propios de la categoría (comida/renta/payasos/
+  // fotografos) — chips: string | null, multiChips: string[], text: string.
+  const [categoryDetails, setCategoryDetails] = useState<Record<string, any>>({});
+  // Aviso de teléfono/contacto por campo de texto libre (dietary_notes,
+  // logistics_notes, etc.) — mismo criterio que el campo "Comentarios".
+  const [categoryFieldWarn, setCategoryFieldWarn] = useState<Record<string, boolean>>({});
   // Horarios ya tomados por OTROS proveedores "con temporizador" del mismo
   // evento (sql/596) — para que el cliente no elija una hora que se encime.
   const [eventConflictRanges, setEventConflictRanges] = useState<{ bs: number; be: number; group_name: string }[]>([]);
@@ -293,7 +318,7 @@ export default function QuoteFormScreen({ route, navigation }: any) {
     })();
   }, [group.id]);
   const [eventTime,    setEventTime]    = useState('');   // 'HH:MM'
-  const [duration,     setDuration]     = useState<number | null>(null);
+  const [duration,     setDuration]     = useState<number | null>(isFlatRate ? FLAT_RATE_DEFAULT_HOURS : null);
   const [numPersonas,  setNumPersonas]  = useState('');
   const [venueCovered, setVenueCovered] = useState<string | null>(null);
   const [venueSize,    setVenueSize]    = useState<string | null>(null);
@@ -419,7 +444,11 @@ export default function QuoteFormScreen({ route, navigation }: any) {
     addressConfirmed &&
     !!eventDate && !!eventTime && !!duration && !!breakType &&
     !!numPersonas && parseInt(numPersonas) > 0 &&
-    !!venueCovered && !!venueSize && !!needsSound &&
+    !!venueCovered && !!venueSize &&
+    // needs_sound es NOT NULL en la BD para toda categoría, pero solo se le
+    // pregunta al cliente cuando el proveedor realmente carga equipo de
+    // sonido (2026-09-05) — Comida/Renta/Payasos/Fotógrafos mandan 'no' fijo.
+    (!showEquipmentSection && !showSoundOnly ? true : !!needsSound) &&
     proximityLevel !== 'past' &&
     (proximityLevel !== 'block' || bypassProximityBlock);
 
@@ -509,11 +538,14 @@ export default function QuoteFormScreen({ route, navigation }: any) {
       num_personas:    parseInt(numPersonas),
       venue_covered:   venueCovered,
       venue_size:      venueSize,
-      needs_sound:     needsSound,
+      // needs_sound es NOT NULL en la BD para toda categoría (2026-09-05) —
+      // si al proveedor no se le pregunta sonido, se manda 'no' fijo.
+      needs_sound:     (showEquipmentSection || showSoundOnly) ? needsSound : 'no',
       needs_lighting:  lightingNeeded,
       needs_stage:     stageNeeded,
       needs_led:       ledNeeded,
       comments:        comments.trim() || null,
+      category_details: categoryDetails,
       is_gift:         isGift,
       ...(isGift ? {
         gift_recipient_name:    giftRecipient.trim() || null,
@@ -532,15 +564,15 @@ export default function QuoteFormScreen({ route, navigation }: any) {
     let insertData: any = null;
     let error: any = null;
     if (resolvedEventId) {
-      const withEventId = await supabase.from('quotes').insert({ ...insertPayload, event_id: resolvedEventId }).select('id');
+      const withEventId = await supabase.from('quotes').insert({ ...insertPayload, event_id: resolvedEventId }).select('id, status');
       if (withEventId.error?.code === '42703' || withEventId.error?.code === 'PGRST204') {
-        const fallback = await supabase.from('quotes').insert(insertPayload).select('id');
+        const fallback = await supabase.from('quotes').insert(insertPayload).select('id, status');
         insertData = fallback.data; error = fallback.error;
       } else {
         insertData = withEventId.data; error = withEventId.error;
       }
     } else {
-      const res = await supabase.from('quotes').insert(insertPayload).select('id');
+      const res = await supabase.from('quotes').insert(insertPayload).select('id, status');
       insertData = res.data; error = res.error;
     }
     setLoading(false);
@@ -557,6 +589,15 @@ export default function QuoteFormScreen({ route, navigation }: any) {
           `Code: ${error.code ?? '—'}\nMessage: ${emsg || '—'}\nDetails: ${error.details ?? '—'}\nHint: ${error.hint ?? '—'}`,
         );
       }
+    } else if (insertData?.[0]?.status === 'blocked_no_visa') {
+      // sql/657 — el grupo no tiene activada la visa de trabajo para
+      // eventos fuera de su país. La cotización se creó pero no le llega a
+      // nadie (queda solo como registro de demanda para el admin).
+      Alert.alert(
+        'No disponible fuera de su país',
+        `${group.name} todavía no puede recibir solicitudes para eventos en otro país. Intenta con un grupo local, o contáctanos si crees que esto es un error.`,
+        [{ text: 'Entendido', onPress: () => navigation.goBack() }],
+      );
     } else {
       // Notificar — RPC server-side (sql/648, 2026-09-13). Antes esto era
       // 4 inserts a mano desde el cliente, siempre al dueño del grupo.
@@ -661,7 +702,7 @@ export default function QuoteFormScreen({ route, navigation }: any) {
           !!(numPersonas && parseInt(numPersonas, 10) > 0),
           !!venueCovered,
           !!venueSize,
-          !!needsSound,
+          (!showEquipmentSection && !showSoundOnly) ? true : !!needsSound,
         ];
         const completed = sections.filter(Boolean).length;
         const total = sections.length;
@@ -1008,7 +1049,10 @@ export default function QuoteFormScreen({ route, navigation }: any) {
             </View>
           )}
 
-          {/* ─── 5. DURACIÓN ─────────────────────────────────────── */}
+          {/* ─── 5. DURACIÓN — Comida/Renta cobran por contrato, no por
+              hora (2026-09-05): el proveedor ya sabe cuánto durará su
+              servicio, no se le pregunta al cliente. Ver isFlatRate. ── */}
+          {!isFlatRate && (<>
           <SectionTitle>{t('quoteFormScreen.section5Title')}  <Text style={s.minNote}>{t('quoteFormScreen.minNote')}</Text></SectionTitle>
           {(() => {
             // Día con otra tocada: solo las horas que dejan las 2h de traslado
@@ -1077,6 +1121,7 @@ export default function QuoteFormScreen({ route, navigation }: any) {
               </View>
             );
           })()}
+          </>)}
 
           {/* ─── 6. TIPO DE DESCANSO — oculto: el grupo elige en EventTimerScreen */}
           {false && (<>
@@ -1136,7 +1181,12 @@ export default function QuoteFormScreen({ route, navigation }: any) {
             ))}
           </View>
 
-          {/* ─── 10. EQUIPO ──────────────────────────────────────── */}
+          {/* ─── 10. EQUIPO — solo categorías de música/DJ/luz y sonido/
+              espectáculo (2026-09-05). Antes se mostraba a TODOS los
+              proveedores por igual, incluyendo Comida/Renta/Payasos, a
+              quienes preguntarles de tarima o pantalla LED no les sirve
+              de nada. */}
+          {showEquipmentSection && (<>
           <SectionTitle>{t('quoteFormScreen.section10Title')}</SectionTitle>
 
           {/* sql/585 (Fase 1) — referencia de sonido ya declarado por otro
@@ -1261,6 +1311,118 @@ export default function QuoteFormScreen({ route, navigation }: any) {
               {t('quoteFormScreen.equipSummaryLine2')}
             </Text>
           </View>
+          </>)}
+
+          {/* Comediante/MC — solo necesitan saber si van a usar sonido/
+              micrófono, no cargan tarima ni pantallas (2026-09-05). */}
+          {showSoundOnly && (<>
+          <SectionTitle>{t('quoteFormScreen.section10Title')}</SectionTitle>
+          <Text style={s.equipSubTitle}>{t('quoteFormScreen.equipSoundTitle')}</Text>
+          <View style={s.chipRow}>
+            {soundOptionsList.map(o => (
+              <Pressable
+                key={o.key}
+                style={[s.chip, needsSound === o.key && s.chipActive]}
+                onPress={() => setNeedsSound(o.key)}
+              >
+                <Text style={[s.chipText, needsSound === o.key && s.chipTextActive]}>
+                  {o.label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+          </>)}
+
+          {/* Preguntas propias de la categoría — Comida/Renta/Payasos/
+              Fotógrafos (2026-09-05, sql/623 category_details). Un solo
+              bloque genérico que lee de CATEGORY_DETAIL_FIELDS, así nunca
+              se desincroniza de lo que el proveedor configura en su perfil. */}
+          {!!categoryFields && (
+            <>
+              {/* askClient:false = el proveedor ya lo configuró en su perfil
+                  (ej. tipo de servicio de Comida, qué renta Renta) — no se
+                  le vuelve a preguntar al cliente, se ve en sus fotos/video. */}
+              {categoryFields.filter(f => f.askClient !== false).map(field => {
+                const value = categoryDetails[field.key];
+                return (
+                  <View key={field.key}>
+                    <SectionTitle>{t(field.labelKey)}</SectionTitle>
+                    {field.type === 'text' && (
+                      <>
+                        <TextInput
+                          style={s.input}
+                          placeholder={field.placeholderKey ? t(field.placeholderKey) : undefined}
+                          placeholderTextColor={COLORS.muted}
+                          value={value ?? ''}
+                          onChangeText={v => {
+                            let c = v.replace(/[0-9]/g, '');
+                            const NUM_WORDS = /\b(cero|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve)([\s\-./]+(cero|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve)){2,}/gi;
+                            c = c.replace(NUM_WORDS, '');
+                            const result = analyzeMessage(c);
+                            setCategoryFieldWarn(prev => ({ ...prev, [field.key]: result.blocked }));
+                            setCategoryDetails(prev => ({ ...prev, [field.key]: c }));
+                          }}
+                        />
+                        {categoryFieldWarn[field.key] && (
+                          <View style={s.warnBox}>
+                            <Text style={s.warnText}>⚠️ {PHONE_WARNING}</Text>
+                          </View>
+                        )}
+                      </>
+                    )}
+                    {field.type === 'number' && (
+                      <TextInput
+                        style={s.input}
+                        placeholder={field.placeholderKey ? t(field.placeholderKey) : undefined}
+                        placeholderTextColor={COLORS.muted}
+                        keyboardType="numeric"
+                        value={value ?? ''}
+                        onChangeText={v => setCategoryDetails(prev => ({ ...prev, [field.key]: v.replace(/[^0-9]/g, '') }))}
+                      />
+                    )}
+                    {field.type === 'chips' && (
+                      <View style={s.chipGrid}>
+                        {field.options?.map(opt => (
+                          <Pressable
+                            key={opt.key}
+                            style={[s.chipWide, value === opt.key && s.chipActive]}
+                            onPress={() => setCategoryDetails(prev => ({ ...prev, [field.key]: opt.key }))}
+                          >
+                            <Text style={[s.chipText, value === opt.key && s.chipTextActive]}>
+                              {t(opt.labelKey)}
+                            </Text>
+                          </Pressable>
+                        ))}
+                      </View>
+                    )}
+                    {field.type === 'multiChips' && (
+                      <View style={s.chipGrid}>
+                        {field.options?.map(opt => {
+                          const arr: string[] = Array.isArray(value) ? value : [];
+                          const selected = arr.includes(opt.key);
+                          return (
+                            <Pressable
+                              key={opt.key}
+                              style={[s.chipWide, selected && s.chipActive]}
+                              onPress={() => setCategoryDetails(prev => {
+                                const cur: string[] = Array.isArray(prev[field.key]) ? prev[field.key] : [];
+                                const next = cur.includes(opt.key) ? cur.filter(k => k !== opt.key) : [...cur, opt.key];
+                                return { ...prev, [field.key]: next };
+                              })}
+                            >
+                              <Text style={[s.chipText, selected && s.chipTextActive]}>
+                                {t(opt.labelKey)}
+                              </Text>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    )}
+                  </View>
+                );
+              })}
+            </>
+          )}
 
           {/* ─── 11. COMENTARIOS ──────────────────────────────────── */}
           <SectionTitle>{t('quoteFormScreen.section11Title')}</SectionTitle>

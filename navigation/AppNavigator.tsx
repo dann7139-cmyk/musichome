@@ -140,6 +140,7 @@ import EventPayoutsScreen from '../src/screens/shared/EventPayoutsScreen';
 import AdminMediaReviewScreen from '../src/screens/admin/MediaReviewScreen';
 import AdminManagedQuotesScreen from '../src/screens/admin/AdminManagedQuotesScreen';
 import AdminProviderApplicationsScreen from '../src/screens/admin/AdminProviderApplicationsScreen';
+import AdminCrossBorderScreen from '../src/screens/admin/AdminCrossBorderScreen';
 import AdApprovalScreen from '../src/screens/admin/AdApprovalScreen';
 import TicketScreen from '../src/screens/shared/TicketScreen';
 import GiftRevealScreen from '../src/screens/shared/GiftRevealScreen';
@@ -1052,6 +1053,7 @@ export default function AppNavigator() {
             <Stack.Screen name="AdminMediaReview"   component={AdminMediaReviewScreen} />
             <Stack.Screen name="AdminManagedQuotes" component={AdminManagedQuotesScreen} />
             <Stack.Screen name="AdminProviderApplications" component={AdminProviderApplicationsScreen} />
+            <Stack.Screen name="AdminCrossBorder"    component={AdminCrossBorderScreen} />
             <Stack.Screen name="AdApproval"          component={AdApprovalScreen} />
             <Stack.Screen name="Ticket"              component={TicketScreen} />
             <Stack.Screen name="AdminTicketSearch"   component={AdminTicketSearchScreen} />
@@ -1081,6 +1083,9 @@ export default function AppNavigator() {
             {/* sql/649 (2026-09-13) — admin_get_provider_applications ya
                 filtra por país del lado del servidor. */}
             <Stack.Screen name="AdminProviderApplications" component={AdminProviderApplicationsScreen} />
+            {/* sql/657 (2026-09-16) — admin_get_cross_border_report ya
+                filtra por país del lado del servidor. */}
+            <Stack.Screen name="AdminCrossBorder" component={AdminCrossBorderScreen} />
           </>
         )}
 

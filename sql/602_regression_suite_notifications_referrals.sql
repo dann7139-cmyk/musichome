@@ -1457,7 +1457,67 @@ BEGIN
       '[41] REGRESIÓN: group_extra_earnings ya no refleja el neto real del paquete de 2h ($750) — revisar sql/653: ' || (v_resp41->>'group_extra_earnings');
   END;
 
-  RAISE EXCEPTION 'REGRESSION_SUITE: TODO PASÓ (41/41) — temporizador, notificaciones de engagement, bono de referido MX/USD, descuento al cliente, choque de horarios, sin-temporizador por categoría (incluye fotógrafos), anuncios (clientes bloqueados, sin teléfonos, solo categoría distinta, correcto con dueños de varios grupos), cupo de Destacado/Recomendado por categoría, precio de publicidad calculado server-side (video +35%, Recomendado > Destacado), regalo/quite de Bidding del admin, ranking de Bidding por estado, TODOS los regalos (no solo Otro monto) abren GiftReveal, la notificación de admin ya no dice "Trofeo" para un monto personalizado, el interruptor de mostrar regalos a los músicos integrantes, notificar al integrante removido, notificar a los integrantes al desactivar el interruptor, la matemática de tandas/descansos, el candado+idempotencia de complete_event, auto_finalize_stuck_events por fin cierra eventos realmente atorados sin tronar, las categorías Espectáculo/Maestro de Ceremonias siguen funcionando, category_details (preguntas por categoría de Comida/Renta/Shows/Fotógrafos) guarda y lee tal cual en groups y quotes, la lista de opciones por categoría que crece sola (get_category_field_values) deduplica y no mezcla categorías, Payasos ahora vive fusionado dentro de Shows (elige descanso libremente, ya no forzado), group_category_key por fin clasifica Espectáculo/Maestro de Ceremonias correctamente, los recordatorios de evento ya respetan la zona horaria real de cada evento (no siempre México), el modo conserjería completo (cotización inicial con paquetes de hora extra INDEPENDIENTES por número de horas — nunca un precio por hora multiplicado — traslado marcado con comisión, proponer horas extra en nombre del grupo durante el evento en vivo, aviso al admin cuando se paga una hora extra por saldo o tarjeta, precio ya negociado visible en la app, todo aislado por país), y las solicitudes de proveedores nuevos (anon puede mandar, categoría inválida se rechaza, aislamiento por país, aprobar crea cuenta real en modo conserjería y bloquea doble aprobación, rechazar guarda motivo y bloquea re-procesar)';
+  -- ══ 42-44. Cross-border / visa de trabajo (sql/657) ═══════════════════════
+  -- País del EVENTO (no del cliente) vs país del grupo. Sin visa → la
+  -- cotización se crea igual pero 'blocked_no_visa', nunca notifica a nadie.
+  -- Con visa → status normal, notifica igual que siempre.
+  DECLARE
+    v_gXBa UUID; v_qXBa UUID; v_statusXBa TEXT;
+    v_gXBb UUID; v_qXBb UUID; v_statusXBb TEXT; v_notifXBb JSONB;
+  BEGIN
+    INSERT INTO public.groups (id, owner_id, name, genre, country_id, country)
+      VALUES (gen_random_uuid(), v_owner, 'RT602XB SinVisa', 'Banda', v_country_mx, 'México') RETURNING id INTO v_gXBa;
+    INSERT INTO public.quotes
+      (id, group_id, client_id, event_type, event_address, event_municipio, event_estado,
+       event_date, event_time, duration_hours, venue_covered, venue_size, needs_sound)
+    VALUES
+      (gen_random_uuid(), v_gXBa, v_client, 'boda', 'D', 'Houston', 'Texas',
+       CURRENT_DATE + 10, '19:00', 4, 'si', 'salon_mediano', 'no_group_brings')
+    RETURNING id, status INTO v_qXBa, v_statusXBa;
+    ASSERT v_statusXBa = 'blocked_no_visa',
+      '[42] REGRESIÓN: grupo MX sin visa recibiendo evento en Texas debía quedar blocked_no_visa — revisar sql/657: ' || v_statusXBa;
+    ASSERT NOT EXISTS(SELECT 1 FROM notifications WHERE data->>'quote_id' = v_qXBa::text),
+      '[42] REGRESIÓN: una cotización blocked_no_visa no debe notificar a nadie';
+
+    INSERT INTO public.groups (id, owner_id, name, genre, country_id, country, has_work_visa)
+      VALUES (gen_random_uuid(), v_owner, 'RT602XB ConVisa', 'Banda', v_country_mx, 'México', true) RETURNING id INTO v_gXBb;
+    INSERT INTO public.quotes
+      (id, group_id, client_id, event_type, event_address, event_municipio, event_estado,
+       event_date, event_time, duration_hours, venue_covered, venue_size, needs_sound)
+    VALUES
+      (gen_random_uuid(), v_gXBb, v_client, 'boda', 'D', 'Houston', 'Texas',
+       CURRENT_DATE + 10, '19:00', 4, 'si', 'salon_mediano', 'no_group_brings')
+    RETURNING id, status INTO v_qXBb, v_statusXBb;
+    ASSERT v_statusXBb = 'pending',
+      '[43] REGRESIÓN: grupo MX CON visa recibiendo evento en Texas debía quedar pending normal — revisar sql/657: ' || v_statusXBb;
+
+    RESET role;
+    PERFORM set_config('request.jwt.claims', json_build_object('sub', v_client::text, 'role','authenticated')::text, true);
+    PERFORM set_config('role','authenticated', true);
+    v_notifXBb := public.notify_quote_request(v_qXBb);
+    RESET role;
+    ASSERT (v_notifXBb->>'ok')::boolean = true, '[43]: ' || v_notifXBb::text;
+    ASSERT EXISTS(SELECT 1 FROM notifications WHERE data->>'quote_id' = v_qXBb::text AND user_id = v_owner),
+      '[43] REGRESIÓN: con visa sí debe notificar normal al dueño';
+
+    -- Reporte del admin debe ver ambos.
+    DECLARE
+      v_adminXB UUID; v_reportXB JSONB;
+    BEGIN
+      SELECT id INTO v_adminXB FROM public.profiles WHERE role='admin' LIMIT 1;
+      RESET role;
+      PERFORM set_config('request.jwt.claims', json_build_object('sub', v_adminXB::text, 'role','authenticated')::text, true);
+      PERFORM set_config('role','authenticated', true);
+      v_reportXB := public.admin_get_cross_border_report(200);
+      RESET role;
+      ASSERT EXISTS(SELECT 1 FROM jsonb_array_elements(v_reportXB->'items') i WHERE (i->>'group_id')::uuid = v_gXBa AND (i->>'blocked_requests')::int >= 1),
+        '[44] REGRESIÓN: admin_get_cross_border_report no refleja el bloqueado — revisar sql/657: ' || v_reportXB::text;
+      ASSERT EXISTS(SELECT 1 FROM jsonb_array_elements(v_reportXB->'items') i WHERE (i->>'group_id')::uuid = v_gXBb AND (i->>'fulfilled_requests')::int >= 1),
+        '[44] REGRESIÓN: admin_get_cross_border_report no refleja el cumplido — revisar sql/657: ' || v_reportXB::text;
+    END;
+  END;
+
+  RAISE EXCEPTION 'REGRESSION_SUITE: TODO PASÓ (44/44) — temporizador, notificaciones de engagement, bono de referido MX/USD, descuento al cliente, choque de horarios, sin-temporizador por categoría (incluye fotógrafos), anuncios (clientes bloqueados, sin teléfonos, solo categoría distinta, correcto con dueños de varios grupos), cupo de Destacado/Recomendado por categoría, precio de publicidad calculado server-side (video +35%, Recomendado > Destacado), regalo/quite de Bidding del admin, ranking de Bidding por estado, TODOS los regalos (no solo Otro monto) abren GiftReveal, la notificación de admin ya no dice "Trofeo" para un monto personalizado, el interruptor de mostrar regalos a los músicos integrantes, notificar al integrante removido, notificar a los integrantes al desactivar el interruptor, la matemática de tandas/descansos, el candado+idempotencia de complete_event, auto_finalize_stuck_events por fin cierra eventos realmente atorados sin tronar, las categorías Espectáculo/Maestro de Ceremonias siguen funcionando, category_details (preguntas por categoría de Comida/Renta/Shows/Fotógrafos) guarda y lee tal cual en groups y quotes, la lista de opciones por categoría que crece sola (get_category_field_values) deduplica y no mezcla categorías, Payasos ahora vive fusionado dentro de Shows (elige descanso libremente, ya no forzado), group_category_key por fin clasifica Espectáculo/Maestro de Ceremonias correctamente, los recordatorios de evento ya respetan la zona horaria real de cada evento (no siempre México), el modo conserjería completo (cotización inicial con paquetes de hora extra INDEPENDIENTES por número de horas — nunca un precio por hora multiplicado — traslado marcado con comisión, proponer horas extra en nombre del grupo durante el evento en vivo, aviso al admin cuando se paga una hora extra por saldo o tarjeta, precio ya negociado visible en la app, todo aislado por país), las solicitudes de proveedores nuevos (anon puede mandar, categoría inválida se rechaza, aislamiento por país, aprobar crea cuenta real en modo conserjería y bloquea doble aprobación, rechazar guarda motivo y bloquea re-procesar), y visa de trabajo cross-border (evento en otro país sin visa queda blocked_no_visa y no notifica a nadie, con visa notifica normal, el reporte del admin refleja ambos)';
 END;
 $suite$;
 

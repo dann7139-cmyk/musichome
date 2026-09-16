@@ -19,6 +19,7 @@ import {
   Mail,
   MapPin,
   Phone,
+  Plus,
   Search,
   Shield,
   ShieldCheck,
@@ -47,6 +48,7 @@ import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import Particles from '../../components/ui/Particles';
 import VerifiedBadge from '../../components/ui/VerifiedBadge';
 import { pickAndUploadGroupImage } from '../../utils/uploadGroupImage';
+import { pickAndUploadGroupVideoMulti } from '../../utils/uploadGroupVideo';
 import { stateToCountry } from '../../utils/locationUtils';
 
 type AdminView = 'list' | 'profile' | 'moderate';
@@ -71,6 +73,8 @@ export default function AdminGroupsScreen({ navigation }: any) {
   const [contactLoading, setContactLoading] = useState(false);
   const [completedCount, setCompletedCount] = useState(0);
   const [photoLoading,   setPhotoLoading]   = useState(false);
+  const [videoLoading,   setVideoLoading]   = useState(false);
+  const [groupVideos,    setGroupVideos]    = useState<{ id: string; url: string; status: string }[]>([]);
 
   // Moderate view
   const [moderateNote,        setModerateNote]        = useState('');
@@ -168,6 +172,7 @@ export default function AdminGroupsScreen({ navigation }: any) {
     setSelected(group);
     setOwnerEmail(null);
     setCompletedCount(0);
+    setGroupVideos([]);
     setView('profile');
 
     setContactLoading(true);
@@ -183,6 +188,35 @@ export default function AdminGroupsScreen({ navigation }: any) {
       .eq('group_id', group.id)
       .eq('status', 'completed');
     setCompletedCount(count ?? 0);
+
+    loadGroupVideos(group.id);
+  };
+
+  const loadGroupVideos = async (groupId: string) => {
+    const { data } = await supabase
+      .from('group_videos')
+      .select('id, url, status')
+      .eq('group_id', groupId)
+      .neq('status', 'rejected')
+      .order('created_at', { ascending: true });
+    setGroupVideos(data ?? []);
+  };
+
+  const handleDeleteVideo = (videoId: string, index: number) => {
+    Alert.alert('Eliminar video', `¿Quitar el Video ${index + 1} del perfil?`, [
+      { text: 'Cancelar', style: 'cancel' },
+      {
+        text: 'Eliminar', style: 'destructive',
+        onPress: async () => {
+          const { error } = await supabase.from('group_videos').delete().eq('id', videoId);
+          if (error) {
+            Alert.alert(t('adminGroupsScreen.alerts.genericErrorTitle'), error.message);
+            return;
+          }
+          setGroupVideos(prev => prev.filter(v => v.id !== videoId));
+        },
+      },
+    ]);
   };
 
   const openModerate = async (group: any) => {
@@ -458,6 +492,25 @@ export default function AdminGroupsScreen({ navigation }: any) {
     }
   };
 
+  // Solo para grupos en modo conserjería — el grupo no entra a su cuenta a
+  // subir esto él mismo, así que tú lo haces por él (foto/videos que te
+  // mandó por WhatsApp). sql/654 le da permiso al admin/admin_ops.
+  const handleVideo = async () => {
+    if (!selected) return;
+    try {
+      setVideoLoading(true);
+      const ok = await pickAndUploadGroupVideoMulti(selected.id);
+      if (ok) {
+        await loadGroupVideos(selected.id);
+        Alert.alert('✅ Video subido', 'Se publicó directo — tú ya lo revisaste antes de aprobar al proveedor.');
+      }
+    } catch (e: any) {
+      Alert.alert(t('adminGroupsScreen.alerts.genericErrorTitle'), e.message ?? 'No se pudo subir el video.');
+    } finally {
+      setVideoLoading(false);
+    }
+  };
+
   // ── VISTA: LISTA ───────────────────────────────────────────────────────────
 
   if (view === 'list') {
@@ -470,8 +523,13 @@ export default function AdminGroupsScreen({ navigation }: any) {
               <ArrowLeft size={20} color={COLORS.text} />
             </Pressable>
             <Text style={s.headerTitle}>{t('adminGroupsScreen.list.title')}</Text>
-            <View style={s.countBadge}>
-              <Text style={s.countBadgeText}>{groups.length}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <View style={s.countBadge}>
+                <Text style={s.countBadgeText}>{groups.length}</Text>
+              </View>
+              <Pressable style={s.backBtn} onPress={() => navigation.navigate('AdminProviderApplications')}>
+                <Plus size={20} color={COLORS.green} />
+              </Pressable>
             </View>
           </View>
 
@@ -623,6 +681,9 @@ export default function AdminGroupsScreen({ navigation }: any) {
       ? 'Menos de 1 mes'
       : `${memberMonths} mes${memberMonths !== 1 ? 'es' : ''}`;
 
+    const plusOn = !!selected.is_plus_active && !!selected.plus_expires_at && new Date(selected.plus_expires_at) > new Date();
+    const maxVideos = plusOn ? 3 : 1;
+
     return (
       <View style={s.container}>
         <Particles />
@@ -747,6 +808,77 @@ export default function AdminGroupsScreen({ navigation }: any) {
                     : <Text style={s.contactValue}>{ownerEmail ?? '—'}</Text>}
                 </View>
               </View>
+            </View>
+
+            {/* Modo conserjería — visible aquí mismo, sin tener que ir a moderar */}
+            <View style={s.moderateCard}>
+              <Text style={s.moderateCardTitle}>🎯 Modo conserjería</Text>
+              {selected.concierge_mode ? (
+                <>
+                  <Text style={s.moderateCardHint}>
+                    📞 Activo — las cotizaciones de este grupo te llegan a ti (o al admin de su país), no a ellos.
+                  </Text>
+                  <Pressable
+                    style={[s.modActionBtn, s.modActionBtnOutlineRed, actionLoading && { opacity: 0.6 }]}
+                    onPress={handleToggleConcierge}
+                    disabled={actionLoading}
+                  >
+                    {actionLoading
+                      ? <ActivityIndicator size="small" color="#EF5350" />
+                      : <Text style={[s.modActionBtnText, { color: '#EF5350' }]}>Desactivar — que ya maneje sus cotizaciones</Text>}
+                  </Pressable>
+
+                  {/* La foto se edita tocando la foto de perfil arriba — esto
+                      es solo para el video, que no tiene otra entrada aquí. */}
+                  <Text style={[s.moderateCardHint, { marginTop: 12, fontFamily: FONTS.bodyMedium }]}>
+                    🎬 Videos del perfil · {groupVideos.length}/{maxVideos}{plusOn ? ' (Plus: 2 extra desbloqueados)' : ''}
+                  </Text>
+                  {groupVideos.map((v, i) => (
+                    <View key={v.id} style={s.adminVideoRow}>
+                      <Text style={s.adminVideoName} numberOfLines={1}>Video {i + 1} · ✅ Publicado</Text>
+                      <Pressable hitSlop={8} onPress={() => handleDeleteVideo(v.id, i)}>
+                        <Text style={{ fontSize: 14 }}>🗑️</Text>
+                      </Pressable>
+                    </View>
+                  ))}
+                  {groupVideos.length < maxVideos ? (
+                    <Pressable
+                      style={[s.modActionBtn, s.modActionBtnGreen, { marginTop: 10 }, videoLoading && { opacity: 0.6 }]}
+                      onPress={handleVideo}
+                      disabled={videoLoading}
+                    >
+                      {videoLoading
+                        ? <ActivityIndicator size="small" color={COLORS.bg} />
+                        : <>
+                            <Camera size={16} color={COLORS.bg} />
+                            <Text style={[s.modActionBtnText, { color: COLORS.bg }]}>Subir video del grupo</Text>
+                          </>}
+                    </Pressable>
+                  ) : (
+                    <Text style={s.moderateCardHint}>
+                      Ya tiene el máximo de {maxVideos} video{maxVideos !== 1 ? 's' : ''} con su plan actual{!plusOn ? ' — con Plus desbloquea 2 más' : ''}. Elimina uno para subir otro.
+                    </Text>
+                  )}
+                </>
+              ) : (
+                <>
+                  <Text style={s.moderateCardHint}>
+                    Para grupos que aún no confían en manejar su cuenta. Tú (o el admin de su país) recibes y pones precio a sus cotizaciones en vez de ellos.
+                  </Text>
+                  <Pressable
+                    style={[s.modActionBtn, s.modActionBtnGreen, actionLoading && { opacity: 0.6 }]}
+                    onPress={handleToggleConcierge}
+                    disabled={actionLoading}
+                  >
+                    {actionLoading
+                      ? <ActivityIndicator size="small" color={COLORS.bg} />
+                      : <>
+                          <Phone size={16} color={COLORS.bg} />
+                          <Text style={[s.modActionBtnText, { color: COLORS.bg }]}>Activar modo conserjería</Text>
+                        </>}
+                  </Pressable>
+                </>
+              )}
             </View>
 
             {/* Botón ir a moderar */}
@@ -1270,6 +1402,11 @@ const s = StyleSheet.create({
   moderateCardHint: {
     fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted, marginBottom: 10,
   },
+  adminVideoRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: COLORS.border,
+  },
+  adminVideoName: { fontFamily: FONTS.body, fontSize: 13, color: COLORS.text, flex: 1 },
   notesInput: {
     backgroundColor: COLORS.bg, borderRadius: RADIUS.md,
     borderWidth: 1, borderColor: COLORS.border,

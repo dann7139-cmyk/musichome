@@ -7,6 +7,7 @@ import {
   Map,
   Megaphone,
   Phone,
+  Plane,
   RefreshCw,
   Shield,
   TrendingUp,
@@ -1213,7 +1214,7 @@ export default function AdminDashboardScreen({ navigation }: any) {
               {([
                 { icon: Shield,    label: 'Verificaciones', colors: ['#0d2a5e','#061530'], ic: '#40C4FF',  screen: 'AdminVerifications' },
                 { icon: AlertCircle, label: 'Disputas',     colors: ['#3d0d0d','#200606'], ic: COLORS.red, screen: 'AdminDisputes' },
-                { icon: Users,     label: 'Grupos',         colors: ['#3d2a00','#1a1200'], ic: COLORS.gold,   screen: 'AdminGroups' },
+                { icon: Users,     label: 'Proveedores',    colors: ['#3d2a00','#1a1200'], ic: COLORS.gold,   screen: 'AdminGroups' },
                 { icon: Briefcase, label: 'Talentos',       colors: ['#1a0d3d','#0d0617'], ic: '#CE93D8',     screen: 'Talentos'    },
                 { icon: BarChart2, label: 'Estadísticas',   colors: ['#1a0d2e','#0d0617'], ic: '#CE93D8',  screen: 'AdminStats' },
                 { icon: DollarSign, label: 'Finanzas',      colors: ['#002213','#000f09'], ic: COLORS.green, screen: 'AdminFinancial' },
@@ -1222,6 +1223,7 @@ export default function AdminDashboardScreen({ navigation }: any) {
                 { icon: Wallet,    label: 'Retiros',        colors: ['#002213','#000f09'], ic: COLORS.green, screen: 'AdminFinancial' },
                 { icon: Megaphone, label: 'Anuncios',       colors: ['#001a1a','#000d0d'], ic: '#00C4B4',    screen: 'AdApproval' },
                 { icon: Phone,     label: 'Interés sin proveedor', colors: ['#3d2200','#1a0f00'], ic: '#FFB300', screen: 'AdminCategoryInterest' },
+                { icon: Plane,     label: 'Demanda entre países', colors: ['#001a2e','#000d17'], ic: '#40C4FF', screen: 'AdminCrossBorder' },
               ]).map(({ icon: Icon, label, colors, ic, screen }) => (
                 <Pressable key={label} style={s.actionBtnWrap} onPress={() => navigation.navigate(screen)}>
                   <LinearGradient colors={colors as any} style={s.actionBtn} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>

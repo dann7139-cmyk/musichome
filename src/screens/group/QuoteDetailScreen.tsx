@@ -16,6 +16,8 @@ import QuoteFormShared, { GroupMember } from '../../components/quote/QuoteFormSh
 import ClientProfileModal from '../../components/requests/ClientProfileModal';
 import { calcClientPrice } from '../../utils/calculations';
 import { maxExtraHoursAfter } from '../../utils/logistics';
+import { categoryKeyForGenre, FLAT_RATE_CATEGORIES } from '../../constants/providerCategories';
+import { stateToCountry } from '../../utils/locationUtils';
 
 export default function GroupQuoteDetailScreen({ route, navigation }: any) {
   const { quote: initialQuote } = route.params as { quote: any };
@@ -46,6 +48,11 @@ export default function GroupQuoteDetailScreen({ route, navigation }: any) {
   });
   const [loading,      setLoading]      = useState(false);
   const [isOwner,      setIsOwner]      = useState<boolean | null>(null);
+  // Categoría real del grupo (Comida/Renta/Payasos/Fotógrafos/etc.) — para
+  // mostrarle al proveedor los campos de category_details que le aplican
+  // (2026-09-05, sql/623). null hasta que se resuelva el fetch de abajo.
+  const [groupGenre,   setGroupGenre]   = useState<string | null>(null);
+  const [groupCountry, setGroupCountry] = useState<string | null>(null);
   const [ownerName,    setOwnerName]    = useState<string>('');
   const [groupMembers, setGroupMembers] = useState<GroupMember[]>([]);
   // sql/591 — "¿otro proveedor de este mismo evento ya tiene el equipo
@@ -78,9 +85,11 @@ export default function GroupQuoteDetailScreen({ route, navigation }: any) {
     supabase.auth.getUser().then(async ({ data }) => {
       if (!data.user) return;
       const { data: grp } = await supabase
-        .from('groups').select('owner_id').eq('id', quote.group_id).single();
+        .from('groups').select('owner_id, genre, country').eq('id', quote.group_id).single();
       const ownerIsCurrentUser = grp?.owner_id === data.user.id;
       setIsOwner(ownerIsCurrentUser);
+      setGroupGenre(grp?.genre ?? null);
+      setGroupCountry(grp?.country ?? null);
 
       const [{ data: ownerProfile }, { data: memberships }] = await Promise.all([
         supabase.from('profiles').select('id, full_name, avatar_url').eq('id', grp?.owner_id).single(),
@@ -125,11 +134,16 @@ export default function GroupQuoteDetailScreen({ route, navigation }: any) {
 
   const isReadOnly = quote.status !== 'pending';
 
+  // Comida/Renta cobran por contrato, no por hora (2026-09-05) — ver
+  // providerCategories.ts FLAT_RATE_CATEGORIES.
+  const categoryKey = categoryKeyForGenre(groupGenre);
+  const isFlatRate  = categoryKey != null && FLAT_RATE_CATEGORIES.has(categoryKey);
+
   // ── Cálculos ──────────────────────────────────────────────────────────────
   const pph     = parseFloat(pricePerHour) || 0;
   const travel  = parseFloat(travelCost)   || 0;
   const hours   = quote.duration_hours ?? 3;
-  const base    = pph * hours;
+  const base    = isFlatRate ? pph : pph * hours;
   const total   = base + travel;
   const contadoPublico = total > 0 ? calcClientPrice(total) : 0;
   const commission     = contadoPublico - total;
@@ -148,9 +162,15 @@ export default function GroupQuoteDetailScreen({ route, navigation }: any) {
   const ot2ClientPrice = ot2Val > 0 ? calcClientPrice(ot2Val) : 0;
   const ot3ClientPrice = ot3Val > 0 ? calcClientPrice(ot3Val) : 0;
 
+  // El evento puede ser en otro país (sql/657) — no forzar "México" aquí,
+  // rompía el mapa para eventos en EE.UU. stateToCountry cae a 'México' por
+  // defecto si no reconoce el texto, así que solo se usa si hay algo que leer.
+  const eventCountry = quote.event_estado ? stateToCountry(quote.event_estado) : null;
+  const isCrossBorderEvent = !!groupCountry && !!eventCountry && eventCountry !== groupCountry;
+
   const openInMaps = () => {
     const addr = encodeURIComponent(
-      `${quote.event_address}, ${quote.event_municipio}, ${quote.event_estado}, México`
+      `${quote.event_address}, ${quote.event_municipio}, ${quote.event_estado}, ${eventCountry ?? groupCountry ?? 'México'}`
     );
     Linking.openURL(`https://maps.google.com/maps?q=${addr}`);
   };
@@ -169,8 +189,9 @@ export default function GroupQuoteDetailScreen({ route, navigation }: any) {
     setMemberAmounts(Array.from({ length: numAdditional }, () => String(perMember)));
   };
 
-  // Con otra tocada después, los paquetes de horas extra no aplican
-  const canSend = () => pph > 0 && (boxedIn || (!!overtime1h && !!overtime2h && !!overtime3h));
+  // Con otra tocada después, o si la categoría cobra por contrato (Comida/
+  // Renta), los paquetes de horas extra no aplican.
+  const canSend = () => pph > 0 && (isFlatRate || boxedIn || (!!overtime1h && !!overtime2h && !!overtime3h));
 
   const handleSendQuote = async () => {
     if (notesWarn || containsBlockedContact(groupNotes)) {
@@ -303,6 +324,12 @@ export default function GroupQuoteDetailScreen({ route, navigation }: any) {
         <Text style={[s.headerTitle, { flex: 1 }]}>Solicitud de cotización</Text>
       </SafeAreaView>
 
+      {isCrossBorderEvent && (
+        <View style={s.crossBorderBanner}>
+          <Text style={s.crossBorderBannerText}>📍 Este evento es en {eventCountry}</Text>
+        </View>
+      )}
+
       <QuoteFormShared
         mode="quote"
         // Financial
@@ -339,6 +366,9 @@ export default function GroupQuoteDetailScreen({ route, navigation }: any) {
         soundCoordination={soundCoordination}
         needsStage={quote.needs_stage}
         needsLed={quote.needs_led}
+        categoryKey={categoryKey}
+        categoryDetails={quote.category_details}
+        isFlatRate={isFlatRate}
         // Client card — foto + Ver perfil, como ExpressCard
         clientName={quote.client?.full_name ?? 'Cliente'}
         clientCreatedAt={clientCreatedAt}
@@ -404,4 +434,8 @@ const s = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   headerTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 16, color: COLORS.text },
+  crossBorderBanner: {
+    backgroundColor: COLORS.greenMuted, paddingVertical: 8, paddingHorizontal: SPACING.xl,
+  },
+  crossBorderBannerText: { fontFamily: FONTS.bodyMedium, fontSize: 12, color: COLORS.green },
 });

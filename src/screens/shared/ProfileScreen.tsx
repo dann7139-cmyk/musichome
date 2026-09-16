@@ -29,6 +29,7 @@ import {
   ScrollView,
   Share,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -87,6 +88,25 @@ export default function ProfileScreen({ navigation }: any) {
   const [profile, setProfile]       = useState<any>(null);
   const [group, setGroup]           = useState<any>(null);
   const [groupRole, setGroupRole]   = useState<'owner' | 'member' | null>(null);
+  const [visaSaving, setVisaSaving] = useState(false);
+
+  // sql/657 — si NO tienen visa, las solicitudes de eventos en otro país
+  // (comparado contra dónde es el evento, no de dónde es el cliente) se
+  // bloquean solas del lado del servidor. Esto solo abre/cierra la puerta.
+  const handleToggleVisa = async (value: boolean) => {
+    if (!group?.id || visaSaving) return;
+    setVisaSaving(true);
+    setGroup((prev: any) => (prev ? { ...prev, has_work_visa: value } : prev));
+    const { error } = await supabase
+      .from('groups')
+      .update({ has_work_visa: value })
+      .eq('id', group.id);
+    setVisaSaving(false);
+    if (error) {
+      setGroup((prev: any) => (prev ? { ...prev, has_work_visa: !value } : prev));
+      Alert.alert('Error', 'No se pudo guardar el cambio. Intenta de nuevo.');
+    }
+  };
 
   // Stripe Connect (para talent y group)
   const [stripeStatus, setStripeStatus] = useState<{
@@ -891,6 +911,27 @@ export default function ProfileScreen({ navigation }: any) {
             {profile?.role === 'group' && (
               <>
                 <MenuItem icon="✅" label="Verificación"     onPress={() => navigation.navigate('GroupVerification')} />
+
+                {/* sql/657 — sin esto activado, las solicitudes de eventos en
+                    otro país se bloquean solas (no le llegan, ni al cliente
+                    le sale como enviada). El país se compara contra dónde es
+                    el EVENTO, no de dónde es el cliente que pregunta. */}
+                <View style={st.menuItem}>
+                  <Text style={st.menuIcon}>🛂</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={st.menuLabel}>Cuento con visa de trabajo</Text>
+                    <Text style={{ fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2, marginTop: 2 }}>
+                      Actívalo para recibir solicitudes de eventos en otro país
+                    </Text>
+                  </View>
+                  <Switch
+                    value={!!group?.has_work_visa}
+                    onValueChange={handleToggleVisa}
+                    disabled={visaSaving}
+                    trackColor={{ false: COLORS.border, true: COLORS.green }}
+                    thumbColor="#fff"
+                  />
+                </View>
               </>
             )}
 
