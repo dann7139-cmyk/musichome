@@ -58,10 +58,11 @@ export async function exportCrossBorderPdf(params: {
 <head>
 <meta charset="utf-8">
 <style>
+  @page { margin: 36px 40px; }
   * { box-sizing: border-box; }
   body {
     font-family: -apple-system, Roboto, 'Helvetica Neue', Arial, sans-serif;
-    color: #1a1a1a; margin: 0; padding: 36px 40px;
+    color: #1a1a1a; margin: 0; padding: 0;
     font-size: 12px; line-height: 1.5;
   }
   ${BRAND_HEADER_CSS}
@@ -79,6 +80,7 @@ export async function exportCrossBorderPdf(params: {
 
   table { width: 100%; border-collapse: collapse; margin-top: 6px; }
   th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 0.4px; color: #666; border-bottom: 2px solid #e0e0e0; padding: 8px 6px; }
+  tr { page-break-inside: avoid; }
   td { padding: 9px 6px; border-bottom: 1px solid #eee; font-size: 11.5px; vertical-align: top; }
   td.num { color: #999; width: 24px; }
 

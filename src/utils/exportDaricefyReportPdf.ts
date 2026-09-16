@@ -28,10 +28,11 @@ const MONTH_ES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep',
 const monthLabel = (yyyymm: string) => MONTH_ES[(parseInt(String(yyyymm).split('-')[1] ?? '1', 10) - 1) % 12] ?? yyyymm;
 
 const BASE_CSS = `
+  @page { margin: 36px 40px; }
   * { box-sizing: border-box; }
   body {
     font-family: -apple-system, Roboto, 'Helvetica Neue', Arial, sans-serif;
-    color: #1a1a1a; margin: 0; padding: 36px 40px;
+    color: #1a1a1a; margin: 0; padding: 0;
     font-size: 12px; line-height: 1.5;
   }
   ${BRAND_HEADER_CSS}
@@ -41,11 +42,12 @@ const BASE_CSS = `
   .subtitle { font-size: 12px; color: #555; margin-bottom: 4px; }
   .meta { font-size: 10px; color: #666; margin-bottom: 2px; }
 
-  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: #00A344; border-bottom: 2px solid #e6f7ec; padding-bottom: 5px; margin: 22px 0 10px; }
-  h3 { font-size: 12.5px; color: #0a0a0a; margin: 12px 0 6px; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: #00A344; border-bottom: 2px solid #e6f7ec; padding-bottom: 5px; margin: 22px 0 10px; page-break-after: avoid; }
+  h3 { font-size: 12.5px; color: #0a0a0a; margin: 12px 0 6px; page-break-after: avoid; }
 
   table { width: 100%; border-collapse: collapse; margin-bottom: 4px; }
   th { text-align: left; font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.3px; color: #777; border-bottom: 2px solid #eee; padding: 6px 5px; }
+  tr { page-break-inside: avoid; }
   td { padding: 6px 5px; border-bottom: 1px solid #f0f0f0; font-size: 11px; vertical-align: top; }
   td.r { text-align: right; font-weight: 600; }
 
@@ -65,11 +67,11 @@ const BASE_CSS = `
   .bar { width: 100%; max-width: 34px; background: #00C853; border-radius: 3px 3px 0 0; }
   .bar-label { font-size: 8.5px; color: #666; margin-top: 4px; }
 
-  .rank-item { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid #f3f3f3; font-size: 11px; }
+  .rank-item { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid #f3f3f3; font-size: 11px; page-break-inside: avoid; }
   .rank-item .name { color: #1a1a1a; }
   .rank-item .val { font-weight: 700; color: #0a0a0a; }
 
-  .alert-row { display: flex; justify-content: space-between; padding: 6px 10px; background: #FFF8E1; border-radius: 6px; margin-bottom: 5px; font-size: 11px; }
+  .alert-row { display: flex; justify-content: space-between; padding: 6px 10px; background: #FFF8E1; border-radius: 6px; margin-bottom: 5px; font-size: 11px; page-break-inside: avoid; }
   .alert-row .n { font-weight: 800; color: #B26A00; }
 
   .footer { margin-top: 26px; padding-top: 12px; border-top: 1px solid #e6e6e6; font-size: 9px; color: #666; }

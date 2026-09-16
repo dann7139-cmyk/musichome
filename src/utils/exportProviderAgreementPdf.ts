@@ -14,10 +14,11 @@ import { getLogoDataUri, brandHeaderHtml, BRAND_HEADER_CSS } from './pdfBranding
  */
 
 const BASE_CSS = `
+  @page { margin: 36px 40px; }
   * { box-sizing: border-box; }
   body {
     font-family: -apple-system, Roboto, 'Helvetica Neue', Arial, sans-serif;
-    color: #1a1a1a; margin: 0; padding: 36px 40px;
+    color: #1a1a1a; margin: 0; padding: 0;
     font-size: 12px; line-height: 1.55;
   }
   ${BRAND_HEADER_CSS}
@@ -26,13 +27,13 @@ const BASE_CSS = `
   h1 { font-size: 18px; margin: 4px 0 4px; color: #0a0a0a; text-align: center; }
   .intro { font-size: 11.5px; color: #444; margin-bottom: 16px; }
 
-  h2 { font-size: 12.5px; text-transform: uppercase; letter-spacing: 0.4px; color: #00A344; border-bottom: 2px solid #e6f7ec; padding-bottom: 5px; margin: 20px 0 10px; }
-  h3 { font-size: 12px; color: #0a0a0a; margin: 14px 0 4px; }
+  h2 { font-size: 12.5px; text-transform: uppercase; letter-spacing: 0.4px; color: #00A344; border-bottom: 2px solid #e6f7ec; padding-bottom: 5px; margin: 20px 0 10px; page-break-after: avoid; }
+  h3 { font-size: 12px; color: #0a0a0a; margin: 14px 0 4px; page-break-after: avoid; }
 
   ol { margin: 0; padding-left: 18px; }
-  ol li { margin-bottom: 8px; font-size: 11.5px; }
+  ol li { margin-bottom: 8px; font-size: 11.5px; page-break-inside: avoid; }
 
-  .annex { border: 1px solid #eee; border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; background: #fafafa; }
+  .annex { border: 1px solid #eee; border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; background: #fafafa; page-break-inside: avoid; }
   .annex b { color: #0a0a0a; }
   .annex p { margin: 4px 0 0; font-size: 11px; color: #333; }
 
