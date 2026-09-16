@@ -86,7 +86,7 @@ export async function exportCrossBorderPdf(params: {
   .tag-blocked { background: #FDECEA; color: #C62828; }
   .tag-ok { background: #E3F7EA; color: #00843D; }
 
-  .footer { margin-top: 28px; padding-top: 14px; border-top: 1px solid #e0e0e0; font-size: 9.5px; color: #888; }
+  .footer { margin-top: 28px; padding-top: 14px; border-top: 1px solid #e0e0e0; font-size: 9.5px; color: #666; }
 </style>
 </head>
 <body>

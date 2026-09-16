@@ -40,10 +40,10 @@ const BASE_CSS = `
   .sign-row { display: flex; gap: 30px; margin-top: 26px; }
   .sign-col { flex: 1; }
   .fill-line { border-bottom: 1px solid #999; height: 30px; }
-  .fill-label { font-size: 9.5px; color: #888; margin-top: 3px; text-transform: uppercase; letter-spacing: 0.3px; }
+  .fill-label { font-size: 10px; color: #555; margin-top: 3px; text-transform: uppercase; letter-spacing: 0.3px; font-weight: 600; }
   .sign-title { font-size: 11.5px; font-weight: 700; color: #0a0a0a; margin-bottom: 10px; }
 
-  .footer { margin-top: 26px; padding-top: 12px; border-top: 1px solid #e6e6e6; font-size: 8.5px; color: #999; }
+  .footer { margin-top: 26px; padding-top: 12px; border-top: 1px solid #e6e6e6; font-size: 9px; color: #666; }
   .warn { background: #FFF8E1; border-radius: 6px; padding: 10px 14px; font-size: 10.5px; color: #7a5600; margin-bottom: 16px; }
 `;
 

@@ -1222,8 +1222,10 @@ export default function AdminDashboardScreen({ navigation }: any) {
                 { icon: Map,       label: 'Mapa en vivo',   colors: ['#001a2e','#000d17'], ic: '#40C4FF',  screen: 'AdminMap' },
                 { icon: Wallet,    label: 'Retiros',        colors: ['#002213','#000f09'], ic: COLORS.green, screen: 'AdminFinancial' },
                 { icon: Megaphone, label: 'Anuncios',       colors: ['#001a1a','#000d0d'], ic: '#00C4B4',    screen: 'AdApproval' },
-                { icon: Phone,     label: 'Interés sin proveedor', colors: ['#3d2200','#1a0f00'], ic: '#FFB300', screen: 'AdminCategoryInterest' },
+                { icon: UserPlus,  label: 'Solicitudes de proveedores', colors: ['#1a0d3d','#0d0617'], ic: '#CE93D8', screen: 'AdminProviderApplications' },
+                { icon: Phone,     label: 'Cotizaciones que manejo', colors: ['#002213','#000f09'], ic: COLORS.green, screen: 'AdminManagedQuotes' },
                 { icon: Plane,     label: 'Demanda entre países', colors: ['#001a2e','#000d17'], ic: '#40C4FF', screen: 'AdminCrossBorder' },
+                { icon: Phone,     label: 'Interés sin proveedor', colors: ['#3d2200','#1a0f00'], ic: '#FFB300', screen: 'AdminCategoryInterest' },
               ]).map(({ icon: Icon, label, colors, ic, screen }) => (
                 <Pressable key={label} style={s.actionBtnWrap} onPress={() => navigation.navigate(screen)}>
                   <LinearGradient colors={colors as any} style={s.actionBtn} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>

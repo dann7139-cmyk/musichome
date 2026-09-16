@@ -39,7 +39,7 @@ const BASE_CSS = `
 
   h1 { font-size: 17px; margin: 0 0 4px; color: #0a0a0a; }
   .subtitle { font-size: 12px; color: #555; margin-bottom: 4px; }
-  .meta { font-size: 10px; color: #888; margin-bottom: 2px; }
+  .meta { font-size: 10px; color: #666; margin-bottom: 2px; }
 
   h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: #00A344; border-bottom: 2px solid #e6f7ec; padding-bottom: 5px; margin: 22px 0 10px; }
   h3 { font-size: 12.5px; color: #0a0a0a; margin: 12px 0 6px; }
@@ -52,7 +52,7 @@ const BASE_CSS = `
   .kv-table td:first-child { color: #555; width: 62%; }
   .kv-table td:last-child { text-align: right; font-weight: 700; color: #0a0a0a; }
 
-  .empty { font-size: 11px; color: #999; font-style: italic; padding: 6px 0; }
+  .empty { font-size: 11px; color: #777; font-style: italic; padding: 6px 0; }
 
   .summary-grid { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 8px; }
   .summary-box { border: 1px solid #e6e6e6; border-radius: 8px; padding: 8px 14px; text-align: center; min-width: 90px; }
@@ -63,7 +63,7 @@ const BASE_CSS = `
   .bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; }
   .bar-val { font-size: 8px; color: #777; margin-bottom: 3px; }
   .bar { width: 100%; max-width: 34px; background: #00C853; border-radius: 3px 3px 0 0; }
-  .bar-label { font-size: 8.5px; color: #888; margin-top: 4px; }
+  .bar-label { font-size: 8.5px; color: #666; margin-top: 4px; }
 
   .rank-item { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid #f3f3f3; font-size: 11px; }
   .rank-item .name { color: #1a1a1a; }
@@ -72,7 +72,7 @@ const BASE_CSS = `
   .alert-row { display: flex; justify-content: space-between; padding: 6px 10px; background: #FFF8E1; border-radius: 6px; margin-bottom: 5px; font-size: 11px; }
   .alert-row .n { font-weight: 800; color: #B26A00; }
 
-  .footer { margin-top: 26px; padding-top: 12px; border-top: 1px solid #e6e6e6; font-size: 9px; color: #999; }
+  .footer { margin-top: 26px; padding-top: 12px; border-top: 1px solid #e6e6e6; font-size: 9px; color: #666; }
   .page-break { page-break-before: always; }
 `;
 
