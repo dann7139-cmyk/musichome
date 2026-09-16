@@ -1,4 +1,4 @@
-import { ArrowLeft, Clock, Coffee, MapPin, MessageCircle, Music2 } from 'lucide-react-native';
+import { ArrowLeft, Clock, Coffee, Info, MapPin, MessageCircle, Music2, X } from 'lucide-react-native';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
@@ -155,6 +155,7 @@ export default function LiveEventScreen({ route, navigation }: any) {
   const [elapsed,  setElapsed]  = useState(0);
   const [isRunning, setIsRunning] = useState(false);
   const [showExtraModal, setShowExtraModal] = useState(false);
+  const [showLegalNotice, setShowLegalNotice] = useState(false);
   const [pricePerHourState, setPricePerHour] = useState<number | null>(null);
   // Con OTRA tocada del grupo después ese día no hay horas extra posibles
   const [extraHoursCap, setExtraHoursCap] = useState<number>(Infinity);
@@ -380,7 +381,9 @@ export default function LiveEventScreen({ route, navigation }: any) {
             <ArrowLeft size={20} color={COLORS.text} />
           </Pressable>
           <Text style={s.headerTitle}>Evento en vivo</Text>
-          <View style={{ width: 40 }} />
+          <Pressable style={s.backBtn} onPress={() => setShowLegalNotice(true)}>
+            <Info size={20} color={COLORS.muted2} />
+          </Pressable>
         </View>
 
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.scroll}>
@@ -584,12 +587,22 @@ export default function LiveEventScreen({ route, navigation }: any) {
           </View>
 
           {/* ── Arrived banner ─────────────────────────────────────── */}
+          {/* Hora exacta + sello "Verificado por GPS" (petición del usuario
+              2026-09-10): antes solo decía "ya llegó" sin más detalle — con
+              esto el cliente ve la evidencia dura sin tener que reclamarle
+              al admin si duda de su propio recuerdo. arrival_gps_verified es
+              false (no null) cuando el evento no tenía coordenadas para
+              comparar (sql/424) — en ese caso no se muestra el sello, pero
+              la hora de llegada sí, porque esa siempre se registra. */}
           {reservation.group_arrived_at && (
             <View style={s.arrivedBanner}>
               <Text style={s.arrivedIcon}>📍</Text>
               <View style={{ flex: 1 }}>
                 <Text style={s.arrivedTitle}>¡El grupo ya llegó!</Text>
-                <Text style={s.arrivedSub}>El grupo confirmó su llegada al lugar.</Text>
+                <Text style={s.arrivedSub}>
+                  Llegó a las {new Date(reservation.group_arrived_at).toLocaleTimeString('es-MX', { hour: 'numeric', minute: '2-digit' })}
+                  {reservation.arrival_gps_verified ? ' · ✅ Verificado por GPS' : ''}
+                </Text>
               </View>
             </View>
           )}
@@ -700,6 +713,33 @@ export default function LiveEventScreen({ route, navigation }: any) {
           }
         }}
       />
+
+      {/* Aviso legal — accesible desde el evento ya pagado, no solo antes de
+          pagar (docs/legal_provider_liability_draft.md, sección 5). */}
+      <Modal visible={showLegalNotice} transparent animationType="slide" onRequestClose={() => setShowLegalNotice(false)}>
+        <View style={xh.backdrop}>
+          <View style={xh.sheet}>
+            <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+              <Text style={xh.title}>Aviso importante</Text>
+              <Pressable onPress={() => setShowLegalNotice(false)} hitSlop={10}>
+                <X size={20} color={COLORS.muted2} />
+              </Pressable>
+            </View>
+            <Text style={xh.sub}>
+              Daricefy conecta y cotiza, pero el servicio de este evento lo presta{' '}
+              <Text style={{ fontFamily: 'DMSans_600SemiBold', color: COLORS.text }}>{groupName}</Text>, un
+              proveedor independiente — no un empleado de Daricefy. Daricefy no es responsable por la
+              calidad, seguridad o legalidad de lo que el proveedor entregue.{'\n\n'}
+              Cualquier reclamo sobre el servicio en sí se resuelve directamente con el proveedor;
+              Daricefy ayuda con la evidencia registrada (chat, GPS, pagos) pero no es parte del
+              servicio contratado.
+            </Text>
+            <Pressable style={xh.cancel} onPress={() => setShowLegalNotice(false)}>
+              <Text style={xh.cancelText}>Entendido</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
