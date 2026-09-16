@@ -8,9 +8,11 @@ import * as Location from 'expo-location';
 import {
   CheckCircle, Clock, DollarSign, MapPin, Phone, Scale, Truck, XCircle,
 } from 'lucide-react-native';
+import { useTranslation } from 'react-i18next';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import { EARTH_STYLE } from '../../constants/mapStyle';
 import { PHONE_WARNING } from '../../utils/phoneFilter';
+import { CATEGORY_DETAIL_FIELDS, EQUIPMENT_CATEGORIES, SOUND_ONLY_CATEGORIES } from '../../constants/providerCategories';
 
 // ── Helpers de mapa (privacidad + ruta) ──────────────────────────────────────
 const _CITY_COORDS: Record<string, { lat: number; lng: number }> = {
@@ -261,7 +263,7 @@ const qlMapSt2 = StyleSheet.create({
 
 // ─── Label maps ───────────────────────────────────────────────────────────────
 
-const EVENT_TYPE_LABELS: Record<string, string> = {
+export const EVENT_TYPE_LABELS: Record<string, string> = {
   fiesta_privada: '🎉 Fiesta privada',
   boda:           '💍 Boda',
   cumpleanos:     '🎂 Cumpleaños',
@@ -269,16 +271,16 @@ const EVENT_TYPE_LABELS: Record<string, string> = {
   empresarial:    '🏢 Empresarial',
   otro:           '🎵 Otro',
 };
-const COVERED_LABELS: Record<string, string> = {
+export const COVERED_LABELS: Record<string, string> = {
   si: 'Sí, está techado', no: 'No, al aire libre', no_se: 'No sabe',
 };
-const VENUE_LABELS: Record<string, string> = {
+export const VENUE_LABELS: Record<string, string> = {
   patio_pequeno:         '🏡 Patio pequeño',
   salon_mediano:         '🏛️ Salón mediano',
   jardin_grande:         '🌳 Jardín grande',
   escenario_profesional: '🎤 Escenario profesional',
 };
-const SOUND_LABELS: Record<string, string> = {
+export const SOUND_LABELS: Record<string, string> = {
   // v1 (backward compat)
   si: 'Sí, necesita sonido', no: 'No necesita sonido', ya_tengo: 'Ya cuenta con sonido',
   // v2
@@ -288,13 +290,13 @@ const SOUND_LABELS: Record<string, string> = {
   si_200: 'Sí, hasta 200 personas',
   si_300: 'Sí, 300+ personas',
 };
-const LIGHTING_LABELS: Record<string, string> = {
+export const LIGHTING_LABELS: Record<string, string> = {
   no: 'No necesita', simple: 'Sencilla', pro: 'Profesional', premium: 'Premium',
 };
-const STAGE_LABELS: Record<string, string> = {
+export const STAGE_LABELS: Record<string, string> = {
   no: 'No necesita', small: 'Chico 3×2m', medium: 'Mediano 4×3m', wedding: 'Grande boda 6×4m',
 };
-const LED_LABELS: Record<string, string> = {
+export const LED_LABELS: Record<string, string> = {
   no: 'No necesita', medium: 'Mediana', large: 'Grande', xl: 'XL boda',
 };
 // sql/591 — a qué se refiere el banner de coordinación entre grupos
@@ -375,6 +377,13 @@ export interface QuoteFormSharedProps {
     partner_phone?: string | null;
   } | null;
 
+  // Preguntas propias de la categoría — Comida/Renta/Payasos/Fotógrafos
+  // (2026-09-05, sql/623 category_details). categoryKey identifica qué
+  // definición de CATEGORY_DETAIL_FIELDS usar para traducir las llaves
+  // guardadas en categoryDetails a texto legible.
+  categoryKey?: string | null;
+  categoryDetails?: Record<string, any> | null;
+
   // Client card (mode='quote')
   clientName?: string;
   clientCreatedAt?: string;
@@ -425,6 +434,9 @@ export interface QuoteFormSharedProps {
   isOvertimeRequired?: boolean;
   /** El grupo tiene OTRA tocada después ese día: no se ofrecen horas extra */
   hideOvertime?: boolean;
+  /** Comida/Renta (2026-09-05): cobran por contrato, no por hora — precio
+   *  total en vez de precio/hora, y sin paquetes de horas extra. */
+  isFlatRate?: boolean;
   /** Tocadas del grupo ese día (horas decimales) → rejilla de disponibilidad */
   busyRanges?: { bs: number; be: number }[];
   /** Duración del evento a proponer (para calcular qué horas caben) */
@@ -522,6 +534,15 @@ function FieldLabel({ children }: { children: string }) {
 // ─── QuoteFormShared ──────────────────────────────────────────────────────────
 
 export default function QuoteFormShared(p: QuoteFormSharedProps) {
+  const { t } = useTranslation();
+  // 2026-09-05 — a Comida/Renta/Payasos/Fotógrafos nunca se les preguntó
+  // sonido (needs_sound se manda 'no' fijo desde QuoteFormScreen solo para
+  // cumplir el NOT NULL de la BD) — no tiene caso mostrarles esa fila.
+  // categoryKey null (cotizaciones viejas antes de esta categoría) sí la
+  // muestra, igual que siempre.
+  const showsSoundQuestion = !p.categoryKey
+    || EQUIPMENT_CATEGORIES.has(p.categoryKey)
+    || SOUND_ONLY_CATEGORIES.has(p.categoryKey);
   const isReadOnly      = p.isReadOnly ?? false;
   const overtimeReqd    = p.isOvertimeRequired ?? (p.mode === 'quote');
   const formSectionTitle = p.mode === 'quote'
@@ -618,7 +639,9 @@ export default function QuoteFormShared(p: QuoteFormSharedProps) {
             <DetailRow label="Tipo"     value={EVENT_TYPE_LABELS[p.eventType] ?? p.eventType} />
             <DetailRow label="Fecha"    value={p.eventDateStr} />
             {p.eventTime ? <DetailRow label="Hora"     value={p.eventTime} />       : null}
-            <DetailRow label="Duración" value={p.durationLabel} />
+            {/* Comida/Renta cobran por contrato — no se le pidió duración
+                al cliente, mostrar "3 horas" aquí sería un dato inventado. */}
+            {!p.isFlatRate && <DetailRow label="Duración" value={p.durationLabel} />}
             {p.numPersonas != null ? <DetailRow label="Personas" value={`~${p.numPersonas}`} /> : null}
           </View>
 
@@ -647,12 +670,12 @@ export default function QuoteFormShared(p: QuoteFormSharedProps) {
           ) : null}
 
           {/* Condiciones del lugar */}
-          {(p.venueCovered || p.venueSize || p.needsSound) ? (
+          {(p.venueCovered || p.venueSize || (showsSoundQuestion && p.needsSound)) ? (
             <View style={s.section}>
               <Text style={s.sectionTitle}>Condiciones del lugar</Text>
               {p.venueCovered ? <DetailRow label="Techado"    value={COVERED_LABELS[p.venueCovered] ?? p.venueCovered} /> : null}
               {p.venueSize    ? <DetailRow label="Espacio"    value={VENUE_LABELS[p.venueSize]     ?? p.venueSize}     /> : null}
-              {p.needsSound   ? <DetailRow label="🎵 Sonido" value={SOUND_LABELS[p.needsSound]   ?? p.needsSound}   /> : null}
+              {showsSoundQuestion && p.needsSound   ? <DetailRow label="🎵 Sonido" value={SOUND_LABELS[p.needsSound]   ?? p.needsSound}   /> : null}
             </View>
           ) : null}
 
@@ -671,6 +694,39 @@ export default function QuoteFormShared(p: QuoteFormSharedProps) {
               {p.needsLed && p.needsLed !== 'no'
                 ? <DetailRow label="📺 Pantalla LED" value={LED_LABELS[p.needsLed] ?? p.needsLed} />
                 : null}
+            </View>
+          ) : null}
+
+          {/* Preguntas propias de la categoría — Comida/Renta/Payasos/
+              Fotógrafos (2026-09-05, sql/623 category_details). Misma
+              definición que QuoteFormScreen/DashboardScreen, así el
+              proveedor ve exactamente lo que el cliente respondió. */}
+          {p.categoryKey && p.categoryDetails && CATEGORY_DETAIL_FIELDS[p.categoryKey] ? (
+            <View style={s.section}>
+              <Text style={s.sectionTitle}>Detalles del servicio</Text>
+              {CATEGORY_DETAIL_FIELDS[p.categoryKey].map(field => {
+                const value = p.categoryDetails![field.key];
+                if (value == null || (Array.isArray(value) && value.length === 0) || value === '') return null;
+                let displayValue: string;
+                if (field.type === 'multiChips' && Array.isArray(value)) {
+                  // Un valor sin match en las opciones fijas es algo que el
+                  // proveedor escribió a mano ("Agregar otro") — se muestra
+                  // tal cual, no se descarta.
+                  displayValue = value
+                    .map(k => {
+                      const opt = field.options?.find(o => o.key === k);
+                      return opt ? t(opt.labelKey) : k;
+                    })
+                    .join(', ');
+                } else if (field.type === 'chips') {
+                  const opt = field.options?.find(o => o.key === value);
+                  displayValue = opt ? t(opt.labelKey) : String(value);
+                } else {
+                  displayValue = String(value);
+                }
+                if (!displayValue) return null;
+                return <DetailRow key={field.key} label={t(field.labelKey)} value={displayValue} />;
+              })}
             </View>
           ) : null}
 
@@ -715,7 +771,7 @@ export default function QuoteFormShared(p: QuoteFormSharedProps) {
           <View style={s.section}>
             <Text style={s.sectionTitle}>{formSectionTitle}</Text>
 
-            <FieldLabel>Tu precio neto por hora *</FieldLabel>
+            <FieldLabel>{p.isFlatRate ? 'Tu precio neto total del servicio *' : 'Tu precio neto por hora *'}</FieldLabel>
             <View style={s.currencyRow}>
               <DollarSign size={16} color={COLORS.muted2} />
               <TextInput
@@ -727,12 +783,18 @@ export default function QuoteFormShared(p: QuoteFormSharedProps) {
                 keyboardType="numeric"
                 editable={!isReadOnly}
               />
-              <Text style={s.currencyUnit}>/hora</Text>
+              {!p.isFlatRate && <Text style={s.currencyUnit}>/hora</Text>}
             </View>
-            {p.pph > 0 && (
-              <Text style={s.calcHint}>
-                {p.hours}h × ${p.pph.toLocaleString()} = ${p.base.toLocaleString()} MXN
-              </Text>
+            {p.isFlatRate ? (
+              p.pph > 0 && (
+                <Text style={s.calcHint}>Precio total del servicio: ${p.base.toLocaleString()} MXN</Text>
+              )
+            ) : (
+              p.pph > 0 && (
+                <Text style={s.calcHint}>
+                  {p.hours}h × ${p.pph.toLocaleString()} = ${p.base.toLocaleString()} MXN
+                </Text>
+              )
             )}
 
             <FieldLabel>Costo extra por traslado</FieldLabel>
@@ -959,8 +1021,17 @@ export default function QuoteFormShared(p: QuoteFormSharedProps) {
           )}
 
           {/* Paquetes de horas extra — ocultos si el grupo tiene otra tocada
-              después ese día (el traslado de 2h es obligatorio) */}
-          {p.hideOvertime ? (
+              después ese día (el traslado de 2h es obligatorio) o si la
+              categoría cobra por contrato, no por hora (Comida/Renta). */}
+          {p.isFlatRate ? (
+            <View style={s.section}>
+              <Text style={s.sectionTitle}>Paquetes de horas extra</Text>
+              <Text style={s.hint}>
+                Este servicio se cobra por contrato, no por hora — no aplican
+                paquetes de horas extra.
+              </Text>
+            </View>
+          ) : p.hideOvertime ? (
             <View style={s.section}>
               <Text style={s.sectionTitle}>Paquetes de horas extra</Text>
               <Text style={s.hint}>

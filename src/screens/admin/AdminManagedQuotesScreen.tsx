@@ -34,6 +34,10 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
+import {
+  EVENT_TYPE_LABELS, COVERED_LABELS, VENUE_LABELS, SOUND_LABELS,
+  LIGHTING_LABELS, STAGE_LABELS, LED_LABELS,
+} from '../../components/quote/QuoteFormShared';
 
 const call = (phone?: string | null) => { if (phone) Linking.openURL(`tel:${phone}`); };
 const openInMaps = (addr: string) => Linking.openURL(`https://maps.google.com/maps?q=${encodeURIComponent(addr)}`);
@@ -54,12 +58,23 @@ interface QuoteItem {
   country: string;
   client_name: string | null;
   client_phone: string | null;
+  event_type: string | null;
   event_date: string;
   event_time: string | null;
   duration_hours: number | null;
+  num_personas: number | null;
   event_address: string | null;
   event_municipio: string | null;
   event_estado: string | null;
+  venue_covered: string | null;
+  venue_size: string | null;
+  needs_sound: string | null;
+  needs_lighting: string | null;
+  needs_stage: string | null;
+  needs_led: string | null;
+  category_details: Record<string, any> | null;
+  is_gift: boolean | null;
+  gift_recipient_name: string | null;
   comments: string | null;
 }
 
@@ -310,6 +325,42 @@ export default function AdminManagedQuotesScreen({ navigation }: any) {
                       {item.duration_hours ? ` · ${item.duration_hours}h` : ''}
                     </Text>
                   </View>
+
+                  {/* Todo lo que llenó el cliente — el admin negocia por
+                      teléfono en nombre del grupo, necesita verlo completo. */}
+                  <View style={s.detailsBox}>
+                    <Text style={s.detailsLine}>
+                      {EVENT_TYPE_LABELS[item.event_type ?? ''] ?? item.event_type ?? '—'}
+                      {item.num_personas ? ` · ${item.num_personas} personas` : ''}
+                    </Text>
+                    {(item.venue_covered || item.venue_size) && (
+                      <Text style={s.detailsLine}>
+                        {item.venue_size ? VENUE_LABELS[item.venue_size] ?? item.venue_size : ''}
+                        {item.venue_covered ? ` · ${COVERED_LABELS[item.venue_covered] ?? item.venue_covered}` : ''}
+                      </Text>
+                    )}
+                    {item.needs_sound && (
+                      <Text style={s.detailsLine}>🎵 {SOUND_LABELS[item.needs_sound] ?? item.needs_sound}</Text>
+                    )}
+                    {item.needs_lighting && item.needs_lighting !== 'no' && (
+                      <Text style={s.detailsLine}>💡 Iluminación: {LIGHTING_LABELS[item.needs_lighting] ?? item.needs_lighting}</Text>
+                    )}
+                    {item.needs_stage && item.needs_stage !== 'no' && (
+                      <Text style={s.detailsLine}>🎭 Tarima: {STAGE_LABELS[item.needs_stage] ?? item.needs_stage}</Text>
+                    )}
+                    {item.needs_led && item.needs_led !== 'no' && (
+                      <Text style={s.detailsLine}>📺 Pantalla LED: {LED_LABELS[item.needs_led] ?? item.needs_led}</Text>
+                    )}
+                    {item.category_details && Object.keys(item.category_details).length > 0 && (
+                      <Text style={s.detailsLine}>
+                        {Object.entries(item.category_details).map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : v}`).join(' · ')}
+                      </Text>
+                    )}
+                    {item.is_gift && (
+                      <Text style={s.detailsLine}>🎁 Regalo sorpresa{item.gift_recipient_name ? ` para ${item.gift_recipient_name}` : ''}</Text>
+                    )}
+                  </View>
+
                   {(item.event_address || item.event_municipio) && (() => {
                     const fullAddr = [item.event_address, item.event_municipio, item.event_estado].filter(Boolean).join(', ');
                     const addrKey = `q-${item.quote_id}`;
@@ -601,6 +652,11 @@ const s = StyleSheet.create({
   infoText: { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2, flex: 1 },
   comments: { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted, fontStyle: 'italic', flex: 1 },
   commentsRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginTop: 4 },
+  detailsBox: {
+    backgroundColor: COLORS.card2, borderRadius: RADIUS.md,
+    padding: 10, marginTop: 6, gap: 3,
+  },
+  detailsLine: { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2 },
   copyBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 3,
     paddingHorizontal: 7, paddingVertical: 3, borderRadius: RADIUS.sm,
