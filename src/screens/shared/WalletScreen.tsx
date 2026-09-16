@@ -33,6 +33,7 @@ import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import Particles from '../../components/ui/Particles';
 import Button from '../../components/ui/Button';
 import { validateClabe, bankFromClabe } from '../../utils/clabe';
+import { exportDaricefyReportPdf } from '../../utils/exportDaricefyReportPdf';
 import PaymentHistoryCard from '../../components/wallet/PaymentHistoryCard';
 
 function formatCurrency(n: number) {
@@ -899,7 +900,11 @@ export default function WalletScreen({ navigation }: any) {
                       Alert.alert('No se pudo generar', (data as any)?.error ?? error?.message ?? 'Intenta de nuevo.');
                       return;
                     }
-                    await Linking.openURL((data as any).url);
+                    if (format === 'pdf') {
+                      await exportDaricefyReportPdf((data as any).report);
+                    } else {
+                      await Linking.openURL((data as any).url);
+                    }
                   } catch {
                     Alert.alert('Error', 'No se pudo descargar el reporte. Intenta de nuevo.');
                   } finally {

@@ -37,6 +37,7 @@ import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import {
   CountryTabs, COUNTRY_FLAGS, fmtMoney, KpiCard, MetricRow, SectionHeader, StatePicker, TrendBars,
 } from '../../components/reports';
+import { exportDaricefyReportPdf } from '../../utils/exportDaricefyReportPdf';
 
 // ─── Rangos rápidos ───────────────────────────────────────────────────────────
 const getRanges = (t: TFunction) => [
@@ -188,9 +189,15 @@ export default function AdminReportsScreen({ navigation }: any) {
       });
       if (error) throw new Error(error.message ?? t('adminReportsScreen.export.networkError'));
       if ((res as any)?.error) throw new Error((res as any).error);
-      const url = (res as any)?.url as string | undefined;
-      if (!url) throw new Error(t('adminReportsScreen.export.noFile'));
-      await Linking.openURL(url);
+      if (format === 'pdf') {
+        const report = (res as any)?.report;
+        if (!report) throw new Error(t('adminReportsScreen.export.noFile'));
+        await exportDaricefyReportPdf(report);
+      } else {
+        const url = (res as any)?.url as string | undefined;
+        if (!url) throw new Error(t('adminReportsScreen.export.noFile'));
+        await Linking.openURL(url);
+      }
     } catch (e: any) {
       Alert.alert(t('adminReportsScreen.export.errorTitle'), e.message ?? t('adminReportsScreen.export.tryAgain'));
     } finally {

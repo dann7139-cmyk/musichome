@@ -25,6 +25,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { supabase } from '../../config/supabase';
+import { exportDaricefyReportPdf } from '../../utils/exportDaricefyReportPdf';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import {
   fmtMoney, KpiCard, MetricRow, SectionHeader, TrendBars,
@@ -100,9 +101,15 @@ export default function GroupPerformanceScreen({ navigation }: any) {
       });
       if (error) throw new Error(error.message ?? t('groupPerformanceScreen.export.networkError'));
       if ((res as any)?.error) throw new Error((res as any).error);
-      const url = (res as any)?.url as string | undefined;
-      if (!url) throw new Error(t('groupPerformanceScreen.export.noFile'));
-      await Linking.openURL(url);
+      if (format === 'pdf') {
+        const report = (res as any)?.report;
+        if (!report) throw new Error(t('groupPerformanceScreen.export.noFile'));
+        await exportDaricefyReportPdf(report);
+      } else {
+        const url = (res as any)?.url as string | undefined;
+        if (!url) throw new Error(t('groupPerformanceScreen.export.noFile'));
+        await Linking.openURL(url);
+      }
     } catch (e: any) {
       Alert.alert(t('groupPerformanceScreen.export.errorTitle'), e.message ?? t('groupPerformanceScreen.export.errorDefault'));
     } finally {

@@ -39,6 +39,7 @@ import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import Particles from '../../components/ui/Particles';
 import TimePickerModal from '../../components/ui/TimePickerModal';
 import { calcGroupEarnings, calcServiceFee } from '../../utils/calculations';
+import { exportDaricefyReportPdf } from '../../utils/exportDaricefyReportPdf';
 import { flagFor, placeLine, methodLabel } from '../../utils/countryFormat';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -211,9 +212,16 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
       <View style={s.kpiPendingCard}>
         <View style={{ flex: 1 }}>
           <Text style={s.kpiPendingLabel}>{opts.label}</Text>
-          <Text style={s.kpiPendingAmount}>{fmt(opts.amount)} <Text style={s.currencyTag}>MXN</Text></Text>
+          <Text style={s.kpiPendingAmount} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>
+            {fmt(opts.amount)} <Text style={s.currencyTag}>MXN</Text>
+          </Text>
           {(opts.usdAmount ?? 0) > 0 && (
-            <Text style={[s.kpiPendingAmount, { fontSize: 16, color: COLORS.blue }]}>
+            <Text
+              style={[s.kpiPendingAmount, { fontSize: 16, color: COLORS.blue }]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.6}
+            >
               {fmt(opts.usdAmount!)} <Text style={s.currencyTag}>USD 🇺🇸</Text>
             </Text>
           )}
@@ -859,7 +867,11 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
                         Alert.alert('No se pudo generar', (data as any)?.error ?? error?.message ?? 'Intenta de nuevo.');
                         return;
                       }
-                      await Linking.openURL((data as any).url);
+                      if (format === 'pdf') {
+                        await exportDaricefyReportPdf((data as any).report);
+                      } else {
+                        await Linking.openURL((data as any).url);
+                      }
                     } catch {
                       Alert.alert('Error', 'No se pudo descargar el reporte.');
                     } finally {
@@ -987,15 +999,15 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
                 <Text style={s.equationTitle}>Cómo se calcula tu ganancia</Text>
                 <View style={s.equationRow}>
                   <Text style={s.eqLabel}>Tu comisión cobrada (20% markup)</Text>
-                  <Text style={[s.eqValue, { color: COLORS.green }]}>{fmt(overview.ganancia_bruta)}</Text>
+                  <Text style={[s.eqValue, { color: COLORS.green }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>{fmt(overview.ganancia_bruta)}</Text>
                 </View>
                 <View style={s.equationRow}>
                   <Text style={s.eqLabel}>− Comisión procesadores (real)</Text>
-                  <Text style={[s.eqValue, { color: COLORS.orange }]}>−{fmt(overview.stripe_fees)}</Text>
+                  <Text style={[s.eqValue, { color: COLORS.orange }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>−{fmt(overview.stripe_fees)}</Text>
                 </View>
                 <View style={[s.equationRow, s.equationTotal]}>
                   <Text style={s.eqTotalLabel}>= Neto real tras costos</Text>
-                  <Text style={s.eqTotalValue}>{fmt(overview.ganancia_neta)}</Text>
+                  <Text style={s.eqTotalValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>{fmt(overview.ganancia_neta)}</Text>
                 </View>
               </View>
             </>
@@ -1929,12 +1941,12 @@ const s = StyleSheet.create({
   // Equation card
   equationCard: { backgroundColor: COLORS.card, borderRadius: RADIUS.lg, borderWidth: 1, borderColor: COLORS.border, padding: SPACING.lg },
   equationTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.muted2, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 12 },
-  equationRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: COLORS.border },
+  equationRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: COLORS.border, gap: 8 },
   equationTotal: { borderBottomWidth: 0, paddingTop: 12, marginTop: 4 },
-  eqLabel: { fontFamily: FONTS.body, fontSize: 13, color: COLORS.muted2 },
-  eqValue: { fontFamily: FONTS.bodyMedium, fontSize: 14 },
-  eqTotalLabel: { fontFamily: FONTS.bodySemiBold, fontSize: 15, color: COLORS.text },
-  eqTotalValue: { fontFamily: FONTS.title, fontSize: 20, color: COLORS.green },
+  eqLabel: { flex: 1, fontFamily: FONTS.body, fontSize: 13, color: COLORS.muted2 },
+  eqValue: { flexShrink: 1, fontFamily: FONTS.bodyMedium, fontSize: 14, textAlign: 'right' },
+  eqTotalLabel: { flex: 1, fontFamily: FONTS.bodySemiBold, fontSize: 15, color: COLORS.text },
+  eqTotalValue: { flexShrink: 1, fontFamily: FONTS.title, fontSize: 20, color: COLORS.green, textAlign: 'right' },
 
   // Section
   sectionTitle: { fontFamily: FONTS.title, fontSize: 16, color: COLORS.text },

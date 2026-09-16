@@ -14,6 +14,13 @@
 // El archivo se sube al bucket privado 'reports' y se regresa una URL
 // firmada (1 h). CLABEs enmascaradas (****1234). Sin llaves ni tokens.
 //
+// 📄 PDF: desde 2026-09-16 este endpoint ya NO dibuja el PDF en el
+// servidor (antes con pdf-lib, texto plano sin logo). Ahora solo regresa
+// los MISMOS datos ya calculados (report: {...}) y el cliente arma el
+// documento con expo-print (mismo estilo de marca que el resto de la app
+// — src/utils/exportDaricefyReportPdf.ts). Los NÚMEROS no cambiaron en
+// absoluto, solo dónde se dibuja el documento final.
+//
 // Body: { mode: 'group'|'admin', from?: 'YYYY-MM-DD', to?: 'YYYY-MM-DD',
 //         country?: 'all'|'MX'|'US'|'CA',
 //         state?, city?, method?, provider?, event_status? }
@@ -21,7 +28,6 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import * as XLSX from 'https://esm.sh/xlsx@0.18.5';
-import { PDFDocument, StandardFonts, rgb } from 'https://esm.sh/pdf-lib@1.17.1';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY  = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -83,10 +89,7 @@ function makeSheet(headers: string[], rows: any[][], widths?: number[]) {
   return ws;
 }
 
-// ── 📄 PDF ejecutivo (1 página, pdf-lib) ─────────────────────────────
-// Los datos salen de los MISMOS RPCs del dashboard (sql/504) llamados
-// con el token del usuario — mismas cifras que ve en pantalla.
-// Solo texto WinAnsi (sin emojis) — las fuentes estándar no los soportan.
+// ── RPC como el usuario real (mismas cifras que ve en pantalla) ────────
 async function callRpcAsUser(jwt: string, fn: string, params: Record<string, unknown>) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, {
     method: 'POST',
@@ -99,318 +102,6 @@ async function callRpcAsUser(jwt: string, fn: string, params: Record<string, unk
   });
   if (!res.ok) throw new Error(`RPC ${fn} falló (${res.status})`);
   return await res.json();
-}
-
-const pdfMoney = (n: any) =>
-  n == null ? '-' : `$${Number(n).toLocaleString('es-MX', { maximumFractionDigits: 0 })}`;
-
-// Fuentes estándar = WinAnsi: fuera emojis y símbolos no latinos
-const pdfSafe = (t: string) =>
-  String(t ?? '')
-    .replace(/★/g, '*').replace(/→/g, '>').replace(/—/g, '-')
-    .replace(/[^\x00-ÿ]/g, '')
-    .replace(/\s+/g, ' ').trim();
-
-const MONTH_ES = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
-const pdfMonth = (yyyymm: string) => MONTH_ES[(parseInt(String(yyyymm).split('-')[1] ?? '1', 10) - 1) % 12] ?? yyyymm;
-
-// ── Generador multipágina con paginación automática ─────────────────
-async function buildReportPdf(opts: {
-  mode: 'group' | 'admin';
-  from: string; to: string;
-  filtersLabel: string;         // filtros activos, texto plano
-  subtitle: string;             // alcance o nombre del grupo
-  data: any;                    // admin_reports_dashboard | group_performance_dashboard
-  compare?: any;                // admin_country_compare
-  rankings?: any;               // admin_rankings
-  alerts?: any;                 // admin_alerts
-  wallet?: any;                 // get_my_wallet (grupo: "disponible")
-}): Promise<Uint8Array> {
-  const doc  = await PDFDocument.create();
-  const font = await doc.embedFont(StandardFonts.Helvetica);
-  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
-
-  const GREEN = rgb(0, 0.7, 0.4);
-  const INK   = rgb(0.08, 0.09, 0.08);
-  const MUT   = rgb(0.45, 0.48, 0.46);
-  const LINE  = rgb(0.88, 0.9, 0.88);
-  const BARBG = rgb(0.93, 0.95, 0.93);
-
-  const A4W = 595.28, A4H = 841.89, M = 48, TOP = A4H - 56, BOTTOM = 64;
-  let page = doc.addPage([A4W, A4H]);
-  let y = TOP;
-
-  const ensure = (h: number) => {
-    if (y - h < BOTTOM) { page = doc.addPage([A4W, A4H]); y = TOP; }
-  };
-  const text = (t: string, size: number, f = font, color = INK, x = M) => {
-    page.drawText(pdfSafe(t), { x, y, size, font: f, color });
-  };
-  const row = (label: string, value: string) => {
-    ensure(18);
-    text(label, 10, font, MUT);
-    const v = pdfSafe(value);
-    const w = bold.widthOfTextAtSize(v, 10.5);
-    page.drawText(v, { x: A4W - M - w, y, size: 10.5, font: bold, color: INK });
-    y -= 18;
-  };
-  const section = (title: string) => {
-    ensure(46);
-    y -= 8;
-    text(title.toUpperCase(), 9.5, bold, GREEN);
-    y -= 6;
-    page.drawLine({ start: { x: M, y }, end: { x: A4W - M, y }, thickness: 0.7, color: LINE });
-    y -= 16;
-  };
-  const emptyState = (msg: string) => {
-    ensure(18);
-    text(msg, 9.5, font, MUT);
-    y -= 18;
-  };
-  const wrapText = (t: string, size: number, maxW: number): string[] => {
-    const words = pdfSafe(t).split(' ');
-    const lines: string[] = [];
-    let cur = '';
-    for (const w of words) {
-      const probe = cur ? `${cur} ${w}` : w;
-      if (font.widthOfTextAtSize(probe, size) > maxW && cur) { lines.push(cur); cur = w; }
-      else cur = probe;
-    }
-    if (cur) lines.push(cur);
-    return lines;
-  };
-  const paragraph = (t: string, size = 9.5, color = INK) => {
-    for (const line of wrapText(t, size, A4W - M * 2)) {
-      ensure(14);
-      text(line, size, font, color);
-      y -= 14;
-    }
-  };
-  // Gráfica de barras simple (tendencia / estrellas)
-  const barChart = (items: { label: string; value: number }[], height = 70) => {
-    if (items.length === 0) { emptyState('Sin datos en este periodo.'); return; }
-    ensure(height + 30);
-    const max = Math.max(...items.map(i => i.value), 1);
-    const gap = 8;
-    const barW = Math.min(48, (A4W - M * 2 - gap * (items.length - 1)) / items.length);
-    items.forEach((it, i) => {
-      const h = Math.max(3, (it.value / max) * height);
-      const x = M + i * (barW + gap);
-      page.drawRectangle({ x, y: y - height, width: barW, height, color: BARBG });
-      page.drawRectangle({ x, y: y - height, width: barW, height: h, color: GREEN });
-      const lb = pdfSafe(it.label);
-      page.drawText(lb, { x: x + barW / 2 - font.widthOfTextAtSize(lb, 7.5) / 2, y: y - height - 11, size: 7.5, font, color: MUT });
-      const vl = pdfMoney(it.value);
-      page.drawText(vl, { x: x + barW / 2 - font.widthOfTextAtSize(vl, 6.5) / 2, y: y - height + h + 3, size: 6.5, font, color: MUT });
-    });
-    y -= height + 28;
-  };
-  const rankBlock = (title: string, items: any[], fmt: (v: any) => string) => {
-    ensure(34);
-    text(title, 10, bold, INK); y -= 15;
-    if (!items || items.length === 0) { emptyState('Sin datos en este periodo.'); return; }
-    items.slice(0, 5).forEach((it: any, i: number) => {
-      ensure(15);
-      text(`${i + 1}. ${pdfSafe(it.name)}${it.state ? ` (${pdfSafe(it.state)})` : ''}`, 9.5, font, INK);
-      const v = pdfSafe(fmt(it.value));
-      page.drawText(v, { x: A4W - M - bold.widthOfTextAtSize(v, 9.5), y, size: 9.5, font: bold, color: INK });
-      y -= 15;
-    });
-    y -= 4;
-  };
-
-  // ── Portada / encabezado ejecutivo ─────────────────────────────────
-  text('Daricefy', 24, bold, GREEN); y -= 26;
-  text(opts.mode === 'admin' ? 'Reporte ejecutivo de la plataforma' : 'Reporte de desempeño', 16, bold); y -= 18;
-  text(opts.subtitle, 11, font, INK); y -= 15;
-  text(`Periodo: ${opts.from} a ${opts.to}`, 9.5, font, MUT); y -= 13;
-  text(`Filtros aplicados: ${opts.filtersLabel}`, 9.5, font, MUT); y -= 13;
-  text(`Generado: ${new Date().toLocaleString('es-MX', { timeZone: 'America/Mexico_City' })} (hora de Mexico)`, 8.5, font, MUT);
-  y -= 6;
-
-  const d = opts.data ?? {};
-
-  if (opts.mode === 'admin') {
-    // 1 · Resumen financiero por moneda (NUNCA sumadas)
-    const curs = d.currencies ?? [];
-    if (curs.length === 0) { section('Resumen financiero'); emptyState('Sin cobros en este periodo con los filtros aplicados.'); }
-    for (const cur of curs) {
-      section(`Resumen financiero · ${cur.moneda}`);
-      row('Ingreso bruto (cuanto vendimos)', `${pdfMoney(cur.total_cobrado)} ${cur.moneda}`);
-      row('Ganancia neta Daricefy (comision - procesadores)', pdfMoney(cur.neto_estimado));
-      row('Comision real de procesadores', `${pdfMoney(cur.fees_reales)} (${cur.fees_no_capturados} no capturados)`);
-      row('Dinero para grupos', pdfMoney(cur.dinero_grupos));
-      row('Pendiente por pagar a grupos', pdfMoney(cur.pendiente_grupos));
-      row('Pagado a grupos', pdfMoney(cur.pagado_grupos));
-      row('Reembolsos', `${pdfMoney(cur.reembolsado)} (${cur.reembolsos})`);
-    }
-
-    // 2 · Eventos
-    const ev = d.events ?? {};
-    section('Eventos');
-    if ((ev.total ?? 0) === 0) emptyState('Sin eventos en este periodo con los filtros aplicados.');
-    else {
-      row('Total de eventos', String(ev.total ?? 0));
-      row('Completados', String(ev.completados ?? 0));
-      row('Proximos', String(ev.proximos ?? 0));
-      row('Cancelaciones (cliente / grupo)', `${ev.cancelados ?? 0} (${ev.cancel_cliente ?? 0} / ${ev.cancel_grupo ?? 0})`);
-      row('No-shows', String(ev.no_shows ?? 0));
-      row('Reembolsados', String(ev.reembolsados ?? 0));
-    }
-
-    // 3 · Comunidad
-    const com = d.community ?? {};
-    section('Comunidad');
-    const gs = com.grupos ?? [], ts = com.talentos ?? [];
-    if (gs.length === 0 && ts.length === 0) emptyState('Sin registros de comunidad con los filtros aplicados.');
-    for (const g of gs) row(`Grupos activos · ${g.pais}`, `${g.activos} (+${g.nuevos} nuevos)`);
-    for (const t of ts) row(`Talentos · ${t.pais}`, String(t.activos));
-    row('Nuevos registros en el periodo', String(com.nuevos_registros ?? 0));
-
-    // 4 · Comparativa por países
-    section('Comparativa por paises');
-    const countries = opts.compare?.countries ?? [];
-    if (countries.length === 0) emptyState('Sin datos de paises.');
-    for (const c of countries) {
-      ensure(20);
-      text(pdfSafe(c.pais), 10.5, bold, INK); y -= 16;
-      row('  Grupos / Talentos / Eventos', `${c.grupos} / ${c.talentos} / ${c.eventos}`);
-      row(`  Ingresos (${c.moneda})`, pdfMoney(c.ingresos));
-      row('  Calificacion promedio', c.rating != null ? `${Number(c.rating).toFixed(1)} / 5` : 'Sin resenas');
-    }
-    const pend = opts.compare?.pendientes;
-    if (pend) row('Registros pendientes de clasificar', `${(pend.grupos ?? 0) + (pend.talentos ?? 0)} (grupos ${pend.grupos ?? 0} · talentos ${pend.talentos ?? 0})`);
-
-    // 5 · Tendencia (una gráfica POR MONEDA — jamás mezcladas)
-    const trend = d.trend ?? [];
-    const trendCurs = [...new Set(trend.map((t: any) => t.moneda))];
-    section('Tendencia mensual (ingreso bruto)');
-    if (trend.length === 0) emptyState('Sin datos de tendencia en este periodo.');
-    for (const tc of trendCurs) {
-      ensure(20); text(`Moneda: ${tc}`, 9.5, bold, INK); y -= 14;
-      barChart(trend.filter((t: any) => t.moneda === tc)
-        .map((t: any) => ({ label: pdfMonth(t.mes), value: Number(t.total) })));
-    }
-
-    // 6 · Rankings (respetan los filtros del panel)
-    section('Rankings · Grupos');
-    rankBlock('Mas eventos completados', opts.rankings?.groups_events, v => String(v));
-    rankBlock('Mas ingresos (su ganancia)', opts.rankings?.groups_income, v => pdfMoney(v));
-    rankBlock('Mejor calificacion', opts.rankings?.groups_rating, v => `${Number(v).toFixed(1)} / 5`);
-    rankBlock('Mayor crecimiento vs periodo anterior', opts.rankings?.groups_growth, v => String(v));
-    section('Rankings · Talentos');
-    rankBlock('Mas contratados', opts.rankings?.talents_hired, v => String(v));
-    rankBlock('Mejor calificacion', opts.rankings?.talents_rating, v => `${Number(v).toFixed(1)} / 5`);
-    rankBlock('Mas eventos realizados', opts.rankings?.talents_events, v => String(v));
-    section('Rankings · Ciudades');
-    rankBlock('Mas eventos', opts.rankings?.cities_events, v => String(v));
-    rankBlock('Mas ingresos', opts.rankings?.cities_income, v => pdfMoney(v));
-    rankBlock('Mayor crecimiento', opts.rankings?.cities_growth, v => String(v));
-
-    // 7 · Alertas (solo tipo, cantidad y estado — sin datos sensibles)
-    section('Alertas (toda la plataforma)');
-    const al = opts.alerts ?? {};
-    const alertRows: [string, number][] = [
-      ['Retiros pendientes de grupos', al.retiros_pendientes],
-      ['Pagos retenidos mas de 3 dias', al.pagos_retenidos_viejos],
-      ['Disputas abiertas', al.disputas_abiertas],
-      ['Reembolsos manuales pendientes', al.reembolsos_pendientes],
-      ['Eventos sin cerrar', al.eventos_sin_cerrar],
-      ['Grupos suspendidos', al.grupos_suspendidos],
-      ['Registros sin pais', al.sin_pais],
-      ['Cobros sin fee de procesador capturado', al.fees_no_capturados],
-    ];
-    const active = alertRows.filter(([, n]) => Number(n) > 0);
-    if (active.length === 0) emptyState('Todo en orden: nada requiere atencion.');
-    else for (const [lb, n] of active) row(lb, `${n} — requiere atencion`);
-
-  } else {
-    // ══ GRUPO — su dashboard completo, sin NADA de Daricefy ══
-    const rt = d.rating ?? {};
-    const ev = d.events ?? {};
-
-    // 1 · Desempeño
-    section('Desempeno');
-    row('Calificacion promedio', `${Number(rt.promedio ?? 0).toFixed(1)} / 5 (${rt.resenas ?? 0} resenas)`);
-    // Distribución de estrellas
-    const stars = d.stars ?? {};
-    const starItems = ['5', '4', '3', '2', '1'].map(k => ({ label: `${k} estrellas`, n: Number(stars[k] ?? 0) }));
-    if (starItems.every(s => s.n === 0)) emptyState('Aun sin resenas para la distribucion de estrellas.');
-    else for (const s of starItems) row(s.label, String(s.n));
-
-    // 2 · Eventos
-    section('Eventos');
-    row('Realizados', String(ev.realizados ?? 0));
-    row('Proximos', String(ev.proximos ?? 0));
-    row('Cancelaciones del cliente', String(ev.cancel_cliente ?? 0));
-    row('Cancelaciones del grupo', String(ev.cancel_tuyos ?? 0));
-    row('No-shows', String(ev.no_shows ?? 0));
-    row('Tasa de finalizacion', ev.completion_rate != null ? `${ev.completion_rate}%` : 'Sin eventos cerrados aun');
-
-    // 3 · Ganancias por moneda (solo "tu ganancia")
-    const monies = d.money ?? [];
-    if (monies.length === 0) { section('Tus ganancias'); emptyState('Sin cobros en este periodo.'); }
-    for (const m of monies) {
-      section(`Tus ganancias · ${m.moneda}`);
-      row('Ganancia total', `${pdfMoney(m.total)} ${m.moneda}`);
-      row('Pendiente (se libera al finalizar)', pdfMoney(m.pendiente));
-      row('Pagado', pdfMoney(m.pagado));
-    }
-    if (opts.wallet) {
-      row('Disponible para retirar', pdfMoney(opts.wallet.available_balance));
-    }
-
-    // 4 · Tendencia
-    section('Tendencia mensual (tu ganancia)');
-    barChart((d.trend ?? []).map((t: any) => ({ label: pdfMonth(t.mes), value: Number(t.total) })));
-
-    // 5 · Ciudades
-    section('Ciudades donde trabajaste');
-    const cities = d.cities ?? [];
-    if (cities.length === 0) emptyState('Sin eventos completados con ciudad registrada.');
-    else for (const c of cities) row(pdfSafe(c.ciudad), `${c.eventos} eventos`);
-
-    // 6 · Historial de pagos y retiros
-    section('Historial de pagos y retiros');
-    const pays = d.payments ?? [];
-    if (pays.length === 0) emptyState('Sin movimientos en este periodo.');
-    for (const p of pays) {
-      const fecha = String(p.fecha ?? '').substring(0, 10);
-      if (p.tipo === 'retiro') {
-        row(`Retiro · ${fecha}${p.cuenta ? ` · ${p.cuenta}` : ''}`,
-          `${pdfMoney(p.amount)} · ${p.estado === 'completed' ? 'Pagado' : p.estado === 'pending' ? 'Pendiente' : pdfSafe(String(p.estado))}${p.ref ? ` · Ref ${pdfSafe(p.ref)}` : ''}`);
-      } else {
-        row(`${pdfSafe(p.label)} · ${fecha}${p.rating ? ` · ${p.rating}/5` : ''}`,
-          `${pdfMoney(p.amount)} · ${p.estado === 'released' ? 'Liberado' : p.estado === 'held' ? 'Pendiente' : pdfSafe(String(p.estado))}`);
-      }
-    }
-
-    // 7 · Comentarios recientes
-    section('Comentarios recientes de clientes');
-    const revs = d.reviews ?? [];
-    if (revs.length === 0) emptyState('Aun sin comentarios con texto.');
-    for (const rv of revs) {
-      ensure(16);
-      text(`${pdfSafe(rv.cliente)} · ${rv.rating}/5 · ${String(rv.fecha ?? '').substring(0, 10)}`, 9.5, bold, INK);
-      y -= 14;
-      paragraph(`"${rv.comment}"`, 9.5, MUT);
-      y -= 4;
-    }
-  }
-
-  // ── Pie en TODAS las páginas: paginación + reglas ──────────────────
-  const pages = doc.getPages();
-  const genTx = pdfSafe(`Generado: ${new Date().toLocaleString('es-MX', { timeZone: 'America/Mexico_City' })} (hora de Mexico)`);
-  pages.forEach((p, i) => {
-    p.drawLine({ start: { x: M, y: 44 }, end: { x: A4W - M, y: 44 }, thickness: 0.7, color: LINE });
-    p.drawText('Las monedas (MXN/USD/CAD) se reportan por separado y nunca se suman. Comisiones de procesador: solo montos reales.',
-      { x: M, y: 33, size: 7, font, color: MUT });
-    p.drawText(genTx, { x: M, y: 23, size: 7, font, color: MUT });
-    const pg = `Pagina ${i + 1} de ${pages.length}`;
-    p.drawText(pg, { x: A4W - M - font.widthOfTextAtSize(pg, 7.5), y: 23, size: 7.5, font, color: MUT });
-  });
-
-  return await doc.save();
 }
 
 // Bloque de metadatos al inicio de la hoja Resumen
@@ -447,21 +138,18 @@ Deno.serve(async (req) => {
       return jsonRes({ error: 'Solo administradores' }, 403);
     }
 
-    // ── 📄 PDF multipágina — MISMOS RPCs que el dashboard ───────────
+    // ── 📄 PDF — mismos RPCs del dashboard, el documento se arma en el
+    //    cliente (expo-print) con el logo real de Daricefy ────────────
     if (body.format === 'pdf') {
       const ccSel = body.country && body.country !== 'all' ? codeOf(body.country) : null;
       const countryName = ccSel ? (COUNTRY_NAME[ccSel] ?? null) : null;
       const filtersLabel = [
-        countryName ?? 'Todos los paises',
+        countryName ?? 'Todos los países',
         body.state ? `Estado: ${body.state}` : 'Todos los estados',
         body.city ? `Ciudad: ${body.city}` : null,
       ].filter(Boolean).join(' · ');
 
-      let pdfBytes: Uint8Array;
-      let pdfName: string;
-
       if (mode === 'admin') {
-        // Los 4 RPCs del dashboard, con LOS MISMOS filtros del panel
         const [dash, compare, rankings, alerts] = await Promise.all([
           callRpcAsUser(jwt, 'admin_reports_dashboard', {
             p_from: from, p_to: to, p_country: countryName,
@@ -476,12 +164,14 @@ Deno.serve(async (req) => {
         ]);
         if (!dash?.ok) return jsonRes({ error: dash?.error ?? 'No se pudieron cargar los datos' }, 500);
 
-        pdfBytes = await buildReportPdf({
-          mode, from, to, filtersLabel,
-          subtitle: countryName ? `Alcance: ${countryName}` : 'Alcance: todos los paises',
-          data: dash, compare, rankings, alerts,
+        return jsonRes({
+          ok: true,
+          report: {
+            mode, from, to, filtersLabel,
+            subtitle: countryName ? `Alcance: ${countryName}` : 'Alcance: todos los países',
+            data: dash, compare, rankings, alerts,
+          },
         });
-        pdfName = `daricefy_ejecutivo_${ccSel ?? 'global'}_${from}_a_${to}.pdf`;
       } else {
         const [dash, wallet] = await Promise.all([
           callRpcAsUser(jwt, 'group_performance_dashboard', { p_from: from, p_to: to }),
@@ -490,24 +180,17 @@ Deno.serve(async (req) => {
         if (!dash?.ok) return jsonRes({ error: dash?.error ?? 'No se pudieron cargar los datos' }, 500);
 
         const g = dash.group ?? {};
-        pdfBytes = await buildReportPdf({
-          mode, from, to,
-          filtersLabel: [g.country, g.state, g.city].filter(Boolean).join(' · ') || 'Sin ubicacion registrada',
-          subtitle: g.name ?? profile?.full_name ?? 'Mi grupo',
-          data: dash,
-          wallet: wallet?.ok ? (wallet.wallet ?? null) : null,
+        return jsonRes({
+          ok: true,
+          report: {
+            mode, from, to,
+            filtersLabel: [g.country, g.state, g.city].filter(Boolean).join(' · ') || 'Sin ubicación registrada',
+            subtitle: g.name ?? profile?.full_name ?? 'Mi grupo',
+            data: dash,
+            wallet: wallet?.ok ? (wallet.wallet ?? null) : null,
+          },
         });
-        pdfName = `mi_reporte_${from}_a_${to}.pdf`;
       }
-
-      const pdfPath = `${user.id}/${Date.now()}_${pdfName}`;
-      const { error: pdfUpErr } = await admin.storage.from('reports').upload(pdfPath, pdfBytes, {
-        contentType: 'application/pdf', upsert: true,
-      });
-      if (pdfUpErr) return jsonRes({ error: `No se pudo guardar el PDF: ${pdfUpErr.message}` }, 500);
-      const { data: pdfSigned } = await admin.storage.from('reports').createSignedUrl(pdfPath, 3600);
-      if (!pdfSigned?.signedUrl) return jsonRes({ error: 'No se pudo firmar la descarga' }, 500);
-      return jsonRes({ ok: true, url: pdfSigned.signedUrl, filename: pdfName });
     }
 
     const wb = XLSX.utils.book_new();
