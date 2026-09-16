@@ -10,7 +10,7 @@
  *
  * Compartida entre role='admin' y role='admin_ops' — el RPC ya filtra por país.
  */
-import { ArrowLeft, Briefcase, Calendar, Clock, MapPin, Phone, Plus } from 'lucide-react-native';
+import { ArrowLeft, Briefcase, Calendar, Clock, MapPin, Phone, Plus, FileDown } from 'lucide-react-native';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -31,6 +31,7 @@ import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import { useAuth } from '../../context/AuthContext';
 import { PROVIDER_CATEGORIES } from '../../constants/providerCategories';
 import { STATES_BY_COUNTRY } from '../../utils/locationUtils';
+import { exportProviderAgreementPdf } from '../../utils/exportProviderAgreementPdf';
 
 // admin_country_scope ('MX'/'US'/'CA') → nombre de país tal cual se guarda
 // en groups/provider_applications. Solo para preseleccionar y limitar las
@@ -106,6 +107,19 @@ export default function AdminProviderApplicationsScreen({ navigation }: any) {
   const [addCity, setAddCity] = useState('');
   const [addNotes, setAddNotes] = useState('');
   const [adding, setAdding] = useState(false);
+  const [downloadingAgreement, setDownloadingAgreement] = useState(false);
+
+  const handleDownloadAgreement = async () => {
+    if (downloadingAgreement) return;
+    setDownloadingAgreement(true);
+    try {
+      await exportProviderAgreementPdf();
+    } catch (e: any) {
+      Alert.alert('No se pudo generar', e?.message ?? 'Intenta de nuevo.');
+    } finally {
+      setDownloadingAgreement(false);
+    }
+  };
 
   const openAdd = () => {
     setAddModal(true);
@@ -237,9 +251,16 @@ export default function AdminProviderApplicationsScreen({ navigation }: any) {
             <ArrowLeft size={20} color={COLORS.text} />
           </Pressable>
           <Text style={s.headerTitle}>📝 Solicitudes de proveedores</Text>
-          <Pressable style={s.backBtn} onPress={openAdd}>
-            <Plus size={20} color={COLORS.green} />
-          </Pressable>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <Pressable style={s.backBtn} onPress={handleDownloadAgreement} disabled={downloadingAgreement}>
+              {downloadingAgreement
+                ? <ActivityIndicator size="small" color={COLORS.green} />
+                : <FileDown size={20} color={COLORS.green} />}
+            </Pressable>
+            <Pressable style={s.backBtn} onPress={openAdd}>
+              <Plus size={20} color={COLORS.green} />
+            </Pressable>
+          </View>
         </View>
 
         <View style={s.tabs}>
