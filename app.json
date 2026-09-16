@@ -37,7 +37,15 @@
         "FOREGROUND_SERVICE",
         "FOREGROUND_SERVICE_LOCATION",
         "READ_MEDIA_IMAGES",
-        "WRITE_EXTERNAL_STORAGE"
+        "WRITE_EXTERNAL_STORAGE",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_LOCATION",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
       ]
     },
     "web": {
@@ -87,7 +95,14 @@
       "expo-web-browser",
       "expo-status-bar",
       "expo-audio",
-      "expo-asset"
-    ]
+      "expo-asset",
+      "expo-sharing"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "aa4ba397-7ebc-494d-bde2-a812cc48eca8"
+      }
+    },
+    "owner": "danielrivera10"
   }
 }

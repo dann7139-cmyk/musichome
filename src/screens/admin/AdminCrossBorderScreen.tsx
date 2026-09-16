@@ -11,11 +11,12 @@
  * Compartida entre role='admin' (todos los países) y role='admin_ops'
  * (el RPC ya filtra al suyo).
  */
-import { ArrowLeft, Plane, Phone, Copy, Check, X } from 'lucide-react-native';
+import { ArrowLeft, Plane, Phone, Copy, Check, X, FileDown } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Linking,
   Modal,
   Pressable,
@@ -28,6 +29,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
+import { exportCrossBorderPdf } from '../../utils/exportCrossBorderPdf';
 
 interface ReportItem {
   group_id: string;
@@ -67,6 +69,7 @@ export default function AdminCrossBorderScreen({ navigation }: any) {
   const [detailItems, setDetailItems] = useState<DetailItem[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [pdfLoading, setPdfLoading] = useState(false);
 
   const load = useCallback(async () => {
     const { data, error } = await supabase.rpc('admin_get_cross_border_report', { p_limit: 200 });
@@ -105,6 +108,23 @@ export default function AdminCrossBorderScreen({ navigation }: any) {
     await Clipboard.setStringAsync(lines.join('\n'));
     setCopied(true);
     setTimeout(() => setCopied(false), 2500);
+  };
+
+  const handleExportPdf = async () => {
+    if (!detailTarget || pdfLoading) return;
+    setPdfLoading(true);
+    try {
+      await exportCrossBorderPdf({
+        groupName: detailTarget.group_name,
+        groupCountry: detailTarget.group_country,
+        eventCountry: detailTarget.event_country,
+        items: detailItems,
+      });
+    } catch (e: any) {
+      Alert.alert('No se pudo generar el PDF', e?.message ?? 'Intenta de nuevo.');
+    } finally {
+      setPdfLoading(false);
+    }
   };
 
   const totalBlocked = items.reduce((s, i) => s + i.blocked_requests, 0);
@@ -182,6 +202,12 @@ export default function AdminCrossBorderScreen({ navigation }: any) {
               </Pressable>
             </View>
             <Text style={s.sheetSub}>{detailTarget?.group_country} → {detailTarget?.event_country}</Text>
+
+            <Pressable style={s.pdfBtn} onPress={handleExportPdf} disabled={detailLoading || pdfLoading || detailItems.length === 0}>
+              {pdfLoading
+                ? <ActivityIndicator size="small" color={COLORS.bg} />
+                : <><FileDown size={15} color={COLORS.bg} /><Text style={s.pdfBtnText}>Descargar PDF con logo</Text></>}
+            </Pressable>
 
             <Pressable style={s.copyAllBtn} onPress={copyDetailAsText} disabled={detailLoading || detailItems.length === 0}>
               {copied
@@ -272,6 +298,12 @@ const s = StyleSheet.create({
   sheetTitle: { fontFamily: FONTS.title, fontSize: 18, color: COLORS.text, flex: 1 },
   sheetSub: { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2, marginTop: 2, marginBottom: 12 },
 
+  pdfBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: COLORS.green,
+    borderRadius: RADIUS.md, paddingVertical: 12, marginBottom: 8,
+  },
+  pdfBtnText: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.bg },
   copyAllBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
     backgroundColor: COLORS.card2, borderWidth: 1, borderColor: COLORS.border,
