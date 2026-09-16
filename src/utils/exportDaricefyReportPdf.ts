@@ -3,18 +3,18 @@ import * as Sharing from 'expo-sharing';
 import { getLogoDataUri, brandHeaderHtml, BRAND_HEADER_CSS } from './pdfBranding';
 
 /**
- * Reporte ejecutivo (admin) / de desempeño (grupo) — mismo estilo formal
+ * Reporte ejecutivo (admin) / de desempeño (grupo)  -  mismo estilo formal
  * que el PDF de visa (sql/657/658): logo real, fondo claro, tablas.
  * Reemplaza al viejo generador server-side con pdf-lib (texto plano sin
  * logo). Los NÚMEROS vienen exactamente de los mismos RPCs de siempre
  * (admin_reports_dashboard/admin_country_compare/admin_rankings/
- * admin_alerts o group_performance_dashboard) — solo cambió cómo se
+ * admin_alerts o group_performance_dashboard)  -  solo cambió cómo se
  * dibuja el documento, ninguna cifra ni regla de negocio.
  *
  * Reglas que se preservan tal cual el generador anterior:
- * · Monedas (MXN/USD/CAD) JAMÁS se suman — una sección por moneda.
- * · Fees de procesador sin capturar → "No capturado", nunca estimados.
- * · Modo grupo: SOLO "tu ganancia" — cero comisión de Daricefy, cero
+ *  |  Monedas (MXN/USD/CAD) JAMÁS se suman  -  una sección por moneda.
+ *  |  Fees de procesador sin capturar  ->  "No capturado", nunca estimados.
+ *  |  Modo grupo: SOLO "tu ganancia"  -  cero comisión de Daricefy, cero
  *   total del cliente, cero fees de procesador.
  */
 
@@ -22,7 +22,7 @@ const esc = (v: unknown): string =>
   String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 const money = (n: any, currency?: string) =>
-  n == null ? '—' : `$${Number(n).toLocaleString('es-MX', { maximumFractionDigits: 0 })}${currency ? ` ${currency}` : ''}`;
+  n == null ? ' - ' : `$${Number(n).toLocaleString('es-MX', { maximumFractionDigits: 0 })}${currency ? ` ${currency}` : ''}`;
 
 const MONTH_ES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
 const monthLabel = (yyyymm: string) => MONTH_ES[(parseInt(String(yyyymm).split('-')[1] ?? '1', 10) - 1) % 12] ?? yyyymm;
@@ -137,9 +137,9 @@ function buildAdminHtml(opts: DaricefyReportPayload, logoDataUri: string): strin
 
   const financeSections = curs.length === 0
     ? section('Resumen financiero', `<div class="empty">Sin cobros en este periodo con los filtros aplicados.</div>`)
-    : curs.map((cur: any) => section(`Resumen financiero · ${cur.moneda}`, kvTable([
+    : curs.map((cur: any) => section(`Resumen financiero  |  ${cur.moneda}`, kvTable([
         ['Ingreso bruto (cuánto vendimos)', money(cur.total_cobrado, cur.moneda)],
-        ['Ganancia neta Daricefy (comisión − procesadores)', money(cur.neto_estimado)],
+        ['Ganancia neta Daricefy (comision menos procesadores)', money(cur.neto_estimado)],
         ['Comisión real de procesadores', `${money(cur.fees_reales)} (${cur.fees_no_capturados} no capturados)`],
         ['Dinero para grupos', money(cur.dinero_grupos)],
         ['Pendiente por pagar a grupos', money(cur.pendiente_grupos)],
@@ -150,7 +150,7 @@ function buildAdminHtml(opts: DaricefyReportPayload, logoDataUri: string): strin
   return `
 ${brandHeaderHtml(logoDataUri, 'Reporte ejecutivo de la plataforma')}
 <h1>${esc(opts.subtitle)}</h1>
-<div class="meta">Periodo: ${esc(opts.from)} a ${esc(opts.to)} · Filtros: ${esc(opts.filtersLabel)}</div>
+<div class="meta">Periodo: ${esc(opts.from)} a ${esc(opts.to)}  |  Filtros: ${esc(opts.filtersLabel)}</div>
 <div class="meta">Generado: ${esc(new Date().toLocaleString('es-MX', { timeZone: 'America/Mexico_City' }))} (hora de México)</div>
 
 ${financeSections}
@@ -165,13 +165,13 @@ ${section('Eventos', (ev.total ?? 0) === 0
       <div class="summary-box"><div class="n">${ev.no_shows ?? 0}</div><div class="l">No-shows</div></div>
       <div class="summary-box"><div class="n">${ev.reembolsados ?? 0}</div><div class="l">Reembolsados</div></div>
     </div>
-    <div class="meta">Cancelaciones: ${ev.cancel_cliente ?? 0} por el cliente · ${ev.cancel_grupo ?? 0} por el grupo</div>`)}
+    <div class="meta">Cancelaciones: ${ev.cancel_cliente ?? 0} por el cliente  |  ${ev.cancel_grupo ?? 0} por el grupo</div>`)}
 
 ${section('Comunidad', (com.grupos?.length ?? 0) === 0 && (com.talentos?.length ?? 0) === 0
   ? `<div class="empty">Sin registros de comunidad con los filtros aplicados.</div>`
   : kvTable([
-      ...(com.grupos ?? []).map((g: any): [string, string] => [`Grupos activos · ${g.pais}`, `${g.activos} (+${g.nuevos} nuevos)`]),
-      ...(com.talentos ?? []).map((t: any): [string, string] => [`Talentos · ${t.pais}`, String(t.activos)]),
+      ...(com.grupos ?? []).map((g: any): [string, string] => [`Grupos activos  |  ${g.pais}`, `${g.activos} (+${g.nuevos} nuevos)`]),
+      ...(com.talentos ?? []).map((t: any): [string, string] => [`Talentos  |  ${t.pais}`, String(t.activos)]),
       ['Nuevos registros en el periodo', String(com.nuevos_registros ?? 0)],
     ]))}
 
@@ -186,22 +186,22 @@ ${section('Tendencia mensual (ingreso bruto)', trend.length === 0
   : trendCurs.map(tc => `<h3>Moneda: ${esc(tc)}</h3>${barsHtml(trend.filter((t: any) => t.moneda === tc).map((t: any) => ({ label: monthLabel(t.mes), value: Number(t.total) })))}`).join(''))}
 
 <div class="page-break"></div>
-${brandHeaderHtml(logoDataUri, 'Reporte ejecutivo de la plataforma · Rankings')}
+${brandHeaderHtml(logoDataUri, 'Reporte ejecutivo de la plataforma  |  Rankings')}
 
-${section('Rankings · Grupos', [
+${section('Rankings  |  Grupos', [
     rankList('Más eventos completados', opts.rankings?.groups_events, v => String(v)),
     rankList('Más ingresos (su ganancia)', opts.rankings?.groups_income, v => money(v)),
     rankList('Mejor calificación', opts.rankings?.groups_rating, v => `${Number(v).toFixed(1)}/5`),
     rankList('Mayor crecimiento vs periodo anterior', opts.rankings?.groups_growth, v => String(v)),
   ].join(''))}
 
-${section('Rankings · Talentos', [
+${section('Rankings  |  Talentos', [
     rankList('Más contratados', opts.rankings?.talents_hired, v => String(v)),
     rankList('Mejor calificación', opts.rankings?.talents_rating, v => `${Number(v).toFixed(1)}/5`),
     rankList('Más eventos realizados', opts.rankings?.talents_events, v => String(v)),
   ].join(''))}
 
-${section('Rankings · Ciudades', [
+${section('Rankings  |  Ciudades', [
     rankList('Más eventos', opts.rankings?.cities_events, v => String(v)),
     rankList('Más ingresos', opts.rankings?.cities_income, v => money(v)),
     rankList('Mayor crecimiento', opts.rankings?.cities_growth, v => String(v)),
@@ -209,7 +209,7 @@ ${section('Rankings · Ciudades', [
 
 ${section('Alertas (toda la plataforma)', activeAlerts.length === 0
   ? `<div class="empty">Todo en orden: nada requiere atención.</div>`
-  : activeAlerts.map(([lb, n]) => `<div class="alert-row"><span>${esc(lb)}</span><span class="n">${n} — requiere atención</span></div>`).join(''))}
+  : activeAlerts.map(([lb, n]) => `<div class="alert-row"><span>${esc(lb)}</span><span class="n">${n}  -  requiere atención</span></div>`).join(''))}
 
 <div class="footer">Las monedas (MXN/USD/CAD) se reportan por separado y nunca se suman. Comisiones de procesador: solo montos reales, nunca estimados.</div>
 `;
@@ -230,7 +230,7 @@ function buildGroupHtml(opts: DaricefyReportPayload, logoDataUri: string): strin
   return `
 ${brandHeaderHtml(logoDataUri, 'Reporte de desempeño')}
 <h1>${esc(opts.subtitle)}</h1>
-<div class="meta">Periodo: ${esc(opts.from)} a ${esc(opts.to)} · ${esc(opts.filtersLabel)}</div>
+<div class="meta">Periodo: ${esc(opts.from)} a ${esc(opts.to)}  |  ${esc(opts.filtersLabel)}</div>
 <div class="meta">Generado: ${esc(new Date().toLocaleString('es-MX', { timeZone: 'America/Mexico_City' }))} (hora de México)</div>
 
 ${section('Desempeño', kvTable([
@@ -249,7 +249,7 @@ ${section('Eventos', `<div class="summary-grid">
 
 ${monies.length === 0
   ? section('Tus ganancias', `<div class="empty">Sin cobros en este periodo.</div>`)
-  : monies.map((m: any) => section(`Tus ganancias · ${m.moneda}`, kvTable([
+  : monies.map((m: any) => section(`Tus ganancias  |  ${m.moneda}`, kvTable([
       ['Ganancia total', money(m.total, m.moneda)],
       ['Pendiente (se libera al finalizar)', money(m.pendiente)],
       ['Pagado', money(m.pagado)],
@@ -263,29 +263,29 @@ ${section('Ciudades donde trabajaste', cities.length === 0
   : kvTable(cities.map((c: any): [string, string] => [c.ciudad, `${c.eventos} eventos`])))}
 
 <div class="page-break"></div>
-${brandHeaderHtml(logoDataUri, 'Reporte de desempeño · Historial')}
+${brandHeaderHtml(logoDataUri, 'Reporte de desempeño  |  Historial')}
 
 ${section('Historial de pagos y retiros', pays.length === 0
   ? `<div class="empty">Sin movimientos en este periodo.</div>`
   : kvTable(pays.map((p: any): [string, string] => {
       const fecha = String(p.fecha ?? '').substring(0, 10);
       if (p.tipo === 'retiro') {
-        return [`Retiro · ${fecha}${p.cuenta ? ` · ${p.cuenta}` : ''}`,
-          `${money(p.amount)} · ${p.estado === 'completed' ? 'Pagado' : p.estado === 'pending' ? 'Pendiente' : p.estado}${p.ref ? ` · Ref ${p.ref}` : ''}`];
+        return [`Retiro  |  ${fecha}${p.cuenta ? `  |  ${p.cuenta}` : ''}`,
+          `${money(p.amount)}  |  ${p.estado === 'completed' ? 'Pagado' : p.estado === 'pending' ? 'Pendiente' : p.estado}${p.ref ? `  |  Ref ${p.ref}` : ''}`];
       }
-      return [`${p.label} · ${fecha}${p.rating ? ` · ${p.rating}/5` : ''}`,
-        `${money(p.amount)} · ${p.estado === 'released' ? 'Liberado' : p.estado === 'held' ? 'Pendiente' : p.estado}`];
+      return [`${p.label}  |  ${fecha}${p.rating ? `  |  ${p.rating}/5` : ''}`,
+        `${money(p.amount)}  |  ${p.estado === 'released' ? 'Liberado' : p.estado === 'held' ? 'Pendiente' : p.estado}`];
     })))}
 
 ${section('Comentarios recientes de clientes', revs.length === 0
   ? `<div class="empty">Aún sin comentarios con texto.</div>`
   : revs.map((rv: any) => `
       <div style="margin-bottom:10px;">
-        <div style="font-weight:700; font-size:11px;">${esc(rv.cliente)} · ${esc(rv.rating)}/5 · ${esc(String(rv.fecha ?? '').substring(0, 10))}</div>
+        <div style="font-weight:700; font-size:11px;">${esc(rv.cliente)}  |  ${esc(rv.rating)}/5  |  ${esc(String(rv.fecha ?? '').substring(0, 10))}</div>
         <div style="font-size:11px; color:#555; font-style:italic;">"${esc(rv.comment)}"</div>
       </div>`).join(''))}
 
-<div class="footer">Reporte generado por Daricefy — solo tus ganancias, nunca información financiera de la plataforma.</div>
+<div class="footer">Reporte generado por Daricefy  -  solo tus ganancias, nunca información financiera de la plataforma.</div>
 `;
 }
 

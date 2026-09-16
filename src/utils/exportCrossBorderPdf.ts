@@ -3,10 +3,10 @@ import * as Sharing from 'expo-sharing';
 import { getLogoDataUri, brandHeaderHtml, BRAND_HEADER_CSS } from './pdfBranding';
 
 /**
- * PDF de "Demanda entre países" (sql/657/658) — documento con logo y marca
+ * PDF de "Demanda entre países" (sql/657/658)  -  documento con logo y marca
  * de Daricefy, pensado para servir de prueba de demanda real ante un
  * trámite de visa de trabajo. Fondo claro y tipografía neutra a propósito
- * (nada de la estética oscura de la app) — es un documento formal, no una
+ * (nada de la estética oscura de la app)  -  es un documento formal, no una
  * pantalla de la app.
  */
 
@@ -27,7 +27,7 @@ const esc = (v: unknown): string =>
   String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 const fecha = (d?: string | null) =>
-  d ? new Date(d).toLocaleDateString('es-MX', { day: '2-digit', month: 'long', year: 'numeric' }) : '—';
+  d ? new Date(d).toLocaleDateString('es-MX', { day: '2-digit', month: 'long', year: 'numeric' }) : ' - ';
 
 export async function exportCrossBorderPdf(params: {
   groupName: string;
@@ -46,10 +46,10 @@ export async function exportCrossBorderPdf(params: {
     <tr>
       <td class="num">${i + 1}</td>
       <td>${esc(d.client_name ?? 'Sin nombre registrado')}</td>
-      <td>${esc(d.client_phone ?? '—')}</td>
-      <td>${esc(fecha(d.event_date))}${d.event_time ? ' · ' + esc(d.event_time) : ''}</td>
+      <td>${esc(d.client_phone ?? ' - ')}</td>
+      <td>${esc(fecha(d.event_date))}${d.event_time ? '  |  ' + esc(d.event_time) : ''}</td>
       <td>${esc([d.event_address, d.event_municipio, d.event_estado].filter(Boolean).join(', '))}</td>
-      <td><span class="tag ${d.was_blocked ? 'tag-blocked' : 'tag-ok'}">${d.was_blocked ? 'Bloqueada — sin visa' : 'Cumplida'}</span></td>
+      <td><span class="tag ${d.was_blocked ? 'tag-blocked' : 'tag-ok'}">${d.was_blocked ? 'Bloqueada  -  sin visa' : 'Cumplida'}</span></td>
     </tr>`).join('');
 
   const html = `
@@ -93,7 +93,7 @@ export async function exportCrossBorderPdf(params: {
   ${brandHeaderHtml(logoDataUri, 'Reporte de demanda entre países')}
 
   <h1>${esc(groupName)}</h1>
-  <div class="subtitle">Ruta: <span class="route">${esc(groupCountry)} → ${esc(eventCountry)}</span> · Generado el ${esc(new Date().toLocaleDateString('es-MX', { day: '2-digit', month: 'long', year: 'numeric' }))}</div>
+  <div class="subtitle">Ruta: <span class="route">${esc(groupCountry)}  ->  ${esc(eventCountry)}</span>  |  Generado el ${esc(new Date().toLocaleDateString('es-MX', { day: '2-digit', month: 'long', year: 'numeric' }))}</div>
 
   <div class="summary">
     <div class="summary-box"><div class="n">${items.length}</div><div class="l">Total de solicitudes</div></div>
@@ -129,7 +129,7 @@ export async function exportCrossBorderPdf(params: {
   if (await Sharing.isAvailableAsync()) {
     await Sharing.shareAsync(uri, {
       mimeType: 'application/pdf',
-      dialogTitle: `${groupName} — ${groupCountry} a ${eventCountry}`,
+      dialogTitle: `${groupName}  -  ${groupCountry} a ${eventCountry}`,
       UTI: 'com.adobe.pdf',
     });
   }
