@@ -1,6 +1,6 @@
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import { Asset } from 'expo-asset';
+import { getLogoDataUri, brandHeaderHtml, BRAND_HEADER_CSS } from './pdfBranding';
 
 /**
  * PDF de "Demanda entre países" (sql/657/658) — documento con logo y marca
@@ -37,14 +37,7 @@ export async function exportCrossBorderPdf(params: {
 }): Promise<void> {
   const { groupName, groupCountry, eventCountry, items } = params;
 
-  let logoUri = '';
-  try {
-    const asset = Asset.fromModule(require('../../assets/images/icon.png'));
-    await asset.downloadAsync();
-    logoUri = asset.localUri ?? asset.uri ?? '';
-  } catch {
-    // Sin logo no se rompe el documento — sigue sin imagen.
-  }
+  const logoDataUri = await getLogoDataUri();
 
   const totalBlocked = items.filter(i => i.was_blocked).length;
   const totalFulfilled = items.length - totalBlocked;
@@ -71,11 +64,7 @@ export async function exportCrossBorderPdf(params: {
     color: #1a1a1a; margin: 0; padding: 36px 40px;
     font-size: 12px; line-height: 1.5;
   }
-  .header { display: flex; align-items: center; gap: 14px; border-bottom: 3px solid #00C853; padding-bottom: 16px; margin-bottom: 20px; }
-  .header img { width: 46px; height: 46px; border-radius: 10px; }
-  .brand { font-size: 20px; font-weight: 800; color: #0a0a0a; }
-  .brand span { color: #00C853; }
-  .doc-title { font-size: 11px; color: #666; margin-top: 2px; }
+  ${BRAND_HEADER_CSS}
 
   h1 { font-size: 17px; margin: 0 0 4px; color: #0a0a0a; }
   .subtitle { font-size: 12px; color: #555; margin-bottom: 18px; }
@@ -101,13 +90,7 @@ export async function exportCrossBorderPdf(params: {
 </style>
 </head>
 <body>
-  <div class="header">
-    ${logoUri ? `<img src="${logoUri}" />` : ''}
-    <div>
-      <div class="brand">Darice<span>fy</span></div>
-      <div class="doc-title">Reporte de demanda entre países</div>
-    </div>
-  </div>
+  ${brandHeaderHtml(logoDataUri, 'Reporte de demanda entre países')}
 
   <h1>${esc(groupName)}</h1>
   <div class="subtitle">Ruta: <span class="route">${esc(groupCountry)} → ${esc(eventCountry)}</span> · Generado el ${esc(new Date().toLocaleDateString('es-MX', { day: '2-digit', month: 'long', year: 'numeric' }))}</div>
