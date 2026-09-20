@@ -1,7 +1,9 @@
 -- ============================================================
 -- sql/602_regression_suite_notifications_referrals.sql
--- SUITE DE REGRESIÓN — ✅ CORRIÓ 41/41 PASS 2026-09-14. No aplica nada,
--- solo prueba. Correr esto ANTES y
+-- SUITE DE REGRESIÓN — ✅ CORRIÓ 44/44 PASS 2026-09-16 (requiere sql/661
+-- aplicado — antes de eso, esta misma suite reveló que fraud_signals nunca
+-- se había creado, un bug real de producción sin relación con sql/660).
+-- No aplica nada, solo prueba. Correr esto ANTES y
 -- DESPUÉS de tocar cualquier función relacionada con notificaciones,
 -- referidos, o el choque de horarios entre proveedores. Si algo de esto
 -- alguna vez vuelve a fallar, este archivo lo va a detectar en segundos
@@ -1000,7 +1002,10 @@ BEGIN
     v_muted_before TEXT[];
   BEGIN
     SELECT id INTO v_admin33 FROM public.profiles WHERE role='admin' LIMIT 1;
-    SELECT id INTO v_adminops33 FROM public.profiles WHERE role='admin_ops' AND admin_country_scope='US' LIMIT 1;
+    -- sql/660 (2026-09-16): ya hay 2 admin_ops de EE.UU. (la original con
+    -- dinero + una nueva limitada) — se fija la de siempre para que la
+    -- prueba no dependa del orden de fila que devuelva Postgres.
+    SELECT id INTO v_adminops33 FROM public.profiles WHERE role='admin_ops' AND admin_country_scope='US' AND admin_can_manage_payouts = true LIMIT 1;
     SELECT admin_muted_countries INTO v_muted_before FROM public.profiles WHERE id = v_admin33;
 
     -- Caso A: admin completo SIN mutear Estados Unidos — debe verla igual que admin_ops
@@ -1275,7 +1280,7 @@ BEGIN
     v_resp39      JSONB;
   BEGIN
     SELECT id INTO v_admin39 FROM public.profiles WHERE role='admin' LIMIT 1;
-    SELECT id INTO v_adminops39 FROM public.profiles WHERE role='admin_ops' AND admin_country_scope='US' LIMIT 1;
+    SELECT id INTO v_adminops39 FROM public.profiles WHERE role='admin_ops' AND admin_country_scope='US' AND admin_can_manage_payouts = true LIMIT 1;
 
     -- Grupo MX en conserjería, evento en curso, con paquete de 1h extra ya negociado (sql/653)
     INSERT INTO public.groups (id, owner_id, name, genre, country_id, concierge_mode)
@@ -1461,6 +1466,13 @@ BEGIN
   -- País del EVENTO (no del cliente) vs país del grupo. Sin visa → la
   -- cotización se crea igual pero 'blocked_no_visa', nunca notifica a nadie.
   -- Con visa → status normal, notifica igual que siempre.
+  -- Usa v_talent como "cliente" (no v_client) a propósito — para 2026-09-16
+  -- la suite ya crea 14+ cotizaciones con v_client en los checks previos, y
+  -- 2 más aquí cruzaban el candado real de guard_quote_spam (15/24h,
+  -- sql/antifraude) DENTRO de esta misma transacción de prueba — hallazgo
+  -- real (ver sql/661: fraud_signals nunca se había creado), no una
+  -- regresión de sql/657. Repartir entre 2 cuentas de prueba evita que la
+  -- suite se bloquee a sí misma según vaya creciendo.
   DECLARE
     v_gXBa UUID; v_qXBa UUID; v_statusXBa TEXT;
     v_gXBb UUID; v_qXBb UUID; v_statusXBb TEXT; v_notifXBb JSONB;
@@ -1471,7 +1483,7 @@ BEGIN
       (id, group_id, client_id, event_type, event_address, event_municipio, event_estado,
        event_date, event_time, duration_hours, venue_covered, venue_size, needs_sound)
     VALUES
-      (gen_random_uuid(), v_gXBa, v_client, 'boda', 'D', 'Houston', 'Texas',
+      (gen_random_uuid(), v_gXBa, v_talent, 'boda', 'D', 'Houston', 'Texas',
        CURRENT_DATE + 10, '19:00', 4, 'si', 'salon_mediano', 'no_group_brings')
     RETURNING id, status INTO v_qXBa, v_statusXBa;
     ASSERT v_statusXBa = 'blocked_no_visa',
@@ -1485,14 +1497,14 @@ BEGIN
       (id, group_id, client_id, event_type, event_address, event_municipio, event_estado,
        event_date, event_time, duration_hours, venue_covered, venue_size, needs_sound)
     VALUES
-      (gen_random_uuid(), v_gXBb, v_client, 'boda', 'D', 'Houston', 'Texas',
+      (gen_random_uuid(), v_gXBb, v_talent, 'boda', 'D', 'Houston', 'Texas',
        CURRENT_DATE + 10, '19:00', 4, 'si', 'salon_mediano', 'no_group_brings')
     RETURNING id, status INTO v_qXBb, v_statusXBb;
     ASSERT v_statusXBb = 'pending',
       '[43] REGRESIÓN: grupo MX CON visa recibiendo evento en Texas debía quedar pending normal — revisar sql/657: ' || v_statusXBb;
 
     RESET role;
-    PERFORM set_config('request.jwt.claims', json_build_object('sub', v_client::text, 'role','authenticated')::text, true);
+    PERFORM set_config('request.jwt.claims', json_build_object('sub', v_talent::text, 'role','authenticated')::text, true);
     PERFORM set_config('role','authenticated', true);
     v_notifXBb := public.notify_quote_request(v_qXBb);
     RESET role;
