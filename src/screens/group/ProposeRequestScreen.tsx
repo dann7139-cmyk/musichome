@@ -307,8 +307,13 @@ export default function ProposeRequestScreen({ route, navigation }: any) {
               if (dispatchId) {
                 // 1) Quitar la tarjeta del carrusel YA (local, no depende del
                 //    RPC/realtime). 2) Persistir status='quoted' en la DB.
+                // La propuesta en sí YA se envió con éxito arriba — este RPC
+                // solo cierra el registro del dispatch, así que si falla no
+                // se le avisa al grupo (su cotización sí llegó al cliente);
+                // solo se deja rastro en consola para poder detectarlo.
                 markExpressDispatchQuoted(dispatchId);
-                await supabase.rpc('complete_express_dispatch', { p_dispatch_id: dispatchId });
+                const { error: completeErr } = await supabase.rpc('complete_express_dispatch', { p_dispatch_id: dispatchId });
+                if (completeErr) console.warn('[ProposeRequest] complete_express_dispatch falló:', completeErr.message);
                 setSent(true);
                 Animated.timing(sentOpacity, { toValue: 1, duration: 280, useNativeDriver: true }).start();
                 setTimeout(() => navigation.goBack(), 2200);

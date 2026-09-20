@@ -1,5 +1,5 @@
 ﻿import VideoPlayer from '../../components/ui/VideoPlayer';
-import { openScheduledQuotes } from '../../components/requests/ScheduledQuotesCarousel';
+import { openScheduledQuotes, subscribeScheduledPendingCount } from '../../components/requests/ScheduledQuotesCarousel';
 import { LinearGradient } from 'expo-linear-gradient';
 
 import {
@@ -237,6 +237,14 @@ export default function GroupDashboardScreen({ navigation }: any) {
     pending_message: string | null;
   }>({ stripe_account_id: null, stripe_onboarding_completed: false, pending_message: null });
   const [pendingQuotes,      setPendingQuotes]      = useState<any[]>([]);
+  // Total real de "programadas" (quotes + event_requests abiertas), publicado
+  // por ScheduledQuotesCarousel — antes el banner de abajo solo contaba
+  // `pendingQuotes` (tabla quotes), nunca las solicitudes abiertas, y podía
+  // mostrar 0 aunque hubiera solicitudes esperando. Empieza en -1 (== "aún
+  // sin dato") para no pisar el conteo local con 0 antes de que el carrusel
+  // reporte su primer valor real.
+  const [scheduledPendingTotal, setScheduledPendingTotal] = useState<number>(-1);
+  useEffect(() => subscribeScheduledPendingCount(setScheduledPendingTotal), []);
   const [walletBalance,      setWalletBalance]      = useState<number>(0);
   const [loyalClients,       setLoyalClients]       = useState<any[]>([]);
   const [zoneStats,          setZoneStats]          = useState<any>(null);
@@ -1314,7 +1322,9 @@ export default function GroupDashboardScreen({ navigation }: any) {
 
           {/* ── Banner animado: cotizaciones programadas (experiencia exprés) ── */}
           {(() => {
-            const pendCount = pendingQuotes.filter((q: any) => q.status === 'pending').length;
+            const pendCount = scheduledPendingTotal >= 0
+              ? scheduledPendingTotal
+              : pendingQuotes.filter((q: any) => q.status === 'pending').length;
             if (pendCount === 0) return null;
             return (
               <Animated.View style={{ transform: [{ scale: expressPulse }] }}>

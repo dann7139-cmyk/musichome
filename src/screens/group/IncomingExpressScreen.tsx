@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  Alert,
   Animated,
   Easing,
   Platform,
@@ -502,27 +503,42 @@ export default function IncomingExpressScreen({ route, navigation }: any) {
       })
       .subscribe();
 
-    (async () => {
-      const timeout = new Promise<null>(r => setTimeout(() => r(null), 8_000));
+    // withTimeout: cada consulta tiene SU PROPIO reloj de 8s. Antes las dos
+    // consultas compartían un solo Promise de timeout creado una vez — si la
+    // primera tardaba 6s, a la segunda solo le quedaban ~2s de margen real.
+    // Cuando esa segunda consulta fallaba/expiraba, `r` quedaba null pero el
+    // código seguía adelante sin regresar (a diferencia del caso `!d` que sí
+    // hace goBack) — dest nunca se llenaba y la pantalla se quedaba trabada
+    // para siempre en el loader, sin botón de regreso ni reintento. Bug real
+    // encontrado en auditoría 2026-09-20, más probable justo en conexión
+    // lenta/inestable — el peor momento para que un grupo pierda la
+    // oportunidad de aceptar un Express en vivo.
+    const withTimeout = (query: any, ms: number) =>
+      Promise.race([
+        query,
+        new Promise(resolve => setTimeout(() => resolve({ data: null, error: null }), ms)),
+      ]);
 
-      const { data: d } = await Promise.race([
+    (async () => {
+      const { data: d } = await withTimeout(
         supabase.from('express_dispatches')
           .select('id,request_id,status,group_id')
           .eq('id', dispatchId).single(),
-        timeout.then(() => ({ data: null, error: null })),
-      ]) as any;
+        8_000,
+      ) as any;
 
       if (!mountedRef.current) return;
       if (!d) { navigation.goBack(); return; }
 
-      const { data: r } = await Promise.race([
+      const { data: r } = await withTimeout(
         supabase.from('event_requests')
           .select('id,event_type,genre,event_date,event_time,hours,guest_count,location_city,location_municipio,location_estado,latitude,longitude,event_lat,event_lng,venue_covered,needs_sound,comments')
           .eq('id', d.request_id).single(),
-        timeout.then(() => ({ data: null, error: null })),
-      ]) as any;
+        8_000,
+      ) as any;
 
       if (!mountedRef.current) return;
+      if (!r) { navigation.goBack(); return; }
       setRequest(r);
 
       // Mark viewed (fire-and-forget)
@@ -661,7 +677,13 @@ export default function IncomingExpressScreen({ route, navigation }: any) {
       if (reason === 'already_taken' || reason === 'locked_by_other') {
         handleTaken();
       } else {
+        // Antes se regresaba a 'idle' en silencio — el grupo no sabía si
+        // reintentar servía de algo o si algo estaba realmente roto.
         setLockState('idle');
+        Alert.alert(
+          'No se pudo apartar',
+          'Hubo un problema de conexión. Intenta de nuevo.',
+        );
       }
       return;
     }

@@ -587,6 +587,11 @@ export default function EventTimerScreen({ route, navigation }: any) {
   // aislado. Mientras sea null (fetch en curso o falló), los montos que
   // dependen de esto se muestran SIN sufijo de moneda — nunca se asume MXN.
   const [resCurrency, setResCurrency] = useState<'MXN' | 'USD' | null>(null);
+  // Zona horaria real del evento (reservations.event_tz) — mismo patrón que
+  // resCurrency arriba: el nav param no siempre la trae, se reconfirma aparte.
+  // null mientras carga = se asume America/Mexico_City (default de parseEventDateMX),
+  // igual que ya hace el servidor (sql/643) con COALESCE(event_tz, 'America/Mexico_City').
+  const [eventTz, setEventTz] = useState<string | null>(reservation.event_tz ?? null);
   const [pendingPaymentExtra, setPendingPaymentExtra] = useState<{
     id: string; hours: number; price: number; msiMonths: number;
   } | null>(null);
@@ -757,6 +762,20 @@ export default function EventTimerScreen({ route, navigation }: any) {
       });
   }, [reservation.id]);
 
+  // ── Zona horaria real del evento — mismo refetch aislado que currency_code ──
+  useEffect(() => {
+    if (reservation.event_tz) return; // ya la trajo el nav param
+    supabase
+      .from('reservations')
+      .select('event_tz')
+      .eq('id', reservation.id)
+      .single()
+      .then(({ data, error }) => {
+        if (error || !data?.event_tz) return; // se queda null → default México
+        setEventTz(data.event_tz);
+      });
+  }, [reservation.id]);
+
   // ── Categoría del proveedor (aislado, mismo criterio que arriba) ─────────
   // Determina si esta reserva cierra por código de "servicio terminado"
   // (sql/639) en vez de por duración — mismo listado de géneros que usa
@@ -864,15 +883,15 @@ export default function EventTimerScreen({ route, navigation }: any) {
   // regex de parseEventDateMX fallaba → null). Se usa para construir eventTargetMs.
   const eventDateOnly = reservation.event_date ? String(reservation.event_date).substring(0, 10) : null;
 
-  // Instante del evento en UTC directo (México = UTC-6 fijo, sin horario de
-  // verano desde 2022). No depende del regex de parseEventDateMX ni del
-  // timezone del dispositivo → cuenta bien en cualquier build/emulador.
-  const eventTargetMs = (eventDateOnly && normEventTime)
-    ? (() => {
-        const t = Date.parse(`${eventDateOnly}T${normEventTime}:00-06:00`);
-        return isNaN(t) ? null : t;
-      })()
-    : null;
+  // Instante del evento en UTC, usando la zona horaria REAL del evento
+  // (eventTz / reservations.event_tz) — antes asumía México (UTC-6) fijo
+  // siempre, aunque el evento fuera de otro país/zona (bug real: el único
+  // grupo en EE. UU., "Elegantes de la perla" en Washington, vería su propia
+  // cuenta regresiva y el botón de "iniciar ya" con la hora equivocada).
+  // parseEventDateMX ya normaliza fecha/hora igual que arriba y cae a
+  // America/Mexico_City cuando eventTz aún no ha cargado (mismo default que
+  // usa el servidor, sql/643) → cuenta bien en cualquier build/emulador.
+  const eventTargetMs = parseEventDateMX(eventDateOnly, normEventTime, eventTz)?.getTime() ?? null;
 
   // [Opción A] Ventana de inicio manual: desde 30 min ANTES hasta 6 h DESPUÉS
   // de la hora del evento. Antes se bloqueaba pasada la hora exacta → un grupo
@@ -889,10 +908,10 @@ export default function EventTimerScreen({ route, navigation }: any) {
   // Schedule & current segment
   const schedule = useMemo(() => {
     const effectiveStart =
-      startedAt ?? parseEventDateMX(reservation.event_date, reservation.event_time);
+      startedAt ?? parseEventDateMX(reservation.event_date, reservation.event_time, eventTz);
     if (!effectiveStart || !breakType) return [];
     return generateBreakSchedule(effectiveStart, contractHours, breakType, extraHoursAdded);
-  }, [startedAt, breakType, contractHours, extraHoursAdded, reservation.event_date, reservation.event_time]);
+  }, [startedAt, breakType, contractHours, extraHoursAdded, reservation.event_date, reservation.event_time, eventTz]);
 
   const currentSegment = useMemo(() => {
     const elapsedMin = elapsed / 60;

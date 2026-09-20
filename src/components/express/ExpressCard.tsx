@@ -123,7 +123,19 @@ const ExpressCard = React.memo(function ExpressCard({
     ? haversineKm(userLocation.latitude, userLocation.longitude, center.latitude, center.longitude)
     : null;
 
-  const handleCotizar = useCallback(() => onCotizar(id), [id, onCotizar]);
+  // Guard corto contra doble-tap: la tarjeta recién tocada NO se marca
+  // isBlocked por el padre (solo se bloquean las OTRAS), así que un doble
+  // tap muy rápido antes de que la navegación a ProposeRequest se sienta
+  // podía disparar onCotizar dos veces. Es un candado de tiempo (no
+  // permanente) para que, si el grupo regresa de ProposeRequest sin
+  // completar, el botón se pueda volver a tocar normal.
+  const tapLockRef = useRef(false);
+  const handleCotizar = useCallback(() => {
+    if (tapLockRef.current) return;
+    tapLockRef.current = true;
+    setTimeout(() => { tapLockRef.current = false; }, 800);
+    onCotizar(id);
+  }, [id, onCotizar]);
   const handleDismiss = useCallback(() => onDismiss(id), [id, onDismiss]);
 
   return (

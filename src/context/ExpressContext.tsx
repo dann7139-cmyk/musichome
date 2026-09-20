@@ -100,13 +100,6 @@ export function ExpressProvider({
   const groupGenreRef   = useRef<string | null>(null);
   dispatchesRef.current = dispatches;
 
-  // Fetch the group's genre once so we can filter dispatches by matching genre
-  useEffect(() => {
-    if (!groupId) return;
-    supabase.from('groups').select('genre').eq('id', groupId).single()
-      .then(({ data }) => { groupGenreRef.current = data?.genre ?? null; });
-  }, [groupId]);
-
   const remove = useCallback((id: string) => {
     setDispatches(prev => prev.filter(d => d.id !== id));
   }, []);
@@ -155,14 +148,26 @@ export function ExpressProvider({
     rows?.forEach(d => add({ ...d, request: (d as any).request ?? undefined }, silent));
   }, [add]);
 
+  // El género del grupo se trae ANTES de la primera carga de pendientes —
+  // antes corrían en paralelo (2 efectos separados) y si el fetch de género
+  // tardaba más que la consulta de dispatches, esa primera carga pasaba SIN
+  // filtro de género (grpGenre aún null en add()) y nada la volvía a filtrar
+  // después: un Express de otro género podía quedarse mostrado, no solo
+  // destellar. Auditoría 2026-09-20.
   useEffect(() => {
     if (!groupId) return;
-    loadPending(groupId);
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase.from('groups').select('genre').eq('id', groupId).single();
+      if (cancelled) return;
+      groupGenreRef.current = data?.genre ?? null;
+      loadPending(groupId);
+    })();
 
     const sub = AppState.addEventListener('change', state => {
       if (state === 'active' && groupId) loadPending(groupId, true);
     });
-    return () => sub.remove();
+    return () => { cancelled = true; sub.remove(); };
   }, [groupId, loadPending]);
 
   useEffect(() => {
@@ -222,7 +227,17 @@ export function ExpressProvider({
     dismissedIdsRef.current.add(id);
     setHasDismissed(true);
     remove(id);
-    void supabase.rpc('ignore_express_dispatch', { p_dispatch_id: id });
+    // dismissedIdsRef es solo en memoria (se pierde al reiniciar la app) —
+    // si esta llamada falla en silencio, la BD nunca se entera de que se
+    // ignoró y loadPending() la vuelve a traer en el próximo arranque frío.
+    // Un reintento cubre el caso común (blip de red); si igual falla, se
+    // deja constancia en consola en vez de tragarse el error sin más.
+    supabase.rpc('ignore_express_dispatch', { p_dispatch_id: id }).then(({ error }) => {
+      if (!error) return;
+      supabase.rpc('ignore_express_dispatch', { p_dispatch_id: id }).then(({ error: retryErr }) => {
+        if (retryErr) console.warn('[ExpressContext] ignore_express_dispatch falló 2 veces:', retryErr.message);
+      });
+    });
   }, [remove]);
 
   // Expiración: la tarjeta llegó a 0:00 → quitarla YA (sin el banner de

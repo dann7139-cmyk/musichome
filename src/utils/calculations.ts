@@ -199,29 +199,37 @@ export function nowMexicoCity(): Date {
 
 /**
  * IMPLEMENTACIÓN CANÓNICA del instante de un evento en el frontend.
- * Parsea event_date + event_time (de la DB) como hora America/Mexico_City
+ * Parsea event_date + event_time (de la DB) como hora local del evento
+ * (America/Mexico_City por default, o la zona que traiga reservations.event_tz)
  * y retorna el instante ABSOLUTO correcto en cualquier dispositivo/zona
  * (comparable con Date.now() / new Date(), NO con nowMexicoCity()).
  * Espejo del parse de los crons SQL:
- *   (date||'T'||HH:MM)::TIMESTAMP AT TIME ZONE 'America/Mexico_City'
+ *   (date||'T'||HH:MM)::TIMESTAMP AT TIME ZONE COALESCE(event_tz, 'America/Mexico_City')
  *
  * Retorna null ante cualquier input inválido — nunca lanza ni devuelve Invalid Date.
  *
  * @param eventDate  'YYYY-MM-DD'
  * @param eventTime  'HH:MM' o 'HH:MM:SS'
+ * @param timeZone   zona IANA del evento (reservations.event_tz); default America/Mexico_City
  */
 export function parseEventDateMX(
   eventDate: string | null | undefined,
   eventTime: string | null | undefined,
+  timeZone?: string | null,
 ): Date | null {
   if (!eventDate || !eventTime) return null;
   const hhmm = eventTime.substring(0, 5);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(eventDate) || !/^\d{2}:\d{2}$/.test(hhmm)) return null;
-  // Creamos el Date como si el dispositivo estuviera en Mexico City,
-  // igual que nowMexicoCity() — la diferencia entre ambos es correcta.
-  const mxNow = new Date().toLocaleString('en-US', { timeZone: 'America/Mexico_City' });
-  const offsetMs = new Date().getTime() - new Date(mxNow).getTime();
-  const result = new Date(new Date(`${eventDate}T${hhmm}:00`).getTime() + offsetMs);
+  const tz = timeZone || 'America/Mexico_City';
+  // Mismo truco de offset ya usado abajo (comparar el mismo instante
+  // formateado en dos zonas), pero anclado en la FECHA DEL EVENTO en vez de
+  // "ahora" — así no falla cerca de un cambio de horario de verano en zonas
+  // que sí lo tienen (México ya no, pero EE. UU./Canadá sí).
+  const naiveMs = new Date(`${eventDate}T${hhmm}:00`).getTime();
+  if (isNaN(naiveMs)) return null;
+  const zonedStr = new Date(naiveMs).toLocaleString('en-US', { timeZone: tz });
+  const offsetMs = naiveMs - new Date(zonedStr).getTime();
+  const result = new Date(naiveMs + offsetMs);
   return isNaN(result.getTime()) ? null : result;
 }
 

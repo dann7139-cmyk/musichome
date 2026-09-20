@@ -58,6 +58,19 @@ export function openScheduledQuotes(quoteId?: string) {
   }
 }
 
+// ── Conteo compartido con el banner del dashboard ─────────────────────────────
+// El banner "📅 cotizaciones programadas" del dashboard antes solo contaba la
+// tabla `quotes` — nunca las solicitudes abiertas (`event_requests`) que este
+// carrusel también trae. Auditoría 2026-09-20: eso hacía que una solicitud
+// abierta programada pudiera quedar invisible en el dashboard. Este carrusel
+// ya calcula el total correcto (quotes + requests) en fetchPending(); se
+// publica aquí para que el banner lo use en vez de duplicar esa lógica.
+let _pendingCountListener: ((n: number) => void) | null = null;
+export function subscribeScheduledPendingCount(cb: (n: number) => void): () => void {
+  _pendingCountListener = cb;
+  return () => { if (_pendingCountListener === cb) _pendingCountListener = null; };
+}
+
 function fmtTime12h(t?: string | null): string | null {
   if (!t) return null;
   const [hStr, mStr] = t.substring(0, 5).split(':');
@@ -375,6 +388,33 @@ export default function ScheduledQuotesCarousel({ groupId }: { groupId: string |
   }, [visible, quotes]);
 
   useEffect(() => () => setExpressCarouselCollapsed(false), []);
+
+  // Notifica el total real (quotes + requests) al banner del dashboard.
+  useEffect(() => {
+    _pendingCountListener?.(quotes.length);
+  }, [quotes]);
+  useEffect(() => () => { _pendingCountListener = null; }, []);
+
+  // Catch-up al montar: cubre cotizaciones/solicitudes que YA estaban
+  // pendientes antes de abrir la app — el realtime de abajo solo ve INSERTs
+  // que ocurren mientras el canal está conectado, así que algo que llegó con
+  // la app cerrada nunca disparaba el sheet. Antes de este fix la única
+  // forma de verlo era tocar la notificación push exacta de ESA solicitud
+  // (si llegó a sonar) — el banner del dashboard tampoco ayudaba porque solo
+  // contaba `quotes`, nunca `event_requests`. Se re-ejecuta solo cuando
+  // fetchPending cambia de identidad (p. ej. en cuanto carga groupGenre),
+  // mismo patrón "autocuración" ya usado en este archivo.
+  useEffect(() => {
+    if (!groupId) return;
+    let cancelled = false;
+    (async () => {
+      const rows = await fetchPending();
+      if (cancelled) return;
+      setQuotes(rows);
+      if (rows.filter(q => !dismissedRef.current.has(q.id)).length > 0) show();
+    })();
+    return () => { cancelled = true; };
+  }, [groupId, fetchPending, show]);
 
   // Apertura imperativa (banner del dashboard / notificación).
   // Si groupId aún no carga, se encola y se reintenta cuando esté listo.
