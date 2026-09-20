@@ -12,13 +12,11 @@ export interface GroupEventPost {
   photos: { id: string; url: string; position: number }[];
 }
 
-// Publicación con varias fotos (carrusel). El grupo elige hasta 6 fotos
-// de una vez; se crea 1 fila en group_event_posts (la publicación) y
-// 1 fila hija en group_event_photos por cada foto.
-export async function pickAndUploadGroupEventPost(
-  groupId: string,
-  caption: string | null,
-): Promise<GroupEventPost | null> {
+// Elegir fotos SIN publicar todavía — el grupo ve una vista previa y decide
+// cuándo tocar "Publicar" (hallazgo real 2026-09-05: antes un solo toque
+// elegía la foto Y la publicaba de una vez, sin previsualizar ni poder
+// arrepentirse).
+export async function pickGroupEventPhotos(): Promise<ImagePicker.ImagePickerAsset[] | null> {
   const result = await ImagePicker.launchImageLibraryAsync({
     mediaTypes: 'images',
     allowsMultipleSelection: true,
@@ -27,6 +25,18 @@ export async function pickAndUploadGroupEventPost(
   });
 
   if (result.canceled || result.assets.length === 0) return null;
+  return result.assets;
+}
+
+// Publicación con varias fotos (carrusel) YA elegidas de antes con
+// pickGroupEventPhotos(). Se crea 1 fila en group_event_posts (la
+// publicación) y 1 fila hija en group_event_photos por cada foto.
+export async function uploadGroupEventPost(
+  groupId: string,
+  caption: string | null,
+  assets: ImagePicker.ImagePickerAsset[],
+): Promise<GroupEventPost | null> {
+  if (!assets || assets.length === 0) return null;
 
   // Sin teléfonos, correos, links ni redes sociales en la descripción —
   // mismo filtro que ya usa el resto de la app (textValidation.ts).
@@ -45,8 +55,8 @@ export async function pickAndUploadGroupEventPost(
   if (postError) throw postError;
 
   const photos: { id: string; url: string; position: number }[] = [];
-  for (let i = 0; i < result.assets.length; i++) {
-    const uri = result.assets[i].uri;
+  for (let i = 0; i < assets.length; i++) {
+    const uri = assets[i].uri;
     const arrayBuffer = await fetch(uri).then(r => r.arrayBuffer());
     const path = `${groupId}/event-photos/${post.id}-${i}-${Date.now()}.jpg`;
 

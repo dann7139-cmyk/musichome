@@ -26,6 +26,7 @@
     "no_results": "No results",
     "try_again": "Try again",
     "all": "All",
+    "allGenres": "All genres",
     "someone": "Someone"
   },
   "tabs": {
@@ -461,7 +462,7 @@
     "uploadSuccessBody": "It's under review — it'll be published on your profile once approved.",
     "uploadErrorBody": "Couldn't upload the post.",
     "defaultGroupName": "this group",
-    "shareMessage": "Check out this post from {{groupName}} on Daricefy 🎵\ndaricefy://group/{{groupId}}",
+    "shareMessage": "Check out this post from {{groupName}} on Daricefy 🎵\nhttps://www.daricefy.com/grupos/{{groupId}}",
     "composerLabel": "📸 Share photos from your event",
     "composerPlaceholder": "Write a caption (optional)...",
     "uploading": "Uploading…",
@@ -704,10 +705,10 @@
       "unavailableBody": "This group doesn't have an active Plus badge, so it can't receive gifts right now."
     },
     "share": {
-      "groupMessage": "Check out {{name}} on Daricefy 🎵",
+      "groupMessage": "Check out {{name}} on Daricefy 🎵\n{{url}}",
       "defaultGroupName": "this group",
       "captionPrefix": "\"{{caption}}\"\n\n",
-      "postMessage": "Check out this post from {{name}} on Daricefy 🎵"
+      "postMessage": "Check out this post from {{name}} on Daricefy 🎵\n{{url}}"
     },
     "reviews": {
       "defaultClientName": "Client",
@@ -1783,7 +1784,7 @@
       "photoUploadFailed": "The image could not be uploaded"
     },
     "list": {
-      "title": "Registered groups",
+      "title": "Registered providers",
       "searchPlaceholder": "Search by name, city or state..."
     }
   },
@@ -2437,6 +2438,7 @@
   "eventCategoryPicker": {
     "title": "Add provider",
     "subtitle": "Choose what type of provider you want to add to your event",
+    "pickGenreSubtitle": "Pick the exact genre, or search all providers in this category.",
     "addingToEvent": "Adding to your event on {{date}} · {{address}}",
     "grupo": "🎵 Live band",
     "solista": "🎷 Soloist / saxophonist",

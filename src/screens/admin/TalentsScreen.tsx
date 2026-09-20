@@ -104,7 +104,7 @@ export default function AdminTalentsScreen({ navigation }: any) {
     const [jbpRes, talentRes] = await Promise.all([
       supabase.from('job_board_profiles').select(`
         id, user_id, instrument_or_role, bio, experience_years,
-        rating, total_jobs, availability_status,
+        rating, total_jobs, availability_status, is_visible,
         profile:profiles!job_board_profiles_user_id_fkey(
           full_name, avatar_url, phone, city, state, role,
           verification_status, admin_verified,
@@ -166,7 +166,11 @@ export default function AdminTalentsScreen({ navigation }: any) {
     // también se anuncian como talento individual, sql/245) — así el admin ve exactamente
     // lo mismo que search_talents() ya muestra a los clientes. Los clientes (role='client')
     // siguen excluidos: nunca deben aparecer aunque tengan una fila huérfana en la bolsa.
-    jbps.filter((j: any) => j.profile?.role !== 'client').forEach((j: any) => {
+    // sql/21 crea esa fila AUTOMÁTICA y OCULTA (is_visible=false) para todo grupo nuevo —
+    // es una opción para anunciarse también como talento, no algo activo por default. Bug
+    // real reportado 2026-09-19: "cuando registro un grupo, aparece en talentos" — pasaba
+    // porque antes no se filtraba por is_visible, así que TODO grupo nuevo aparecía aquí.
+    jbps.filter((j: any) => j.profile?.role !== 'client' && (j.profile?.role !== 'group' || j.is_visible === true)).forEach((j: any) => {
       map.set(j.user_id, {
         id: j.id, user_id: j.user_id,
         full_name: j.profile?.full_name ?? t('adminTalentsScreen.defaults.noName'),

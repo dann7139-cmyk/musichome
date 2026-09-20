@@ -48,13 +48,17 @@ export default function FinancialBreakdown({
 
       <View style={styles.netRow}>
         <Text style={styles.netLabel}>GANANCIA NETA</Text>
-        <Text style={styles.netValue}>{formatCurrency(groupEarnings, undefined, currencySymbol)}</Text>
+        <Text style={styles.netValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>
+          {formatCurrency(groupEarnings, undefined, currencySymbol)}
+        </Text>
       </View>
 
       {perMember !== null && (
         <View style={styles.perMemberRow}>
           <Text style={styles.perMemberLabel}>Por integrante</Text>
-          <Text style={styles.perMemberValue}>{formatCurrency(perMember, undefined, currencySymbol)}</Text>
+          <Text style={styles.perMemberValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>
+            {formatCurrency(perMember, undefined, currencySymbol)}
+          </Text>
         </View>
       )}
     </View>
@@ -64,8 +68,15 @@ export default function FinancialBreakdown({
 function Row({ label, value, valueColor }: { label: string; value: string; valueColor?: string }) {
   return (
     <View style={styles.row}>
-      <Text style={styles.rowLabel}>{label}</Text>
-      <Text style={[styles.rowValue, valueColor ? { color: valueColor } : undefined]}>{value}</Text>
+      <Text style={styles.rowLabel} numberOfLines={1}>{label}</Text>
+      <Text
+        style={[styles.rowValue, valueColor ? { color: valueColor } : undefined]}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.7}
+      >
+        {value}
+      </Text>
     </View>
   );
 }
@@ -95,8 +106,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginBottom: 4,
+    gap: 8,
   },
   rowLabel: {
+    flex: 1,
     fontFamily: FONTS.body,
     fontSize: 14,
     color: COLORS.muted2,
@@ -116,6 +129,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(0,230,118,0.22)',
     paddingHorizontal: 12,
     paddingVertical: 10,
+    gap: 8,
   },
   netLabel: {
     fontFamily: FONTS.bodyMedium,
@@ -123,9 +137,11 @@ const styles = StyleSheet.create({
     color: COLORS.green,
   },
   netValue: {
+    flexShrink: 1,
     fontFamily: FONTS.bodySemiBold,
     fontSize: 17,
     color: COLORS.green,
+    textAlign: 'right',
   },
   perMemberRow: {
     flexDirection: 'row',
@@ -135,6 +151,7 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     borderTopWidth: 1,
     borderTopColor: COLORS.border,
+    gap: 8,
   },
   perMemberLabel: {
     fontFamily: FONTS.body,
@@ -142,8 +159,10 @@ const styles = StyleSheet.create({
     color: COLORS.muted,
   },
   perMemberValue: {
+    flexShrink: 1,
     fontFamily: FONTS.bodySemiBold,
     fontSize: 13,
     color: COLORS.green,
+    textAlign: 'right',
   },
 });

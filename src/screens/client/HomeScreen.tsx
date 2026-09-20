@@ -28,6 +28,7 @@ import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import Particles from '../../components/ui/Particles';
 import LevelBadge from '../../components/ui/LevelBadge';
 import VerifiedBadge from '../../components/ui/VerifiedBadge';
+import AccountSwitcher from '../../components/ui/AccountSwitcher';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../context/AuthContext';
 import { getSafeCity } from '../../utils/cityUtils';
@@ -123,6 +124,13 @@ export default function HomeScreen({ navigation, route }: any) {
   // (src/constants/providerCategories.ts), para que nunca se desincronicen.
   // selectedCategoryId guarda el `key` de PROVIDER_CATEGORIES, no un uuid.
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
+  // 2026-09-16 — petición real: "cuando le aprieto a grupos musicales no
+  // salen todas los géneros como sale en la web". El chip de categoría ya
+  // filtraba por TODOS los géneros de golpe (grupo=58 géneros mezclados);
+  // esta es la lista de géneros DENTRO de la categoría activa (Banda,
+  // Mariachi, Sierreño...), igual que el <select> agrupado de la web.
+  // null = "todos los de la categoría" (comportamiento de siempre).
+  const [selectedGenre, setSelectedGenre] = useState<string | null>(null);
   // 2026-09-05 — sub-filtros dentro de una categoría (ej. Renta: qué
   // renta) usando category_details. Keyed por field.key, valores = chips
   // prendidos de ese campo. Se limpia cada vez que cambia la categoría.
@@ -233,7 +241,10 @@ export default function HomeScreen({ navigation, route }: any) {
     if (presetGenres && presetCategoryLabel) return { label: presetCategoryLabel, genres: presetGenres };
     if (selectedCategoryId) {
       const cat = PROVIDER_CATEGORIES.find(c => c.key === selectedCategoryId);
-      if (cat) return { label: t(cat.labelKey), genres: cat.genres };
+      if (cat) {
+        if (selectedGenre) return { label: selectedGenre, genres: [selectedGenre] };
+        return { label: t(cat.labelKey), genres: cat.genres };
+      }
     }
     return null;
   };
@@ -356,6 +367,7 @@ export default function HomeScreen({ navigation, route }: any) {
   // entrar a Comida.
   useEffect(() => {
     setCategoryFilterSelections({});
+    setSelectedGenre(null);
   }, [selectedCategoryId]);
 
   // 2026-09-05 — trae, por cada campo chips/multiChips de la categoría
@@ -385,7 +397,13 @@ export default function HomeScreen({ navigation, route }: any) {
       // 2026-09-03 — mismas categorías que "agregar otro proveedor"
       // (PROVIDER_CATEGORIES), ya no se leen de la tabla `categories`.
       const cat = PROVIDER_CATEGORIES.find(c => c.key === selectedCategoryId);
-      if (cat) result = result.filter(g => cat.genres.includes(g.genre));
+      if (cat) {
+        // 2026-09-16 — dentro del chip de categoría, un género específico
+        // (Sierreño, Banda...) filtra exacto; sin elegir uno, se comporta
+        // como siempre (todos los géneros de la categoría).
+        if (selectedGenre) result = result.filter(g => g.genre === selectedGenre);
+        else result = result.filter(g => cat.genres.includes(g.genre));
+      }
     }
     // 2026-09-05 — sub-filtros por category_details ("qué tiene" el
     // proveedor: items_needed de Renta, tipo de show de Payasos, etc.).
@@ -411,7 +429,7 @@ export default function HomeScreen({ navigation, route }: any) {
       return cityMatch || serviceMatch;
     });
     setFiltered(result);
-  }, [groups, selectedCategoryId, presetGenres, search, nearbyCity, categoryFilterSelections]);
+  }, [groups, selectedCategoryId, selectedGenre, presetGenres, search, nearbyCity, categoryFilterSelections]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -750,14 +768,19 @@ export default function HomeScreen({ navigation, route }: any) {
           <View>
             <Text style={styles.logoText}>Darice<Text style={styles.logoGreen}>fy</Text></Text>
           </View>
-          <Pressable style={styles.iconBtn} onPress={() => navigation.navigate('Notifications')}>
-            <Bell size={18} color={COLORS.muted2} />
-            {unreadCount > 0 && (
-              <View style={styles.notifDot}>
-                <Text style={styles.notifDotText}>{unreadCount > 99 ? '99+' : unreadCount}</Text>
-              </View>
-            )}
-          </Pressable>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            {/* 🔀 Cambiar rápido a otra cuenta ya guardada (petición real
+                2026-09-18: "irme rápido a la cuenta del cliente de Lala"). */}
+            <AccountSwitcher />
+            <Pressable style={styles.iconBtn} onPress={() => navigation.navigate('Notifications')}>
+              <Bell size={18} color={COLORS.muted2} />
+              {unreadCount > 0 && (
+                <View style={styles.notifDot}>
+                  <Text style={styles.notifDotText}>{unreadCount > 99 ? '99+' : unreadCount}</Text>
+                </View>
+              )}
+            </Pressable>
+          </View>
         </Animated.View>
 
         {/* LIVE EVENT BANNER */}
@@ -1075,7 +1098,7 @@ export default function HomeScreen({ navigation, route }: any) {
               aquí también. El grid de abajo ("Todos los grupos") sigue
               mostrando TODAS las categorías, eso no cambia. */}
           {!search && !nearbyCity && (() => {
-            const activeGenres = presetGenres ?? (selectedCategoryId ? (PROVIDER_CATEGORIES.find(c => c.key === selectedCategoryId)?.genres ?? null) : null);
+            const activeGenres = presetGenres ?? (selectedCategoryId ? (selectedGenre ? [selectedGenre] : (PROVIDER_CATEGORIES.find(c => c.key === selectedCategoryId)?.genres ?? null)) : null);
             const real = filtered.filter((g: any) => !g._is_mock && (activeGenres || !NON_MUSICIAN_GENRES.has(g.genre)));
             const byRating = [...real].sort((a: any, b: any) => (b.rating ?? 0) - (a.rating ?? 0));
 
@@ -1086,19 +1109,22 @@ export default function HomeScreen({ navigation, route }: any) {
 
             let destacados: any[], recomendados: any[], populares: any[];
 
-            if (sponsored.length >= 3 || recReal.length >= 3) {
-              // Con datos reales de patrocinio/recomendación
-              destacados = sponsored.slice(0, 20);
-              const destIds = new Set(destacados.map((g: any) => g.id));
-              recomendados = recReal.filter((r: any) => !destIds.has(r.id)).slice(0, 20);
-              const recIds = new Set(recomendados.map((g: any) => g.id));
-              populares = byRating.filter((g: any) => !destIds.has(g.id) && !recIds.has(g.id)).slice(0, 20);
-            } else {
-              // Sin datos reales: repartir los grupos del estado entre las 3 secciones
-              destacados   = byRating.filter((_: any, i: number) => i % 3 === 0).slice(0, 20);
-              recomendados = byRating.filter((_: any, i: number) => i % 3 === 1).slice(0, 20);
-              populares    = byRating.filter((_: any, i: number) => i % 3 === 2).slice(0, 20);
-            }
+            // 2026-09-17 — bug real reportado: "hay unos que he agregado y
+            // se ponen como en recomendados o destacados, quítalos porque
+            // yo no los he puesto". Antes, si no había al menos 3 grupos
+            // REALMENTE patrocinados/recomendados, se rellenaba Destacados
+            // y Recomendados con cualquier grupo del estado ordenado por
+            // calificación — un grupo recién dado de alta podía terminar
+            // en "Destacado" sin que nadie pagara ni lo eligiera. Ahora
+            // Destacados/Recomendados SOLO muestran patrocinio/recomendación
+            // real, aunque eso signifique menos de 3 (o ninguno — la
+            // columna simplemente no aparece, ver `.filter` de abajo).
+            // Populares sigue siendo legítimamente "mejor calificados".
+            destacados = sponsored.slice(0, 20);
+            const destIds = new Set(destacados.map((g: any) => g.id));
+            recomendados = recReal.filter((r: any) => !destIds.has(r.id)).slice(0, 20);
+            const recIds = new Set(recomendados.map((g: any) => g.id));
+            populares = byRating.filter((g: any) => !destIds.has(g.id) && !recIds.has(g.id)).slice(0, 20);
 
             // 💎 El Destacado (más caro) va AL CENTRO — el lugar de honor
             const sections = [
@@ -1168,7 +1194,17 @@ export default function HomeScreen({ navigation, route }: any) {
                           style={styles.promoBannerBg}
                           contentFit="cover"
                           startTime={item.video_start_seconds ?? 0}
-                          autoPlay
+                          // 2026-09-17 — bug real: "el video jala pero
+                          // después ya no se reproduce". autoPlay era
+                          // literal `true`, así que solo se aplicaba UNA
+                          // vez al montar — si el sistema operativo pausaba
+                          // el video al salir de foco (llamada, cambiar de
+                          // pantalla, apagar pantalla), nada lo volvía a
+                          // mandar a reproducir al regresar. Atado a
+                          // isFocused reusa el mismo mecanismo que ya
+                          // existe en VideoPlayer para pausar/reanudar
+                          // cuando el prop autoPlay cambia después del montaje.
+                          autoPlay={isFocused}
                           muted={adMuted || !isFocused}
                           loop={total <= 1}
                           onEnd={total > 1 ? () => {
@@ -1322,6 +1358,43 @@ export default function HomeScreen({ navigation, route }: any) {
               </Pressable>
             ))}
           </ScrollView>
+
+          {/* GÉNEROS de la categoría activa — 2026-09-16, petición real:
+              "cuando le aprieto a grupos musicales no salen todas los
+              géneros como sale en la web". Mismo criterio que el <select>
+              agrupado de la web: elegir la categoría no filtra ya con
+              TODOS sus géneros mezclados, primero deja elegir uno exacto
+              (o "Todos los géneros" para el comportamiento de siempre). */}
+          {selectedCategoryId && !presetGenres && (() => {
+            const cat = PROVIDER_CATEGORIES.find(c => c.key === selectedCategoryId);
+            if (!cat || cat.genres.length <= 1) return null;
+            return (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.genreList}
+                style={{ marginTop: -8, marginBottom: 18 }}
+              >
+                <Pressable
+                  style={[styles.genreChip, selectedGenre === null && styles.genreChipActive]}
+                  onPress={() => setSelectedGenre(null)}
+                >
+                  <Text style={[styles.genreText, selectedGenre === null && styles.genreTextActive]}>
+                    {t('common.allGenres')}
+                  </Text>
+                </Pressable>
+                {cat.genres.map((g) => (
+                  <Pressable
+                    key={g}
+                    style={[styles.genreChip, selectedGenre === g && styles.genreChipActive]}
+                    onPress={() => setSelectedGenre(g)}
+                  >
+                    <Text style={[styles.genreText, selectedGenre === g && styles.genreTextActive]}>{g}</Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            );
+          })()}
 
           {/* SUB-FILTROS de la categoría activa — "qué tiene" el proveedor
               (category_details, sql/623). Solo aparece en categorías con
@@ -1593,9 +1666,13 @@ function DeckCard({ group, w, h, variant }: any) {
   );
 }
 
-// ── Grid card (3 columnas) ──────────────────────────────────────────────────
+// ── Grid card (5 columnas) ──────────────────────────────────────────────────
+// 2026-09-18 — petición real: "quiero que en el explorador los grupos se
+// vean más chicos". Antes 4 columnas; con 5 cada tarjeta ocupa menos
+// espacio — todo lo demás (imagen, texto, badges) ya usa GRID_W/GRID_IMG
+// calculados, así que se achica solo, sin tocar tamaños fijos.
 
-const GRID_COLS = 4;
+const GRID_COLS = 5;
 const GRID_GAP  = 6;
 const GRID_W    = (width - H_PAD * 2 - GRID_GAP * (GRID_COLS - 1)) / GRID_COLS;
 const GRID_IMG  = Math.round(GRID_W * 0.78);
@@ -1617,7 +1694,7 @@ function GroupGridCard({ group, index, navigation, bidRank, isGift = false, even
   return (
     <Animated.View style={[styles.gridCell, { opacity: fade }]}>
       <Pressable
-        style={styles.gridCard}
+        style={[styles.gridCard, group.admin_highlight && styles.gridCardHighlight]}
         onPress={() => navigation.navigate('GroupDetail', {
           group, isGift,
           ...(eventCtx ? { eventId: eventCtx.eventId, eventDate: eventCtx.eventDate, eventAddress: eventCtx.eventAddress } : {}),
@@ -2225,6 +2302,14 @@ const styles = StyleSheet.create({
   gridCard: {
     width: GRID_W, borderRadius: RADIUS.md, overflow: 'hidden',
     backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border,
+  },
+  // ✨ sql/665 — "brillo de marco" manual (interruptor de admin, nada que
+  // ver con patrocinio/boost). Petición real: "el puro marco" — mismo
+  // criterio visual que deckCardDest (marco + resplandor), solo el borde.
+  gridCardHighlight: {
+    borderWidth: 1.5, borderColor: 'rgba(0,230,118,0.85)',
+    shadowColor: COLORS.green, shadowOpacity: 0.55, shadowRadius: 8,
+    shadowOffset: { width: 0, height: 0 }, elevation: 8,
   },
   gridImgBox:         { width: GRID_W, height: GRID_IMG, position: 'relative' },
   gridImg:            { width: '100%', height: '100%' },

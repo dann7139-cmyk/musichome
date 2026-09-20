@@ -180,7 +180,7 @@ export default function MapAddressPicker({
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <Modal visible={visible} animationType="slide" statusBarTranslucent>
+    <Modal visible={visible} animationType="slide" statusBarTranslucent hardwareAccelerated>
       <View style={s.container}>
 
         {/* ── Map ── */}

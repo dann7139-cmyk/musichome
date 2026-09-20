@@ -41,3 +41,6 @@ app-example
 # generated native folders
 /ios
 /android
+
+# credenciales reales de cuentas admin — JAMAS subir esto a git
+/credenciales/

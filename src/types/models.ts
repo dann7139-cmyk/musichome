@@ -1,4 +1,7 @@
-export type UserRole = 'admin' | 'group' | 'client' | 'talent';
+// 'admin_ops' — cuenta admin con alcance limitado a un país (sql/627,
+// 2026-09-08). Ve solo las colas de no-shows/pagos/verificación de su
+// país (profiles.admin_country_scope); nunca finanzas globales.
+export type UserRole = 'admin' | 'group' | 'client' | 'talent' | 'admin_ops';
 
 /** Status values for the events table */
 export type EventStatus = 'draft' | 'active' | 'completed' | 'cancelled';
@@ -38,6 +41,15 @@ export interface Profile {
   state?: string;
   country?: string;
   created_at: string;
+  // sql/627 (2026-09-08) — admin con alcance por país. Solo se llenan
+  // para role='admin_ops' (admin_country_scope) o role='admin'
+  // (admin_muted_countries, el interruptor de opt-out por país).
+  admin_country_scope?: 'MX' | 'US' | 'CA' | null;
+  admin_muted_countries?: string[];
+  // sql/660 (2026-09-16) — false = admin_ops "limitado" (sin acceso a
+  // dinero: solo no-shows, fotos, cotizaciones de conserjería y
+  // solicitudes de proveedores). true = puede registrar pagos/retiros.
+  admin_can_manage_payouts?: boolean;
 }
 
 export interface Event {

@@ -2,8 +2,8 @@
 // create-promo-subscription  —  Supabase Edge Function (Stripe)
 //
 // SUSCRIPCIONES de publicidad con renovación automática:
-//   · kind='rec'       → Recomendado SEMANAL $399 MXN (mismo precio que
-//                        el paquete de 7 días). group_id requerido.
+//   · kind='rec'       → Recomendado SEMANAL $149 MXN o MENSUAL $499 MXN.
+//                        group_id requerido.
 //   · kind='sponsored' → Destacado MENSUAL al precio del anuncio
 //                        (effective_price). ad_id requerido (el anuncio
 //                        sponsored_group ya creado, pending_payment).
@@ -22,8 +22,15 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
-const REC_WEEKLY_MXN  = 399;   // ⚠️ igual al paquete de 7 días de RecommendationScreen
-const REC_MONTHLY_MXN = 1299;  // mensual con descuento (4 semanas sueltas = $1,596)
+// $399 → $149/semana y $1,299 → $499/mes (2026-09-19) — decisión real
+// del usuario junto con bajar Destacado a $349/mes (sql/671): con solo
+// 12 proveedores reales, el precio de entrada debe ser bajo para que
+// los primeros grupos se animen a probarlo. Recomendado se queda arriba
+// de Destacado a propósito (regla ya establecida). 4 semanas ($596)
+// siguen costando más que el mes completo ($499) — el mensual sigue
+// siendo el mejor trato, como debe ser.
+const REC_WEEKLY_MXN  = 149;
+const REC_MONTHLY_MXN = 499;
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',

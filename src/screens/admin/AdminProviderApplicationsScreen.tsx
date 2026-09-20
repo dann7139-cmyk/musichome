@@ -32,6 +32,8 @@ import { useAuth } from '../../context/AuthContext';
 import { PROVIDER_CATEGORIES } from '../../constants/providerCategories';
 import { STATES_BY_COUNTRY } from '../../utils/locationUtils';
 import { exportProviderAgreementPdf } from '../../utils/exportProviderAgreementPdf';
+import { useAdminClaims } from '../../hooks/useAdminClaims';
+import { ClaimBar } from '../../components/ui/ClaimBar';
 
 // admin_country_scope ('MX'/'US'/'CA') → nombre de país tal cual se guarda
 // en groups/provider_applications. Solo para preseleccionar y limitar las
@@ -109,6 +111,11 @@ export default function AdminProviderApplicationsScreen({ navigation }: any) {
   const [adding, setAdding] = useState(false);
   const [downloadingAgreement, setDownloadingAgreement] = useState(false);
 
+  // sql/660 (2026-09-16) — "en trabajo": solo tiene sentido en Pendientes,
+  // que es donde alguien puede estar a media llamada aprobando/rechazando.
+  const pendingIds = items.filter(i => i.status === 'pending').map(i => i.id);
+  const { claims, claim, release, refresh: refreshClaims, busyId: claimBusyId } = useAdminClaims('provider_application', pendingIds);
+
   const handleDownloadAgreement = async () => {
     if (downloadingAgreement) return;
     setDownloadingAgreement(true);
@@ -181,7 +188,7 @@ export default function AdminProviderApplicationsScreen({ navigation }: any) {
 
   useEffect(() => { setLoading(true); load(tab); }, [tab, load]);
 
-  const onRefresh = () => { setRefreshing(true); load(tab); };
+  const onRefresh = () => { setRefreshing(true); load(tab); refreshClaims(); };
 
   const openApprove = (item: AppItem) => {
     setApproveTarget(item);
@@ -215,6 +222,7 @@ export default function AdminProviderApplicationsScreen({ navigation }: any) {
       return;
     }
     setApproveTarget(null);
+    await release(approveTarget.id);
     setItems(prev => prev.filter(i => i.id !== approveTarget.id));
     Alert.alert(
       '✅ Cuenta creada',
@@ -240,6 +248,7 @@ export default function AdminProviderApplicationsScreen({ navigation }: any) {
       return;
     }
     setRejectTarget(null);
+    await release(rejectTarget.id);
     setItems(prev => prev.filter(i => i.id !== rejectTarget.id));
   };
 
@@ -330,16 +339,28 @@ export default function AdminProviderApplicationsScreen({ navigation }: any) {
                   <Text style={s.rejectReason}>Motivo: {item.admin_notes}</Text>
                 ) : null}
 
-                {item.status === 'pending' && (
-                  <View style={s.actionsRow}>
-                    <Pressable style={[s.actionBtn, s.rejectBtn]} onPress={() => openReject(item)}>
-                      <Text style={s.rejectBtnText}>Rechazar</Text>
-                    </Pressable>
-                    <Pressable style={[s.actionBtn, s.approveBtn]} onPress={() => openApprove(item)}>
-                      <Text style={s.approveBtnText}>Aprobar y crear cuenta</Text>
-                    </Pressable>
-                  </View>
-                )}
+                {item.status === 'pending' && (() => {
+                  const itemClaim = claims[item.id];
+                  const lockedByOther = !!itemClaim && !itemClaim.is_mine;
+                  return (
+                    <>
+                      <ClaimBar
+                        claim={itemClaim}
+                        busy={claimBusyId === item.id}
+                        onClaim={() => claim(item.id)}
+                        onRelease={() => release(item.id)}
+                      />
+                      <View style={s.actionsRow}>
+                        <Pressable style={[s.actionBtn, s.rejectBtn, lockedByOther && s.actionBtnDisabled]} disabled={lockedByOther} onPress={() => openReject(item)}>
+                          <Text style={s.rejectBtnText}>Rechazar</Text>
+                        </Pressable>
+                        <Pressable style={[s.actionBtn, s.approveBtn, lockedByOther && s.actionBtnDisabled]} disabled={lockedByOther} onPress={() => openApprove(item)}>
+                          <Text style={s.approveBtnText}>Aprobar y crear cuenta</Text>
+                        </Pressable>
+                      </View>
+                    </>
+                  );
+                })()}
               </View>
             ))}
           </ScrollView>
@@ -349,7 +370,13 @@ export default function AdminProviderApplicationsScreen({ navigation }: any) {
       {/* Modal aprobar */}
       <Modal visible={!!approveTarget} transparent animationType="slide" onRequestClose={() => setApproveTarget(null)}>
         <View style={s.overlay}>
-          <View style={s.sheet}>
+          {/* 2026-09-17 — bug real: "no puedo deslizar, no puedo ver las
+              categorías ni poner el correo". Este sheet era un View fijo
+              sin scroll — con categorías de 20+ géneros (Grupo musical,
+              Luz y sonido) la grilla tapaba el resto del formulario y no
+              había forma de bajar para llegar al correo/botón. Mismo
+              arreglo que ya tenía el modal "agregar directo" de abajo. */}
+          <ScrollView style={[s.sheet, { maxHeight: '85%' }]} contentContainerStyle={{ paddingBottom: 12 }} keyboardShouldPersistTaps="handled">
             <Text style={s.sheetTitle}>{approveTarget?.full_name}</Text>
             <Text style={s.sheetHint}>Ya lo contactaste y viste sus fotos/videos por WhatsApp. Crea su cuenta real.</Text>
 
@@ -390,7 +417,7 @@ export default function AdminProviderApplicationsScreen({ navigation }: any) {
                 {approving ? <ActivityIndicator size="small" color={COLORS.bg} /> : <Text style={s.modalBtnSendText}>Crear cuenta</Text>}
               </Pressable>
             </View>
-          </View>
+          </ScrollView>
         </View>
       </Modal>
 
@@ -568,6 +595,7 @@ const s = StyleSheet.create({
   approveBtnText: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.bg },
   rejectBtn: { backgroundColor: COLORS.card2, borderWidth: 1, borderColor: COLORS.border },
   rejectBtnText: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.red },
+  actionBtnDisabled: { opacity: 0.4 },
 
   overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
   sheet: {

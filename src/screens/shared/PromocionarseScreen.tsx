@@ -75,10 +75,9 @@ const PROMO_CARDS: PromoCard[] = [
     gradient:    ['#1A1500', '#2E2200'],
     accent:      '#C9A84C',
     description: 'Tu grupo aparece en la sección "Destacados" del inicio — la columna dorada, primera a la vista. Visibilidad máxima en tu zona.',
-    price:       'Desde $169 · 3 días',
+    price:       '$349 · mensual',
     badge:       '⭐ Premium',
-    screen:      'AdvertisingPackages',
-    screenParams: { initialType: 'sponsored_group' },
+    screen:      'Destacado',
     roles:       ['group'],
   },
   {
@@ -110,6 +109,96 @@ const PROMO_CARDS: PromoCard[] = [
     roles:       ['group', 'talent'],
   },
 ];
+
+// ── Miniaturas "así se ve en la app" ─────────────────────────────────────────
+// Petición real (2026-09-19): "quiero que dentro de cómo funciona tenga
+// pantallas de la app realmente que se parezcan, para que entiendan [dónde
+// va a aparecer su anuncio]". Cada miniatura es una versión chica y fiel del
+// lugar real donde ese anuncio se muestra (mismo layout que HomeScreen.tsx/
+// GroupDetailScreen.tsx), no un dibujo genérico.
+
+function MiniDeckPreview({ highlight }: { highlight: 'reco' | 'dest' }) {
+  const cols: { key: 'reco' | 'dest' | 'pop'; label: string; color: string }[] = [
+    { key: 'reco', label: 'Recomendados', color: COLORS.green },
+    { key: 'dest', label: 'Destacados',   color: '#E6C25A' },
+    { key: 'pop',  label: 'Populares',    color: '#fff' },
+  ];
+  return (
+    <View style={pv.deckRow}>
+      {cols.map(c => {
+        const isHi = c.key === highlight;
+        return (
+          <View key={c.key} style={pv.deckCol}>
+            <Text style={[pv.deckColLabel, { color: c.color, opacity: isHi ? 1 : 0.4 }]} numberOfLines={1}>
+              {c.label}
+            </Text>
+            <View style={[pv.deckCard, isHi ? { borderColor: c.color, borderWidth: 1.5 } : { opacity: 0.4 }]}>
+              {isHi && <Text style={pv.deckCardTag}>Tú</Text>}
+            </View>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+function MiniBannerPreview() {
+  return (
+    <View style={pv.bannerBox}>
+      <View style={pv.bannerScrim} />
+      <View style={pv.bannerTag}><Text style={pv.bannerTagTx}>ANUNCIO</Text></View>
+      <View style={pv.bannerBottomRow}>
+        <Text style={pv.bannerTitle} numberOfLines={1}>Tu anuncio aquí</Text>
+        <View style={pv.bannerBtn}><Text style={pv.bannerBtnTx}>Ver más →</Text></View>
+      </View>
+    </View>
+  );
+}
+
+function MiniProfileAdPreview() {
+  return (
+    <View style={pv.profWrap}>
+      <View style={pv.profRow}>
+        <View style={pv.profAvatar} />
+        <View style={{ flex: 1, gap: 4 }}>
+          <View style={pv.profLine} />
+          <View style={[pv.profLine, { width: '55%' }]} />
+        </View>
+      </View>
+      <View style={pv.profAdCard}>
+        <View style={pv.profAdImg}>
+          <View style={pv.profAdTag}><Text style={pv.profAdTagTx}>Anuncio</Text></View>
+        </View>
+        <Text style={pv.profAdCaption} numberOfLines={1}>Tu anuncio aquí ↑</Text>
+      </View>
+    </View>
+  );
+}
+
+function MiniRankPreview() {
+  return (
+    <View style={pv.rankWrap}>
+      {[1, 2, 3].map(n => (
+        <View key={n} style={[pv.rankRow, n === 1 && pv.rankRowHi]}>
+          <Text style={[pv.rankNum, n === 1 && { color: '#A78BFA' }]}>{n}</Text>
+          <View style={[pv.rankBar, n === 1 && { backgroundColor: 'rgba(167,139,250,0.35)' }]} />
+          {n === 1 && <Text style={pv.rankFlame}>🔥 Tú</Text>}
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function PromoPreview({ cardKey }: { cardKey: string }) {
+  switch (cardKey) {
+    case 'bidding':        return <MiniRankPreview />;
+    case 'recommendation': return <MiniDeckPreview highlight="reco" />;
+    case 'sponsored':      return <MiniDeckPreview highlight="dest" />;
+    case 'banner_home':    return <MiniBannerPreview />;
+    case 'profile_ad':     return <MiniProfileAdPreview />;
+    default:               return null;
+  }
+}
 
 // ── Componente principal ──────────────────────────────────────────────────────
 
@@ -195,8 +284,12 @@ export default function PromocionarseScreen({ navigation }: any) {
               {/* Description */}
               <Text style={s.cardDesc}>{card.description}</Text>
 
+              {/* Así se ve en la app — miniatura real del lugar exacto */}
+              <Text style={s.previewLabel}>ASÍ SE VE EN LA APP</Text>
+              <PromoPreview cardKey={card.key} />
+
               {/* Bottom accent line */}
-              <View style={[s.accentLine, { backgroundColor: card.accent }]} />
+              <View style={[s.accentLine, { backgroundColor: card.accent, marginTop: 14 }]} />
             </LinearGradient>
           </Pressable>
         ))}
@@ -318,6 +411,14 @@ const s = StyleSheet.create({
     marginBottom: 16,
   },
 
+  previewLabel: {
+    fontFamily: FONTS.bodySemiBold,
+    fontSize: 9,
+    color: 'rgba(255,255,255,0.35)',
+    letterSpacing: 0.8,
+    marginBottom: 8,
+  },
+
   accentLine: {
     height: 2,
     width: 40,
@@ -343,4 +444,65 @@ const s = StyleSheet.create({
   },
   policyLink:     { alignSelf: 'center', marginTop: 4, marginBottom: 10, paddingVertical: 6, paddingHorizontal: 14 },
   policyLinkText: { fontFamily: FONTS.body, fontSize: 11.5, color: COLORS.muted, textDecorationLine: 'underline' },
+});
+
+// ── Estilos de las miniaturas "así se ve en la app" ─────────────────────────
+const pv = StyleSheet.create({
+  // Deck (Recomendado/Destacado) — mismo renglón de 3 columnas que HomeScreen
+  deckRow: { flexDirection: 'row', gap: 6 },
+  deckCol: { flex: 1, alignItems: 'center', gap: 4 },
+  deckColLabel: { fontFamily: FONTS.bodySemiBold, fontSize: 8, textAlign: 'center' },
+  deckCard: {
+    width: '100%', aspectRatio: 1 / 1.15, borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.06)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  deckCardTag: { fontFamily: FONTS.bodySemiBold, fontSize: 10, color: '#fff' },
+
+  // Banner — imagen + gradiente + chip + título/botón
+  bannerBox: {
+    height: 62, borderRadius: 10, overflow: 'hidden', position: 'relative',
+    backgroundColor: 'rgba(0,230,118,0.10)', borderWidth: 1, borderColor: 'rgba(0,230,118,0.3)',
+  },
+  bannerScrim: {
+    position: 'absolute', left: 0, right: 0, bottom: 0, height: '70%',
+    backgroundColor: 'rgba(0,0,0,0.55)',
+  },
+  bannerTag: {
+    position: 'absolute', top: 5, left: 5, backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: 999, paddingHorizontal: 5, paddingVertical: 1.5,
+  },
+  bannerTagTx: { fontFamily: FONTS.bodySemiBold, fontSize: 6.5, color: '#fff', letterSpacing: 0.4 },
+  bannerBottomRow: {
+    position: 'absolute', left: 6, right: 6, bottom: 5,
+    flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: 6,
+  },
+  bannerTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 10, color: '#fff', flexShrink: 1 },
+  bannerBtn: { backgroundColor: COLORS.green, borderRadius: 999, paddingHorizontal: 6, paddingVertical: 2 },
+  bannerBtnTx: { fontFamily: FONTS.bodySemiBold, fontSize: 7, color: COLORS.bg },
+
+  // Anuncio en Perfil — perfil de otro proveedor con la tarjeta al fondo
+  profWrap: { gap: 6 },
+  profRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  profAvatar: { width: 26, height: 26, borderRadius: 8, backgroundColor: 'rgba(255,255,255,0.1)' },
+  profLine: { height: 5, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.1)', width: '80%' },
+  profAdCard: {
+    borderRadius: 8, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(167,139,250,0.5)',
+    backgroundColor: 'rgba(167,139,250,0.08)',
+  },
+  profAdImg: { height: 30, justifyContent: 'flex-start' },
+  profAdTag: {
+    alignSelf: 'flex-start', margin: 4, backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: 999, paddingHorizontal: 5, paddingVertical: 1.5,
+  },
+  profAdTagTx: { fontFamily: FONTS.bodySemiBold, fontSize: 6.5, color: '#fff' },
+  profAdCaption: { fontFamily: FONTS.bodyMedium, fontSize: 8.5, color: '#fff', paddingHorizontal: 6, paddingBottom: 5 },
+
+  // Bidding — salto de posición en el ranking
+  rankWrap: { gap: 5 },
+  rankRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  rankRowHi: {},
+  rankNum: { fontFamily: FONTS.bodySemiBold, fontSize: 11, color: 'rgba(255,255,255,0.35)', width: 12 },
+  rankBar: { flex: 1, height: 10, borderRadius: 5, backgroundColor: 'rgba(255,255,255,0.07)' },
+  rankFlame: { fontFamily: FONTS.bodySemiBold, fontSize: 9, color: '#A78BFA' },
 });

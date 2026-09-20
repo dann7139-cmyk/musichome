@@ -22,6 +22,7 @@ import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import RequestZoneMap from '../../components/requests/RequestZoneMap';
 import { eventCardCenter } from '../../utils/mapUtils';
 import { getClientActiveEvents, resolveEventContext } from '../../utils/eventBuilder';
+import { categoryKeyForGenre, FLAT_RATE_CATEGORIES } from '../../constants/providerCategories';
 
 // Etiquetas de tipo de evento — se generan dentro del componente con `t`.
 const getEventTypeLabels = (t: TFunction): Record<string, string> => ({
@@ -287,6 +288,11 @@ export default function ClientQuoteDetailScreen({ route, navigation }: any) {
 
   const total   = quote.total_amount ?? 0;
 
+  // Comida/Renta cobran por contrato, no por hora (2026-09-05) — no se le
+  // pidió duración al cliente, así que no se le muestra de vuelta aquí.
+  const quoteCategoryKey = categoryKeyForGenre(quote.group?.genre);
+  const isFlatRateQuote  = quoteCategoryKey != null && FLAT_RATE_CATEGORIES.has(quoteCategoryKey);
+
   const eventDateStr = quote.event_date
     ? new Date(quote.event_date + 'T12:00:00').toLocaleDateString('es-MX', {
         weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
@@ -371,7 +377,9 @@ export default function ClientQuoteDetailScreen({ route, navigation }: any) {
           <Text style={s.sectionTitle}>{t('clientQuoteDetailScreen.eventDetails.title')}</Text>
           <Row label={t('clientQuoteDetailScreen.eventDetails.type')}      value={EVENT_TYPE_LABELS[quote.event_type] ?? quote.event_type} />
           <Row label={t('clientQuoteDetailScreen.eventDetails.date')}     value={eventDateStr} />
-          <Row label={t('clientQuoteDetailScreen.eventDetails.duration')}  value={t('clientQuoteDetailScreen.eventDetails.durationValue', { hours: quote.duration_hours })} />
+          {!isFlatRateQuote && (
+            <Row label={t('clientQuoteDetailScreen.eventDetails.duration')}  value={t('clientQuoteDetailScreen.eventDetails.durationValue', { hours: quote.duration_hours })} />
+          )}
           {quote.event_time ? <Row label={t('clientQuoteDetailScreen.eventDetails.time')} value={quote.event_time} /> : null}
         </View>
 

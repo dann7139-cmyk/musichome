@@ -1,5 +1,7 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { Lock, Mail } from 'lucide-react-native';
+import * as WebBrowser from 'expo-web-browser';
+import Constants from 'expo-constants';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Alert,
@@ -23,11 +25,20 @@ import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
 import Particles from '../../components/ui/Particles';
 
+// Alta/entrada con Google (2026-09-19) — mismo mecanismo ya probado en este
+// proyecto para el link de recuperar contraseña (exchangeCodeForSession),
+// vía la sesión de navegador nativa de expo-web-browser (YA instalado, sin
+// dependencias nuevas). El resto de la app no cambia: onAuthStateChange en
+// AuthContext recoge la sesión sola; si es alta nueva sin fila en profiles,
+// needsOnboarding manda a CompleteProfileScreen automáticamente.
+const GOOGLE_REDIRECT_URL = 'daricefy://auth-callback';
+
 export default function LoginScreen({ navigation }: any) {
   const { t } = useTranslation();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
 
   // Animations
   const logoFade = useRef(new Animated.Value(0)).current;
@@ -74,6 +85,42 @@ export default function LoginScreen({ navigation }: any) {
     });
     if (error) Alert.alert(t('common.error'), error.message);
     else Alert.alert(t('auth.login.forgot_email_sent_title'), t('auth.login.forgot_email_sent_message'));
+  };
+
+  const handleGoogleSignIn = async () => {
+    // Expo Go no puede abrir el link de regreso "daricefy://auth-callback"
+    // (ese esquema solo lo registra un build real de la app) — sin este
+    // aviso, el botón se quedaría trabado en la pantalla de Google sin
+    // volver nunca. Petición real: "que jale bien en expo go para ir
+    // viendo mi app ahí" — mejor avisar claro que dejarlo sentirse roto.
+    if (Constants.appOwnership === 'expo') {
+      Alert.alert(
+        'No disponible en Expo Go',
+        'Entrar con Google necesita un build real de la app (no funciona dentro de Expo Go). Por ahora usa tu correo y contraseña para probar — Google ya está listo para cuando instales un build.',
+      );
+      return;
+    }
+    setGoogleLoading(true);
+    try {
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: { redirectTo: GOOGLE_REDIRECT_URL, skipBrowserRedirect: true },
+      });
+      if (error || !data?.url) throw error ?? new Error('No se pudo iniciar con Google.');
+
+      const res = await WebBrowser.openAuthSessionAsync(data.url, GOOGLE_REDIRECT_URL);
+      if (res.type === 'success' && res.url) {
+        const { error: exErr } = await supabase.auth.exchangeCodeForSession(res.url);
+        if (exErr) throw exErr;
+        // onAuthStateChange (AuthContext) recoge la sesión y AppNavigator
+        // redirige solo — a Completar Perfil si es alta nueva, o a su cuenta.
+      }
+      // res.type === 'cancel'/'dismiss' → el usuario cerró la ventana, no es error.
+    } catch (e: any) {
+      Alert.alert(t('common.error'), e?.message ?? 'No se pudo iniciar sesión con Google.');
+    } finally {
+      setGoogleLoading(false);
+    }
   };
 
   return (
@@ -147,6 +194,25 @@ export default function LoginScreen({ navigation }: any) {
               <Pressable style={styles.forgotRow} onPress={handleForgot} hitSlop={10}>
                 <Text style={styles.forgotText}>{t('auth.login.forgot_password')}</Text>
               </Pressable>
+
+              <View style={styles.dividerRow}>
+                <View style={styles.dividerLine} />
+                <Text style={styles.dividerText}>o</Text>
+                <View style={styles.dividerLine} />
+              </View>
+
+              <Pressable
+                style={[styles.googleBtn, googleLoading && { opacity: 0.6 }]}
+                onPress={handleGoogleSignIn}
+                disabled={googleLoading}
+              >
+                <View style={styles.googleGBadge}>
+                  <Text style={styles.googleGText}>G</Text>
+                </View>
+                <Text style={styles.googleBtnText}>
+                  {googleLoading ? 'Conectando…' : 'Continuar con Google'}
+                </Text>
+              </Pressable>
             </Animated.View>
 
             {/* ── FOOTER ── */}
@@ -203,6 +269,22 @@ const styles = StyleSheet.create({
   },
   forgotRow: { alignItems: 'center', marginTop: 16 },
   forgotText: { fontFamily: FONTS.body, fontSize: 13, color: COLORS.muted2 },
+
+  dividerRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 22, marginBottom: 6 },
+  dividerLine: { flex: 1, height: 1, backgroundColor: COLORS.border },
+  dividerText: { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted },
+
+  googleBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10,
+    backgroundColor: COLORS.card2, borderWidth: 1, borderColor: COLORS.border,
+    borderRadius: RADIUS.lg, paddingVertical: 13, marginTop: 10,
+  },
+  googleGBadge: {
+    width: 20, height: 20, borderRadius: 10, backgroundColor: '#fff',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  googleGText: { fontFamily: FONTS.bodySemiBold, fontSize: 12, color: '#4285F4' },
+  googleBtnText: { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: COLORS.text },
 
   // Footer
   footer: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center' },

@@ -64,6 +64,15 @@ export interface AuthState {
    * seguridad: cualquiera con acceso al correo entraría sin contraseña).
    */
   passwordRecovery: boolean;
+  /**
+   * true cuando hay sesión válida pero NO existe fila en `profiles` todavía
+   * (2026-09-19: alta con Google — Supabase crea el usuario en auth.users
+   * automáticamente, pero nadie llenó el rol ni el resto del perfil como sí
+   * pasa en el registro normal por correo). AppNavigator manda a
+   * CompleteProfileScreen en vez de mostrar el error genérico de "contacta
+   * soporte" que antes se disparaba aquí también.
+   */
+  needsOnboarding: boolean;
 }
 
 export interface AuthContextValue extends AuthState {
@@ -115,6 +124,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     detectedState: null,
     detectedCountry: null,
     passwordRecovery: false,
+    needsOnboarding: false,
   });
 
   // Evitar setState después de unmount
@@ -160,19 +170,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         role: null,
         loading: false,
         error: `Error al cargar perfil: ${error.message}`,
+        needsOnboarding: false,
       });
       return;
     }
 
     if (!data) {
-      // .maybeSingle() devolvió null → no existe fila en profiles para este user.id
-      console.error('[AuthContext] No se encontró perfil para userId:', userId,
-        '— ¿Se creó la fila en profiles al registrarse?');
+      // .maybeSingle() devolvió null → no existe fila en profiles para este
+      // user.id. Antes esto SIEMPRE se trataba como error fatal ("contacta
+      // soporte") — pero con el alta por Google (2026-09-19) este es un
+      // caso legítimo y esperado la primera vez: Supabase ya creó la cuenta
+      // en auth.users, solo falta que la persona elija su rol y complete el
+      // perfil. needsOnboarding manda a esa pantalla en vez del error.
+      console.log('[AuthContext] Sin fila en profiles para userId:', userId,
+        '— probablemente alta nueva por Google, se manda a completar perfil.');
       patch({
         profile: null,
         role: null,
         loading: false,
-        error: 'No se encontró perfil de usuario. Contacta soporte.',
+        error: null,
+        needsOnboarding: true,
       });
       return;
     }
@@ -180,10 +197,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const profile = data as Profile;
 
     // Validar que el rol sea uno de los valores esperados
-    const validRoles: UserRole[] = ['admin', 'group', 'client', 'talent'];
+    const validRoles: UserRole[] = ['admin', 'group', 'client', 'talent', 'admin_ops'];
     if (!validRoles.includes(profile.role)) {
       console.error('[AuthContext] Rol inválido en profiles:', profile.role,
-        '— Valores aceptados: admin | group | client');
+        '— Valores aceptados: admin | group | client | talent | admin_ops');
       patch({
         profile: null,
         role: null,
@@ -199,6 +216,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       role: profile.role,
       loading: false,
       error: null,
+      needsOnboarding: false,
     });
   }, [patch]);
 
@@ -228,6 +246,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         loading: false,
         error: null,
         passwordRecovery: false,
+        needsOnboarding: false,
       });
       return;
     }
@@ -437,6 +456,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       loading: false,
       error: null,
       passwordRecovery: false,
+      needsOnboarding: false,
     });
     await supabase.auth.signOut();
   }, [patch]);
@@ -451,6 +471,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       loading: false,
       error: null,
       passwordRecovery: false,
+      needsOnboarding: false,
     });
     await supabase.auth.signOut();
   }, [patch]);

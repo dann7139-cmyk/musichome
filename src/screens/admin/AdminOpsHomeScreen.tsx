@@ -21,6 +21,8 @@ import { LogOut, Phone } from 'lucide-react-native';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import { useAuth } from '../../context/AuthContext';
+import { useAdminClaims } from '../../hooks/useAdminClaims';
+import { ClaimBar } from '../../components/ui/ClaimBar';
 
 // Abre un comprobante guardado en el bucket 'refund-receipts' (mismo
 // patrón que NotificationsScreen usa para el comprobante del cliente).
@@ -51,14 +53,21 @@ const money = (n: number | null | undefined, currency = 'MXN') =>
 
 export default function AdminOpsHomeScreen({ navigation }: any) {
   const { profile, signOut } = useAuth();
-  const [tab, setTab] = useState<Tab>('resumen');
+  // sql/660 (2026-09-16) — admin_ops "limitado" (sin dinero): no ve
+  // Resumen/Pagos/Verificación/Eventos/Historial ni la cola de Visa — solo
+  // lo que se le autorizó (no-shows, fotos, cotizaciones de conserjería,
+  // solicitudes de proveedores). El RPC del lado del servidor ya bloquea
+  // esto de todos modos (admin_can_manage_payouts) — esto es solo para no
+  // mostrarle botones que igual le van a fallar.
+  const canManagePayouts = profile?.admin_can_manage_payouts !== false;
+  const [tab, setTab] = useState<Tab>(canManagePayouts ? 'resumen' : 'noshows');
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
       <SafeAreaView edges={['top']} style={s.header}>
         <View>
-          <Text style={s.headerTitle}>Panel — {profile?.admin_country_scope === 'US' ? 'Estados Unidos' : profile?.admin_country_scope}</Text>
-          <Text style={s.headerSub}>Solo ves lo que corresponde a tu país</Text>
+          <Text style={s.headerTitle}>Panel — {profile?.admin_country_scope === 'US' ? 'Estados Unidos' : profile?.admin_country_scope === 'MX' ? 'México' : profile?.admin_country_scope}</Text>
+          <Text style={s.headerSub}>Solo ves lo que corresponde a tu país{!canManagePayouts ? ' · sin acceso a dinero' : ''}</Text>
         </View>
         <Pressable onPress={() => signOut()} hitSlop={10}>
           <LogOut size={20} color={COLORS.muted2} />
@@ -66,14 +75,14 @@ export default function AdminOpsHomeScreen({ navigation }: any) {
       </SafeAreaView>
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.tabs}>
-        {([
+        {(([
           ['resumen', '📊 Resumen'],
           ['noshows', '🚨 No-shows'],
           ['pagos', '💵 Pagos'],
           ['verificacion', '🪪 Verificación'],
           ['eventos', '🔒 Eventos'],
           ['historial', '🧾 Historial'],
-        ] as [Tab, string][]).map(([key, label]) => (
+        ] as [Tab, string][]).filter(([key]) => canManagePayouts || key === 'noshows')).map(([key, label]) => (
           <Pressable key={key} style={[s.tabBtn, tab === key && s.tabBtnActive]} onPress={() => setTab(key)}>
             <Text style={[s.tabBtnText, tab === key && s.tabBtnTextActive]}>{label}</Text>
           </Pressable>
@@ -93,18 +102,21 @@ export default function AdminOpsHomeScreen({ navigation }: any) {
         <Pressable style={s.tabBtn} onPress={() => navigation.navigate('AdminProviderApplications')}>
           <Text style={s.tabBtnText}>📝 Solicitudes</Text>
         </Pressable>
-        {/* ✈️ Demanda entre países — sql/657, ya acotado por país. */}
-        <Pressable style={s.tabBtn} onPress={() => navigation.navigate('AdminCrossBorder')}>
-          <Text style={s.tabBtnText}>✈️ Visa</Text>
-        </Pressable>
+        {/* ✈️ Demanda entre países — sql/657, ya acotado por país. Fuera del
+            alcance de un admin_ops limitado (no está en su lista). */}
+        {canManagePayouts && (
+          <Pressable style={s.tabBtn} onPress={() => navigation.navigate('AdminCrossBorder')}>
+            <Text style={s.tabBtnText}>✈️ Visa</Text>
+          </Pressable>
+        )}
       </ScrollView>
 
-      {tab === 'resumen' && <ResumenTab navigation={navigation} />}
+      {tab === 'resumen' && canManagePayouts && <ResumenTab navigation={navigation} />}
       {tab === 'noshows' && <NoShowsTab />}
-      {tab === 'pagos' && <PagosTab />}
-      {tab === 'verificacion' && <VerificacionTab />}
-      {tab === 'eventos' && <EventosTab />}
-      {tab === 'historial' && <HistorialTab />}
+      {tab === 'pagos' && canManagePayouts && <PagosTab />}
+      {tab === 'verificacion' && canManagePayouts && <VerificacionTab />}
+      {tab === 'eventos' && canManagePayouts && <EventosTab />}
+      {tab === 'historial' && canManagePayouts && <HistorialTab />}
     </View>
   );
 }
@@ -259,6 +271,7 @@ function NoShowsTab() {
   const [refreshing, setRefreshing] = useState(false);
   const [items, setItems] = useState<any[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const { claims, claim, release, refresh: refreshClaims, busyId: claimBusyId } = useAdminClaims('no_show', items.map(it => it.id));
 
   const load = useCallback(async () => {
     const { data, error } = await supabase.rpc('admin_get_no_shows', { p_limit: 50 });
@@ -279,6 +292,7 @@ function NoShowsTab() {
       Alert.alert('Error', (data as any)?.error ?? error?.message ?? 'No se pudo resolver');
       return;
     }
+    await release(id);
     load();
   };
 
@@ -287,29 +301,34 @@ function NoShowsTab() {
   return (
     <ScrollView
       contentContainerStyle={s.list}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={COLORS.green} />}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); refreshClaims(); }} tintColor={COLORS.green} />}
     >
       {items.length === 0 && <EmptyBox icon="✅" text="Sin no-shows pendientes" />}
-      {items.map((it) => (
-        <View key={it.id} style={s.card}>
-          <View style={s.cardRow}>
-            <Text style={s.cardTitle} numberOfLines={1}>{it.group_name ?? 'Grupo'}</Text>
-            <Text style={s.cardAmount}>{money(it.total_price, it.currency)}</Text>
+      {items.map((it) => {
+        const itemClaim = claims[it.id];
+        const lockedByOther = !!itemClaim && !itemClaim.is_mine;
+        return (
+          <View key={it.id} style={s.card}>
+            <View style={s.cardRow}>
+              <Text style={s.cardTitle} numberOfLines={1}>{it.group_name ?? 'Grupo'}</Text>
+              <Text style={s.cardAmount}>{money(it.total_price, it.currency)}</Text>
+            </View>
+            <Text style={s.cardMeta}>{it.event_date} {it.event_time ?? ''} · {it.city ?? it.state ?? it.country}</Text>
+            {!!it.client_name && <Text style={s.cardMeta}>Cliente: {it.client_name}</Text>}
+            {it.has_strike && <Text style={s.strikeBadge}>⚠️ Ya tiene strike por no-show</Text>}
+            <View style={s.phoneRow}>
+              {!!it.group_phone && <CallPill phone={it.group_phone} label="Grupo" />}
+              {!!it.client_phone && <CallPill phone={it.client_phone} label="Cliente" />}
+            </View>
+            <ClaimBar claim={itemClaim} busy={claimBusyId === it.id} onClaim={() => claim(it.id)} onRelease={() => release(it.id)} />
+            <View style={s.actionsRow}>
+              <ActionBtn label="Reembolsar 100%" color={COLORS.green} busy={busyId === it.id} disabled={lockedByOther} onPress={() => resolve(it.id, 'refunded_100')} />
+              <ActionBtn label="Sin reembolso" color={COLORS.orange} busy={busyId === it.id} disabled={lockedByOther} onPress={() => resolve(it.id, 'no_refund')} />
+              <ActionBtn label="Solo revisar" color={COLORS.muted2} busy={busyId === it.id} disabled={lockedByOther} onPress={() => resolve(it.id, 'reviewed')} />
+            </View>
           </View>
-          <Text style={s.cardMeta}>{it.event_date} {it.event_time ?? ''} · {it.city ?? it.state ?? it.country}</Text>
-          {!!it.client_name && <Text style={s.cardMeta}>Cliente: {it.client_name}</Text>}
-          {it.has_strike && <Text style={s.strikeBadge}>⚠️ Ya tiene strike por no-show</Text>}
-          <View style={s.phoneRow}>
-            {!!it.group_phone && <CallPill phone={it.group_phone} label="Grupo" />}
-            {!!it.client_phone && <CallPill phone={it.client_phone} label="Cliente" />}
-          </View>
-          <View style={s.actionsRow}>
-            <ActionBtn label="Reembolsar 100%" color={COLORS.green} busy={busyId === it.id} onPress={() => resolve(it.id, 'refunded_100')} />
-            <ActionBtn label="Sin reembolso" color={COLORS.orange} busy={busyId === it.id} onPress={() => resolve(it.id, 'no_refund')} />
-            <ActionBtn label="Solo revisar" color={COLORS.muted2} busy={busyId === it.id} onPress={() => resolve(it.id, 'reviewed')} />
-          </View>
-        </View>
-      ))}
+        );
+      })}
     </ScrollView>
   );
 }
@@ -331,20 +350,24 @@ function PagosTab() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [groupPayments, setGroupPayments] = useState<any[]>([]);
+  const [upcomingPayments, setUpcomingPayments] = useState<any[]>([]);
   const [giftPayouts, setGiftPayouts] = useState<any[]>([]);
   const [withdrawals, setWithdrawals] = useState<any[]>([]);
   const [modal, setModal] = useState<PayModal | null>(null);
+  const [advanceAmount, setAdvanceAmount] = useState('');
   const [reference, setReference] = useState('');
   const [receiptUri, setReceiptUri] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
-    const [gp, gg, wd] = await Promise.all([
+    const [gp, up, gg, wd] = await Promise.all([
       supabase.rpc('admin_get_pending_group_payments', { p_limit: 50 }),
+      supabase.rpc('admin_get_upcoming_group_payments', { p_limit: 50 }),
       supabase.rpc('admin_get_pending_gift_payouts'),
       supabase.rpc('admin_withdrawals_queue', { p_limit: 60 }),
     ]);
     if ((gp.data as any)?.ok) setGroupPayments((gp.data as any).items ?? []);
+    if ((up.data as any)?.ok) setUpcomingPayments((up.data as any).items ?? []);
     if ((gg.data as any)?.ok) setGiftPayouts((gg.data as any).items ?? []);
     if (!wd.error && Array.isArray(wd.data)) {
       setWithdrawals((wd.data as any[]).filter(w => w.status === 'pending' || w.status === 'processing'));
@@ -369,10 +392,14 @@ function PagosTab() {
     }
   };
 
-  const closeModal = () => { setModal(null); setReference(''); setReceiptUri(null); };
+  const closeModal = () => { setModal(null); setReference(''); setReceiptUri(null); setAdvanceAmount(''); };
 
   const confirmPayment = async () => {
     if (!modal) return;
+    const amount = modal.kind === 'advance' ? parseFloat(advanceAmount) : modal.suggestedAmount;
+    if (modal.kind === 'advance' && (!advanceAmount || isNaN(amount) || amount <= 0)) {
+      Alert.alert('Monto inválido', 'Escribe un monto de anticipo válido'); return;
+    }
     if (!receiptUri) { Alert.alert('Falta el comprobante', 'Sube una foto de la transferencia'); return; }
     if (!reference.trim() && modal.kind !== 'advance') {
       Alert.alert('Falta la referencia', 'Escribe la referencia de la transferencia'); return;
@@ -391,7 +418,7 @@ function PagosTab() {
       const nowIso = new Date().toISOString();
       if (modal.kind === 'advance' || modal.kind === 'final_settlement') {
         res = await supabase.rpc('admin_register_group_payment', {
-          p_reservation_id: modal.id, p_amount: modal.suggestedAmount, p_kind: modal.kind,
+          p_reservation_id: modal.id, p_amount: amount, p_kind: modal.kind,
           p_receipt_path: receiptPath, p_note: null,
           p_transfer_reference: reference.trim() || null, p_transferred_at: nowIso,
         });
@@ -426,6 +453,27 @@ function PagosTab() {
         contentContainerStyle={s.list}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={COLORS.green} />}
       >
+        <SectionLabel text="Próximos eventos pagados (dar anticipo)" count={upcomingPayments.length} />
+        {upcomingPayments.length === 0 && <EmptyBox icon="💵" text="Sin eventos pagados pendientes por venir" small />}
+        {upcomingPayments.map((it) => (
+          <View key={it.reservation_id} style={s.card}>
+            <View style={s.cardRow}>
+              <Text style={s.cardTitle} numberOfLines={1}>{it.group_name}{it.group_genre ? ` · ${it.group_genre}` : ''}</Text>
+              <Text style={s.cardAmount}>{money(it.saldo_pendiente, it.currency_code)}</Text>
+            </View>
+            <Text style={s.cardMeta}>{it.event_date} · {it.client_name ?? '—'}</Text>
+            <Text style={s.cardMeta}>Ganancia: {money(it.group_earnings, it.currency_code)} · Ya anticipado: {money(it.total_anticipado, it.currency_code)}</Text>
+            <ActionBtn
+              label="💵 Registrar anticipo"
+              color={COLORS.green}
+              onPress={() => setModal({
+                kind: 'advance', id: it.reservation_id, groupId: it.group_id,
+                title: `Anticipo a ${it.group_name}`, suggestedAmount: it.saldo_pendiente, currency: it.currency_code,
+              })}
+            />
+          </View>
+        ))}
+
         <SectionLabel text="Pagos de eventos" count={groupPayments.length} />
         {groupPayments.length === 0 && <EmptyBox icon="💵" text="Sin pagos pendientes" small />}
         {groupPayments.map((it) => (
@@ -494,7 +542,21 @@ function PagosTab() {
         <View style={s.modalOverlay}>
           <View style={s.modalCard}>
             <Text style={s.modalTitle}>{modal?.title}</Text>
-            <Text style={s.modalAmount}>{money(modal?.suggestedAmount, modal?.currency)}</Text>
+            {modal?.kind === 'advance' ? (
+              <>
+                <Text style={s.cardMeta}>Máximo: {money(modal.suggestedAmount, modal.currency)}</Text>
+                <TextInput
+                  style={s.input}
+                  placeholder="Monto del anticipo"
+                  placeholderTextColor={COLORS.muted}
+                  keyboardType="numeric"
+                  value={advanceAmount}
+                  onChangeText={setAdvanceAmount}
+                />
+              </>
+            ) : (
+              <Text style={s.modalAmount}>{money(modal?.suggestedAmount, modal?.currency)}</Text>
+            )}
 
             <Pressable style={s.pickBtn} onPress={pickReceipt}>
               {receiptUri ? (

@@ -38,6 +38,8 @@ import {
   EVENT_TYPE_LABELS, COVERED_LABELS, VENUE_LABELS, SOUND_LABELS,
   LIGHTING_LABELS, STAGE_LABELS, LED_LABELS,
 } from '../../components/quote/QuoteFormShared';
+import { useAdminClaims } from '../../hooks/useAdminClaims';
+import { ClaimBar } from '../../components/ui/ClaimBar';
 
 const call = (phone?: string | null) => { if (phone) Linking.openURL(`tel:${phone}`); };
 const openInMaps = (addr: string) => Linking.openURL(`https://maps.google.com/maps?q=${encodeURIComponent(addr)}`);
@@ -121,6 +123,10 @@ export default function AdminManagedQuotesScreen({ navigation }: any) {
   const [extraNotes, setExtraNotes] = useState('');
   const [sendingExtra, setSendingExtra] = useState(false);
 
+  // sql/660 (2026-09-16) — "en trabajo": dos admin_ops del mismo país no
+  // deben llamar/cotizar al mismo grupo por separado.
+  const { claims, claim, release, refresh: refreshClaims, busyId: claimBusyId } = useAdminClaims('concierge_quote', items.map(i => i.quote_id));
+
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const copyText = async (key: string, value: string) => {
     await Clipboard.setStringAsync(value);
@@ -171,7 +177,7 @@ export default function AdminManagedQuotesScreen({ navigation }: any) {
   useEffect(() => { loadQuotes(); }, [loadQuotes]);
   useEffect(() => { loadLive(); }, [loadLive]);
 
-  const onRefresh = () => { setRefreshing(true); loadQuotes(); };
+  const onRefresh = () => { setRefreshing(true); loadQuotes(); refreshClaims(); };
   const onRefreshLive = () => { setLiveRefreshing(true); loadLive(); };
 
   const openPriceModal = (item: QuoteItem) => {
@@ -207,6 +213,7 @@ export default function AdminManagedQuotesScreen({ navigation }: any) {
       return;
     }
     setPriceModal(null);
+    await release(priceModal.quote_id);
     setItems(prev => prev.filter(i => i.quote_id !== priceModal.quote_id));
     Alert.alert('✅ Enviada', `Se le mandó la cotización al cliente. Total con tu comisión: $${Number(data.total_amount).toLocaleString('es-MX')}.`);
   };
@@ -390,7 +397,17 @@ export default function AdminManagedQuotesScreen({ navigation }: any) {
                     </View>
                   ) : null}
 
-                  <Pressable style={s.priceBtn} onPress={() => openPriceModal(item)}>
+                  <ClaimBar
+                    claim={claims[item.quote_id]}
+                    busy={claimBusyId === item.quote_id}
+                    onClaim={() => claim(item.quote_id)}
+                    onRelease={() => release(item.quote_id)}
+                  />
+                  <Pressable
+                    style={[s.priceBtn, claims[item.quote_id] && !claims[item.quote_id].is_mine && s.priceBtnDisabled]}
+                    onPress={() => openPriceModal(item)}
+                    disabled={!!claims[item.quote_id] && !claims[item.quote_id].is_mine}
+                  >
                     <DollarSign size={16} color={COLORS.bg} />
                     <Text style={s.priceBtnText}>Poner precio</Text>
                   </Pressable>
@@ -669,6 +686,7 @@ const s = StyleSheet.create({
     backgroundColor: COLORS.green, borderRadius: RADIUS.md, paddingVertical: 11, marginTop: 8,
   },
   priceBtnText: { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: COLORS.bg },
+  priceBtnDisabled: { opacity: 0.4 },
 
   hoursRow: { flexDirection: 'row', gap: 8, marginBottom: 14 },
   hourChip: {

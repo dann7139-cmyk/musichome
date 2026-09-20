@@ -22,7 +22,13 @@ export type LocationType = 'city' | 'multi_city' | 'national' | 'international';
 // Precio base (imagen, alcance "mi ciudad") en los 3 puntos de referencia.
 export const AD_BASE_PRICES: Record<AdType, { d3: number; d7: number; d15: number }> = {
   profile_ad:      { d3: 129, d7: 249, d15: 449 },
-  sponsored_group: { d3: 169, d7: 299, d15: 549 },
+  // d15: 549 → 299.5 (sql/670) → 174.5 (sql/671, 2026-09-19) — con eso
+  // DestacadoScreen.tsx (siempre pide 30 días) da $349/mes; decisión real
+  // del usuario tras ver la vista previa ("no crees que sea mucho
+  // precio", con solo 12 proveedores reales destacarse vale menos por
+  // ahora). d3/d7 sin cambio: no tienen ningún punto de entrada vivo hoy
+  // para sponsored_group.
+  sponsored_group: { d3: 169, d7: 299, d15: 174.5 },
   banner_home:     { d3: 229, d7: 399, d15: 749 },
 };
 

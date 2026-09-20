@@ -143,6 +143,7 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
   const [payouts, setPayouts]           = useState<Payout[]>([]);
   // Fase P1B — cola automática de pagos pendientes por reservation_id (solo lectura)
   const [pendingGroupPayments, setPendingGroupPayments] = useState<any[]>([]);
+  const [upcomingGroupPayments, setUpcomingGroupPayments] = useState<any[]>([]);
   const [adIncome, setAdIncome]         = useState<any[]>([]);
   const [filter, setFilter]             = useState<DateFilter>('30d');
   const [activeTab, setActiveTab]       = useState<TabView>(route?.params?.initialTab ?? 'overview');
@@ -277,7 +278,7 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
     if (isRefresh) setRefreshing(true);
     else setLoading(true);
     try {
-      await Promise.all([fetchOverview(), fetchEventFinancials(), fetchPayouts(), fetchPendingGroupPayments(), fetchPendingGiftPayouts(), fetchAdIncome(), fetchRefunds()]);
+      await Promise.all([fetchOverview(), fetchEventFinancials(), fetchPayouts(), fetchPendingGroupPayments(), fetchUpcomingGroupPayments(), fetchPendingGiftPayouts(), fetchAdIncome(), fetchRefunds()]);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -496,6 +497,19 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
     setPendingGroupPayments((data as any).items ?? []);
   };
 
+  // sql/669 — reservas ya pagadas cuyo evento aún no termina (payout
+  // 'held'). Aquí sí se puede dar anticipo (kind='advance' lo exige) —
+  // "para sentirme más seguro de que sí van a ir al evento".
+  const fetchUpcomingGroupPayments = async () => {
+    const { data, error } = await supabase.rpc('admin_get_upcoming_group_payments', { p_limit: 50 });
+    if (error || !(data as any)?.ok) {
+      console.warn('[FinancialScreen] upcoming group payments:', error?.message ?? (data as any)?.error);
+      setUpcomingGroupPayments([]);
+      return;
+    }
+    setUpcomingGroupPayments((data as any).items ?? []);
+  };
+
   // sql/584 — cola de solicitudes de cobro de propinas/regalos acumulados
   const fetchPendingGiftPayouts = async () => {
     const { data, error } = await supabase.rpc('admin_get_pending_gift_payouts');
@@ -568,6 +582,7 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
       setAdvanceModal(null); setAdvanceAmount(''); setAdvanceNote(''); setAdvanceReceiptUri(null);
       setAdvanceTransferRef(''); setAdvanceTransferredAt(new Date());
       fetchPendingGroupPayments();
+      fetchUpcomingGroupPayments();
     } catch (e: any) {
       Alert.alert(t('adminFinancialScreen.alerts.errorTitle'), e.message ?? t('adminFinancialScreen.alerts.tryAgainPeriod'));
     } finally {
@@ -1112,8 +1127,54 @@ export default function AdminFinancialScreen({ navigation, route }: any) {
             ));
             return (
             <>
+              {/* ══ sql/669: eventos ya pagados, aún por venir — dar anticipo ══ */}
+              <Text style={s.sectionTitle}>Próximos eventos pagados</Text>
+              <Text style={s.p1bHint}>
+                Ya cobraste el evento pero todavía no sucede. Dale un anticipo al
+                proveedor (grupo o cualquier otra categoría) si quieres asegurar
+                que sí va a presentarse — el saldo restante se calcula solo.
+              </Text>
+              {upcomingGroupPayments.length === 0 && (
+                <View style={s.emptyCard}>
+                  <Text style={s.emptyText}>Sin eventos pagados pendientes por venir</Text>
+                </View>
+              )}
+              {upcomingGroupPayments.map((r: any) => (
+                <View key={r.reservation_id} style={s.refundCard}>
+                  <Text style={s.payoutName} numberOfLines={1}>
+                    {r.group_name ?? '—'}{r.group_genre ? ` · ${r.group_genre}` : ''} · {r.client_name ?? '—'}
+                  </Text>
+                  <Text style={s.payoutType}>
+                    {r.folio ? `Folio ${r.folio} · ` : ''}
+                    {r.event_date ? new Date(r.event_date).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
+                    {r.event_time ? ` · ${r.event_time}` : ''}
+                  </Text>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 }}>
+                    <Text style={s.payoutType}>Ganancia del proveedor</Text>
+                    <Text style={s.payoutType}>{fmt(Number(r.group_earnings ?? 0))}</Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                    <Text style={s.payoutType}>Total anticipado</Text>
+                    <Text style={s.payoutType}>{fmt(Number(r.total_anticipado ?? 0))}</Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                    <Text style={[s.payoutAmount, { fontSize: 16 }]}>Le seguirías debiendo</Text>
+                    <Text style={[s.payoutAmount, { fontSize: 16 }]}>{fmt(Number(r.saldo_pendiente ?? 0))}</Text>
+                  </View>
+                  <Pressable
+                    style={[s.reportBtn, { marginTop: 10 }]}
+                    onPress={() => {
+                      setAdvanceModal(r); setAdvanceAmount(''); setAdvanceNote(''); setAdvanceReceiptUri(null);
+                      setAdvanceTransferRef(''); setAdvanceTransferredAt(new Date());
+                    }}
+                  >
+                    <Text style={s.reportBtnTx}>💵 Registrar anticipo</Text>
+                  </Pressable>
+                </View>
+              ))}
+
               {/* ══ Fase P1B: pagos pendientes por reservation_id (solo lectura) ══ */}
-              <Text style={s.sectionTitle}>Pagos pendientes por reserva</Text>
+              <Text style={[s.sectionTitle, { marginTop: 24 }]}>Pagos pendientes por reserva</Text>
               <Text style={s.p1bHint}>
                 El saldo ya descuenta los anticipos registrados — aparece automáticamente
                 al liberarse cada reserva, sin depender de que el grupo solicite nada.

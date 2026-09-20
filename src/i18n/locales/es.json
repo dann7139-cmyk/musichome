@@ -26,6 +26,7 @@
     "no_results": "Sin resultados",
     "try_again": "Intenta de nuevo",
     "all": "Todos",
+    "allGenres": "Todos los géneros",
     "someone": "Alguien"
   },
   "tabs": {
@@ -461,7 +462,7 @@
     "uploadSuccessBody": "Quedó en revisión — se publica en tu perfil al aprobarse.",
     "uploadErrorBody": "No se pudo subir la publicación.",
     "defaultGroupName": "este grupo",
-    "shareMessage": "Mira esta publicación de {{groupName}} en Daricefy 🎵\ndaricefy://group/{{groupId}}",
+    "shareMessage": "Mira esta publicación de {{groupName}} en Daricefy 🎵\nhttps://www.daricefy.com/grupos/{{groupId}}",
     "composerLabel": "📸 Comparte fotos de tu evento",
     "composerPlaceholder": "Escribe un pie de foto (opcional)...",
     "uploading": "Subiendo…",
@@ -704,10 +705,10 @@
       "unavailableBody": "Este grupo no tiene la insignia Plus activa, así que no puede recibir regalos por ahora."
     },
     "share": {
-      "groupMessage": "Mira a {{name}} en Daricefy 🎵",
+      "groupMessage": "Mira a {{name}} en Daricefy 🎵\n{{url}}",
       "defaultGroupName": "este grupo",
       "captionPrefix": "\"{{caption}}\"\n\n",
-      "postMessage": "Mira esta publicación de {{name}} en Daricefy 🎵"
+      "postMessage": "Mira esta publicación de {{name}} en Daricefy 🎵\n{{url}}"
     },
     "reviews": {
       "defaultClientName": "Cliente",
@@ -1783,7 +1784,7 @@
       "photoUploadFailed": "No se pudo subir la imagen"
     },
     "list": {
-      "title": "Grupos registrados",
+      "title": "Proveedores registrados",
       "searchPlaceholder": "Buscar por nombre, ciudad o estado..."
     }
   },
@@ -2437,6 +2438,7 @@
   "eventCategoryPicker": {
     "title": "Agregar proveedor",
     "subtitle": "Elige qué tipo de proveedor quieres agregar a tu evento",
+    "pickGenreSubtitle": "Elige el género exacto, o busca todos los de esta categoría.",
     "addingToEvent": "Agregando a tu evento del {{date}} · {{address}}",
     "grupo": "🎵 Grupo musical",
     "solista": "🎷 Solista / saxofonista",

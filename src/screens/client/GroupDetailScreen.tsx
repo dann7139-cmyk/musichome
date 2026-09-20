@@ -48,6 +48,7 @@ import PhotoViewerModal from '../../components/ui/PhotoViewerModal';
 import { useAuth } from '../../context/AuthContext';
 import { validateComment } from '../../utils/offensiveWordsFilter';
 import GiftPickerModal from '../../components/gifts/GiftPickerModal';
+import { categoryKeyForGenre, CATEGORY_DETAIL_FIELDS } from '../../constants/providerCategories';
 
 // 🎬 Baraja de videos — MISMO efecto que MiniDeck del explorador:
 // el del frente opaco y grande; los de los lados ATRASITO (fijos,
@@ -585,16 +586,22 @@ export default function GroupDetailScreen({ route, navigation }: any) {
     }
   };
 
-  // Antes se agregaba un link "daricefy://group/..." al final del mensaje,
-  // pero WhatsApp/Instagram/SMS solo hacen apretable un link http(s) — un
-  // esquema propio como ese se muestra como texto plano, nunca clickeable.
-  // Se quita hasta tener un dominio real con hosting al que sí se pueda
-  // mandar a la gente (y desde ahí abrir la app).
+  // 2026-09-17 — petición real: "si copio el link y lo pongo en Instagram
+  // en historia a dónde lo mandará". Antes se quitó el link de aquí
+  // ("daricefy://group/...") porque WhatsApp/Instagram/SMS solo hacen
+  // apretable un link http(s) real, no un esquema propio, y todavía no
+  // había dominio con hosting al que mandar a la gente. Ya existe
+  // (www.daricefy.com/grupos/[id], corregido esta misma sesión) — se
+  // restaura el link, ahora sí apretable, y manda al perfil público del
+  // grupo en la web (donde puede ver fotos/precio/reseñas; la contratación
+  // en sí sigue solo en la app, la web ya explica eso).
+  const shareUrl = group?.id ? `https://www.daricefy.com/grupos/${group.id}` : 'https://www.daricefy.com';
+
   const handleShare = () => {
     captureAndShare(
       group?.profile_image ?? null,
       group?.name ?? 'Daricefy',
-      t('groupDetailScreen.share.groupMessage', { name: group?.name ?? t('groupDetailScreen.share.defaultGroupName') }),
+      t('groupDetailScreen.share.groupMessage', { name: group?.name ?? t('groupDetailScreen.share.defaultGroupName'), url: shareUrl }),
     );
   };
 
@@ -605,7 +612,7 @@ export default function GroupDetailScreen({ route, navigation }: any) {
       post?.photos?.[0]?.url ?? null,
       groupName,
       (post?.caption ? t('groupDetailScreen.share.captionPrefix', { caption: post.caption }) : '') +
-        t('groupDetailScreen.share.postMessage', { name: groupName }),
+        t('groupDetailScreen.share.postMessage', { name: groupName, url: shareUrl }),
     );
   };
 
@@ -1322,6 +1329,56 @@ export default function GroupDetailScreen({ route, navigation }: any) {
                 {/* Baraja estilo explorador: el del frente grande y opaco,
                     los de los lados ATRASITO (chicos, semitransparentes) */}
                 <VideoDeck slots={slots} />
+              </View>
+            );
+          })()}
+
+          {/* Lo que ofrece este proveedor — Comida/Renta/Payasos/Fotógrafos
+              (2026-09-05, sql/623 category_details). Petición real: "que
+              pueda poner lo que tiene [el proveedor de renta] para que le
+              aparezca al cliente" — en vez de volver a preguntárselo al
+              cliente, se muestra aquí tal como el proveedor lo configuró
+              en "Mi Comida"/"Mi Renta"/etc. */}
+          {(() => {
+            const catKey = categoryKeyForGenre(group.genre);
+            const fields = catKey ? CATEGORY_DETAIL_FIELDS[catKey] : null;
+            if (!fields) return null;
+            const details = group.category_details ?? {};
+            const filled = fields.filter(f => {
+              const v = details[f.key];
+              return v != null && v !== '' && !(Array.isArray(v) && v.length === 0);
+            });
+            if (filled.length === 0) return null;
+            return (
+              <View style={styles.offerSection}>
+                <Text style={styles.sectionTitle}>{t('groupDetailScreen.sections.whatTheyOffer')}</Text>
+                {filled.map(field => {
+                  const v = details[field.key];
+                  let display: string;
+                  if (field.type === 'multiChips' && Array.isArray(v)) {
+                    // Un valor sin match en las opciones fijas es algo que el
+                    // proveedor escribió a mano ("Agregar otro") — se muestra
+                    // tal cual, no se descarta.
+                    display = v
+                      .map((k: string) => {
+                        const opt = field.options?.find(o => o.key === k);
+                        return opt ? t(opt.labelKey) : k;
+                      })
+                      .join(', ');
+                  } else if (field.type === 'chips') {
+                    const opt = field.options?.find(o => o.key === v);
+                    display = opt ? t(opt.labelKey) : String(v);
+                  } else {
+                    display = String(v);
+                  }
+                  if (!display) return null;
+                  return (
+                    <View key={field.key} style={styles.offerRow}>
+                      <Text style={styles.offerLabel}>{t(field.labelKey)}</Text>
+                      <Text style={styles.offerValue}>{display}</Text>
+                    </View>
+                  );
+                })}
               </View>
             );
           })()}
@@ -2129,6 +2186,13 @@ const styles = StyleSheet.create({
 
   // 🎬 Carrusel de videos — efecto "destacado" del explorador
   videoSection: { marginBottom: 20 },
+  offerSection: {
+    marginBottom: 20, backgroundColor: COLORS.card2, borderRadius: RADIUS.lg,
+    padding: SPACING.md, gap: 8,
+  },
+  offerRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 10 },
+  offerLabel: { fontFamily: FONTS.body, fontSize: 13, color: 'rgba(255,255,255,0.6)', flex: 1 },
+  offerValue: { fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.text, flexShrink: 1, textAlign: 'right' },
   videoCard: {
     borderRadius: 20, overflow: 'hidden', backgroundColor: '#060c06', marginTop: 8,
     borderWidth: 1.5, borderColor: 'rgba(0,230,118,0.35)',

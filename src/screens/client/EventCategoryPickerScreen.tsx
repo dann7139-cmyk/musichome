@@ -1,5 +1,5 @@
-import { ArrowLeft } from 'lucide-react-native';
-import React from 'react';
+import { ArrowLeft, Check } from 'lucide-react-native';
+import React, { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
@@ -16,7 +16,14 @@ export default function EventCategoryPickerScreen({ route, navigation }: any) {
   const { eventId, eventDate, eventAddress } = route?.params ?? {};
   const dateLocale = i18n.language?.startsWith('en') ? 'en-US' : 'es-MX';
 
-  const pick = (cat: ProviderCategory) => {
+  // 2026-09-16 — petición real: "que aparezca la lista de géneros para
+  // elegir uno, como en la web" (antes, tocar una categoría con varios
+  // géneros iba directo a resultados con TODOS mezclados — nunca dejaba
+  // ver ni elegir un género específico, a diferencia del selector de la
+  // web que sí los lista uno por uno agrupados por categoría).
+  const [expanded, setExpanded] = useState<ProviderCategory | null>(null);
+
+  const goToExplorar = (genres: string[], label: string) => {
     // Hallazgo real (2026-09-03): "si le aprieto a uno no me arroja nada".
     // Esta pantalla vive registrada suelta en el stack raíz de cada rol
     // (mismo "doble registro" ya documentado para que no truene al
@@ -33,11 +40,49 @@ export default function EventCategoryPickerScreen({ route, navigation }: any) {
         eventId: eventId ?? null,
         eventDate: eventDate ?? null,
         eventAddress: eventAddress ?? null,
-        categoryGenres: cat.genres,
-        categoryLabel: t(cat.labelKey),
+        categoryGenres: genres,
+        categoryLabel: label,
       },
     });
   };
+
+  const pick = (cat: ProviderCategory) => {
+    // Categorías con un solo género (Solista, DJ, Comida, MC, Comediante)
+    // no necesitan un paso intermedio — van directo como siempre.
+    if (cat.genres.length <= 1) { goToExplorar(cat.genres, t(cat.labelKey)); return; }
+    setExpanded(cat);
+  };
+
+  if (expanded) {
+    return (
+      <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
+        <SafeAreaView edges={['top']} style={s.header}>
+          <Pressable onPress={() => setExpanded(null)} hitSlop={8}>
+            <ArrowLeft size={20} color={COLORS.text} />
+          </Pressable>
+          <Text style={s.headerTitle}>{expanded.emoji} {t(expanded.labelKey)}</Text>
+          <View style={{ width: 20 }} />
+        </SafeAreaView>
+
+        <ScrollView contentContainerStyle={s.body}>
+          <Text style={s.sectionSub}>{t('eventCategoryPicker.pickGenreSubtitle', 'Elige el género exacto, o busca todos los de esta categoría.')}</Text>
+
+          <Pressable style={s.genreRow} onPress={() => goToExplorar(expanded.genres, t(expanded.labelKey))}>
+            <Text style={[s.genreRowText, { fontFamily: FONTS.bodySemiBold, color: COLORS.green }]}>
+              Todos los de {t(expanded.labelKey)}
+            </Text>
+          </Pressable>
+
+          {expanded.genres.map(g => (
+            <Pressable key={g} style={s.genreRow} onPress={() => goToExplorar([g], g)}>
+              <Text style={s.genreRowText}>{g}</Text>
+              <Check size={16} color={COLORS.muted2} />
+            </Pressable>
+          ))}
+        </ScrollView>
+      </View>
+    );
+  }
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
@@ -98,4 +143,11 @@ const s = StyleSheet.create({
   },
   cardEmoji: { fontSize: 28 },
   cardLabel: { fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.text, textAlign: 'center' },
+  genreRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    backgroundColor: COLORS.card2, borderRadius: RADIUS.md,
+    borderWidth: 1, borderColor: COLORS.border,
+    paddingVertical: 14, paddingHorizontal: 16,
+  },
+  genreRowText: { fontFamily: FONTS.body, fontSize: 14, color: COLORS.text },
 });

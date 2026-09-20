@@ -1,5 +1,7 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { Lock, Mail } from 'lucide-react-native';
+import * as WebBrowser from 'expo-web-browser';
+import Constants from 'expo-constants';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Alert,
@@ -26,6 +28,7 @@ export default function IntroScreen({ navigation }: any) {
   const [email,    setEmail]    = useState('');
   const [password, setPassword] = useState('');
   const [loading,  setLoading]  = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
 
   // ── Animated refs ────────────────────────────────────────────────────────────
   const bgOpacity   = useRef(new Animated.Value(0)).current;
@@ -131,6 +134,40 @@ export default function IntroScreen({ navigation }: any) {
     else Alert.alert(t('introScreen.alertEmailSentTitle'), t('introScreen.alertEmailSentMessage'));
   };
 
+  // Entrar con Google (2026-09-19) — esta es la pantalla REAL de entrada
+  // (Intro, no Login) — hallazgo real: "cuando me meto no aparece el botón
+  // de Google" porque el botón se había agregado solo en LoginScreen.tsx,
+  // una pantalla duplicada a la que casi nadie llega directo (solo desde
+  // el link "Iniciar sesión" de Register). Mismo mecanismo aquí.
+  const GOOGLE_REDIRECT_URL = 'daricefy://auth-callback';
+  const handleGoogleSignIn = async () => {
+    if (Constants.appOwnership === 'expo') {
+      Alert.alert(
+        'No disponible en Expo Go',
+        'Entrar con Google necesita un build real de la app (no funciona dentro de Expo Go). Por ahora usa tu correo y contraseña para probar — Google ya está listo para cuando instales un build.',
+      );
+      return;
+    }
+    setGoogleLoading(true);
+    try {
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: { redirectTo: GOOGLE_REDIRECT_URL, skipBrowserRedirect: true },
+      });
+      if (error || !data?.url) throw error ?? new Error('No se pudo iniciar con Google.');
+
+      const res = await WebBrowser.openAuthSessionAsync(data.url, GOOGLE_REDIRECT_URL);
+      if (res.type === 'success' && res.url) {
+        const { error: exErr } = await supabase.auth.exchangeCodeForSession(res.url);
+        if (exErr) throw exErr;
+      }
+    } catch (e: any) {
+      Alert.alert(t('introScreen.alertErrorTitle'), e?.message ?? 'No se pudo iniciar sesión con Google.');
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
+
   // ── Render ───────────────────────────────────────────────────────────────────
   return (
     <View style={s.container}>
@@ -229,6 +266,25 @@ export default function IntroScreen({ navigation }: any) {
               <Pressable style={s.forgotRow} onPress={handleForgot}>
                 <Text style={s.forgotText}>{t('introScreen.forgotPassword')}</Text>
               </Pressable>
+
+              <View style={s.dividerRow}>
+                <View style={s.dividerLine} />
+                <Text style={s.dividerText}>o</Text>
+                <View style={s.dividerLine} />
+              </View>
+
+              <Pressable
+                style={[s.googleBtn, googleLoading && { opacity: 0.6 }]}
+                onPress={handleGoogleSignIn}
+                disabled={googleLoading}
+              >
+                <View style={s.googleGBadge}>
+                  <Text style={s.googleGText}>G</Text>
+                </View>
+                <Text style={s.googleBtnText}>
+                  {googleLoading ? 'Conectando…' : 'Continuar con Google'}
+                </Text>
+              </Pressable>
             </Animated.View>
 
             {/* ── FOOTER: registrarse ── */}
@@ -309,6 +365,22 @@ const s = StyleSheet.create({
   },
   forgotRow: { alignItems: 'center', marginTop: 16, paddingVertical: 4 },
   forgotText: { fontFamily: FONTS.body, fontSize: 13, color: COLORS.muted2 },
+
+  dividerRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 14, marginBottom: 6 },
+  dividerLine: { flex: 1, height: 1, backgroundColor: 'rgba(255,255,255,0.1)' },
+  dividerText: { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted },
+
+  googleBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10,
+    backgroundColor: 'rgba(255,255,255,0.05)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)',
+    borderRadius: RADIUS.lg, paddingVertical: 13, marginTop: 10,
+  },
+  googleGBadge: {
+    width: 20, height: 20, borderRadius: 10, backgroundColor: '#fff',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  googleGText: { fontFamily: FONTS.bodySemiBold, fontSize: 12, color: '#4285F4' },
+  googleBtnText: { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: COLORS.text },
 
   // ── Footer ────────────────────────────────────────────────────
   footer: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center' },

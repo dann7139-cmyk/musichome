@@ -142,11 +142,11 @@ export default function RecommendationScreen({ navigation, route }: any) {
     if (!groupId || submitting) return;
     Alert.alert(
       '🔁 Recomendado con renovación automática',
-      'Tu grupo se mantiene en "Recomendado para ti" y tu tarjeta se cobra sola cada periodo hasta que canceles.\n\n· Semanal: $399/semana\n· Mensual: $1,299/mes (ahorras $297 vs 4 semanas)',
+      'Tu grupo se mantiene en "Recomendado para ti" y tu tarjeta se cobra sola cada periodo hasta que canceles.\n\n· Semanal: $149/semana\n· Mensual: $499/mes',
       [
         { text: 'Ahora no', style: 'cancel' },
-        { text: 'Semanal · $399', onPress: () => startRecSubscription('weekly') },
-        { text: 'Mensual · $1,299', onPress: () => startRecSubscription('monthly') },
+        { text: 'Semanal · $149', onPress: () => startRecSubscription('weekly') },
+        { text: 'Mensual · $499', onPress: () => startRecSubscription('monthly') },
       ],
     );
   };
@@ -180,8 +180,8 @@ export default function RecommendationScreen({ navigation, route }: any) {
               Alert.alert(
                 '✅ Suscripción activa',
                 plan === 'monthly'
-                  ? 'Tu recomendación se activa en segundos y se renueva sola cada mes ($1,299). Para cancelarla escríbenos a soporte.'
-                  : 'Tu recomendación se activa en segundos y se renueva sola cada semana ($399). Para cancelarla escríbenos a soporte.',
+                  ? 'Tu recomendación se activa en segundos y se renueva sola cada mes ($499). Para cancelarla escríbenos a soporte.'
+                  : 'Tu recomendación se activa en segundos y se renueva sola cada semana ($149). Para cancelarla escríbenos a soporte.',
                 [{ text: 'Perfecto', onPress: () => loadStatus() }],
               );
             } catch (err: any) {
@@ -470,7 +470,7 @@ export default function RecommendationScreen({ navigation, route }: any) {
             <Text style={s.subCardBody}>
               Tu grupo se mantiene recomendado SIEMPRE — se renueva solo con
               tarjeta y cancelas cuando quieras.{'\n'}
-              · Semanal $399  ·  Mensual $1,299 (ahorras $297)
+              · Semanal $149  ·  Mensual $499
             </Text>
             <Text style={s.subCardCta}>Suscribirme →</Text>
           </Pressable>

@@ -50,6 +50,7 @@ import VerifiedBadge from '../../components/ui/VerifiedBadge';
 import { pickAndUploadGroupImage } from '../../utils/uploadGroupImage';
 import { pickAndUploadGroupVideoMulti } from '../../utils/uploadGroupVideo';
 import { stateToCountry } from '../../utils/locationUtils';
+import { PROVIDER_CATEGORIES, categoryKeyForGenre } from '../../constants/providerCategories';
 
 type AdminView = 'list' | 'profile' | 'moderate';
 
@@ -89,9 +90,10 @@ export default function AdminGroupsScreen({ navigation }: any) {
     const { data } = await supabase
       .from('groups')
       .select(`
-        id, name, city, state, genre, description,
+        id, name, city, state, country, genre, description,
         is_verified, admin_verified, is_active,
         is_plus_active, plus_expires_at, plus_subscription_id,
+        admin_highlight,
         concierge_mode,
         rating, total_reviews, created_at,
         profile_image, owner_id,
@@ -102,16 +104,24 @@ export default function AdminGroupsScreen({ navigation }: any) {
     if (data) setGroups(data);
   };
 
+  // Bug real reportado 2026-09-19 (web): adivinar el país por el nombre del
+  // estado dejaba grupos reales de EE.UU./Canadá cayendo a México cuando su
+  // estado no estaba en la lista a mano. `groups.country` ya es una columna
+  // real y confiable (uno de los 3 valores reales: México/Estados Unidos/
+  // Canadá) — se usa directo, con el heurístico solo como respaldo si algún
+  // registro viejo no la tuviera capturada.
+  const groupCountry = (g: any) => g.country ?? stateToCountry(g.state);
+
   const countries = useMemo(() => {
     const c = new Set<string>();
-    groups.forEach(g => c.add(stateToCountry(g.state)));
+    groups.forEach(g => c.add(groupCountry(g)));
     return Array.from(c).sort();
   }, [groups]);
 
   const countryCounts = useMemo(() => {
     const c: Record<string, number> = {};
     groups.forEach(g => {
-      const k = stateToCountry(g.state);
+      const k = groupCountry(g);
       c[k] = (c[k] ?? 0) + 1;
     });
     return c;
@@ -119,7 +129,7 @@ export default function AdminGroupsScreen({ navigation }: any) {
 
   const states = useMemo(() => {
     const base = activeCountry
-      ? groups.filter(g => stateToCountry(g.state) === activeCountry)
+      ? groups.filter(g => groupCountry(g) === activeCountry)
       : groups;
     const s = new Set<string>();
     base.forEach(g => { if (g.state?.trim()) s.add(g.state.trim()); });
@@ -128,7 +138,7 @@ export default function AdminGroupsScreen({ navigation }: any) {
 
   const stateCounts = useMemo(() => {
     const base = activeCountry
-      ? groups.filter(g => stateToCountry(g.state) === activeCountry)
+      ? groups.filter(g => groupCountry(g) === activeCountry)
       : groups;
     const c: Record<string, number> = {};
     base.forEach(g => {
@@ -147,7 +157,7 @@ export default function AdminGroupsScreen({ navigation }: any) {
         g.state?.toLowerCase().includes(q)
       );
     }
-    if (activeCountry) list = list.filter(g => stateToCountry(g.state) === activeCountry);
+    if (activeCountry) list = list.filter(g => groupCountry(g) === activeCountry);
     if (activeState)   list = list.filter(g => g.state?.trim().toLowerCase() === activeState.toLowerCase());
     return list;
   }, [groups, search, activeCountry, activeState]);
@@ -161,6 +171,53 @@ export default function AdminGroupsScreen({ navigation }: any) {
       setActiveState(null);
     }
   };
+
+  // Petición real (2026-09-19): "quiero ver cuántos tengo de cada categoría,
+  // divididos por estado — voy a empezar por Jalisco, después Monterrey,
+  // para no hacerme bolas de lo que ya tengo y lo que me falta agregar."
+  // Se apoya en el mismo filtro de país/estado que ya existe arriba —
+  // filteredGroups YA respeta activeState, así que este desglose se
+  // recalcula solo en cuanto tocas un estado.
+  const [showCategoryStats, setShowCategoryStats] = useState(false);
+  const [expandedStatCats, setExpandedStatCats] = useState<Set<string>>(new Set());
+
+  const toggleState = (st: string) => {
+    setActiveState(prev => (prev === st ? null : st));
+    setShowCategoryStats(true);
+  };
+
+  const toggleStatCat = (key: string) => {
+    setExpandedStatCats(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
+
+  const categoryStats = useMemo(() => {
+    return PROVIDER_CATEGORIES.map(cat => {
+      const counts: Record<string, number> = {};
+      cat.genres.forEach(g => { counts[g] = 0; });
+      let total = 0;
+      filteredGroups.forEach(g => {
+        if (categoryKeyForGenre(g.genre) === cat.key) {
+          total += 1;
+          counts[g.genre as string] = (counts[g.genre as string] ?? 0) + 1;
+        }
+      });
+      const present = Object.entries(counts)
+        .filter(([, n]) => n > 0)
+        .sort((a, b) => cat.genres.indexOf(a[0]) - cat.genres.indexOf(b[0]));
+      const missing = cat.genres.filter(g => !counts[g]);
+      return { ...cat, total, present, missing };
+    });
+  }, [filteredGroups]);
+
+  const statsScopeLabel = activeState
+    ? `en ${activeState}`
+    : activeCountry
+      ? `en ${activeCountry} (todos los estados)`
+      : '(todos los países)';
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -361,6 +418,11 @@ export default function AdminGroupsScreen({ navigation }: any) {
       is_plus_active: true,
       plus_expires_at: data.expires_at,
       plus_subscription_id: data.sub_id,
+      // sql/664 — admin_grant_plus también verifica el grupo del lado del
+      // servidor; se refleja aquí para no mostrar "Sin verificar" hasta
+      // el próximo refresh.
+      is_verified: true,
+      admin_verified: true,
     };
     setSelected(updated);
     setGroups(prev => prev.map(g => (g.id === selected.id ? { ...g, ...updated } : g)));
@@ -428,6 +490,45 @@ export default function AdminGroupsScreen({ navigation }: any) {
               t('adminGroupsScreen.alerts.doneTitle'),
               t('adminGroupsScreen.alerts.plusRevoked')
             );
+          },
+        },
+      ],
+    );
+  };
+
+  // ── Brillo de marco (sql/665) — interruptor cosmético manual, sin
+  // relación con patrocinio/boost real. Petición real (2026-09-17):
+  // "quiero otro botón que si lo activo salga un efecto en el marco del
+  // grupo... en el explorador... el puro marco".
+  const handleToggleHighlight = () => {
+    if (!selected || actionLoading) return;
+    const turningOn = !selected.admin_highlight;
+    Alert.alert(
+      turningOn ? 'Activar brillo de marco' : 'Quitar brillo de marco',
+      turningOn
+        ? `El marco de ${selected.name} va a brillar en el Explorador (solo el borde de su tarjeta) — es solo visual, no afecta patrocinio ni orden real.`
+        : `${selected.name} vuelve a verse con el marco normal.`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: turningOn ? 'Activar' : 'Quitar',
+          onPress: async () => {
+            setActionLoading(true);
+            const { data, error } = await supabase.rpc('admin_set_group_highlight', {
+              p_group_id: selected.id,
+              p_on: turningOn,
+            });
+            setActionLoading(false);
+            if (error || !data?.ok) {
+              Alert.alert(
+                t('adminGroupsScreen.alerts.genericErrorTitle'),
+                error?.message ?? data?.error ?? 'No se pudo cambiar el brillo de marco.'
+              );
+              return;
+            }
+            const updated = { ...selected, admin_highlight: turningOn };
+            setSelected(updated);
+            setGroups(prev => prev.map(g => (g.id === selected.id ? { ...g, ...updated } : g)));
           },
         },
       ],
@@ -580,7 +681,7 @@ export default function AdminGroupsScreen({ navigation }: any) {
                       <Pressable
                         key={st}
                         style={[s.pill, s.pillState, activeState === st && s.pillActive]}
-                        onPress={() => setActiveState(activeState === st ? null : st)}
+                        onPress={() => toggleState(st)}
                       >
                         <MapPin size={8} color={activeState === st ? COLORS.bg : COLORS.muted} />
                         <Text style={[s.pillText, activeState === st && s.pillTextActive]}>{st}</Text>
@@ -593,6 +694,45 @@ export default function AdminGroupsScreen({ navigation }: any) {
                 ))}
               </ScrollView>
             </View>
+          )}
+
+          <Pressable style={s.statsHeader} onPress={() => setShowCategoryStats(v => !v)}>
+            <Text style={s.statsHeaderTitle}>📊 Proveedores por categoría {statsScopeLabel}</Text>
+            {showCategoryStats ? <ChevronUp size={14} color={COLORS.muted} /> : <ChevronDown size={14} color={COLORS.muted} />}
+          </Pressable>
+          {showCategoryStats && (
+            <ScrollView style={s.statsPanel} contentContainerStyle={{ paddingBottom: 4 }}>
+              {categoryStats.map(cat => (
+                <View key={cat.key} style={s.statsCatBlock}>
+                  <View style={s.statsCatHeader}>
+                    <Text style={s.statsCatTitle}>{cat.emoji} {t(cat.labelKey)}</Text>
+                    <Text style={s.statsCatTotal}>{cat.total}</Text>
+                  </View>
+                  {cat.present.length > 0 ? (
+                    <View style={s.statsChipsRow}>
+                      {cat.present.map(([genre, n]) => (
+                        <View key={genre} style={s.statsChip}>
+                          <Text style={s.statsChipText}>{genre}</Text>
+                          <Text style={s.statsChipCount}>{n}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  ) : (
+                    <Text style={s.statsEmptyText}>Sin ninguno registrado todavía</Text>
+                  )}
+                  {cat.missing.length > 0 && (
+                    <Pressable onPress={() => toggleStatCat(cat.key)} hitSlop={6}>
+                      <Text style={s.statsMissingToggle}>
+                        {expandedStatCats.has(cat.key) ? '▾' : '▸'} Te faltan {cat.missing.length}
+                      </Text>
+                    </Pressable>
+                  )}
+                  {expandedStatCats.has(cat.key) && cat.missing.length > 0 && (
+                    <Text style={s.statsMissingList}>{cat.missing.join(', ')}</Text>
+                  )}
+                </View>
+              ))}
+            </ScrollView>
           )}
 
           {(search || activeState || activeCountry) && (
@@ -1079,6 +1219,31 @@ export default function AdminGroupsScreen({ navigation }: any) {
               )}
             </View>
 
+            {/* ✨ Brillo de marco (sql/665) — puramente cosmético, manual */}
+            <View style={s.moderateCard}>
+              <Text style={s.moderateCardTitle}>✨ Brillo de marco</Text>
+              <Text style={s.moderateCardHint}>
+                {selected.admin_highlight
+                  ? 'Activo — su tarjeta brilla en el Explorador (solo el marco). Es visual, no afecta patrocinio ni orden real.'
+                  : 'Resalta el marco de la tarjeta de este grupo en el Explorador — solo visual, sin tocar patrocinio ni orden real.'}
+              </Text>
+              <Pressable
+                style={[
+                  s.modActionBtn,
+                  selected.admin_highlight ? s.modActionBtnOutlineRed : s.modActionBtnGreen,
+                  actionLoading && { opacity: 0.6 },
+                ]}
+                onPress={handleToggleHighlight}
+                disabled={actionLoading}
+              >
+                {actionLoading
+                  ? <ActivityIndicator size="small" color={selected.admin_highlight ? '#EF5350' : COLORS.bg} />
+                  : <Text style={[s.modActionBtnText, { color: selected.admin_highlight ? '#EF5350' : COLORS.bg }]}>
+                      {selected.admin_highlight ? 'Quitar brillo de marco' : 'Activar brillo de marco'}
+                    </Text>}
+              </Pressable>
+            </View>
+
             {/* Modo conserjería — tú manejas sus cotizaciones */}
             <View style={s.moderateCard}>
               <Text style={s.moderateCardTitle}>🎯 Modo conserjería</Text>
@@ -1210,6 +1375,29 @@ const s = StyleSheet.create({
     paddingHorizontal: 10, paddingVertical: 3, minWidth: 40, alignItems: 'center',
   },
   countBadgeText: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.green },
+
+  // ── Desglose de proveedores por categoría/estado (2026-09-19) ──────────
+  statsHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: SPACING.xl, paddingVertical: 10,
+  },
+  statsHeaderTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.text, flex: 1, marginRight: 8 },
+  statsPanel: { maxHeight: 300, paddingHorizontal: SPACING.xl },
+  statsCatBlock: { marginBottom: 16 },
+  statsCatHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 },
+  statsCatTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 12, color: COLORS.text },
+  statsCatTotal: { fontFamily: FONTS.bodySemiBold, fontSize: 12, color: COLORS.green },
+  statsChipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  statsChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: 8, paddingVertical: 4, borderRadius: RADIUS.sm,
+    backgroundColor: COLORS.card2, borderWidth: 1, borderColor: COLORS.border,
+  },
+  statsChipText: { fontFamily: FONTS.bodyMedium, fontSize: 11, color: COLORS.text },
+  statsChipCount: { fontFamily: FONTS.bodySemiBold, fontSize: 11, color: COLORS.green },
+  statsEmptyText: { fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted, fontStyle: 'italic' },
+  statsMissingToggle: { fontFamily: FONTS.bodyMedium, fontSize: 11, color: COLORS.muted, marginTop: 6 },
+  statsMissingList: { fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted2, marginTop: 4, lineHeight: 16 },
 
   list: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, padding: SPACING.xl, paddingBottom: 40 },
   scroll:    { padding: SPACING.xl, gap: 16, paddingBottom: 40 },

@@ -37,6 +37,7 @@ import Particles from '../src/components/ui/Particles';
 import IntroScreen    from '../src/screens/auth/IntroScreen';
 import LoginScreen    from '../src/screens/auth/LoginScreen';
 import NewPasswordScreen from '../src/screens/auth/NewPasswordScreen';
+import CompleteProfileScreen from '../src/screens/auth/CompleteProfileScreen';
 import RegisterScreen         from '../src/screens/auth/RegisterScreen';
 import ProviderApplyScreen    from '../src/screens/auth/ProviderApplyScreen';
 import LocationRequestScreen from '../src/screens/auth/LocationRequestScreen';
@@ -74,6 +75,7 @@ import GroupQuoteDetailScreen from '../src/screens/group/QuoteDetailScreen';
 import ScheduledQuotesCarousel, { openScheduledQuotes } from '../src/components/requests/ScheduledQuotesCarousel';
 import { openForRequestNotification } from '../src/utils/notificationRouting';
 import GroupStatsScreen from '../src/screens/group/StatsScreen';
+import GroupQrScreen from '../src/screens/group/GroupQrScreen';
 import QuoteFormScreen from '../src/screens/client/QuoteFormScreen';
 import EventCategoryPickerScreen from '../src/screens/client/EventCategoryPickerScreen';
 import ClientQuoteDetailScreen from '../src/screens/client/ClientQuoteDetailScreen';
@@ -85,6 +87,7 @@ import GroupOpenRequestsScreen from '../src/screens/group/OpenRequestsScreen';
 import GroupProposeRequestScreen from '../src/screens/group/ProposeRequestScreen';
 import BiddingScreen              from '../src/screens/group/BiddingScreen';
 import RecommendationScreen       from '../src/screens/group/RecommendationScreen';
+import DestacadoScreen            from '../src/screens/group/DestacadoScreen';
 import PlusScreen                 from '../src/screens/group/PlusScreen';
 import IncomingExpressScreen      from '../src/screens/group/IncomingExpressScreen';
 import ExpressCarousel            from '../src/components/express/ExpressCarousel';
@@ -764,7 +767,7 @@ function AdminTabs() {
 // ─── Root Navigator ───────────────────────────────────────────────────────────
 
 export default function AppNavigator() {
-  const { session, role, loading, error, signOut, refetchProfile, user, profile, passwordRecovery } = useAuth();
+  const { session, role, loading, error, signOut, refetchProfile, user, profile, passwordRecovery, needsOnboarding } = useAuth();
   const navigationRef = useNavigationContainerRef();
 
   // Registra el push token cuando hay sesión activa
@@ -975,6 +978,13 @@ export default function AppNavigator() {
     );
   }
 
+  // ── 2.5. Sesión válida pero sin fila en profiles todavía (alta con Google,
+  //         2026-09-19) — pedir rol y datos antes de seguir, nunca el error
+  //         genérico de abajo. Va antes que el check de error/rol.
+  if (needsOnboarding) {
+    return <CompleteProfileScreen />;
+  }
+
   // ── 3. Sesión activa pero el perfil falló al cargarse ─────────────────────
   //       (RLS bloqueó, red caída, perfil no existe, rol inválido)
   //       NUNCA cae silenciosamente a ClientTabs
@@ -1106,6 +1116,7 @@ export default function AppNavigator() {
             <Stack.Screen name="GroupQuotes"          component={GroupQuotesScreen} />
             <Stack.Screen name="GroupQuoteDetail"     component={GroupQuoteDetailScreen} />
             <Stack.Screen name="GroupStats"           component={GroupStatsScreen} />
+            <Stack.Screen name="GroupQr"              component={GroupQrScreen} />
             <Stack.Screen name="OpenRequests"         component={GroupOpenRequestsScreen} />
             <Stack.Screen name="ProposeRequest"       component={GroupProposeRequestScreen} />
             <Stack.Screen name="GroupTalentSearch"    component={GroupTalentSearchScreen} />
@@ -1130,6 +1141,7 @@ export default function AppNavigator() {
             <Stack.Screen name="MyAds"                 component={MyAdsScreen} />
             <Stack.Screen name="Bidding"               component={BiddingScreen} />
             <Stack.Screen name="Recommendation"        component={RecommendationScreen} />
+            <Stack.Screen name="Destacado"             component={DestacadoScreen} />
             <Stack.Screen name="Plus"                  component={PlusScreen} />
             {/* ── Explorar / B2B: grupo contrata a otro grupo ── */}
             <Stack.Screen name="GroupDetail"           component={GroupDetailScreen} />

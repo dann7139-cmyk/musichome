@@ -11,6 +11,7 @@ import {
   Clock,
   Film,
   Pencil,
+  QrCode,
   Rocket,
   Shield,
   Star,
@@ -1203,6 +1204,12 @@ export default function GroupDashboardScreen({ navigation }: any) {
               <View style={{ flexDirection: 'row', gap: 8 }}>
                 <Pressable style={s.heroIconBtn} onPress={() => navigation.navigate('GroupStats')}>
                   <TrendingUp size={17} color={COLORS.text} />
+                </Pressable>
+                {/* 2026-09-18 — petición real: "que cada grupo pueda
+                    descargar un QR para compartir, por si lo quiere
+                    descargar y si quieren lo imprimen en grande". */}
+                <Pressable style={s.heroIconBtn} onPress={() => navigation.navigate('GroupQr', { group })}>
+                  <QrCode size={17} color={COLORS.text} />
                 </Pressable>
                 <Pressable style={s.heroIconBtn} onPress={() => navigation.navigate('Notifications')}>
                   <Bell size={17} color={COLORS.text} />

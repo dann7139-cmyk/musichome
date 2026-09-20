@@ -18,7 +18,7 @@ import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
-import { ArrowRight, Gift, Lock, Mail, Music, User } from 'lucide-react-native';
+import { Gift, Lock, Mail, Music, User } from 'lucide-react-native';
 import Particles from '../../components/ui/Particles';
 
 type RoleKey = 'client' | 'talent';
@@ -309,6 +309,21 @@ export default function RegisterScreen({ navigation, route }: any) {
                   </Pressable>
                 );
               })}
+
+              {/* "Soy Prestador" — petición real 2026-09-20: "el botón de
+                  que se registren los grupos está aparte... quiero que
+                  esté junto" — antes era una fila aparte, abajo de todo
+                  el formulario; ahora es una tercera tarjeta en el mismo
+                  roleGrid que Cliente/Talento (mismo estilo, no cambia
+                  `role` — manda directo a la solicitud de proveedor). */}
+              <Pressable
+                style={styles.roleCard}
+                onPress={() => navigation?.navigate?.('ProviderApply')}
+              >
+                <Text style={styles.roleEmoji}>🎪</Text>
+                <Text style={styles.roleLabel}>Soy Prestador</Text>
+                <Text style={styles.roleDesc}>Grupo o servicio para eventos</Text>
+              </Pressable>
             </View>
 
             {/* CAMPOS BASE */}
@@ -382,18 +397,6 @@ export default function RegisterScreen({ navigation, route }: any) {
               </View>
             )}
 
-            {/* "Soy Prestador" se quitó del registro directo (2026-09-13) —
-                todo proveedor nuevo pasa por la solicitud que el admin
-                revisa manualmente antes de crear la cuenta (sql/649). */}
-            <Pressable
-              style={styles.providerLinkRow}
-              onPress={() => navigation?.navigate?.('ProviderApply')}
-            >
-              <Text style={styles.providerLinkText}>
-                🎪 ¿Tienes un grupo o servicio? <Text style={styles.providerLinkHighlight}>Postúlate aquí</Text>
-              </Text>
-              <ArrowRight size={16} color={COLORS.green} />
-            </Pressable>
 
             {/* Código de referido — solo para clientes */}
             {role === 'client' && (
@@ -543,15 +546,6 @@ const styles = StyleSheet.create({
   referralHeader: { flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 4 },
   referralLabel:  { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.green },
   referralHint:   { fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted, marginTop: -4 },
-
-  providerLinkRow: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    backgroundColor: COLORS.card, borderRadius: RADIUS.lg,
-    borderWidth: 1, borderColor: COLORS.border,
-    paddingHorizontal: SPACING.lg, paddingVertical: 14, marginBottom: 16,
-  },
-  providerLinkText:      { flex: 1, fontFamily: FONTS.body, fontSize: 13, color: COLORS.muted2, marginRight: 8 },
-  providerLinkHighlight: { fontFamily: FONTS.bodySemiBold, color: COLORS.green },
 
   footer:     { flexDirection: 'row', justifyContent: 'center', marginTop: 24 },
   footerText: { fontFamily: FONTS.body, fontSize: 14, color: COLORS.muted2 },

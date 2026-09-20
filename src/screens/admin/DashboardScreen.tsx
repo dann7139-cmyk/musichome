@@ -37,6 +37,7 @@ import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import Badge from '../../components/ui/Badge';
 import Particles from '../../components/ui/Particles';
+import AccountSwitcher from '../../components/ui/AccountSwitcher';
 import { flagFor, placeLine } from '../../utils/countryFormat';
 
 const { width: SW } = Dimensions.get('window');
@@ -103,6 +104,12 @@ export default function AdminDashboardScreen({ navigation }: any) {
   // campana de notificaciones.
   const [pendingConciergeQuotes, setPendingConciergeQuotes] = useState(0);
   const [pendingProviderApps,    setPendingProviderApps]    = useState(0);
+  // 2026-09-18 — petición real: "quiero que en requieren atención se vea
+  // las transferencias que tengo que hacer, porque en el cel está muy
+  // escondido" — antes esta tira de alertas no incluía NADA de dinero
+  // pendiente (pagos finales, propinas por pagar, retiros), solo vivía
+  // metido dentro de la pestaña Pagos de AdminOpsHomeScreen.
+  const [pendingTransfers, setPendingTransfers] = useState(0);
   const [noShows,       setNoShows]       = useState<any[]>([]);
   const [noShowsHistory,setNoShowsHistory]= useState<any[]>([]);
   const [noShowsTab,    setNoShowsTab]    = useState<'pending' | 'history'>('pending');
@@ -175,6 +182,20 @@ export default function AdminDashboardScreen({ navigation }: any) {
 
     const providerAppsData = await supabase.rpc('admin_get_provider_applications', { p_status: 'pending' });
     setPendingProviderApps(providerAppsData.data?.items?.length ?? 0);
+
+    const [pendingPaymentsData, pendingGiftsData, withdrawalsData] = await Promise.all([
+      supabase.rpc('admin_get_pending_group_payments', { p_limit: 50 }),
+      supabase.rpc('admin_get_pending_gift_payouts'),
+      supabase.rpc('admin_withdrawals_queue', { p_limit: 60 }),
+    ]);
+    const withdrawalsPending = Array.isArray(withdrawalsData.data)
+      ? withdrawalsData.data.filter((w: any) => w.status === 'pending' || w.status === 'processing').length
+      : 0;
+    setPendingTransfers(
+      (pendingPaymentsData.data?.items?.length ?? 0) +
+      (pendingGiftsData.data?.items?.length ?? 0) +
+      withdrawalsPending
+    );
 
     const [resAll, verData, todayData, disputeData, liveData, groupsData, clientsData, reqData] = await Promise.all([
       supabase.from('reservations').select('status, total_price, created_at, group_id, group:groups(name)'),
@@ -582,7 +603,7 @@ export default function AdminDashboardScreen({ navigation }: any) {
   const maxBar = Math.max(...monthlyBars.map(b => b.count), 1);
   const maxTopCount = Math.max(...topGroups.map(g => g.count), 1);
   const totalRes = Object.values(statusCounts).reduce((a, b) => a + b, 0);
-  const hasAlerts = pendingVerif.length > 0 || openDisputes.length > 0 || statusCounts.pending > 0 || pendingMedia > 0 || pendingAds > 0 || noShows.length > 0 || stuckEvents.length > 0 || stuckServiceEvents.length > 0 || unverifiedPayouts.length > 0 || pendingConciergeQuotes > 0 || pendingProviderApps > 0;
+  const hasAlerts = pendingVerif.length > 0 || openDisputes.length > 0 || statusCounts.pending > 0 || pendingMedia > 0 || pendingAds > 0 || noShows.length > 0 || stuckEvents.length > 0 || stuckServiceEvents.length > 0 || unverifiedPayouts.length > 0 || pendingConciergeQuotes > 0 || pendingProviderApps > 0 || pendingTransfers > 0;
 
   const today = new Date();
   const dateStr = today.toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long' });
@@ -605,6 +626,9 @@ export default function AdminDashboardScreen({ navigation }: any) {
               <Text style={s.dateTag}>{dateStr}</Text>
             </View>
             <View style={s.headerRight}>
+              {/* 🔀 Cambiar rápido a otra cuenta ya guardada (ej. la de
+                  un cliente que manejas por él) — petición real 2026-09-18. */}
+              <AccountSwitcher />
               {/* 📂 Expediente: buscar por folio, nombre o teléfono */}
               <Pressable style={s.iconBtn} onPress={() => navigation.navigate('AdminTicketSearch')}>
                 <Text style={{ fontSize: 15 }}>📂</Text>
@@ -718,6 +742,12 @@ export default function AdminDashboardScreen({ navigation }: any) {
             <View style={s.alertStrip}>
               <Text style={s.alertTitle}>⚠️ Requieren atención</Text>
               <View style={s.alertChips}>
+                {pendingTransfers > 0 && (
+                  <Pressable style={[s.alertChip, { borderColor: 'rgba(0,230,118,0.5)' }]} onPress={() => navigation.navigate('AdminHome')}>
+                    <Text style={[s.alertChipNum, { color: COLORS.green }]}>{pendingTransfers}</Text>
+                    <Text style={s.alertChipLbl}>💸 Transferencias</Text>
+                  </Pressable>
+                )}
                 {statusCounts.pending > 0 && (
                   <View style={[s.alertChip, { borderColor: 'rgba(255,152,0,0.5)' }]}>
                     <Text style={[s.alertChipNum, { color: COLORS.orange }]}>{statusCounts.pending}</Text>

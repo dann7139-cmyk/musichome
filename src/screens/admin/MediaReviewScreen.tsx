@@ -19,6 +19,8 @@ import type { TFunction } from 'i18next';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import VideoPlayer from '../../components/ui/VideoPlayer';
+import { useAdminClaims } from '../../hooks/useAdminClaims';
+import { ClaimBar } from '../../components/ui/ClaimBar';
 
 interface PendingGroup {
   id: string;
@@ -64,6 +66,19 @@ export default function MediaReviewScreen({ navigation }: { navigation: any; rou
   const [refreshing, setRefreshing] = useState(false);
   const [processingId, setProcessingId] = useState<string | null>(null);
 
+  // sql/660 (2026-09-16) — "en trabajo", una entrada por cada elemento
+  // aprobable de forma independiente (misma clave que ya usaba processingId).
+  const claimIds = [
+    ...groups.flatMap((g) => [
+      g.photo_status === 'pending' ? g.id + '_photo' : null,
+      g.video_status === 'pending' ? g.id + '_video' : null,
+    ]),
+    ...eventPosts.map((p) => p.id + '_eventpost'),
+    ...pendingVideos.map((v) => v.id + '_carouselvideo'),
+  ].filter((x): x is string => !!x);
+  const { claims, claim, release, refresh: refreshClaims, busyId: claimBusyId } = useAdminClaims('media', claimIds);
+  const isLockedByOther = (id: string) => { const c = claims[id]; return !!c && !c.is_mine; };
+
   // sql/641 (2026-09-11) — antes eran 3 queries directas sin filtro (RLS
   // restringía a role='admin', sin noción de país). Ahora es 1 sola RPC
   // que ya separa por país: admin_ops (EE.UU.) solo ve/aprueba lo suyo,
@@ -88,8 +103,9 @@ export default function MediaReviewScreen({ navigation }: { navigation: any; rou
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await fetchPending();
+    await refreshClaims();
     setRefreshing(false);
-  }, [fetchPending]);
+  }, [fetchPending, refreshClaims]);
 
   const sendNotification = async (ownerId: string, mediaType: 'foto' | 'video', reason: string) => {
     const mediaTypeLabel = mediaType === 'foto'
@@ -129,6 +145,7 @@ export default function MediaReviewScreen({ navigation }: { navigation: any; rou
       Alert.alert(t('adminMediaReviewScreen.common.error'), t('adminMediaReviewScreen.errors.approvePhotoFailed'));
       return;
     }
+    await release(group.id + '_photo');
     setGroups((prev) =>
       prev
         .map((g) => (g.id === group.id ? { ...g, photo_status: 'approved' as const } : g))
@@ -149,6 +166,7 @@ export default function MediaReviewScreen({ navigation }: { navigation: any; rou
       Alert.alert(t('adminMediaReviewScreen.common.error'), t('adminMediaReviewScreen.errors.rejectPhotoFailed'));
       return;
     }
+    await release(group.id + '_photo');
     setGroups((prev) =>
       prev
         .map((g) => (g.id === group.id ? { ...g, photo_status: 'rejected' as const } : g))
@@ -198,6 +216,7 @@ export default function MediaReviewScreen({ navigation }: { navigation: any; rou
       Alert.alert(t('adminMediaReviewScreen.common.error'), t('adminMediaReviewScreen.errors.approveVideoFailed'));
       return;
     }
+    await release(group.id + '_video');
     setGroups((prev) =>
       prev
         .map((g) => (g.id === group.id ? { ...g, video_status: 'approved' as const } : g))
@@ -218,6 +237,7 @@ export default function MediaReviewScreen({ navigation }: { navigation: any; rou
       Alert.alert(t('adminMediaReviewScreen.common.error'), t('adminMediaReviewScreen.errors.rejectVideoFailed'));
       return;
     }
+    await release(group.id + '_video');
     setGroups((prev) =>
       prev
         .map((g) => (g.id === group.id ? { ...g, video_status: 'rejected' as const } : g))
@@ -269,6 +289,7 @@ export default function MediaReviewScreen({ navigation }: { navigation: any; rou
       Alert.alert(t('adminMediaReviewScreen.common.error'), t('adminMediaReviewScreen.errors.approvePostFailed'));
       return;
     }
+    await release(post.id + '_eventpost');
     setEventPosts((prev) => prev.filter((p) => p.id !== post.id));
 
     // 👥 Avisar a los seguidores del grupo (sql/563) que hay publicación nueva
@@ -306,6 +327,7 @@ export default function MediaReviewScreen({ navigation }: { navigation: any; rou
       Alert.alert(t('adminMediaReviewScreen.common.error'), t('adminMediaReviewScreen.errors.rejectPostFailed'));
       return;
     }
+    await release(post.id + '_eventpost');
     setEventPosts((prev) => prev.filter((p) => p.id !== post.id));
   };
 
@@ -353,6 +375,7 @@ export default function MediaReviewScreen({ navigation }: { navigation: any; rou
       Alert.alert(t('adminMediaReviewScreen.common.error'), t('adminMediaReviewScreen.errors.approveVideoFailed'));
       return;
     }
+    await release(video.id + '_carouselvideo');
     setPendingVideos((prev) => prev.filter((v) => v.id !== video.id));
   };
 
@@ -371,6 +394,7 @@ export default function MediaReviewScreen({ navigation }: { navigation: any; rou
       Alert.alert(t('adminMediaReviewScreen.common.error'), t('adminMediaReviewScreen.errors.rejectVideoFailed'));
       return;
     }
+    await release(video.id + '_carouselvideo');
     setPendingVideos((prev) => prev.filter((v) => v.id !== video.id));
   };
 
@@ -471,11 +495,17 @@ export default function MediaReviewScreen({ navigation }: { navigation: any; rou
                       <Text style={styles.noMediaText}>Sin imagen</Text>
                     </View>
                   )}
+                  <ClaimBar
+                    claim={claims[group.id + '_photo']}
+                    busy={claimBusyId === group.id + '_photo'}
+                    onClaim={() => claim(group.id + '_photo')}
+                    onRelease={() => release(group.id + '_photo')}
+                  />
                   <View style={styles.actionRow}>
                     <TouchableOpacity
                       style={[styles.btn, styles.btnApprove]}
                       onPress={() => approvePhoto(group)}
-                      disabled={processingId === group.id + '_photo'}
+                      disabled={processingId === group.id + '_photo' || isLockedByOther(group.id + '_photo')}
                     >
                       {processingId === group.id + '_photo' ? (
                         <ActivityIndicator size="small" color={COLORS.bg} />
@@ -486,7 +516,7 @@ export default function MediaReviewScreen({ navigation }: { navigation: any; rou
                     <TouchableOpacity
                       style={[styles.btn, styles.btnReject]}
                       onPress={() => rejectPhoto(group)}
-                      disabled={processingId === group.id + '_photo'}
+                      disabled={processingId === group.id + '_photo' || isLockedByOther(group.id + '_photo')}
                     >
                       <Text style={styles.btnRejectText}>✗ Rechazar</Text>
                     </TouchableOpacity>
@@ -511,11 +541,17 @@ export default function MediaReviewScreen({ navigation }: { navigation: any; rou
                       <Text style={styles.noMediaText}>Sin video</Text>
                     </View>
                   )}
+                  <ClaimBar
+                    claim={claims[group.id + '_video']}
+                    busy={claimBusyId === group.id + '_video'}
+                    onClaim={() => claim(group.id + '_video')}
+                    onRelease={() => release(group.id + '_video')}
+                  />
                   <View style={styles.actionRow}>
                     <TouchableOpacity
                       style={[styles.btn, styles.btnApprove]}
                       onPress={() => approveVideo(group)}
-                      disabled={processingId === group.id + '_video'}
+                      disabled={processingId === group.id + '_video' || isLockedByOther(group.id + '_video')}
                     >
                       {processingId === group.id + '_video' ? (
                         <ActivityIndicator size="small" color={COLORS.bg} />
@@ -526,7 +562,7 @@ export default function MediaReviewScreen({ navigation }: { navigation: any; rou
                     <TouchableOpacity
                       style={[styles.btn, styles.btnReject]}
                       onPress={() => rejectVideo(group)}
-                      disabled={processingId === group.id + '_video'}
+                      disabled={processingId === group.id + '_video' || isLockedByOther(group.id + '_video')}
                     >
                       <Text style={styles.btnRejectText}>✗ Rechazar</Text>
                     </TouchableOpacity>
@@ -553,11 +589,17 @@ export default function MediaReviewScreen({ navigation }: { navigation: any; rou
                     <Image key={ph.id} source={{ uri: ph.url }} style={[styles.photoPreview, { width: 160, marginRight: 8 }]} resizeMode="cover" />
                   ))}
                 </ScrollView>
+                <ClaimBar
+                  claim={claims[post.id + '_eventpost']}
+                  busy={claimBusyId === post.id + '_eventpost'}
+                  onClaim={() => claim(post.id + '_eventpost')}
+                  onRelease={() => release(post.id + '_eventpost')}
+                />
                 <View style={styles.actionRow}>
                   <TouchableOpacity
                     style={[styles.btn, styles.btnApprove]}
                     onPress={() => approveEventPost(post)}
-                    disabled={processingId === post.id + '_eventpost'}
+                    disabled={processingId === post.id + '_eventpost' || isLockedByOther(post.id + '_eventpost')}
                   >
                     {processingId === post.id + '_eventpost' ? (
                       <ActivityIndicator size="small" color={COLORS.bg} />
@@ -568,7 +610,7 @@ export default function MediaReviewScreen({ navigation }: { navigation: any; rou
                   <TouchableOpacity
                     style={[styles.btn, styles.btnReject]}
                     onPress={() => rejectEventPost(post)}
-                    disabled={processingId === post.id + '_eventpost'}
+                    disabled={processingId === post.id + '_eventpost' || isLockedByOther(post.id + '_eventpost')}
                   >
                     <Text style={styles.btnRejectText}>✗ Rechazar</Text>
                   </TouchableOpacity>
@@ -592,11 +634,17 @@ export default function MediaReviewScreen({ navigation }: { navigation: any; rou
                   autoPlay
                   muted
                 />
+                <ClaimBar
+                  claim={claims[video.id + '_carouselvideo']}
+                  busy={claimBusyId === video.id + '_carouselvideo'}
+                  onClaim={() => claim(video.id + '_carouselvideo')}
+                  onRelease={() => release(video.id + '_carouselvideo')}
+                />
                 <View style={styles.actionRow}>
                   <TouchableOpacity
                     style={[styles.btn, styles.btnApprove]}
                     onPress={() => approveVideoCarousel(video)}
-                    disabled={processingId === video.id + '_carouselvideo'}
+                    disabled={processingId === video.id + '_carouselvideo' || isLockedByOther(video.id + '_carouselvideo')}
                   >
                     {processingId === video.id + '_carouselvideo' ? (
                       <ActivityIndicator size="small" color={COLORS.bg} />
@@ -607,7 +655,7 @@ export default function MediaReviewScreen({ navigation }: { navigation: any; rou
                   <TouchableOpacity
                     style={[styles.btn, styles.btnReject]}
                     onPress={() => rejectVideoCarousel(video)}
-                    disabled={processingId === video.id + '_carouselvideo'}
+                    disabled={processingId === video.id + '_carouselvideo' || isLockedByOther(video.id + '_carouselvideo')}
                   >
                     <Text style={styles.btnRejectText}>✗ Rechazar</Text>
                   </TouchableOpacity>
