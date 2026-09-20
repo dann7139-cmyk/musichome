@@ -45,6 +45,20 @@ function LoginForm() {
     router.push("/dashboard");
   };
 
+  // Entrar con Google (2026-09-19) — signInWithOAuth hace la redirección de
+  // página completa sola (comportamiento default del cliente en navegador);
+  // /auth/callback recoge la sesión al volver. Si es alta nueva sin fila en
+  // profiles, /auth/callback manda a /completar-perfil.
+  const handleGoogle = async () => {
+    setError("");
+    await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback${redirectTo ? `?redirect=${encodeURIComponent(redirectTo)}` : ""}`,
+      },
+    });
+  };
+
   return (
     <div className="relative w-full max-w-md">
       <div className="mb-8 flex flex-col items-center text-center">
@@ -100,6 +114,21 @@ function LoginForm() {
             {loading ? "Ingresando…" : "Iniciar sesión"}
           </button>
         </form>
+
+        <div className="my-5 flex items-center gap-3">
+          <div className="h-px flex-1 bg-brand-border" />
+          <span className="text-xs text-brand-muted">o</span>
+          <div className="h-px flex-1 bg-brand-border" />
+        </div>
+
+        <button
+          type="button"
+          onClick={handleGoogle}
+          className="flex w-full items-center justify-center gap-2.5 rounded-xl border border-brand-border bg-brand-card2 py-3 text-sm font-semibold text-white transition-colors hover:border-brand-muted"
+        >
+          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white text-[11px] font-bold text-[#4285F4]">G</span>
+          Continuar con Google
+        </button>
 
         <div className="mt-6 text-center text-sm text-brand-muted">
           ¿No tienes cuenta?{" "}

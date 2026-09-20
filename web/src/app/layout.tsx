@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { AuthProvider } from "@/context/AuthContext";
 import BackgroundEffect from "@/components/BackgroundEffect";
+import PageViewTracker from "@/components/PageViewTracker";
 
 export const metadata: Metadata = {
   title:       "DARICEFY — Contrata grupos en minutos",
@@ -22,6 +23,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body style={{ background: "#040404" }}>
         {/* Global rising-lights background — visible in ALL pages */}
         <BackgroundEffect />
+        <PageViewTracker />
 
         {/* Page content sits on top of background (z-10+) */}
         <div style={{ position: "relative", zIndex: 1 }}>

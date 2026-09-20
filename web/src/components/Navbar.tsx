@@ -5,6 +5,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import Logo from "@/components/Logo";
 import Link from "next/link";
+import AccountSwitcher from "@/components/AccountSwitcher";
 
 const DASHBOARD_ROUTE: Record<string, string> = {
   client:  "/dashboard/cliente",
@@ -57,6 +58,7 @@ export default function Navbar() {
         <div className="hidden items-center gap-3 md:flex">
           {loading ? null : profile ? (
             <>
+              <AccountSwitcher />
               <Link
                 href={dashboardHref}
                 className="rounded-lg bg-brand-card2 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-white/10"
@@ -117,6 +119,9 @@ export default function Navbar() {
             <div className="mt-2 flex flex-col gap-3 border-t border-brand-border pt-4">
               {profile ? (
                 <>
+                  <div className="flex justify-center">
+                    <AccountSwitcher />
+                  </div>
                   <Link
                     href={dashboardHref}
                     onClick={() => setOpen(false)}

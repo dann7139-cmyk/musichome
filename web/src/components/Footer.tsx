@@ -21,7 +21,7 @@ export default function Footer() {
             </h3>
             <ul className="space-y-2">
               {[
-                { label: "Explorar grupos", href: "/grupos" },
+                { label: "Explorar proveedores", href: "/grupos" },
                 { label: "Cómo funciona", href: "/#como-funciona" },
                 { label: "Para grupos", href: "/#para-grupos" },
                 { label: "Precios",   href: "/#precios" },

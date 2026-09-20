@@ -1,6 +1,7 @@
 import Link from "next/link";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
+import IntroSplash from "@/components/IntroSplash";
 
 // ── Static feature/step data ─────────────────────────────────────────────────
 
@@ -71,6 +72,7 @@ const CATEGORIES = [
 export default function LandingPage() {
   return (
     <div className="min-h-screen bg-brand-bg text-brand-text">
+      <IntroSplash />
       <Navbar />
 
       {/* ── HERO ─────────────────────────────────────────────────────────── */}
@@ -122,15 +124,22 @@ export default function LandingPage() {
               href="/grupos"
               className="rounded-xl bg-brand-green px-8 py-4 text-base font-bold text-black shadow-lg shadow-brand-green/20 transition-all hover:bg-brand-green2 hover:shadow-brand-green/40 active:scale-95"
             >
-              Buscar grupos
+              Buscar proveedores
             </Link>
             <Link
               href="/registro"
               className="rounded-xl border border-brand-border px-8 py-4 text-base font-medium text-white transition-colors hover:border-brand-green hover:text-brand-green"
             >
-              Registrar mi grupo →
+              Quiero ser proveedor →
             </Link>
           </div>
+
+          {/* Petición real: "quiero que el cliente sepa que se tiene que
+              registrar con esa misma cuenta [con la que] ingresa en la
+              app" — la cuenta es una sola, compartida entre web y app. */}
+          <p className="mt-5 text-xs text-brand-muted">
+            Tu cuenta es una sola: regístrate aquí o en la app, y usa el mismo correo y contraseña en ambos.
+          </p>
 
           {/* Stats */}
           <div className="mt-16 grid grid-cols-3 gap-6 border-t border-brand-border pt-10">

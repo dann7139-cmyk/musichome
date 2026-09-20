@@ -5,10 +5,13 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
 const ROUTE: Record<string, string> = {
-  client: "/dashboard/cliente",
-  group:  "/dashboard/grupo",
-  talent: "/dashboard/talento",
-  admin:  "/dashboard/admin",
+  client:    "/dashboard/cliente",
+  group:     "/dashboard/grupo",
+  talent:    "/dashboard/talento",
+  admin:     "/dashboard/admin",
+  // sql/627 (app móvil) — admin con alcance por país. Antes no existía
+  // esta entrada y un admin_ops caía al dashboard de cliente por default.
+  admin_ops: "/dashboard/admin",
 };
 
 export default function DashboardPage() {

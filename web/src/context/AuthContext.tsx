@@ -32,14 +32,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   async function fetchProfile(user: User) {
+    // profiles no tiene columna "name" — es "full_name" (hallazgo real:
+    // esta consulta fallaba en silencio para TODOS los roles, y el
+    // fallback de abajo asignaba "client" a cualquiera cuyo user_metadata
+    // no trajera role, incluyendo cuentas admin reales). Se alias-ea
+    // name:full_name para no tener que tocar el resto del código que ya
+    // espera profile.name.
     const { data } = await supabase
       .from("profiles")
-      .select("id, name, email, role, city, phone, avatar_url")
+      .select("id, name:full_name, email, role, city, phone, avatar_url, admin_country_scope, admin_can_manage_payouts")
       .eq("id", user.id)
       .single();
 
     if (data) {
-      setProfile(data as Profile);
+      setProfile(data as unknown as Profile);
     } else {
       // Fallback: construir perfil desde user_metadata
       // Cubre admins creados directamente en Supabase sin fila en profiles

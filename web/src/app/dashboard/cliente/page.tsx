@@ -84,7 +84,7 @@ export default function ClientDashboard() {
             href="/grupos"
             className="rounded-xl bg-brand-green px-5 py-2.5 text-sm font-bold text-black transition-colors hover:bg-brand-green2"
           >
-            + Contratar grupo
+            + Contratar proveedor
           </Link>
         </div>
 
@@ -110,13 +110,13 @@ export default function ClientDashboard() {
               <p className="text-3xl">🎵</p>
               <p className="mt-3 font-semibold text-white">Sin eventos próximos</p>
               <p className="mt-1 text-sm text-brand-muted">
-                ¿Tienes un evento? Encuentra tu grupo ideal.
+                ¿Tienes un evento? Encuentra tu proveedor ideal.
               </p>
               <Link
                 href="/grupos"
                 className="mt-4 inline-block rounded-xl bg-brand-green px-5 py-2 text-sm font-bold text-black"
               >
-                Explorar grupos
+                Explorar proveedores
               </Link>
             </div>
           ) : (

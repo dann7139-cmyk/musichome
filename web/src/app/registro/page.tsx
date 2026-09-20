@@ -64,6 +64,17 @@ function RegisterForm() {
     router.push(roleRoutes[role]);
   };
 
+  // Registro con Google (2026-09-19) — se manda el rol ya elegido en el
+  // paso 1 como query param, para que /completar-perfil lo preseleccione.
+  const handleGoogle = async () => {
+    await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback?role=${role}`,
+      },
+    });
+  };
+
   return (
     <div className="w-full max-w-md">
       <div className="mb-8 flex flex-col items-center text-center">
@@ -106,6 +117,21 @@ function RegisterForm() {
               className="mt-6 w-full rounded-xl bg-brand-green py-3.5 text-sm font-bold text-black transition-colors hover:bg-brand-green2"
             >
               Continuar →
+            </button>
+
+            <div className="my-5 flex items-center gap-3">
+              <div className="h-px flex-1 bg-brand-border" />
+              <span className="text-xs text-brand-muted">o</span>
+              <div className="h-px flex-1 bg-brand-border" />
+            </div>
+
+            <button
+              type="button"
+              onClick={handleGoogle}
+              className="flex w-full items-center justify-center gap-2.5 rounded-xl border border-brand-border bg-brand-card2 py-3 text-sm font-semibold text-white transition-colors hover:border-brand-muted"
+            >
+              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white text-[11px] font-bold text-[#4285F4]">G</span>
+              Continuar con Google
             </button>
           </div>
         ) : (

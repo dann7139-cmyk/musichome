@@ -12,8 +12,8 @@ interface GroupStats {
   name:         string;
   city:         string | null;
   rating:       number | null;
-  review_count: number | null;
-  base_price:   number | null;
+  total_reviews: number | null;
+  price_from:   number | null;
   is_verified:  boolean | null;
   referral_code: string | null;
 }
@@ -25,7 +25,7 @@ interface Event {
   status:         string;
   payment_status: string;
   total_price:    number;
-  profiles:       { name: string } | null;
+  profiles:       { full_name: string } | null;
 }
 
 const STATUS_COLOR: Record<string, string> = {
@@ -50,30 +50,19 @@ export default function GroupDashboard() {
     if (!profile) { router.push("/login"); return; }
     if (profile.role !== "group") { router.replace("/dashboard"); return; }
 
-    Promise.all([
-      supabase
-        .from("groups")
-        .select("id, name, city, rating, review_count, base_price, is_verified, referral_code")
-        .eq("owner_id", profile.id)
-        .single(),
-      supabase
-        .from("reservations")
-        .select(
-          "id, event_date, event_time, status, payment_status, total_price, profiles(name)"
-        )
-        .eq("group_id",
-          // We'll get group_id after fetching group, so just fetch all and filter
-          // Workaround: use a subquery via RPC is better, but for now fetch by owner_id via group
-          "00000000-0000-0000-0000-000000000000" // placeholder, will be replaced below
-        ),
-    ]).then(([{ data: g }]) => {
+    supabase
+      .from("groups")
+      .select("id, name, city, rating, total_reviews, price_from, is_verified, referral_code")
+      .eq("owner_id", profile.id)
+      .single()
+      .then(({ data: g }) => {
       if (!g) { setFetching(false); return; }
       setGroup(g as GroupStats);
 
-      // Now fetch events for this group
+      // Ahora sí, los eventos de este grupo (necesitábamos su id primero)
       supabase
         .from("reservations")
-        .select("id, event_date, event_time, status, payment_status, total_price, profiles(name)")
+        .select("id, event_date, event_time, status, payment_status, total_price, profiles(full_name)")
         .eq("group_id", (g as GroupStats).id)
         .order("event_date", { ascending: false })
         .limit(20)
@@ -119,7 +108,7 @@ export default function GroupDashboard() {
                 </span>
               )}
               {group?.rating && (
-                <span className="text-yellow-400">★ {group.rating.toFixed(1)} ({group.review_count ?? 0})</span>
+                <span className="text-yellow-400">★ {group.rating.toFixed(1)} ({group.total_reviews ?? 0})</span>
               )}
             </div>
           </div>
@@ -222,7 +211,7 @@ function EventRow({ event: e }: { event: Event }) {
     <div className="flex flex-wrap items-center gap-4 rounded-2xl border border-brand-border bg-brand-card p-5">
       <div className="flex-1 min-w-0">
         <p className="font-semibold text-white">
-          {(e.profiles as { name: string } | null)?.name ?? "Cliente"}
+          {(e.profiles as { full_name: string } | null)?.full_name ?? "Cliente"}
         </p>
         <p className="text-sm text-brand-muted">
           {new Date(e.event_date).toLocaleDateString("es-MX", {
