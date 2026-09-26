@@ -2491,9 +2491,10 @@
     "espectaculo": "🎪 Shows",
     "mc": "🎙️ Master of Ceremonies",
     "luzSonido": "🔊 Sound & lighting",
-    "comida": "🍔 Food",
+    "comida": "🍔 Amenities & Snacks",
     "renta": "🪑 Rentals (tables, chairs, bounce houses, tents)",
-    "fotografos": "📸 Photographers"
+    "fotografos": "📸 Photographers",
+    "terraza": "Venues & Halls"
   },
   "categoryDetails": {
     "comida": {
@@ -2574,6 +2575,47 @@
           "digital": "💻 Digital",
           "fisico": "🖼️ Physical (album/prints)",
           "ambos": "Both"
+        }
+      }
+    },
+    "terraza": {
+      "capacity": {
+        "label": "How many guests?",
+        "placeholder": "e.g. 200"
+      },
+      "spaceType": {
+        "label": "Type of space",
+        "options": {
+          "techado": "Indoor",
+          "aireLibre": "Outdoor",
+          "mixto": "Both"
+        }
+      },
+      "included": {
+        "label": "What does the venue include?",
+        "options": {
+          "mesas": "Tables",
+          "sillas": "Chairs",
+          "manteleria": "Linens",
+          "cocina": "Kitchen",
+          "estacionamiento": "Parking",
+          "alberca": "Pool",
+          "asadores": "Grills",
+          "aireAcondicionado": "Air conditioning",
+          "pistaBaile": "Dance floor",
+          "seguridad": "Security"
+        }
+      },
+      "noiseCurfew": {
+        "label": "Music curfew",
+        "placeholder": "e.g. 2:00 a.m."
+      },
+      "outsideFood": {
+        "label": "Can guests bring outside food or drinks?",
+        "options": {
+          "si": "Yes",
+          "no": "No",
+          "conCuota": "Yes, for a fee"
         }
       }
     }

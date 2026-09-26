@@ -61,6 +61,8 @@ const MUSIC_GENRES = [
   { key: 'Tropical',          emoji: '🌴' },
   { key: 'Ranchero',          emoji: '🤠' },
   { key: 'Electrónica',       emoji: '🎧' },
+  { key: 'Barra de mixología', emoji: '🍸' },
+  { key: 'Sonido / Iluminación', emoji: '🔊' },
   { key: 'Otro',              emoji: '🎵' },
 ];
 

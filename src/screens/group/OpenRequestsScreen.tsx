@@ -37,6 +37,7 @@ import { useTranslation } from 'react-i18next';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import { EARTH_STYLE } from '../../constants/mapStyle';
+import { splitGenres } from '../../constants/providerCategories';
 import ScheduledRequestCard from '../../components/requests/ScheduledRequestCard';
 import ClientProfileModal from '../../components/requests/ClientProfileModal';
 
@@ -582,7 +583,11 @@ export default function OpenRequestsScreen({ navigation, route }: any) {
         .from('event_requests')
         .select('*, requester:profiles!client_id(full_name, avatar_url, role), accepted_reservation:reservations!accepted_reservation_id(address, payment_status)')
         .in('status', ['open', 'en_negociacion'])
-        .eq('genre', grp.genre)
+        // Un grupo puede tocar más de un estilo ("Norteño/Sierreño") —
+        // .in() con los estilos separados, no .eq() al texto completo
+        // (petición real 2026-09-20; antes esto no traía nada para un
+        // grupo con género compuesto).
+        .in('genre', splitGenres(grp.genre))
         .gt('expires_at', new Date().toISOString())
         .order('created_at', { ascending: false }),
       // Contar solicitudes que aceptó este grupo (tienen reserva pendiente de confirmar)

@@ -29,7 +29,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import { useAuth } from '../../context/AuthContext';
-import { PROVIDER_CATEGORIES } from '../../constants/providerCategories';
+import { PROVIDER_CATEGORIES, splitGenres } from '../../constants/providerCategories';
 import { STATES_BY_COUNTRY } from '../../utils/locationUtils';
 import { exportProviderAgreementPdf } from '../../utils/exportProviderAgreementPdf';
 import { useAdminClaims } from '../../hooks/useAdminClaims';
@@ -48,7 +48,8 @@ const fecha = (d?: string | null) =>
 const CATEGORY_LABELS: Record<string, string> = {
   grupo: 'Grupo musical', solista: 'Solista', dj: 'DJ', comediante: 'Comediante',
   espectaculo: 'Show', mc: 'Maestro de Ceremonias', luzSonido: 'Luz y sonido',
-  comida: 'Comida', renta: 'Renta de mobiliario', fotografos: 'Fotografía/Video',
+  comida: 'Amenidades y Snacks', renta: 'Renta de mobiliario', fotografos: 'Fotografía/Video',
+  terraza: 'Terraza o salón',
 };
 
 const APPLY_COUNTRIES = ['México', 'Estados Unidos', 'Canadá'];
@@ -392,13 +393,30 @@ export default function AdminProviderApplicationsScreen({ navigation }: any) {
             />
 
             <Text style={s.label}>Género exacto — de esto depende que aparezca en su categoría del Explorador</Text>
+            <Text style={s.sheetHint}>
+              Puedes elegir más de uno si el grupo toca varios estilos (ej. Norteño + Sierreño) — aparecerá en la búsqueda de cada uno.
+            </Text>
             <View style={s.genreGrid}>
-              {(PROVIDER_CATEGORIES.find(c => c.key === approveTarget?.category)?.genres ?? []).map(g => (
-                <Pressable key={g} style={[s.genreChip, genre === g && s.genreChipActive]} onPress={() => setGenre(g)}>
-                  <Text style={[s.genreChipText, genre === g && s.genreChipTextActive]}>{g}</Text>
-                </Pressable>
-              ))}
+              {(PROVIDER_CATEGORIES.find(c => c.key === approveTarget?.category)?.genres ?? []).map(g => {
+                const selectedGenres = splitGenres(genre);
+                const active = selectedGenres.includes(g);
+                return (
+                  <Pressable
+                    key={g}
+                    style={[s.genreChip, active && s.genreChipActive]}
+                    onPress={() => {
+                      const next = active ? selectedGenres.filter(x => x !== g) : [...selectedGenres, g];
+                      setGenre(next.join('/'));
+                    }}
+                  >
+                    <Text style={[s.genreChipText, active && s.genreChipTextActive]}>{g}</Text>
+                  </Pressable>
+                );
+              })}
             </View>
+            {splitGenres(genre).length > 1 && (
+              <Text style={s.sheetHint}>Se guardará como: {genre}</Text>
+            )}
 
             <Text style={s.label}>Contraseña temporal (opcional, se genera una si la dejas vacía)</Text>
             <TextInput

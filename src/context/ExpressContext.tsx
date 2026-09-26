@@ -2,6 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useRef, useSt
 import { AppState } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { supabase } from '../config/supabase';
+import { genreMatches } from '../constants/providerCategories';
 
 // ── Imperativo: AppNavigator puede revivir dispatches desde fuera del Provider ──
 let _reviveDispatch: ((id: string) => Promise<void>) | null = null;
@@ -112,10 +113,12 @@ export function ExpressProvider({
     // no mostrar aunque el dispatch siga 'pending_broadcast'
     const reqStatus = dispatch.request?.status;
     if (reqStatus && !OPEN_REQUEST_STATUSES.includes(reqStatus)) return;
-    // Only show dispatches whose genre matches this group's genre
+    // Only show dispatches whose genre matches this group's genre — un
+    // grupo puede tocar más de un estilo ("Norteño/Sierreño"), genreMatches
+    // revisa cualquiera de los separados por "/" (petición real 2026-09-20).
     const grpGenre = groupGenreRef.current;
     if (grpGenre && dispatch.request?.genre) {
-      if (dispatch.request.genre.toLowerCase().trim() !== grpGenre.toLowerCase().trim()) return;
+      if (!genreMatches(grpGenre, dispatch.request.genre)) return;
     }
 
     const isFirst = dispatchesRef.current.length === 0;

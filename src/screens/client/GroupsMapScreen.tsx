@@ -25,6 +25,7 @@ import { useTranslation } from 'react-i18next';
 import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import { EARTH_STYLE } from '../../constants/mapStyle';
+import { genreMatches, splitGenres } from '../../constants/providerCategories';
 
 const { height: SH, width: SW } = Dimensions.get('window');
 
@@ -269,10 +270,12 @@ export default function GroupsMapScreen({ navigation }: any) {
     }
   }, [selected]);
 
-  const allGenres = [...new Set(groups.map(g => g.genre))].sort();
+  // Un grupo puede tocar más de un estilo ("Norteño/Sierreño") — se cuenta
+  // en el chip de CADA estilo por separado (petición real 2026-09-20).
+  const allGenres = [...new Set(groups.flatMap(g => splitGenres(g.genre)))].sort();
 
   const visible = groups.filter(g => {
-    const matchGenre = !genreFilter || g.genre === genreFilter;
+    const matchGenre = !genreFilter || genreMatches(g.genre, genreFilter);
     const matchSearch = !searchText || g.name.toLowerCase().includes(searchText.toLowerCase()) ||
       g.city.toLowerCase().includes(searchText.toLowerCase());
     return matchGenre && matchSearch;
@@ -356,7 +359,7 @@ export default function GroupsMapScreen({ navigation }: any) {
             </Text>
           </Pressable>
           {allGenres.map(g => {
-            const count  = groups.filter(gr => gr.genre === g).length;
+            const count  = groups.filter(gr => genreMatches(gr.genre, g)).length;
             const color  = GENRE_COLORS[g] ?? COLORS.green;
             const active = genreFilter === g;
             return (

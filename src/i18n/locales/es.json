@@ -2491,9 +2491,10 @@
     "espectaculo": "🎪 Shows",
     "mc": "🎙️ Maestro de Ceremonias",
     "luzSonido": "🔊 Luz y sonido",
-    "comida": "🍔 Comida",
+    "comida": "🍔 Amenidades y Snacks",
     "renta": "🪑 Renta (mesas, sillas, brincolines, carpas)",
-    "fotografos": "📸 Fotógrafos"
+    "fotografos": "📸 Fotógrafos",
+    "terraza": "Terrazas y Salones"
   },
   "categoryDetails": {
     "comida": {
@@ -2574,6 +2575,47 @@
           "digital": "💻 Digital",
           "fisico": "🖼️ Físico (álbum/impresiones)",
           "ambos": "Ambos"
+        }
+      }
+    },
+    "terraza": {
+      "capacity": {
+        "label": "¿Para cuántas personas?",
+        "placeholder": "Ej. 200"
+      },
+      "spaceType": {
+        "label": "Tipo de espacio",
+        "options": {
+          "techado": "Techado",
+          "aireLibre": "Aire libre",
+          "mixto": "Mixto"
+        }
+      },
+      "included": {
+        "label": "¿Qué incluye el lugar?",
+        "options": {
+          "mesas": "Mesas",
+          "sillas": "Sillas",
+          "manteleria": "Mantelería",
+          "cocina": "Cocina",
+          "estacionamiento": "Estacionamiento",
+          "alberca": "Alberca",
+          "asadores": "Asadores",
+          "aireAcondicionado": "Aire acondicionado",
+          "pistaBaile": "Pista de baile",
+          "seguridad": "Seguridad"
+        }
+      },
+      "noiseCurfew": {
+        "label": "Hora límite de música",
+        "placeholder": "Ej. 2:00 a.m."
+      },
+      "outsideFood": {
+        "label": "¿Se puede llevar comida o bebida de fuera?",
+        "options": {
+          "si": "Sí",
+          "no": "No",
+          "conCuota": "Sí, con cuota"
         }
       }
     }

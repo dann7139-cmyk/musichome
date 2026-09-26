@@ -224,7 +224,7 @@ function catLabel(key: string): string {
   const map: Record<string, string> = {
     grupo: 'Grupo musical', solista: 'Solista', dj: 'DJ', comediante: 'Comediante',
     espectaculo: 'Show', mc: 'Maestro de Ceremonias', luzSonido: 'Luz y sonido',
-    comida: 'Comida', renta: 'Renta de mobiliario', fotografos: 'Fotografía/Video',
+    comida: 'Amenidades y Snacks', renta: 'Renta de mobiliario', fotografos: 'Fotografía/Video',
   };
   return map[key] ?? key;
 }

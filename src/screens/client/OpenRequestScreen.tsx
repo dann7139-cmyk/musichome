@@ -46,6 +46,8 @@ const MUSIC_GENRES = [
   { key: 'Tropical',          label: '🌴 Tropical' },
   { key: 'Ranchero',          label: '🤠 Ranchero' },
   { key: 'Electrónica',       label: '🎧 Electrónica' },
+  { key: 'Barra de mixología', label: '🍸 Barra de mixología' },
+  { key: 'Sonido / Iluminación', label: '🔊 Luz y Sonido' },
   { key: 'Otro',              label: '🎵 Otro' },
 ];
 

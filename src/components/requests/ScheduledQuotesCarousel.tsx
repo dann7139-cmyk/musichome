@@ -33,6 +33,7 @@ import ClientProfileModal from './ClientProfileModal';
 import RequestDetailsModal from './RequestDetailsModal';
 import { setExpressCarouselCollapsed } from '../express/ExpressCarousel';
 import { estimateEtaMin, eventCardCenter, formatDist, formatEta, haversineKm } from '../../utils/mapUtils';
+import { splitGenres } from '../../constants/providerCategories';
 
 const { width: W, height: H } = Dimensions.get('window');
 const CARD_WIDTH    = Math.round(W * 0.86);
@@ -322,13 +323,17 @@ export default function ScheduledQuotesCarousel({ groupId }: { groupId: string |
         .eq('group_id', groupId)
         .eq('status', 'pending')
         .order('created_at', { ascending: false }),
-      // Solicitudes abiertas programadas del género del grupo, vigentes
+      // Solicitudes abiertas programadas del género del grupo, vigentes —
+      // un grupo puede tener más de un estilo ("Norteño/Sierreño"), .in()
+      // con los estilos separados en vez de .eq() al texto completo
+      // (petición real 2026-09-20, antes esto nunca traía nada para un
+      // grupo con género compuesto).
       groupGenre
         ? supabase
             .from('event_requests')
             .select('*, requester:profiles!client_id(full_name, avatar_url)')
             .in('status', ['open', 'en_negociacion'])
-            .eq('genre', groupGenre)
+            .in('genre', splitGenres(groupGenre))
             .gt('expires_at', new Date().toISOString())
             .order('created_at', { ascending: false })
         : Promise.resolve({ data: [] as any[] } as any),
@@ -463,9 +468,19 @@ export default function ScheduledQuotesCarousel({ groupId }: { groupId: string |
       refresh
     );
     if (groupGenre) {
+      // Género compuesto ("Norteño/Sierreño"): el filtro de Realtime de
+      // Postgres soporta in.(a,b) para esto — para el caso normal (un solo
+      // género) se deja el mismo eq. de siempre, sin tocar lo que ya
+      // funcionaba. Si in.() no aplicara en algún caso raro, el catch-up al
+      // montar (abajo, mismo fetchPending vía .in() normal de Supabase) ya
+      // cubre lo que el realtime se perdiera.
+      const genreParts = splitGenres(groupGenre);
+      const genreFilter = genreParts.length > 1
+        ? `genre=in.(${genreParts.join(',')})`
+        : `genre=eq.${groupGenre}`;
       channel.on(
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'event_requests', filter: `genre=eq.${groupGenre}` },
+        { event: 'INSERT', schema: 'public', table: 'event_requests', filter: genreFilter },
         (payload: any) => {
           const r = payload?.new;
           const isExpress = r?.is_express === true || r?.is_express === 'true';

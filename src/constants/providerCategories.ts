@@ -63,10 +63,15 @@ const GRUPO_MUSICAL_GENRES_US = [
   'Funk', 'Indie', 'Klezmer', 'Metal', 'Motown', 'Punk', 'Soul', 'Southern Rock', 'Swing', 'Zydeco',
 ];
 export const GRUPO_MUSICAL_GENRES = [...GRUPO_MUSICAL_GENRES_MX, ...GRUPO_MUSICAL_GENRES_US];
-export const LUZ_SONIDO_GENRES = [
-  'Sonido / Iluminación', 'Sonido', 'Iluminación',
-  'Cabinas DJ', 'Iluminación profesional', 'Micrófonos', 'Pantallas LED', 'Proyectores', 'Sonido profesional',
-];
+// Reducido a un solo género "sombrilla" (2026-09-22, petición real: "no
+// quiero que salgan las opciones de abajo... el cliente ya elige el
+// proveedor que sea") — antes tenía 9 subtipos (Proyectores, Micrófonos,
+// etc.) que obligaban a elegir uno para poder ver/pedir Luz y Sonido; ahora
+// es UNA sola categoría, igual de simple que Solistas/DJ. Confirmado 0
+// grupos reales registrados con cualquiera de esos 9 valores (no hay datos
+// que migrar) — mismo criterio ya usado para limpiar géneros musicales sin
+// uso real (ver comentario de cabecera de este archivo).
+export const LUZ_SONIDO_GENRES = ['Sonido / Iluminación'];
 export const RENTA_GENRES = [
   'Escenarios', 'Generadores eléctricos', 'Inflables acuáticos', 'Plantas de luz',
   'Renta de brincolines', 'Renta de mesas', 'Renta de sillas', 'Renta de toldos', 'Tarimas',
@@ -75,6 +80,21 @@ export const RENTA_GENRES = [
 // el fotógrafo como persona ("Fotografía", categoría separada anidada bajo
 // "Servicios de evento") y los 3 hijos reales de "Fotógrafos" en la BD.
 export const FOTOGRAFOS_GENRES = ['Fotografía', 'Drones', 'Cabina 360', 'Cabina fotográfica'];
+// "Comida" (categoría) renombrada a "Amenidades y Snacks" (petición real
+// 2026-09-20) — antes solo tenía UNA opción ("Comida"); ahora son varias,
+// así que al tocar la categoría sale el mismo selector de género que ya usan
+// grupo/renta/luzSonido (EventCategoryPickerScreen ya soporta esto solo con
+// que el arreglo tenga más de 1 elemento, sin tocar esa pantalla).
+export const COMIDA_GENRES = ['Comida', 'Barra de mixología', 'Snacks y botanas', 'Café y postres'];
+// Terrazas y salones para eventos (2026-09-23, petición real: "que pueda
+// subir las terrazas como si fuera grupo igual un video"). Un solo género
+// sombrilla, igual que 'Sonido / Iluminación' — el cliente ya elige la
+// terraza que quiera, no hace falta partirla en subtipos (salón/jardín/
+// terraza los distingue la foto y el video, no un filtro). En la BD es una
+// fila de `groups` con genre='Terraza' (sql/681), no una tabla aparte: así
+// hereda reservas, wallet, retiros, reseñas, Destacado y video sin duplicar
+// nada.
+export const TERRAZA_GENRES = ['Terraza'];
 
 export interface ProviderCategory {
   key: string;
@@ -89,20 +109,33 @@ export interface ProviderCategory {
 // que esa fila se cree. Reportado explícitamente, no oculto. Mismo caso
 // para 'espectaculo' y 'mc' (sql/622, agregadas 2026-09-05 — antes solo
 // existían en el registro y no se podían encontrar en Explorador).
+// Orden de los chips — petición real 2026-09-22: "después de grupo musical
+// al lado esté amenidades y snacks, después shows" — y comediante/maestro de
+// ceremonias se dejan junto a Shows (misma familia de "entretenimiento en
+// vivo" para el cliente) aunque siguen siendo categorías separadas de
+// verdad: si se fusionaran con 'espectaculo' perderían su trato de "solo
+// sonido" (SOUND_ONLY_CATEGORIES) y pasarían a pedirles equipo completo
+// (tarima/LED) como a un grupo — eso sí sería dañar algo que ya funciona
+// bien, así que solo se reordenan, no se fusionan.
 export const PROVIDER_CATEGORIES: ProviderCategory[] = [
   { key: 'grupo',      emoji: '🎵', labelKey: 'eventCategoryPicker.grupo',      genres: GRUPO_MUSICAL_GENRES },
-  { key: 'solista',    emoji: '🎷', labelKey: 'eventCategoryPicker.solista',    genres: ['Solistas'] },
-  { key: 'dj',         emoji: '🎧', labelKey: 'eventCategoryPicker.dj',         genres: ['DJ'] },
-  { key: 'comediante', emoji: '🎤', labelKey: 'eventCategoryPicker.comediante', genres: ['Comediante'] },
+  { key: 'comida',     emoji: '🍔', labelKey: 'eventCategoryPicker.comida',     genres: COMIDA_GENRES },
   // 2026-09-05 — "Shows" (antes "Espectáculo") absorbe a Payasos: payaso,
   // mago, personajes y animación son todos tipos de show, no categorías
   // separadas (petición real del usuario). Payasos ya NO es un botón propio.
   { key: 'espectaculo', emoji: '🎪', labelKey: 'eventCategoryPicker.espectaculo', genres: ['Espectáculo', 'Payasos', 'Mago', 'Personajes', 'Animación'] },
+  { key: 'comediante', emoji: '🎤', labelKey: 'eventCategoryPicker.comediante', genres: ['Comediante'] },
   { key: 'mc',         emoji: '🎙️', labelKey: 'eventCategoryPicker.mc',        genres: ['Maestro de Ceremonias'] },
+  { key: 'solista',    emoji: '🎷', labelKey: 'eventCategoryPicker.solista',    genres: ['Solistas'] },
+  { key: 'dj',         emoji: '🎧', labelKey: 'eventCategoryPicker.dj',         genres: ['DJ'] },
   { key: 'luzSonido',  emoji: '🔊', labelKey: 'eventCategoryPicker.luzSonido',  genres: LUZ_SONIDO_GENRES },
-  { key: 'comida',     emoji: '🍔', labelKey: 'eventCategoryPicker.comida',     genres: ['Comida'] },
   { key: 'renta',      emoji: '🪑', labelKey: 'eventCategoryPicker.renta',      genres: RENTA_GENRES },
   { key: 'fotografos', emoji: '📸', labelKey: 'eventCategoryPicker.fotografos', genres: FOTOGRAFOS_GENRES },
+  // Terrazas va al FINAL a propósito: el orden de los chips de arriba es el
+  // que pidió el usuario explícitamente ("después de grupo musical al lado
+  // esté amenidades y snacks, después shows"), así que la nueva categoría no
+  // se mete en medio de ese orden. Moverla es cambiar esta línea de lugar.
+  { key: 'terraza',    emoji: '🏡', labelKey: 'eventCategoryPicker.terraza',    genres: TERRAZA_GENRES },
 ];
 
 // Mismo criterio ya usado en HomeScreen para "músicos primero" / deck de
@@ -113,10 +146,36 @@ export const PROVIDER_CATEGORIES: ProviderCategory[] = [
 // "Shows" (2026-09-05, sql/625) y eligen tipo de descanso libremente,
 // igual que un solista (antes Payasos sí estaba forzado a sin-descansos).
 export const NON_MUSICIAN_GENRES = new Set<string>([
-  'Comediante', 'Comida', 'Maestro de Ceremonias',
+  'Comediante', 'Maestro de Ceremonias',
+  ...COMIDA_GENRES,
   'Renta de brincolines', 'Inflables acuáticos', 'Renta de mesas', 'Renta de sillas',
   'Fotografía', 'Drones', 'Cabina 360', 'Cabina fotográfica',
+  ...TERRAZA_GENRES,
 ]);
+
+// Un grupo puede tocar más de un estilo a la vez (petición real 2026-09-20:
+// "un grupo puede poner dos generos, por decir norteño/sierreño") — se
+// guarda en `groups.genre` como texto separado por "/" (ej. "Norteño/
+// Sierreño"). splitGenres() lo separa; genreMatches() dice si CUALQUIERA de
+// esos estilos es el que se busca. Un grupo de un solo género sigue
+// funcionando igual (splitGenres devuelve un arreglo de 1).
+export function splitGenres(genre: string | null | undefined): string[] {
+  if (!genre) return [];
+  return genre.split('/').map(g => g.trim()).filter(Boolean);
+}
+
+export function genreMatches(groupGenre: string | null | undefined, target: string | null | undefined): boolean {
+  if (!groupGenre || !target) return false;
+  const t = target.trim().toLowerCase();
+  return splitGenres(groupGenre).some(g => g.toLowerCase() === t);
+}
+
+// true si ALGUNO de los estilos separados es de músico (deck "solo músicos"
+// en "Todos") — combinar un género musical con uno de servicio ("Comida")
+// no es un caso real hoy, pero si pasara, cuenta como músico igual.
+export function isMusicianGenre(genre: string | null | undefined): boolean {
+  return splitGenres(genre).some(g => !NON_MUSICIAN_GENRES.has(g));
+}
 
 // Espejo en JS de group_category_key() (sql/610) — misma tabla de géneros,
 // para que el admin pueda filtrar por categoría al regalar Destacado/
@@ -124,8 +183,11 @@ export const NON_MUSICIAN_GENRES = new Set<string>([
 // este filtro solo ayuda a ELEGIR el grupo correcto, la BD decide el cupo).
 export function categoryKeyForGenre(genre: string | null | undefined): string | null {
   if (!genre) return null;
-  const found = PROVIDER_CATEGORIES.find(cat => cat.genres.includes(genre));
-  return found ? found.key : null;
+  for (const part of splitGenres(genre)) {
+    const found = PROVIDER_CATEGORIES.find(cat => cat.genres.includes(part));
+    if (found) return found.key;
+  }
+  return null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -157,8 +219,25 @@ export const SOUND_ONLY_CATEGORIES = new Set<string>(['comediante', 'mc']);
 // mínima de complete_event, que ya usa ese mismo 3 como su propio default
 // cuando duration_hours viene NULL. El proveedor pone un precio TOTAL, no
 // por hora — sin horas extra (no tiene sentido para un servicio de contrato).
-export const FLAT_RATE_CATEGORIES = new Set<string>(['comida', 'renta']);
+// 'terraza' entra aquí por la misma razón (2026-09-23): un salón se renta por
+// evento ("la tarde", "el día"), no por hora, y no tiene horas extra por
+// tanda como un grupo.
+export const FLAT_RATE_CATEGORIES = new Set<string>(['comida', 'renta', 'terraza']);
 export const FLAT_RATE_DEFAULT_HOURS = 3;
+
+// Categorías que NO se trasladan: el cliente va a ELLAS, no ellas al cliente.
+// Por eso al cotizar no se les pide "costo de traslado" (para un salón no
+// existe) ni se les calcula distancia desde la dirección del evento.
+// Hoy solo terrazas; se deja como conjunto porque es el patrón del archivo y
+// porque cualquier sede futura (rancho, hacienda, quinta) cae igual aquí.
+export const NO_TRAVEL_CATEGORIES = new Set<string>(['terraza']);
+
+// true si esta categoría es una SEDE (el evento pasa ahí). Útil para textos:
+// a una terraza no se le dice "¿a qué hora llegas?" sino "¿a qué hora empieza
+// tu evento?".
+export function isVenueCategory(categoryKey: string | null | undefined): boolean {
+  return !!categoryKey && NO_TRAVEL_CATEGORIES.has(categoryKey);
+}
 
 export type CategoryDetailFieldType = 'chips' | 'multiChips' | 'text' | 'number';
 
@@ -257,6 +336,60 @@ export const CATEGORY_DETAIL_FIELDS: Record<string, CategoryDetailField[]> = {
       options: [
         { key: 'si', labelKey: 'categoryDetails.espectaculo.gamesPackage.options.si' },
         { key: 'no', labelKey: 'categoryDetails.espectaculo.gamesPackage.options.no' },
+      ],
+    },
+  ],
+  // Terrazas y salones (2026-09-23). Los campos son los que de verdad
+  // deciden una renta de sede y que hoy se preguntan por WhatsApp: cuánta
+  // gente cabe, si está techado, qué viene incluido, hasta qué hora se puede
+  // poner música y si dejan meter comida/bebida de fuera.
+  // 'capacity' y 'space_type' SÍ se le preguntan al cliente (son el filtro
+  // real: "somos 200 y queremos techado"). 'included' y 'noise_curfew' los
+  // declara la terraza en su perfil — al cliente no se le pregunta porque no
+  // los elige, los consulta.
+  terraza: [
+    {
+      key: 'capacity', type: 'number',
+      labelKey: 'categoryDetails.terraza.capacity.label',
+      placeholderKey: 'categoryDetails.terraza.capacity.placeholder',
+    },
+    {
+      key: 'space_type', type: 'chips',
+      labelKey: 'categoryDetails.terraza.spaceType.label',
+      options: [
+        { key: 'techado',    labelKey: 'categoryDetails.terraza.spaceType.options.techado' },
+        { key: 'aire_libre', labelKey: 'categoryDetails.terraza.spaceType.options.aireLibre' },
+        { key: 'mixto',      labelKey: 'categoryDetails.terraza.spaceType.options.mixto' },
+      ],
+    },
+    {
+      key: 'included', type: 'multiChips', askClient: false,
+      labelKey: 'categoryDetails.terraza.included.label',
+      options: [
+        { key: 'mesas',            labelKey: 'categoryDetails.terraza.included.options.mesas' },
+        { key: 'sillas',           labelKey: 'categoryDetails.terraza.included.options.sillas' },
+        { key: 'manteleria',       labelKey: 'categoryDetails.terraza.included.options.manteleria' },
+        { key: 'cocina',           labelKey: 'categoryDetails.terraza.included.options.cocina' },
+        { key: 'estacionamiento',  labelKey: 'categoryDetails.terraza.included.options.estacionamiento' },
+        { key: 'alberca',          labelKey: 'categoryDetails.terraza.included.options.alberca' },
+        { key: 'asadores',         labelKey: 'categoryDetails.terraza.included.options.asadores' },
+        { key: 'aire_acondicionado', labelKey: 'categoryDetails.terraza.included.options.aireAcondicionado' },
+        { key: 'pista_baile',      labelKey: 'categoryDetails.terraza.included.options.pistaBaile' },
+        { key: 'seguridad',        labelKey: 'categoryDetails.terraza.included.options.seguridad' },
+      ],
+    },
+    {
+      key: 'noise_curfew', type: 'text', askClient: false,
+      labelKey: 'categoryDetails.terraza.noiseCurfew.label',
+      placeholderKey: 'categoryDetails.terraza.noiseCurfew.placeholder',
+    },
+    {
+      key: 'outside_food', type: 'chips',
+      labelKey: 'categoryDetails.terraza.outsideFood.label',
+      options: [
+        { key: 'si',       labelKey: 'categoryDetails.terraza.outsideFood.options.si' },
+        { key: 'no',       labelKey: 'categoryDetails.terraza.outsideFood.options.no' },
+        { key: 'con_cuota', labelKey: 'categoryDetails.terraza.outsideFood.options.conCuota' },
       ],
     },
   ],
