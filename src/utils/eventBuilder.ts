@@ -3,20 +3,29 @@ import type { TFunction } from 'i18next';
 import i18n from '../i18n';
 import { supabase } from '../config/supabase';
 
-// sql/585 (Fase 1, pendiente de autorización de producción) — "carrito"/
-// constructor de evento. Hasta que sql/585 se aplique en Supabase,
-// client_get_my_events() no existe todavía en la base real: esta función
-// devuelve [] de forma segura (fallback = comportamiento actual, sin
-// cambios — cada reserva sigue creando su propio evento nuevo).
+// sql/585 (ya aplicado a producción) — "carrito"/constructor de evento. Si
+// client_get_my_events() no existiera o fallara, esta función devuelve [] de
+// forma segura (fallback = cada reserva crea su propio evento nuevo, el
+// comportamiento anterior).
 
 export interface ActiveEventOption {
   event_id: string;
   event_date: string;
   address: string;
   providerCount: number;
+  providerLimit: number;
 }
 
 const ACTIVE_RES_STATUSES = ['pending', 'pending_payment', 'pending_group_confirmation', 'accepted', 'confirmed', 'in_progress'];
+
+// sql/686 — el límite de proveedores por evento vive en la BASE
+// (max_providers_per_event(), una sola fuente de verdad que leen también los 2
+// triggers, resolve_shared_event_id() y create_booking_with_event()).
+// client_get_my_events() lo manda por evento en `provider_limit`, así que aquí
+// NO se hardcodea: esta constante es solo el respaldo para cuando la app corre
+// contra una base donde sql/686 todavía no se aplicó (la RPC vieja no manda el
+// campo). Antes de sql/686 el valor era 3.
+const PROVIDER_LIMIT_FALLBACK = 20;
 
 const dateLocale = () => (i18n.language?.startsWith('en') ? 'en-US' : 'es-MX');
 
@@ -31,8 +40,9 @@ export async function getClientActiveEvents(): Promise<ActiveEventOption[]> {
       event_date: ev.event_date,
       address: ev.address,
       providerCount: (ev.providers ?? []).filter((p: any) => ACTIVE_RES_STATUSES.includes(p.status)).length,
+      providerLimit: Number(ev.provider_limit) > 0 ? Number(ev.provider_limit) : PROVIDER_LIMIT_FALLBACK,
     }))
-    .filter((ev: ActiveEventOption) => ev.providerCount < 3);
+    .filter((ev: ActiveEventOption) => ev.providerCount < ev.providerLimit);
 }
 
 /**

@@ -315,7 +315,7 @@
     "error_date_taken": "Esta fecha acaba de ser reservada. Por favor selecciona otra.",
     "calendar_legend": "🟡 Con evento (aún disponible) · ⚫ Bloqueadas · ✅ Disponibles",
     "error_daily_limit": "Este grupo ya tiene 2 eventos agendados ese día. Elige otra fecha.",
-    "error_group_limit": "Ya hay 3 grupos contratados para este evento.",
+    "error_group_limit": "Este evento ya alcanzó su máximo de proveedores.",
     "error_time_overlap": "El horario elegido choca con otro evento del grupo ese día. Elige otro horario o fecha.",
     "error_conflict": "Grupo no disponible",
     "error_conflict_body": "Este grupo no está disponible por logística y tiempo de traslado.",
@@ -673,7 +673,7 @@
       "reservationCreateFailed": "No se pudo crear la reserva. Intenta de nuevo.",
       "genericProblemTitle": "Ocurrió un problema",
       "genericProblemMessage": "No se pudo procesar tu solicitud. Intenta de nuevo.",
-      "groupLimitReached": "Ya hay 3 proveedores contratados para este evento."
+      "groupLimitReached": "Este evento ya alcanzó su máximo de proveedores."
     },
     "notifications": {
       "quoteAcceptedTitle": "✅ Cotización aceptada",
@@ -1048,7 +1048,7 @@
       "dateBlocked": "Esa fecha ya no está disponible para el grupo (se ocupó o la bloqueó). Coordina otra fecha antes de continuar.",
       "dailyLimit": "Este grupo ya tiene 2 eventos agendados ese día. Coordina otra fecha antes de continuar.",
       "timeOverlap": "El horario de este evento choca con otro evento del grupo ese día. Coordina otro horario o fecha antes de continuar.",
-      "groupLimitReached": "Ya hay 3 grupos contratados para este evento.",
+      "groupLimitReached": "Este evento ya alcanzó su máximo de proveedores.",
       "reservationCreateFailed": "No se pudo crear la reserva. Intenta de nuevo.",
       "conektaInitFailed": "No se pudo iniciar el pago con Conekta. Intenta de nuevo.",
       "paymentErrorPrefix": "Error de pago: {{message}}",
@@ -2389,6 +2389,44 @@
       "noShowsClean": "limpio",
       "refunded": "Reembolsados",
       "trendTitle": "Tendencia mensual"
+    }
+  },
+  "eventInfo": {
+    "headerTitle": "Información del evento",
+    "startsAt": "Empieza a las {{time}}",
+    "section1Title": "El evento",
+    "section2Title": "Tamaño y presupuesto",
+    "section3Title": "Cuándo termina y dónde",
+    "readOnlyNote": "La fecha, la hora de inicio y la dirección se toman de tus cotizaciones y reservas — aquí no se cambian.",
+    "nameLabel": "Nombre del evento",
+    "namePlaceholder": "Ej. XV de Sofía",
+    "typeLabel": "Tipo de evento",
+    "guestsLabel": "Número de invitados",
+    "guestsPlaceholder": "Ej. 150",
+    "budgetLabel": "Presupuesto {{currency}}",
+    "budgetPlaceholder": "Ej. 45000",
+    "budgetHint": "Solo para ti. No se comparte con los proveedores ni cambia ningún precio.",
+    "endTimeLabel": "Hora de finalización",
+    "endTimePlaceholder": "Elegir hora",
+    "endTimeHint": "Puede ser después de medianoche.",
+    "clear": "Quitar",
+    "municipioLabel": "Ciudad",
+    "municipioPlaceholder": "Ej. Zapopan",
+    "estadoLabel": "Estado",
+    "estadoPlaceholder": "Ej. Jalisco",
+    "save": "Guardar",
+    "optionalNote": "Todos los campos son opcionales. Puedes llenarlos después.",
+    "savedTitle": "Guardado",
+    "savedBody": "La información de tu evento se actualizó.",
+    "errors": {
+      "title": "No se pudo guardar",
+      "invalidType": "Elige un tipo de evento de la lista.",
+      "invalidGuests": "El número de invitados debe ser mayor a 0.",
+      "invalidBudget": "El presupuesto no puede ser negativo.",
+      "invalidEndTime": "La hora de finalización no es válida.",
+      "notOwner": "Este evento no es tuyo.",
+      "notFound": "No encontramos ese evento.",
+      "generic": "Intenta de nuevo."
     }
   },
   "eventBuilder": {

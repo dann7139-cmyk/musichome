@@ -315,7 +315,7 @@
     "error_date_taken": "This date was just booked. Please select another.",
     "calendar_legend": "🟡 Has an event (still available) · ⚫ Blocked · ✅ Available",
     "error_daily_limit": "This group already has 2 events booked that day. Please choose another date.",
-    "error_group_limit": "This event already has 3 groups booked.",
+    "error_group_limit": "This event already reached its provider limit.",
     "error_time_overlap": "The selected time clashes with another event the group has that day. Choose another time or date.",
     "error_conflict": "Group unavailable",
     "error_conflict_body": "This group is not available due to logistics and travel time.",
@@ -673,7 +673,7 @@
       "reservationCreateFailed": "The reservation could not be created. Try again.",
       "genericProblemTitle": "A problem occurred",
       "genericProblemMessage": "Your request could not be processed. Try again.",
-      "groupLimitReached": "This event already has 3 providers booked."
+      "groupLimitReached": "This event already reached its provider limit."
     },
     "notifications": {
       "quoteAcceptedTitle": "✅ Quote accepted",
@@ -1048,7 +1048,7 @@
       "dateBlocked": "That date is no longer available for the group (it was booked or blocked). Coordinate another date before continuing.",
       "dailyLimit": "This group already has 2 events scheduled that day. Coordinate another date before continuing.",
       "timeOverlap": "This event's schedule clashes with another event of the group that day. Coordinate another time or date before continuing.",
-      "groupLimitReached": "There are already 3 groups booked for this event.",
+      "groupLimitReached": "This event already reached its provider limit.",
       "reservationCreateFailed": "The reservation could not be created. Try again.",
       "conektaInitFailed": "The payment with Conekta could not be started. Try again.",
       "paymentErrorPrefix": "Payment error: {{message}}",
@@ -2389,6 +2389,44 @@
       "noShowsClean": "clean",
       "refunded": "Refunded",
       "trendTitle": "Monthly trend"
+    }
+  },
+  "eventInfo": {
+    "headerTitle": "Event information",
+    "startsAt": "Starts at {{time}}",
+    "section1Title": "The event",
+    "section2Title": "Size and budget",
+    "section3Title": "When it ends and where",
+    "readOnlyNote": "The date, start time and address come from your quotes and bookings — they are not changed here.",
+    "nameLabel": "Event name",
+    "namePlaceholder": "e.g. Sofia's Sweet 15",
+    "typeLabel": "Event type",
+    "guestsLabel": "Number of guests",
+    "guestsPlaceholder": "e.g. 150",
+    "budgetLabel": "Budget {{currency}}",
+    "budgetPlaceholder": "e.g. 45000",
+    "budgetHint": "For your eyes only. It is not shared with providers and does not change any price.",
+    "endTimeLabel": "End time",
+    "endTimePlaceholder": "Pick a time",
+    "endTimeHint": "It can be after midnight.",
+    "clear": "Clear",
+    "municipioLabel": "City",
+    "municipioPlaceholder": "e.g. Zapopan",
+    "estadoLabel": "State",
+    "estadoPlaceholder": "e.g. Jalisco",
+    "save": "Save",
+    "optionalNote": "Every field is optional. You can fill them in later.",
+    "savedTitle": "Saved",
+    "savedBody": "Your event information was updated.",
+    "errors": {
+      "title": "Could not save",
+      "invalidType": "Pick an event type from the list.",
+      "invalidGuests": "The number of guests must be greater than 0.",
+      "invalidBudget": "The budget cannot be negative.",
+      "invalidEndTime": "That end time is not valid.",
+      "notOwner": "This event is not yours.",
+      "notFound": "We could not find that event.",
+      "generic": "Please try again."
     }
   },
   "eventBuilder": {

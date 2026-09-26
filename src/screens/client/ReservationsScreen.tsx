@@ -1,4 +1,4 @@
-import { Calendar as CalendarIcon, Clock, CreditCard, FileText, Plus, Share2, Star, Trash2, X } from 'lucide-react-native';
+import { Calendar as CalendarIcon, Clock, CreditCard, FileText, Pencil, Plus, Share2, Star, Trash2, X } from 'lucide-react-native';
 import { Calendar } from 'react-native-calendars';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
@@ -51,6 +51,54 @@ const QUOTE_STATUS_CFG: Record<string, { label: string; color: string }> = {
   expired:  { label: 'Expirada',            color: COLORS.muted  },
 };
 
+/**
+ * Encabezado "Mi evento" — sql/685 (Fase 1 de "Mi Evento").
+ *
+ * Este bloque ya vivía DUPLICADO letra por letra en las pestañas "Eventos" y
+ * "Pendientes". Al agregarle el botón de editar habría quedado duplicado en dos
+ * lugares más, así que se extrajo aquí: mismo markup y mismos estilos que
+ * antes, un solo lugar donde cambiarlo. No se movió a otro archivo ni se
+ * generalizó — sigue siendo de esta pantalla.
+ *
+ * `meta` es la fila de public.events (nombre/tipo/invitados...). Puede venir
+ * undefined: eventos anteriores a Fase 1, o una base donde sql/685 todavía no
+ * se aplicó. En ese caso el encabezado se ve exactamente como antes.
+ */
+function EventGroupHeader({ group, meta, t, dateLocale, navigation }: any) {
+  const prettyDate = group.eventDate
+    ? new Date(group.eventDate + 'T12:00:00').toLocaleDateString(dateLocale, { day: 'numeric', month: 'long' })
+    : '—';
+  return (
+    <View style={styles.eventGroupHeader}>
+      <View style={{ flex: 1 }}>
+        {/* El nombre que el cliente le puso al evento manda; si no tiene, se
+            queda el título de siempre con la fecha. */}
+        <Text style={styles.eventGroupHeaderTitle} numberOfLines={1}>
+          {meta?.name ? meta.name : t('reservations.myEventTitle', { date: prettyDate })}
+        </Text>
+        {!!meta?.name && <Text style={styles.eventGroupHeaderAddress}>{prettyDate}</Text>}
+        {!!group.address && <Text style={styles.eventGroupHeaderAddress} numberOfLines={1}>📍 {group.address}</Text>}
+      </View>
+      <Pressable
+        style={styles.eventGroupHeaderEditBtn}
+        onPress={() => navigation.navigate('EventInfo', { eventId: group.eventId })}
+        hitSlop={6}
+      >
+        <Pencil size={14} color={COLORS.muted2} />
+      </Pressable>
+      <Pressable
+        style={styles.eventGroupHeaderAddBtn}
+        onPress={() => navigation.navigate('EventCategoryPicker', {
+          eventId: group.eventId, eventDate: group.eventDate, eventAddress: group.address,
+        })}
+      >
+        <Plus size={14} color={COLORS.green} />
+        <Text style={styles.eventGroupHeaderAddBtnText}>{t('reservations.addAnotherProvider')}</Text>
+      </Pressable>
+    </View>
+  );
+}
+
 export default function ClientReservationsScreen({ navigation, route }: any) {
   const { t, i18n } = useTranslation();
   const [reservations,     setReservations]     = useState<any[]>([]);
@@ -65,6 +113,9 @@ export default function ClientReservationsScreen({ navigation, route }: any) {
   const [resHasMore,       setResHasMore]       = useState(true);
   const RES_PAGE_SIZE = 50;
   const [reviewedIds,      setReviewedIds]      = useState<Set<string>>(new Set());
+  // sql/685 — filas de public.events del cliente, indexadas por id, para poder
+  // mostrar el nombre que le puso a su evento en el encabezado "Mi evento".
+  const [eventMeta,        setEventMeta]        = useState<Record<string, any>>({});
 
   // useFocusEffect ya dispara en el mount inicial — no necesitamos useEffect separado
   useFocusEffect(useCallback(() => { fetchAll(0); }, []));
@@ -102,7 +153,7 @@ export default function ClientReservationsScreen({ navigation, route }: any) {
     const from = pageNum * RES_PAGE_SIZE;
     const to   = from + RES_PAGE_SIZE - 1;
 
-    const [resData, quoteData, exprData] = await Promise.all([
+    const [resData, quoteData, exprData, eventData] = await Promise.all([
       supabase
         .from('reservations')
         .select('*, group:groups(id, name, genre, city, state, profile_image, owner_id), quote:quotes(duration_hours, overtime_1h_price, overtime_2h_price, overtime_3h_price, event_type, latitude, longitude), event_request:event_requests!event_request_id(latitude, longitude, event_lat, event_lng), event_request_id, hours_count')
@@ -120,7 +171,21 @@ export default function ClientReservationsScreen({ navigation, route }: any) {
         .eq('client_id', uid)
         .in('status', ['open', 'en_negociacion'])
         .order('created_at', { ascending: false }),
+      // sql/685 — datos básicos del evento. select('*') a propósito: si esa
+      // migración todavía no está aplicada, nombrar las columnas nuevas daría
+      // 42703 y rompería el fetch completo de la pantalla. Así, en el peor
+      // caso, el encabezado simplemente no muestra nombre.
+      supabase
+        .from('events')
+        .select('*')
+        .eq('client_id', uid),
     ]);
+
+    if (eventData.data) {
+      const byId: Record<string, any> = {};
+      eventData.data.forEach((ev: any) => { byId[ev.id] = ev; });
+      setEventMeta(byId);
+    }
 
     if (resData.data) {
       setResHasMore(resData.data.length === RES_PAGE_SIZE);
@@ -450,8 +515,9 @@ export default function ClientReservationsScreen({ navigation, route }: any) {
                 {/* sql/585 (Fase 1C, rediseñado 2026-09-02) — "Mi evento" ya
                     NO duplica la tarjeta de la reserva: se inserta como un
                     encabezado ligero justo antes de la PRIMERA reserva de
-                    cada event_id (una sola vez por evento, sin importar si
-                    tiene 1, 2 o 3 proveedores), y cada reserva sigue
+                    cada event_id (una sola vez por evento, sin importar
+                    cuántos proveedores tenga — sql/686 subió el máximo de 3
+                    a 20), y cada reserva sigue
                     renderizando su ReservationCard normal, completo, una
                     sola vez — con chat/cancelar/calificar/GPS intactos. El
                     botón "Agregar otro proveedor" vive en ese encabezado,
@@ -467,27 +533,13 @@ export default function ClientReservationsScreen({ navigation, route }: any) {
                     return (
                       <React.Fragment key={r.id}>
                         {showHeader && group && (
-                          <View style={styles.eventGroupHeader}>
-                            <View style={{ flex: 1 }}>
-                              <Text style={styles.eventGroupHeaderTitle}>
-                                {t('reservations.myEventTitle', {
-                                  date: group.eventDate
-                                    ? new Date(group.eventDate + 'T12:00:00').toLocaleDateString(i18n.language?.startsWith('en') ? 'en-US' : 'es-MX', { day: 'numeric', month: 'long' })
-                                    : '—',
-                                })}
-                              </Text>
-                              {!!group.address && <Text style={styles.eventGroupHeaderAddress} numberOfLines={1}>📍 {group.address}</Text>}
-                            </View>
-                            <Pressable
-                              style={styles.eventGroupHeaderAddBtn}
-                              onPress={() => navigation.navigate('EventCategoryPicker', {
-                                eventId: group.eventId, eventDate: group.eventDate, eventAddress: group.address,
-                              })}
-                            >
-                              <Plus size={14} color={COLORS.green} />
-                              <Text style={styles.eventGroupHeaderAddBtnText}>{t('reservations.addAnotherProvider')}</Text>
-                            </Pressable>
-                          </View>
+                          <EventGroupHeader
+                            group={group}
+                            meta={eventMeta[group.eventId]}
+                            t={t}
+                            dateLocale={i18n.language?.startsWith('en') ? 'en-US' : 'es-MX'}
+                            navigation={navigation}
+                          />
                         )}
                         <ReservationCard
                           reservation={r}
@@ -537,27 +589,14 @@ export default function ClientReservationsScreen({ navigation, route }: any) {
                     pestaña Eventos (inline, antes de su tarjeta) y
                     desaparece de aquí. */}
                 {pendingOnlyGroupedEvents.map(group => (
-                  <View key={group.eventId} style={styles.eventGroupHeader}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.eventGroupHeaderTitle}>
-                        {t('reservations.myEventTitle', {
-                          date: group.eventDate
-                            ? new Date(group.eventDate + 'T12:00:00').toLocaleDateString(i18n.language?.startsWith('en') ? 'en-US' : 'es-MX', { day: 'numeric', month: 'long' })
-                            : '—',
-                        })}
-                      </Text>
-                      {!!group.address && <Text style={styles.eventGroupHeaderAddress} numberOfLines={1}>📍 {group.address}</Text>}
-                    </View>
-                    <Pressable
-                      style={styles.eventGroupHeaderAddBtn}
-                      onPress={() => navigation.navigate('EventCategoryPicker', {
-                        eventId: group.eventId, eventDate: group.eventDate, eventAddress: group.address,
-                      })}
-                    >
-                      <Plus size={14} color={COLORS.green} />
-                      <Text style={styles.eventGroupHeaderAddBtnText}>{t('reservations.addAnotherProvider')}</Text>
-                    </Pressable>
-                  </View>
+                  <EventGroupHeader
+                    key={group.eventId}
+                    group={group}
+                    meta={eventMeta[group.eventId]}
+                    t={t}
+                    dateLocale={i18n.language?.startsWith('en') ? 'en-US' : 'es-MX'}
+                    navigation={navigation}
+                  />
                 ))}
 
                 {/* ── Solicitudes express ── */}
@@ -1668,6 +1707,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12, paddingVertical: 8,
   },
   eventGroupHeaderAddBtnText: { fontFamily: FONTS.bodySemiBold, fontSize: 12, color: COLORS.green },
+  // sql/685 — lápiz para capturar/editar los datos básicos del evento. Gris a
+  // propósito: la acción principal del encabezado sigue siendo "Agregar otro
+  // proveedor" (verde), esta es secundaria.
+  eventGroupHeaderEditBtn: {
+    width: 32, height: 32, borderRadius: RADIUS.full,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border,
+  },
 
   // ── Card ──
   // Cascarón estilo ExpressCard: fondo oscuro + borde verde fino; el mapa

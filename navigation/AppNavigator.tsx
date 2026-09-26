@@ -78,6 +78,10 @@ import GroupStatsScreen from '../src/screens/group/StatsScreen';
 import GroupQrScreen from '../src/screens/group/GroupQrScreen';
 import QuoteFormScreen from '../src/screens/client/QuoteFormScreen';
 import EventCategoryPickerScreen from '../src/screens/client/EventCategoryPickerScreen';
+// sql/685 (Fase 1 de "Mi Evento") — datos basicos del evento. Se registra en
+// los MISMOS 4 stacks que EventCategoryPicker, porque ClientReservationsScreen
+// (de donde se abre) vive en los 4: cliente, grupo y talento tambien contratan.
+import EventInfoScreen from '../src/screens/client/EventInfoScreen';
 import ClientQuoteDetailScreen from '../src/screens/client/ClientQuoteDetailScreen';
 import QuotePaymentScreen from '../src/screens/client/QuotePaymentScreen';
 import OpenRequestScreen from '../src/screens/client/OpenRequestScreen';
@@ -511,6 +515,7 @@ function ExploreStack() {
           por rol), en vez de depender de que la navegación suba sola al
           padre. */}
       <Stack.Screen name="EventCategoryPicker" component={EventCategoryPickerScreen} />
+      <Stack.Screen name="EventInfo" component={EventInfoScreen} />
       <Stack.Screen name="OpenRequest"         component={OpenRequestScreen} />
       <Stack.Screen name="GroupsMap"           component={GroupsMapScreen} />
       <Stack.Screen name="QuoteForm"           component={QuoteFormScreen} />
@@ -1153,6 +1158,7 @@ export default function AppNavigator() {
                 que reserva a otro grupo y toca ese botón hacía crashear la
                 navegación (ruta inexistente en este stack). */}
             <Stack.Screen name="EventCategoryPicker"   component={EventCategoryPickerScreen} />
+            <Stack.Screen name="EventInfo" component={EventInfoScreen} />
             <Stack.Screen name="ClientReservations"    component={ClientReservationsScreen} />
             <Stack.Screen name="GuidedRequest"         component={GuidedRequestScreen} />
             <Stack.Screen name="GroupsMap"             component={GroupsMapScreen} />
@@ -1177,6 +1183,7 @@ export default function AppNavigator() {
                 'group' — faltaba para que "Agregar otro proveedor" no
                 truene cuando un talento reserva a otro proveedor. */}
             <Stack.Screen name="EventCategoryPicker"     component={EventCategoryPickerScreen} />
+            <Stack.Screen name="EventInfo" component={EventInfoScreen} />
             <Stack.Screen name="ClientReservations"      component={ClientReservationsScreen} />
             <Stack.Screen name="GroupReservationDetail"  component={GroupConfirmBookingScreen} />
             <Stack.Screen name="EventTimer"              component={EventTimerScreen} />
@@ -1206,6 +1213,7 @@ export default function AppNavigator() {
             <Stack.Screen name="Home"               component={ClientHomeWithProposals} />
             <Stack.Screen name="GroupDetail"        component={GroupDetailScreen} />
             <Stack.Screen name="EventCategoryPicker" component={EventCategoryPickerScreen} />
+            <Stack.Screen name="EventInfo" component={EventInfoScreen} />
             <Stack.Screen name="FollowedGroups"     component={FollowedGroupsScreen} />
             <Stack.Screen
               name="Booking"

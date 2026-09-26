@@ -6,6 +6,17 @@ export type UserRole = 'admin' | 'group' | 'client' | 'talent' | 'admin_ops';
 /** Status values for the events table */
 export type EventStatus = 'draft' | 'active' | 'completed' | 'cancelled';
 
+/** Tipo de evento. Mismos 6 valores que el CHECK de quotes.event_type y que
+ *  events.event_type (sql/685) — es el vocabulario único del proyecto, ya usado
+ *  por getEventTypes() de QuoteFormScreen y OpenRequestScreen. */
+export type EventType =
+  | 'fiesta_privada'
+  | 'boda'
+  | 'cumpleanos'
+  | 'graduacion'
+  | 'empresarial'
+  | 'otro';
+
 /** Status values for the reservations table.
  *  Legacy statuses (pending, in_progress) are kept for backward compatibility
  *  with existing rows; new bookings use the values below. */
@@ -56,10 +67,24 @@ export interface Event {
   id: string;
   client_id: string;
   event_date: string;
+  event_time?: string | null;
   address: string;
   status: EventStatus;
   created_at: string;
   updated_at: string;
+  // sql/685 (Fase 1 de "Mi Evento") — datos básicos del evento. TODOS
+  // opcionales: los eventos creados antes de esa migración los tienen vacíos y
+  // deben seguir funcionando igual. `event_municipio` es la ciudad y
+  // `event_estado` el estado — mismos nombres que en `quotes`, de donde se
+  // capturan hoy.
+  name?: string | null;
+  event_type?: EventType | null;
+  guest_count?: number | null;
+  budget_max?: number | null;
+  budget_currency?: string | null;
+  end_time?: string | null;
+  event_municipio?: string | null;
+  event_estado?: string | null;
   // Relations
   client?: Profile;
   reservations?: Reservation[];
