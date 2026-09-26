@@ -2416,6 +2416,12 @@
     "estadoPlaceholder": "e.g. Jalisco",
     "save": "Save",
     "optionalNote": "Every field is optional. You can fill them in later.",
+    "unsaved": {
+      "title": "You have unsaved changes",
+      "message": "If you leave now, what you typed in the event information will be lost.",
+      "keepEditing": "Keep editing",
+      "discard": "Discard changes"
+    },
     "savedTitle": "Saved",
     "savedBody": "Your event information was updated.",
     "errors": {

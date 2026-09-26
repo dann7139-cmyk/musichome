@@ -70,22 +70,30 @@ function EventGroupHeader({ group, meta, t, dateLocale, navigation }: any) {
     : '—';
   return (
     <View style={styles.eventGroupHeader}>
-      <View style={{ flex: 1 }}>
-        {/* El nombre que el cliente le puso al evento manda; si no tiene, se
-            queda el título de siempre con la fecha. */}
-        <Text style={styles.eventGroupHeaderTitle} numberOfLines={1}>
-          {meta?.name ? meta.name : t('reservations.myEventTitle', { date: prettyDate })}
-        </Text>
-        {!!meta?.name && <Text style={styles.eventGroupHeaderAddress}>{prettyDate}</Text>}
-        {!!group.address && <Text style={styles.eventGroupHeaderAddress} numberOfLines={1}>📍 {group.address}</Text>}
+      {/* Dos renglones y no uno. Antes de Fase 1 el título compartía renglón
+          con "Agregar otro proveedor" y le quedaban ~92dp en un teléfono de
+          360dp; al sumar el lápiz bajaba a ~50dp, y en uno de 320dp el título
+          desaparecía. Con el nombre del evento (hasta 80 caracteres) eso era
+          inservible. El botón conserva EXACTAMENTE el mismo estilo de antes,
+          solo baja de renglón. */}
+      <View style={styles.eventGroupHeaderTop}>
+        <View style={{ flex: 1 }}>
+          {/* El nombre que el cliente le puso al evento manda; si no tiene, se
+              queda el título de siempre con la fecha. */}
+          <Text style={styles.eventGroupHeaderTitle} numberOfLines={2}>
+            {meta?.name ? meta.name : t('reservations.myEventTitle', { date: prettyDate })}
+          </Text>
+          {!!meta?.name && <Text style={styles.eventGroupHeaderAddress}>{prettyDate}</Text>}
+          {!!group.address && <Text style={styles.eventGroupHeaderAddress} numberOfLines={1}>📍 {group.address}</Text>}
+        </View>
+        <Pressable
+          style={styles.eventGroupHeaderEditBtn}
+          onPress={() => navigation.navigate('EventInfo', { eventId: group.eventId })}
+          hitSlop={6}
+        >
+          <Pencil size={14} color={COLORS.muted2} />
+        </Pressable>
       </View>
-      <Pressable
-        style={styles.eventGroupHeaderEditBtn}
-        onPress={() => navigation.navigate('EventInfo', { eventId: group.eventId })}
-        hitSlop={6}
-      >
-        <Pencil size={14} color={COLORS.muted2} />
-      </Pressable>
       <Pressable
         style={styles.eventGroupHeaderAddBtn}
         onPress={() => navigation.navigate('EventCategoryPicker', {
@@ -1692,12 +1700,17 @@ const styles = StyleSheet.create({
   // ligero antes de la primera reserva de cada event_id, SIN duplicar
   // precio/estado (eso ya lo muestra la ReservationCard de abajo).
   eventGroupHeader: {
-    flexDirection: 'row', alignItems: 'center', gap: 10,
+    gap: 12,
     backgroundColor: COLORS.card2,
     borderRadius: RADIUS.lg,
     borderWidth: 1,
     borderColor: 'rgba(0,230,118,0.25)',
     padding: 14,
+  },
+  // Renglón 1: título/fecha/dirección + lápiz. El lápiz se queda arriba a la
+  // derecha (fácil de encontrar) sin robarle ancho al botón de abajo.
+  eventGroupHeaderTop: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 10,
   },
   eventGroupHeaderTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: COLORS.text },
   eventGroupHeaderAddress: { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2, marginTop: 2 },
@@ -1705,6 +1718,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 5,
     backgroundColor: 'rgba(0,230,118,0.12)', borderRadius: RADIUS.full,
     paddingHorizontal: 12, paddingVertical: 8,
+    // Mismo pill de siempre; solo se ancla a la izquierda en su propio renglón
+    // en vez de estirarse a todo el ancho.
+    alignSelf: 'flex-start',
   },
   eventGroupHeaderAddBtnText: { fontFamily: FONTS.bodySemiBold, fontSize: 12, color: COLORS.green },
   // sql/685 — lápiz para capturar/editar los datos básicos del evento. Gris a

@@ -2416,6 +2416,12 @@
     "estadoPlaceholder": "Ej. Jalisco",
     "save": "Guardar",
     "optionalNote": "Todos los campos son opcionales. Puedes llenarlos después.",
+    "unsaved": {
+      "title": "Tienes cambios sin guardar",
+      "message": "Si sales ahora se pierde lo que escribiste en la información del evento.",
+      "keepEditing": "Seguir editando",
+      "discard": "Descartar cambios"
+    },
     "savedTitle": "Guardado",
     "savedBody": "La información de tu evento se actualizó.",
     "errors": {

@@ -33,7 +33,7 @@
 // duplicadas en reservations/quotes. Cambiarlas es una fase aparte.
 // ─────────────────────────────────────────────────────────────────────────────
 import { ArrowLeft, Clock } from 'lucide-react-native';
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -59,6 +59,11 @@ import TimePickerModal from '../../components/ui/TimePickerModal';
 const EVENT_TYPE_KEYS = ['fiesta_privada', 'boda', 'cumpleanos', 'graduacion', 'empresarial', 'otro'] as const;
 
 const onlyDigits = (s: string) => s.replace(/[^0-9]/g, '');
+
+// Huella del formulario vacío. Sirve de línea base mientras carga y cuando el
+// evento no se encontró, para que en esos dos casos "atrás" nunca avise de
+// cambios que no existen.
+const EMPTY_FORM_KEY = JSON.stringify(['', null, '', '', '', '', '']);
 
 // Mismo componente de encabezado de sección que usa QuoteFormScreen.
 function SectionTitle({ children }: { children: React.ReactNode }) {
@@ -91,6 +96,20 @@ export default function EventInfoScreen({ route, navigation }: any) {
 
   const [timeOpen, setTimeOpen] = useState(false);
 
+  // ── Protección contra perder lo escrito ───────────────────────────────────
+  // Se comparan dos huellas de los 7 campos editables: la que se cargó (o la
+  // que se acaba de guardar) contra la actual. Sin autosave y sin tocar la
+  // arquitectura: solo se compara y se pregunta.
+  // `currency` NO entra en la huella porque no lo edita el cliente — lo deriva
+  // el servidor del país, y si entrara marcaría el formulario como sucio solo
+  // por haber guardado.
+  const baselineRef = useRef(EMPTY_FORM_KEY);
+  const currentRef  = useRef(EMPTY_FORM_KEY);
+
+  useEffect(() => {
+    currentRef.current = JSON.stringify([name, eventType, guests, budget, endTime, municipio, estado]);
+  }, [name, eventType, guests, budget, endTime, municipio, estado]);
+
   const fetchEvent = useCallback(async () => {
     if (!eventId) { setNotFound(true); setLoading(false); return; }
     // select('*') a propósito: si sql/685 todavía no está aplicado en esta base,
@@ -108,14 +127,33 @@ export default function EventInfoScreen({ route, navigation }: any) {
     setStartTime(data.event_time ? String(data.event_time).substring(0, 5) : null);
     setAddress(data.address ?? null);
 
-    setName(data.name ?? '');
-    setEventType(data.event_type ?? null);
-    setGuests(data.guest_count != null ? String(data.guest_count) : '');
-    setBudget(data.budget_max != null ? String(data.budget_max) : '');
+    // Los valores cargados se calculan UNA vez y se usan tanto para el estado
+    // como para la línea base, así no pueden quedar desalineados.
+    const cargado = {
+      name:      data.name ?? '',
+      eventType: data.event_type ?? null,
+      guests:    data.guest_count != null ? String(data.guest_count) : '',
+      budget:    data.budget_max != null ? String(data.budget_max) : '',
+      endTime:   data.end_time ? String(data.end_time).substring(0, 5) : '',
+      municipio: data.event_municipio ?? '',
+      estado:    data.event_estado ?? '',
+    };
+    setName(cargado.name);
+    setEventType(cargado.eventType);
+    setGuests(cargado.guests);
+    setBudget(cargado.budget);
     setCurrency(data.budget_currency ?? null);
-    setEndTime(data.end_time ? String(data.end_time).substring(0, 5) : '');
-    setMunicipio(data.event_municipio ?? '');
-    setEstado(data.event_estado ?? '');
+    setEndTime(cargado.endTime);
+    setMunicipio(cargado.municipio);
+    setEstado(cargado.estado);
+
+    const huella = JSON.stringify([
+      cargado.name, cargado.eventType, cargado.guests, cargado.budget,
+      cargado.endTime, cargado.municipio, cargado.estado,
+    ]);
+    baselineRef.current = huella;
+    currentRef.current  = huella;
+
     setLoading(false);
   }, [eventId]);
 
@@ -123,6 +161,34 @@ export default function EventInfoScreen({ route, navigation }: any) {
   // proyecto (ReservationsScreen, QuoteFormScreen) y además recarga si el
   // cliente vuelve a esta pantalla.
   useFocusEffect(useCallback(() => { fetchEvent(); }, [fetchEvent]));
+
+  // Un solo listener cubre las TRES formas de salir: la flecha de esta
+  // pantalla (que llama goBack), el botón físico de atrás en Android y el
+  // gesto de swipe en iOS — todas pasan por 'beforeRemove' de React Navigation
+  // v7. Por eso la flecha no necesita lógica propia.
+  useEffect(() => {
+    const unsub = navigation.addListener('beforeRemove', (e: any) => {
+      if (currentRef.current === baselineRef.current) return;   // nada cambió
+      e.preventDefault();
+      Alert.alert(
+        t('eventInfo.unsaved.title'),
+        t('eventInfo.unsaved.message'),
+        [
+          { text: t('eventInfo.unsaved.keepEditing'), style: 'cancel' },
+          {
+            text: t('eventInfo.unsaved.discard'),
+            style: 'destructive',
+            onPress: () => navigation.dispatch(e.data.action),
+          },
+        ],
+        // En Android el Alert se descarta con "atrás" sin tocar ningún botón;
+        // eso simplemente deja al cliente en la pantalla (equivale a "Seguir
+        // editando"), que es el lado seguro.
+        { cancelable: true },
+      );
+    });
+    return unsub;
+  }, [navigation, t]);
 
   // Único estado inválido que la UI permite teclear (los campos ya filtran a
   // dígitos): escribir un 0 de invitados. Se avisa en el propio campo con el
@@ -171,6 +237,15 @@ export default function EventInfoScreen({ route, navigation }: any) {
     // cliente cuando la app no la manda) para que el siguiente guardado ya
     // vaya con ella.
     if (data.budget_currency) setCurrency(data.budget_currency);
+
+    // Guardado correcto: la línea base pasa a ser lo que hay en pantalla, así
+    // que el goBack de abajo NO dispara la advertencia de cambios sin guardar.
+    // Se toma del estado actual (sin recortar) y no de lo que se envió
+    // recortado, porque lo que el cliente ve es el estado.
+    const huella = JSON.stringify([name, eventType, guests, budget, endTime, municipio, estado]);
+    baselineRef.current = huella;
+    currentRef.current  = huella;
+
     Alert.alert(t('eventInfo.savedTitle'), t('eventInfo.savedBody'), [
       { text: 'OK', onPress: () => navigation.goBack() },
     ]);
@@ -267,20 +342,23 @@ export default function EventInfoScreen({ route, navigation }: any) {
             <SectionTitle>{t('eventInfo.section3Title')}</SectionTitle>
 
             <Text style={s.fieldLabel}>{t('eventInfo.endTimeLabel')}</Text>
-            <Pressable
-              style={[s.timeChip, !!endTime && s.timeChipActive]}
-              onPress={() => setTimeOpen(true)}
-            >
-              <Clock size={16} color={endTime ? COLORS.green : COLORS.muted2} />
-              <Text style={[s.timeChipText, !!endTime && s.timeChipTextActive]}>
-                {endTime || t('eventInfo.endTimePlaceholder')}
-              </Text>
+            {/* "Quitar" es HERMANO del área que abre el selector, no hijo. Un
+                Pressable anidado dentro de otro es un clásico problema de
+                Android (puede disparar también al padre y abrir el selector al
+                intentar limpiar); así no hay ambigüedad en ninguna plataforma. */}
+            <View style={[s.timeChip, !!endTime && s.timeChipActive]}>
+              <Pressable style={s.timeChipMain} onPress={() => setTimeOpen(true)}>
+                <Clock size={16} color={endTime ? COLORS.green : COLORS.muted2} />
+                <Text style={[s.timeChipText, !!endTime && s.timeChipTextActive]}>
+                  {endTime || t('eventInfo.endTimePlaceholder')}
+                </Text>
+              </Pressable>
               {!!endTime && (
-                <Pressable onPress={() => setEndTime('')} hitSlop={10}>
+                <Pressable onPress={() => setEndTime('')} hitSlop={12} style={s.clearBtn}>
                   <Text style={s.clearText}>{t('eventInfo.clear')}</Text>
                 </Pressable>
               )}
-            </Pressable>
+            </View>
             <Text style={s.hint}>{t('eventInfo.endTimeHint')}</Text>
 
             <Input
@@ -380,13 +458,22 @@ const s = StyleSheet.create({
 
   // ── Hora (mismo timeChip que QuoteFormScreen) ─────────────────────────────
   timeChip: {
-    flexDirection: 'row', alignItems: 'center', gap: 10,
+    flexDirection: 'row', alignItems: 'center',
     backgroundColor: COLORS.card2, borderRadius: RADIUS.md,
     borderWidth: 1, borderColor: COLORS.border,
-    paddingHorizontal: 14, paddingVertical: 15, marginBottom: 10,
+    paddingHorizontal: 14, marginBottom: 10,
+  },
+  // El área que abre el selector ocupa todo el espacio libre, así que el toque
+  // funciona en cualquier punto de la fila menos sobre "Quitar".
+  timeChipMain: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingVertical: 15,
   },
   timeChipActive:     { borderColor: COLORS.green, backgroundColor: 'rgba(0,230,118,0.08)' },
   timeChipText:       { fontFamily: FONTS.body, fontSize: 15, color: COLORS.muted2, flex: 1 },
   timeChipTextActive: { fontFamily: FONTS.bodySemiBold, color: COLORS.green },
+  // Área táctil cómoda (>=44dp de alto con el padding vertical) sin agrandar
+  // visualmente el texto.
+  clearBtn:  { paddingVertical: 15, paddingLeft: 12 },
   clearText: { fontFamily: FONTS.bodyMedium, fontSize: 12, color: COLORS.muted2 },
 });
