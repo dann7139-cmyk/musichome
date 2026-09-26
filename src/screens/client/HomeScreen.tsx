@@ -36,7 +36,7 @@ import { stateToCountry } from '../../utils/locationUtils';
 import { useBackgroundLocation } from '../../hooks/useBackgroundLocation';
 import LocationBanner from '../../components/ui/LocationBanner';
 import { reviveClientProposals } from '../../context/ClientProposalContext';
-import { PROVIDER_CATEGORIES, NON_MUSICIAN_GENRES, CATEGORY_DETAIL_FIELDS } from '../../constants/providerCategories';
+import { PROVIDER_CATEGORIES, NON_MUSICIAN_GENRES, CATEGORY_DETAIL_FIELDS, genreMatches } from '../../constants/providerCategories';
 
 interface Promotion {
   id: string;
@@ -392,7 +392,11 @@ export default function HomeScreen({ navigation, route }: any) {
     if (presetGenres) {
       // Filtro de categoría real (sql/585, "agregar otro proveedor") — nombre
       // exacto de groups.genre, tiene prioridad sobre el chip raíz.
-      result = result.filter(g => presetGenres.includes(g.genre));
+      // 2026-09-26 — un grupo puede registrar mas de un estilo separado por
+      // "/" ("Norteño/Sierreño", proveedor real). La comparacion exacta lo
+      // dejaba invisible en el Explorador; el helper general revisa cada
+      // estilo por separado (mismo criterio que genre_matches del servidor).
+      result = result.filter(g => presetGenres.some(pg => genreMatches(g.genre, pg)));
     } else if (selectedCategoryId) {
       // 2026-09-03 — mismas categorías que "agregar otro proveedor"
       // (PROVIDER_CATEGORIES), ya no se leen de la tabla `categories`.
@@ -401,8 +405,8 @@ export default function HomeScreen({ navigation, route }: any) {
         // 2026-09-16 — dentro del chip de categoría, un género específico
         // (Sierreño, Banda...) filtra exacto; sin elegir uno, se comporta
         // como siempre (todos los géneros de la categoría).
-        if (selectedGenre) result = result.filter(g => g.genre === selectedGenre);
-        else result = result.filter(g => cat.genres.includes(g.genre));
+        if (selectedGenre) result = result.filter(g => genreMatches(g.genre, selectedGenre));
+        else result = result.filter(g => cat.genres.some(cg => genreMatches(g.genre, cg)));
       }
     }
     // 2026-09-05 — sub-filtros por category_details ("qué tiene" el
