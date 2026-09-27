@@ -16,6 +16,9 @@
 --   [5]  Reserva pagada al 100%: contratado = pagado, pendiente = 0.
 --   [6]  Reserva sin pagar: contratado > 0, pagado = 0, pendiente = contratado.
 --   [7]  ANTICIPO: deposit_paid cuenta SOLO su monto, no el total.
+--   [19] remaining_pending (cobro final fallido): el anticipo ya cobrado
+--        cuenta, tomandolo de deposit_amount. Sin esto el tablero diria
+--        que el cliente debe el 100% cuando ya pago la mitad.
 --   [8]  Estados que NO cuentan como contratado: cancelled, rejected, expired.
 --   [9]  'completed' SÍ cuenta como contratado (no usa estados_que_ocupan).
 --   [10] payment_status que NO son dinero entrado: refunded, paid_blocked,
@@ -316,6 +319,39 @@ BEGIN
     ASSERT v_svc->>'kind' = 'reservation', '[16] debería quedar la reserva, no la cotización';
   END;
 
+  -- ══ [19] 'remaining_pending': el anticipo YA entro ═══════════════════
+  -- Estado REAL que escribe la edge function charge-remaining cuando el evento
+  -- ya termino y el cobro del 50% final fallo: status='completed' (SI contratado)
+  -- y el 50% del anticipo ya cobrado, guardado en deposit_amount por
+  -- set_booking_expiration. deposit_paid se deja NULL a proposito: es la columna
+  -- que en produccion NADIE escribe, asi que esta prueba ejerce justo la caida
+  -- del COALESCE a deposit_amount, que es la real.
+  DECLARE v_ev5 UUID; v_gz UUID;
+  BEGIN
+    RESET role;
+    INSERT INTO public.events (client_id,event_date,event_time,address,status)
+    VALUES (v_client, CURRENT_DATE+503, '21:00', 'RT693 Saldo pendiente', 'active') RETURNING id INTO v_ev5;
+    INSERT INTO public.groups (id,owner_id,name,genre,country_id)
+    VALUES (gen_random_uuid(),v_owner,'RT693 SaldoPendiente','Banda',v_mx) RETURNING id INTO v_gz;
+    INSERT INTO public.reservations (id,client_id,group_id,event_id,event_date,event_time,address,
+      total_price,status,payment_status,deposit_amount,deposit_paid,currency_code,hours_count)
+    VALUES (gen_random_uuid(),v_client,v_gz,v_ev5,CURRENT_DATE+503,'21:00','RT693 Saldo pendiente',
+      12000,'completed','remaining_pending',6000,NULL,'MXN',3);
+
+    PERFORM set_config('request.jwt.claims', json_build_object('sub',v_client::text,'role','authenticated')::text, true);
+    PERFORM set_config('role','authenticated',true);
+    v_d := public.client_get_event_dashboard(v_ev5);
+    SELECT t INTO v_t FROM jsonb_array_elements(v_d->'totals_by_currency') t WHERE t->>'currency_code'='MXN';
+    ASSERT (v_t->>'contracted')::numeric = 12000, '[19] contratado esperado 12000, llego ' || (v_t->>'contracted');
+    ASSERT (v_t->>'paid')::numeric = 6000,
+      '[19] el anticipo ya cobrado debe contar: esperaba 6000, llego ' || (v_t->>'paid');
+    ASSERT (v_t->>'pending')::numeric = 6000,
+      '[19] solo debe faltar la mitad: esperaba 6000, llego ' || (v_t->>'pending');
+    SELECT i INTO v_svc FROM jsonb_array_elements(v_d->'services') i LIMIT 1;
+    ASSERT (v_svc->>'paid_amount')::numeric = 6000, '[19] paid_amount de la fila';
+    ASSERT (v_svc->>'counts_as_contracted')::boolean = true, '[19] completed sigue contando';
+  END;
+
   -- ══ [17] events.total_price intacto y sin usarse ═══════════════════════════
   RESET role;
   ASSERT (SELECT COALESCE(total_price,0) FROM public.events WHERE id = v_ev) = 0,
@@ -326,7 +362,7 @@ BEGIN
    WHERE n.nspname='public' AND p.proname='client_get_event_dashboard';
   ASSERT v_n = 1, '[18] overload: ' || v_n::text;
 
-  RAISE EXCEPTION 'TEST_REPORT sql/693: TODO PASÓ (18/18) — sin sesión/ajeno/inexistente rechazados sin filtrar datos; evento vacío con listas vacías; presupuesto declarado sin reservas; cotización pendiente visible y sin contar como contratada; contratado MXN 43000 excluyendo la cancelada de 99000; pagado 19000 con el ANTICIPO contando solo 5000; completed SÍ cuenta; refunded/paid_blocked/payment_failed/unpaid NO son dinero entrado; dos monedas en bloques independientes jamás sumadas y el presupuesto MXN sin aparecer en USD; presupuesto rebasado informa over_budget y remaining negativo SIN bloquear nuevas reservas; provider_count coincide con el criterio real del candado y provider_limit 20; misma categoría repetida; género compuesto clasificado como grupo; cotización con reserva sin duplicar; events.total_price intacto; sin overloads';
+  RAISE EXCEPTION 'TEST_REPORT sql/693: TODO PASÓ (19/19) — sin sesión/ajeno/inexistente rechazados sin filtrar datos; evento vacío con listas vacías; presupuesto declarado sin reservas; cotización pendiente visible y sin contar como contratada; contratado MXN 43000 excluyendo la cancelada de 99000; pagado 19000 con el ANTICIPO contando solo 5000; completed SÍ cuenta; refunded/paid_blocked/payment_failed/unpaid NO son dinero entrado; dos monedas en bloques independientes jamás sumadas y el presupuesto MXN sin aparecer en USD; presupuesto rebasado informa over_budget y remaining negativo SIN bloquear nuevas reservas; provider_count coincide con el criterio real del candado y provider_limit 20; misma categoría repetida; género compuesto clasificado como grupo; cotización con reserva sin duplicar; events.total_price intacto; remaining_pending cuenta el anticipo ya cobrado cayendo a deposit_amount; sin overloads';
 END
 $suite$;
 

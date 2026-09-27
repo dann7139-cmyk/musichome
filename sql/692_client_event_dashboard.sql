@@ -40,8 +40,37 @@
 --
 -- PAGADO = dinero realmente entrado, por fila:
 --   payment_status IN ('paid','fully_paid')  -> total_price
---   payment_status = 'deposit_paid'          -> COALESCE(deposit_paid, deposit_amount, 0)
+--   payment_status IN ('deposit_paid','remaining_pending')
+--                                            -> COALESCE(deposit_paid, deposit_amount, 0)
 --   cualquier otro                           -> 0
+--
+-- Por que 'remaining_pending' entra ahi: lo escribe la edge function
+-- charge-remaining cuando el evento ya termino y el cobro del 50% restante
+-- fallo. En ese punto el anticipo del 50% YA se cobro (esta en deposit_amount,
+-- que escribe set_booking_expiration) y status queda en 'completed', o sea
+-- SI cuenta como contratado. Tratarlo como 0 le diria al cliente que debe el
+-- total cuando solo debe la mitad. Nota: isPaid() de src/utils/calculations.ts
+-- tampoco lo incluye, pero esa funcion responde "¿esta pagada?" (booleano para
+-- habilitar UI), no "¿cuanto dinero entro?".
+--
+-- 'deposit_paid' (columna numerica) hoy no la escribe NADIE — ni una funcion de
+-- BD, ni la app, ni una edge function. La que se llena de verdad es
+-- deposit_amount, via set_booking_expiration(p_reservation_id, p_deposit_amount).
+-- El COALESCE respeta deposit_paid por si algun dia se usa, y cae a
+-- deposit_amount, que es la real. Si ninguna tiene monto, reporta 0: preferimos
+-- quedarnos cortos en "pagado" antes que decirle al cliente que pago mas de lo
+-- que pago.
+--
+-- REEMBOLSOS PARCIALES (verificado contra la BD real 2026-09-27): no pueden
+-- ensuciar esta cuenta. 'refunded' solo lo escribe process_refund_reversal, que
+-- RECHAZA explicitamente los parciales ('partial_refund_not_supported' cuando
+-- p_refund_amount <> total_price), asi que 'refunded' siempre significa que
+-- regreso el total -> pagado 0 es el neto correcto. Los reembolsos por politica
+-- de cancelacion (settle_cancellation / settle_group_cancellation) NO tocan
+-- payment_status: ponen status='cancelled', y como los totales filtran
+-- contratado Y pagado con la MISMA lista de estados, esas filas aportan 0 a las
+-- dos columnas y solo aparecen como historial. refund_type='excess' existe en el
+-- CHECK pero ninguna funcion lo produce todavia.
 -- Un anticipo NO convierte la reserva entera en pagada: cuenta solo el monto.
 -- 'refunded' y 'cancelled' -> 0 (el dinero regresó).
 -- 'paid_blocked' -> 0 a propósito: confirm_reservation_payment_v2 lo pone junto
@@ -112,7 +141,13 @@ BEGIN
                              'in_progress','completed'])) AS cuenta_contratado,
       CASE
         WHEN r.payment_status IN ('paid','fully_paid') THEN COALESCE(r.total_price, 0)
-        WHEN r.payment_status = 'deposit_paid'         THEN COALESCE(r.deposit_paid, r.deposit_amount, 0)
+        -- 'remaining_pending' cuenta IGUAL que 'deposit_paid': el anticipo ya
+        -- entro. Lo escribe la edge function charge-remaining cuando el evento
+        -- termino y el cobro del 50% final fallo (tarjeta declinada o sin
+        -- metodo guardado), dejando status='completed'. Sin esta rama el
+        -- tablero le diria al cliente que debe el 100% cuando ya pago la mitad.
+        WHEN r.payment_status IN ('deposit_paid','remaining_pending')
+                                                      THEN COALESCE(r.deposit_paid, r.deposit_amount, 0)
         ELSE 0
       END AS monto_pagado
     FROM public.reservations r
