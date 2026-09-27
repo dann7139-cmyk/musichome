@@ -2455,6 +2455,7 @@
     "pending": "Left to pay",
     "scopeNote": "These totals come only from your bookings. They do not include gifts, tips or extra hours.",
     "mineTitle": "What you already have",
+    "noneConfirmedYet": "You do not have any confirmed service yet.",
     "emptyTitle": "Your party is ready to be built",
     "emptyText": "You have not added any service yet. Start with whatever matters most to you.",
     "waitingTitle": "Waiting for an answer",

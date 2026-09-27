@@ -248,11 +248,19 @@ export default function MyEventScreen({ route, navigation }: any) {
           {t('myEvent.mineTitle')}{contratados.length > 0 ? ` · ${contratados.length}` : ''}
         </Text>
         {contratados.length === 0 ? (
-          <View style={s.emptyCard}>
-            <Text style={s.emptyEmoji}>🎉</Text>
-            <Text style={s.emptyTitle}>{t('myEvent.emptyTitle')}</Text>
-            <Text style={s.emptyText}>{t('myEvent.emptyText')}</Text>
-          </View>
+          // La tarjeta grande de "todavia no agregaste nada" SOLO cuando de
+          // verdad no hay nada. Si ya pidio cotizaciones (el caso normal justo
+          // despues de armar la fiesta) o si todo quedo cancelado, decir "no has
+          // agregado ningun servicio" se contradice con la lista de abajo.
+          services.length === 0 ? (
+            <View style={s.emptyCard}>
+              <Text style={s.emptyEmoji}>🎉</Text>
+              <Text style={s.emptyTitle}>{t('myEvent.emptyTitle')}</Text>
+              <Text style={s.emptyText}>{t('myEvent.emptyText')}</Text>
+            </View>
+          ) : (
+            <Text style={s.sectionSub}>{t('myEvent.noneConfirmedYet')}</Text>
+          )
         ) : (
           contratados.map(sv => <ServiceRow key={sv.id} sv={sv} t={t} categoryLabel={categoryLabel} />)
         )}
