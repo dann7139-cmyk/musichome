@@ -390,16 +390,21 @@ export default function BookingScreen({ route, navigation }: any) {
     }
     // MSI ya se guarda atómicamente en el RPC — no se necesita update separado
 
-    // Guardar ubicación y moneda en la reserva (fire-and-forget)
+    // Guardar ubicación del evento (fire-and-forget). Antes esto era un UPDATE
+    // DIRECTO sobre `reservations` que incluía `currency_code`: el cliente
+    // decidía la moneda de su propia reserva desde la app. Ahora va por
+    // client_set_booking_location (sql/696), que verifica dueño por auth.uid(),
+    // exige que la reserva siga en pending_payment sin pago, y DERIVA la moneda
+    // en el servidor con la misma regla de siempre (US -> USD, resto -> MXN).
+    // La app ya solo manda el PAÍS, que es lo que el usuario eligió en el
+    // selector de dos opciones de esta pantalla.
     if (bookingResult?.reservation_id) {
       supabase
-        .from('reservations')
-        .update({
-          event_country: eventCountry,
-          event_city:    eventCity.trim() || null,
-          currency_code: currencyForCountry(eventCountry),
+        .rpc('client_set_booking_location', {
+          p_reservation_id: bookingResult.reservation_id,
+          p_event_country:  eventCountry,
+          p_event_city:     eventCity.trim() || null,
         })
-        .eq('id', bookingResult.reservation_id)
         .then(); // Supabase v2 es lazy — sin .then() el request nunca se envía
     }
 

@@ -187,11 +187,16 @@ export default function GroupConfirmBookingScreen({ route, navigation }: any) {
   // ── Acciones del dueño ──────────────────────────────────────────────────────
   const handleConfirm = async () => {
     setLoading(true);
-    const paymentDeadline = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-    const { error } = await supabase
-      .from('reservations')
-      .update({ status: 'accepted', booking_expiration_at: paymentDeadline })
-      .eq('id', reservation.id);
+    // Antes esto era un UPDATE DIRECTO sobre `reservations`. Ahora pasa por
+    // group_accept_booking (sql/696), que verifica que quien llama sea el DUEÑO
+    // del grupo y reproduce EXACTAMENTE esta transición: desde pending /
+    // pending_payment / pending_group_confirmation hacia 'accepted' con
+    // booking_expiration_at = +24 h. No se usa group_confirm_booking porque esa
+    // pone 'confirmed', que es otro estado: la semántica no se cambia aquí.
+    const { data: acc, error: accErr } = await supabase.rpc('group_accept_booking', {
+      p_reservation_id: reservation.id,
+    });
+    const error = accErr ?? (acc?.ok ? null : { message: acc?.error ?? 'No se pudo aceptar la reserva.' });
 
     if (!error && reservation.client_id) {
       await supabase.from('notifications').insert([{
@@ -219,7 +224,9 @@ export default function GroupConfirmBookingScreen({ route, navigation }: any) {
         text: 'Rechazar', style: 'destructive',
         onPress: async () => {
           setLoading(true);
-          await supabase.from('reservations').update({ status: 'rejected' }).eq('id', reservation.id);
+          // Igual que al aceptar: por RPC, con verificación de dueño del grupo
+          // en el servidor (sql/696). Mismo estado final 'rejected'.
+          await supabase.rpc('group_decline_booking', { p_reservation_id: reservation.id });
           // El cliente se entera (antes el rechazo era silencioso)
           if (reservation.client_id) {
             await supabase.from('notifications').insert({

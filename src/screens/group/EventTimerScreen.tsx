@@ -3430,9 +3430,15 @@ export default function EventTimerScreen({ route, navigation }: any) {
                 style={[st.breakOpt, { marginBottom: 8 }]}
                 onPress={async () => {
                   setShowPaymentMethodModal(false);
-                  await supabase.from('reservations')
-                    .update({ payment_collection_method: method })
-                    .eq('id', reservation.id);
+                  // Aquí había un UPDATE a `reservations.payment_collection_method`,
+                  // columna que NO EXISTE en la base: PostgREST lo rechazaba
+                  // siempre (PGRST204) y el error se descartaba sin mirarlo, así
+                  // que el método elegido nunca se guardó en ningún lado. Se
+                  // elimina la llamada muerta al quitar las escrituras directas
+                  // sobre `reservations` (Etapa 2); el resto del flujo no cambia
+                  // porque solo dependía del estado local de abajo. Si este dato
+                  // debe persistirse, hace falta decidir la columna y su RPC:
+                  // queda REPORTADO, no resuelto aquí.
                   setPaymentFailReason(paymentFailReason);
                   setPaymentPending(true);
                 }}

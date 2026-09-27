@@ -893,44 +893,35 @@ function ReservationCard({ reservation: r, navigation, onUpdate, isReviewed, isJ
       return;
     }
 
-    // Validar disponibilidad: el grupo no debe tener otra reserva ese día
-    const groupId = (r.group as any)?.id;
-    if (groupId) {
-      const { data: conflict } = await supabase
-        .from('reservations')
-        .select('id, event_time')
-        .eq('group_id', groupId)
-        .eq('event_date', rescheduleDate)
-        .neq('id', r.id)
-        .in('status', ['confirmed', 'accepted', 'pending'])
-        .limit(1)
-        .maybeSingle();
-
-      if (conflict) {
-        // Verificar buffer de 2h entre eventos
-        const newEventTime = r.event_time ?? '20:00:00';
-        const conflictTime = (conflict as any).event_time ?? '20:00:00';
-        const newHour    = parseInt(newEventTime.split(':')[0], 10);
-        const conflictHour = parseInt(conflictTime.split(':')[0], 10);
-        if (Math.abs(newHour - conflictHour) < 2) {
-          Alert.alert(
-            'Fecha no disponible',
-            'El grupo ya tiene un evento cerca de ese horario. Elige otra fecha.',
-          );
-          return;
-        }
-      }
-    }
-
+    // La disponibilidad ya NO se valida aquí. Antes esta pantalla comparaba
+    // "menos de 2 horas de diferencia" en JS y luego hacía un UPDATE DIRECTO de
+    // event_date sobre `reservations`. Esa comparación contradecía al servidor
+    // (can_schedule mira group_unavailability, el límite de 2 eventos por día y
+    // el solape real de busy_range) y el trigger acababa rechazando de todos
+    // modos con un error crudo. Ahora todo lo valida
+    // client_reschedule_reservation (sql/696) con la MISMA regla de producto:
+    // confirmada/aceptada, pagada y a más de 24 h.
     setRescheduleSaving(true);
-    const { error } = await supabase
-      .from('reservations')
-      .update({ event_date: rescheduleDate })
-      .eq('id', r.id);
+    const { data: resched, error } = await supabase.rpc('client_reschedule_reservation', {
+      p_reservation_id: r.id,
+      p_new_date:       rescheduleDate,
+    });
     setRescheduleSaving(false);
 
-    if (error) {
-      Alert.alert('Error', error.message ?? 'No se pudo reprogramar. Intenta de nuevo.');
+    if (error || !resched?.ok) {
+      const code = resched?.error ?? error?.message ?? '';
+      const msg =
+        code.includes('date_blocked')        ? 'El grupo bloqueó esa fecha en su calendario.'
+        : code.includes('daily_limit')       ? 'El grupo ya tiene dos eventos ese día.'
+        : code.includes('time_overlap')      ? 'El grupo ya tiene un evento a esa hora. Elige otra fecha.'
+        : code.includes('too_late')          ? 'Ya falta menos de 24 h para tu evento.'
+        : code.includes('new_date_too_soon') ? 'Elige una fecha con más de 24 h de anticipación.'
+        : code.includes('same_date')         ? 'Esa ya es la fecha de tu evento.'
+        : code.includes('not_paid')          ? 'Solo puedes reprogramar una reserva ya pagada.'
+        : code.includes('wrong_status')      ? 'Esta reserva no se puede reprogramar en su estado actual.'
+        : code.includes('not_owner')         ? 'Esta reserva no es tuya.'
+        : 'No se pudo reprogramar. Intenta de nuevo.';
+      Alert.alert('No se pudo reprogramar', msg);
       return;
     }
 
