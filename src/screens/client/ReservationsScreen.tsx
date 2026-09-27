@@ -1,4 +1,4 @@
-import { Calendar as CalendarIcon, Clock, CreditCard, FileText, Pencil, Plus, Share2, Star, Trash2, X } from 'lucide-react-native';
+import { Calendar as CalendarIcon, ChevronRight, Clock, CreditCard, FileText, Pencil, PartyPopper, Plus, Share2, Star, Trash2, X } from 'lucide-react-native';
 import { Calendar } from 'react-native-calendars';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
@@ -77,15 +77,22 @@ function EventGroupHeader({ group, meta, t, dateLocale, navigation }: any) {
           inservible. El botón conserva EXACTAMENTE el mismo estilo de antes,
           solo baja de renglón. */}
       <View style={styles.eventGroupHeaderTop}>
-        <View style={{ flex: 1 }}>
-          {/* El nombre que el cliente le puso al evento manda; si no tiene, se
-              queda el título de siempre con la fecha. */}
-          <Text style={styles.eventGroupHeaderTitle} numberOfLines={2}>
-            {meta?.name ? meta.name : t('reservations.myEventTitle', { date: prettyDate })}
-          </Text>
+        {/* Fase 2 — tocar el título abre el dashboard del evento (MyEventScreen).
+            El lápiz sigue yendo a editar los datos y el pill verde al hub de
+            servicios: tres destinos distintos, sin quitar nada de Fase 1. */}
+        <Pressable
+          style={{ flex: 1 }}
+          onPress={() => navigation.navigate('MyEvent', { eventId: group.eventId })}
+        >
+          <View style={styles.eventGroupHeaderTitleRow}>
+            <Text style={styles.eventGroupHeaderTitle} numberOfLines={2}>
+              {meta?.name ? meta.name : t('reservations.myEventTitle', { date: prettyDate })}
+            </Text>
+            <ChevronRight size={15} color={COLORS.muted2} />
+          </View>
           {!!meta?.name && <Text style={styles.eventGroupHeaderAddress}>{prettyDate}</Text>}
           {!!group.address && <Text style={styles.eventGroupHeaderAddress} numberOfLines={1}>📍 {group.address}</Text>}
-        </View>
+        </Pressable>
         <Pressable
           style={styles.eventGroupHeaderEditBtn}
           onPress={() => navigation.navigate('EventInfo', { eventId: group.eventId })}
@@ -104,6 +111,33 @@ function EventGroupHeader({ group, meta, t, dateLocale, navigation }: any) {
         <Text style={styles.eventGroupHeaderAddBtnText}>{t('reservations.addAnotherProvider')}</Text>
       </Pressable>
     </View>
+  );
+}
+
+/**
+ * CTA de "Arma tu fiesta" — Fase 2. Punto de entrada principal, dentro de la
+ * pestaña donde ya viven los eventos, sin reorganizar la navegación. Aparece en
+ * los dos casos que pidió el usuario: con eventos ya creados (arriba de la
+ * lista) y en el estado vacío.
+ */
+function BuildPartyCta({ t, navigation, variant }: any) {
+  const grande = variant === 'empty';
+  return (
+    <Pressable
+      style={[styles.ctaCard, grande && styles.ctaCardBig]}
+      onPress={() => navigation.navigate('PartyBuilder')}
+    >
+      <View style={styles.ctaIcon}>
+        <PartyPopper size={grande ? 22 : 18} color={COLORS.green} />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.ctaTitle}>{t('reservations.buildPartyTitle')}</Text>
+        <Text style={styles.ctaText}>
+          {grande ? t('reservations.buildPartyTextEmpty') : t('reservations.buildPartyText')}
+        </Text>
+      </View>
+      <ChevronRight size={18} color={COLORS.green} />
+    </Pressable>
   );
 }
 
@@ -513,13 +547,17 @@ export default function ClientReservationsScreen({ navigation, route }: any) {
           {/* ── Tab: Eventos ────────────────────────────────────── */}
           {activeTab === 'eventos' && (
             eventItems.length === 0 ? (
-              <View style={styles.empty}>
-                <Text style={styles.emptyIcon}>🎵</Text>
-                <Text style={styles.emptyTitle}>{t('reservations.tab_events')}</Text>
-                <Text style={styles.emptyText}>{t('reservations.empty_events')}</Text>
+              <View>
+                <BuildPartyCta t={t} navigation={navigation} variant="empty" />
+                <View style={styles.empty}>
+                  <Text style={styles.emptyIcon}>🎵</Text>
+                  <Text style={styles.emptyTitle}>{t('reservations.tab_events')}</Text>
+                  <Text style={styles.emptyText}>{t('reservations.empty_events')}</Text>
+                </View>
               </View>
             ) : (
               <>
+                <BuildPartyCta t={t} navigation={navigation} variant="inline" />
                 {/* sql/585 (Fase 1C, rediseñado 2026-09-02) — "Mi evento" ya
                     NO duplica la tarjeta de la reserva: se inserta como un
                     encabezado ligero justo antes de la PRIMERA reserva de
@@ -1712,7 +1750,24 @@ const styles = StyleSheet.create({
   eventGroupHeaderTop: {
     flexDirection: 'row', alignItems: 'flex-start', gap: 10,
   },
-  eventGroupHeaderTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: COLORS.text },
+  // ── CTA "Arma tu fiesta" (Fase 2) ─────────────────────────────────────────
+  ctaCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: COLORS.card2, borderRadius: RADIUS.lg,
+    borderWidth: 1, borderColor: 'rgba(0,230,118,0.35)',
+    padding: 14,
+  },
+  ctaCardBig: { padding: 18, marginBottom: 8 },
+  ctaIcon: {
+    width: 40, height: 40, borderRadius: RADIUS.full,
+    backgroundColor: 'rgba(0,230,118,0.12)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  ctaTitle: { fontFamily: FONTS.bodySemiBold, fontSize: 14.5, color: COLORS.text },
+  ctaText:  { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2, marginTop: 2, lineHeight: 17 },
+
+  eventGroupHeaderTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  eventGroupHeaderTitle: { flex: 1, fontFamily: FONTS.bodySemiBold, fontSize: 14, color: COLORS.text },
   eventGroupHeaderAddress: { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2, marginTop: 2 },
   eventGroupHeaderAddBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 5,

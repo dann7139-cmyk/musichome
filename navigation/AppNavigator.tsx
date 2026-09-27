@@ -82,6 +82,12 @@ import EventCategoryPickerScreen from '../src/screens/client/EventCategoryPicker
 // los MISMOS 4 stacks que EventCategoryPicker, porque ClientReservationsScreen
 // (de donde se abre) vive en los 4: cliente, grupo y talento tambien contratan.
 import EventInfoScreen from '../src/screens/client/EventInfoScreen';
+// Fase 2 ("Arma tu fiesta" + "Mi Evento") — se registran en los MISMOS 4
+// navegadores que EventInfo/EventCategoryPicker, porque se abren desde
+// ClientReservationsScreen, que vive en los 4 (cliente, grupo, talento y
+// ExploreStack). Si faltara uno, ese rol crashearia al tocar el CTA.
+import PartyBuilderScreen from '../src/screens/client/PartyBuilderScreen';
+import MyEventScreen from '../src/screens/client/MyEventScreen';
 import ClientQuoteDetailScreen from '../src/screens/client/ClientQuoteDetailScreen';
 import QuotePaymentScreen from '../src/screens/client/QuotePaymentScreen';
 import OpenRequestScreen from '../src/screens/client/OpenRequestScreen';
@@ -516,6 +522,8 @@ function ExploreStack() {
           padre. */}
       <Stack.Screen name="EventCategoryPicker" component={EventCategoryPickerScreen} />
       <Stack.Screen name="EventInfo" component={EventInfoScreen} />
+      <Stack.Screen name="PartyBuilder" component={PartyBuilderScreen} />
+      <Stack.Screen name="MyEvent" component={MyEventScreen} />
       <Stack.Screen name="OpenRequest"         component={OpenRequestScreen} />
       <Stack.Screen name="GroupsMap"           component={GroupsMapScreen} />
       <Stack.Screen name="QuoteForm"           component={QuoteFormScreen} />
@@ -1159,6 +1167,8 @@ export default function AppNavigator() {
                 navegación (ruta inexistente en este stack). */}
             <Stack.Screen name="EventCategoryPicker"   component={EventCategoryPickerScreen} />
             <Stack.Screen name="EventInfo" component={EventInfoScreen} />
+            <Stack.Screen name="PartyBuilder" component={PartyBuilderScreen} />
+            <Stack.Screen name="MyEvent" component={MyEventScreen} />
             <Stack.Screen name="ClientReservations"    component={ClientReservationsScreen} />
             <Stack.Screen name="GuidedRequest"         component={GuidedRequestScreen} />
             <Stack.Screen name="GroupsMap"             component={GroupsMapScreen} />
@@ -1184,6 +1194,8 @@ export default function AppNavigator() {
                 truene cuando un talento reserva a otro proveedor. */}
             <Stack.Screen name="EventCategoryPicker"     component={EventCategoryPickerScreen} />
             <Stack.Screen name="EventInfo" component={EventInfoScreen} />
+            <Stack.Screen name="PartyBuilder" component={PartyBuilderScreen} />
+            <Stack.Screen name="MyEvent" component={MyEventScreen} />
             <Stack.Screen name="ClientReservations"      component={ClientReservationsScreen} />
             <Stack.Screen name="GroupReservationDetail"  component={GroupConfirmBookingScreen} />
             <Stack.Screen name="EventTimer"              component={EventTimerScreen} />
@@ -1214,6 +1226,8 @@ export default function AppNavigator() {
             <Stack.Screen name="GroupDetail"        component={GroupDetailScreen} />
             <Stack.Screen name="EventCategoryPicker" component={EventCategoryPickerScreen} />
             <Stack.Screen name="EventInfo" component={EventInfoScreen} />
+            <Stack.Screen name="PartyBuilder" component={PartyBuilderScreen} />
+            <Stack.Screen name="MyEvent" component={MyEventScreen} />
             <Stack.Screen name="FollowedGroups"     component={FollowedGroupsScreen} />
             <Stack.Screen
               name="Booking"
