@@ -1685,7 +1685,11 @@ export default function EventTimerScreen({ route, navigation }: any) {
   const _doArriveFlow = async (lat: number | null, lng: number | null) => {
     // El RPC marca group_arrived_at atómicamente (candado GPS server-side,
     // sql/467) — SOLO verificación; el pago completo se libera al finalizar.
-    const { data: rel, error: relErr } = await supabase.rpc('release_half_on_arrival', {
+    // Etapa 2.5 (sql/699): se llama a través de group_confirm_arrival, que
+    // comprueba en el SERVIDOR que quien pide sea el dueño del grupo de ESTA
+    // reserva antes de delegar en la primitiva. El candado GPS, el umbral y
+    // todo lo demás siguen exactamente igual dentro de la primitiva.
+    const { data: rel, error: relErr } = await supabase.rpc('group_confirm_arrival', {
       p_reservation_id: reservation.id,
       p_lat: lat,
       p_lng: lng,
@@ -1865,13 +1869,22 @@ export default function EventTimerScreen({ route, navigation }: any) {
     const code = arrivalCodeInput.join('');
     if (code.length < 4) return;
     setCodeLoading(true);
-    const { data, error } = await supabase.rpc('validate_start_code', {
+    // Etapa 2.5 (sql/699): por group_validate_start_code, que exige que quien
+    // valida sea el dueño del grupo de esta reserva. Antes, validate_start_code
+    // no comprobaba identidad y era ejecutable incluso sin sesión, así que
+    // servía de oráculo para adivinar el código de cualquier reserva.
+    const { data, error } = await supabase.rpc('group_validate_start_code', {
       p_reservation_id: reservation.id,
       p_code: code,
     });
     setCodeLoading(false);
     if (error || !data?.ok) {
-      Alert.alert('Código inválido', data?.error ?? 'Verifica el código con el cliente e intenta de nuevo.');
+      // 'not_group_owner' es la única respuesta nueva que puede llegar; se
+      // traduce para no mostrarle al usuario un código interno.
+      const msg = data?.error === 'not_group_owner'
+        ? 'Esta reserva no es de tu grupo.'
+        : data?.error ?? 'Verifica el código con el cliente e intenta de nuevo.';
+      Alert.alert('Código inválido', msg);
       setArrivalCodeInput(['', '', '', '']);
       setTimeout(() => codeRef0.current?.focus(), 100);
       return;
@@ -1960,8 +1973,12 @@ export default function EventTimerScreen({ route, navigation }: any) {
         );
       }
 
-      // Fix 3: release SOLO después de confirmar éxito de complete_event
-      supabase.rpc('release_group_earnings_atomic', { p_reservation_id: reservation.id })
+      // Fix 3: release SOLO después de confirmar éxito de complete_event.
+      // Etapa 2.5 (sql/699): por group_release_earnings, que autoriza al dueño
+      // del grupo y después delega en la primitiva financiera sin cambiarle ni
+      // una guarda (payout_status, payment_status, disputa, llegada, moneda e
+      // idempotencia siguen donde estaban).
+      supabase.rpc('group_release_earnings', { p_reservation_id: reservation.id })
         .then(({ data, error }) => {
           if (error) console.warn('[FinishEvent] Error liberando ganancias:', error.message);
           else if (data?.amount_released) {
