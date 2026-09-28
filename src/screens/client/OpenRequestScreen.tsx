@@ -269,7 +269,14 @@ export default function OpenRequestScreen({ navigation, route }: any) {
           .update({
             negotiating_group_id: chosenProposal.group_owner_id,
             proposal_data:        chosenProposal.proposal_data,
-            status:               'negotiating',
+            // Auditoría 2026-09-27: aquí se escribía 'negotiating', que NO está en
+            // el CHECK de event_requests.status
+            // ('open','en_negociacion','accepted','cancelled','expired'), así que
+            // este UPDATE fallaba SIEMPRE con 23514 y, por el catch vacío de abajo,
+            // en silencio: el grupo elegido nunca quedaba fijado en la solicitud.
+            // 'en_negociacion' es el valor canónico (es el que escriben
+            // propose_event_request y los demás RPC, y el que leen las policies).
+            status:               'en_negociacion',
           })
           .eq('id', reqId)
           .eq('client_id', user!.id);

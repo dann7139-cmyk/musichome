@@ -18,12 +18,25 @@ import { openScheduledQuotes } from '../components/requests/ScheduledQuotesCarou
 export async function openForRequestNotification(requestId?: string): Promise<void> {
   if (requestId) {
     try {
+      // Auditoría 2026-09-27: antes se consultaba `event_requests.is_express`, una
+      // columna que NO existe en el esquema (ni en ninguna otra tabla). supabase-js
+      // no lanza en ese caso: devuelve { data: null, error: 42703 }, así que el
+      // try/catch nunca entraba y `isExpress` era SIEMPRE false → todas las
+      // notificaciones de solicitud abrían el carrusel de programadas.
+      // La forma canónica de saber si la solicitud llegó a ESTE grupo por el canal
+      // exprés es la misma que usa el backend en sql/366: que exista un
+      // `express_dispatches` suyo todavía vivo. Solo `dispatch_express_request`
+      // crea esas filas (y es también quien pone `express_window_until`), así que
+      // es el marcador real del canal. RLS (group_select_own_dispatches) ya limita
+      // las filas al grupo del usuario, por eso no hace falta filtrar por group_id.
+      const DISPATCH_MUERTOS = ['expired', 'ignored', 'taken'];
       const { data } = await supabase
-        .from('event_requests')
-        .select('is_express')
-        .eq('id', requestId)
-        .maybeSingle();
-      const isExpress = data?.is_express === true || (data as any)?.is_express === 'true';
+        .from('express_dispatches')
+        .select('status')
+        .eq('request_id', requestId);
+      const isExpress = (data ?? []).some(
+        (d: any) => !DISPATCH_MUERTOS.includes(String(d?.status)),
+      );
       if (isExpress) {
         await reviveAllExpressDispatches();
         return;

@@ -345,10 +345,14 @@ export default function ScheduledQuotesCarousel({ groupId }: { groupId: string |
     ]);
 
     const proposed = new Set((myProps ?? []).map((p: any) => p.request_id));
-    const openReqs = (reqs ?? []).filter((r: any) => {
-      const isExpress = r.is_express === true || r.is_express === 'true';
-      return !isExpress && !proposed.has(r.id);
-    });
+    // Auditoría 2026-09-27: aquí se filtraba por `r.is_express`, campo que NO existe
+    // en event_requests. Las filas llegan con select('*'), así que no había error de
+    // PostgREST: el valor era siempre undefined y el filtro nunca quitó nada. Se
+    // conserva EXACTAMENTE ese comportamiento (se muestran todas las solicitudes
+    // abiertas que este grupo no haya cotizado) pero sin referenciar una columna
+    // inexistente. Si alguna vez se quiere excluir las del canal exprés, el marcador
+    // real es `express_dispatches` / `express_window_until` — decisión de producto.
+    const openReqs = (reqs ?? []).filter((r: any) => !proposed.has(r.id));
 
     return [
       ...(qs ?? []).map(normalizeQuote),
@@ -452,7 +456,8 @@ export default function ScheduledQuotesCarousel({ groupId }: { groupId: string |
   // Realtime: cotización directa o solicitud abierta nueva → aparece sola
   // encima del dashboard. El canal de event_requests se filtra POR GÉNERO en
   // el servidor (sin eso, cada solicitud del país refetcheaba en cada
-  // dispositivo) + guard de is_express en el payload. Solo un INSERT nuevo
+  // dispositivo). Antes había además un "guard de is_express" en el payload, pero
+  // esa columna no existe y el guard nunca filtró nada (ver abajo). Solo un INSERT nuevo
   // reabre el sheet — cerrar con X es persistente ante items viejos.
   useEffect(() => {
     if (!groupId) return;
@@ -481,10 +486,11 @@ export default function ScheduledQuotesCarousel({ groupId }: { groupId: string |
       channel.on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'event_requests', filter: genreFilter },
-        (payload: any) => {
-          const r = payload?.new;
-          const isExpress = r?.is_express === true || r?.is_express === 'true';
-          if (!isExpress) void refresh();
+        () => {
+          // Mismo caso que arriba: el payload jamás traía `is_express` (esa columna
+          // no existe), así que este guard siempre pasaba y se refrescaba igual.
+          // Comportamiento idéntico, sin la referencia fantasma.
+          void refresh();
         }
       );
     }

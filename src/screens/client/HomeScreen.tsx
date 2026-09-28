@@ -520,7 +520,12 @@ export default function HomeScreen({ navigation, route }: any) {
       // Solicitudes express/programadas enviadas y aún abiertas
       const { data: myReqData } = await supabase
         .from('event_requests')
-        .select('id, request_type, event_type, genre, created_at, expires_at')
+        // Auditoria 2026-09-27: aqui se pedia `request_type`, que NO existe en
+        // event_requests ni en ninguna tabla del esquema. PostgREST responde
+        // 400/42703 ("column ... does not exist") y se pierde TODA la consulta,
+        // no solo esa columna -> `myOpenRequests` quedaba siempre vacio y el
+        // banner "Tu solicitud esta activa" nunca se mostraba.
+        .select('id, event_type, genre, created_at, expires_at')
         .eq('client_id', sessionData.session.user.id)
         .eq('status', 'open')
         .gt('expires_at', new Date().toISOString())
@@ -909,9 +914,13 @@ export default function HomeScreen({ navigation, route }: any) {
 
         {/* MIS SOLICITUDES ENVIADAS — aún esperando propuestas */}
         {myOpenRequests.length > 0 && !liveEvent && (() => {
-          const first = myOpenRequests[0];
           const count = myOpenRequests.length;
-          const typeLabel = first.request_type === 'express' ? 'Express' : 'Programada';
+          // El tipo NO es un dato de la fila: toda solicitud de `event_requests`
+          // nace del canal expres (OpenRequestScreen) o de la guiada, que es "el
+          // mismo flujo express" (docs/FLUJO_EVENTOS_EXPRESS_Y_PROGRAMADOS.md, 1).
+          // Lo programado vive en la tabla `quotes`, no aqui. Por eso la rama
+          // "Programada" era inalcanzable y dependia de una columna inexistente.
+          const typeLabel = 'Express';
           const subText = count === 1
             ? `Solicitud ${typeLabel} · Esperando propuestas de grupos`
             : `${count} solicitudes activas · Esperando propuestas`;

@@ -169,3 +169,37 @@ Cron `expire_stale_requests` corre **cada 5 minutos** con estas reglas exactas:
 - Timers calculados contra la base de datos, no contra el reloj local.
 - Notificaciones con constraint de tipos completo (un tipo faltante ya no rompe el push).
 - Comisión/tarifa de servicio: 10% fijo, sin doble cobro en horas extra (corregido en sql/241).
+
+---
+
+## Hallazgo abierto (2026-09-27) — la exclusividad exprés no la impone la base de datos
+
+**No se corrigió a propósito**: puede implicar una regla de producto y no se quiso
+mezclar con el release de seguridad. Queda documentado para decidirlo aparte.
+
+`sql/217_dispatch_express_request.sql` creó la policy `groups_see_open_requests` con
+la intención de ocultar una solicitud mientras está en la ventana de exclusividad
+exprés, salvo para el grupo que tiene el dispatch. Pero **hay otra policy que la deja
+pasar**: `er_group_select` (de `sql/65`) permite a cualquier grupo del **mismo género**
+leer las solicitudes `open` / `en_negociacion` vigentes **sin mirar
+`express_window_until`**. Las policies PERMISSIVE se suman con OR, así que la
+exclusividad nunca fue efectiva para un grupo del mismo género. `sql/710` conserva ese
+comportamiento tal cual (su nueva `er_group_genre_split_select` replica la misma
+condición) para no cambiar producto en un release de seguridad.
+
+Dos detalles medidos que hay que tener presentes al decidirlo:
+
+- La ventana real es de **180 minutos**, no de 3 minutos:
+  `dispatch_express_request` usa `v_window_minutes int := 180`, y ese mismo valor va a
+  `express_dispatches.expires_at` y a `event_requests.express_window_until`. Los textos
+  de la app que dicen "Tienes 3 minutos para recibir cotizaciones"
+  (`OpenRequestScreen`) y varios comentarios del código siguen diciendo 3 minutos.
+- `express_window_until` solo se escribe **si el dispatch alcanzó a ≥ 1 grupo**
+  (`IF v_dispatched > 0`), así que "tiene ventana" ⟺ "existe al menos un
+  `express_dispatches` de esa solicitud". Ese es hoy el **único** marcador real del
+  canal exprés en el esquema: no existe `event_requests.is_express` ni
+  `event_requests.request_type`.
+
+Si se quiere que la exclusividad sea real, hay que decidir **producto** primero
+(¿durante la ventana solo ve la solicitud el grupo despachado, incluso los del mismo
+género?) y después tocar las dos policies de lectura del proveedor a la vez.
