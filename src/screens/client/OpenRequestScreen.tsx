@@ -559,7 +559,13 @@ export default function OpenRequestScreen({ navigation, route }: any) {
     Alert.alert(
       expressDispatched > 0 ? '⚡ Solicitud enviada' : '✅ Solicitud enviada',
       expressDispatched > 0
-        ? `Tu solicitud llegó a ${expressDispatched} grupo${expressDispatched !== 1 ? 's' : ''} de ${genre} en tiempo real. Tienes 3 minutos para recibir cotizaciones.`
+        // Auditoría 2026-09-28: este aviso prometía "3 minutos", un residuo de
+        // sql/217 (v_window_minutes := 3). La ventana subió 3 → 15 → 60 → 180 min
+        // (sql/366, 368, 456) y hoy TODO el flujo exprés dura 3 h: los dispatches y
+        // `express_window_until` vencen a los 180 min y `event_requests.expires_at`
+        // nace en NOW() + 3 h. Los grupos pueden cotizar desde el instante 0 (la ola 1
+        // avisa a los 3 mejores de inmediato) y durante toda la ventana.
+        ? `Tu solicitud llegó a ${expressDispatched} grupo${expressDispatched !== 1 ? 's' : ''} de ${genre} en tiempo real. Estará activa por hasta 3 horas y pueden enviarte cotizaciones desde este momento.`
         : `Tu solicitud fue enviada. Los grupos de ${genre} en tu área la verán en breve.`,
       [{ text: 'Perfecto', onPress: () => navigation.goBack() }],
     );

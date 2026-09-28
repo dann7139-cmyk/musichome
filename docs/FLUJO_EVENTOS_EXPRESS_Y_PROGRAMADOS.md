@@ -39,7 +39,7 @@ También existe **reserva directa de paquete** (BookingScreen): el cliente compr
 ## 3. Qué pasa al enviar una solicitud express
 
 1. Se inserta en `event_requests` con status `open`.
-2. RPC `dispatch_express_request`: busca hasta **10 grupos** del mismo género, en la misma ciudad o mismo estado, activos y sin suspensión por strikes → crea un "dispatch" por grupo con **ventana de exclusividad de 3 minutos**.
+2. RPC `dispatch_express_request`: busca hasta **10 grupos** del mismo género, en la misma ciudad o mismo estado, activos y sin suspensión por strikes → crea un "dispatch" por grupo con una **ventana de 3 horas** (`v_window_minutes := 180`, sql/456): ese mismo plazo va a `express_dispatches.expires_at` y a `event_requests.express_window_until`, y coincide con la vida de la solicitud (`event_requests.expires_at` = NOW() + 3 h). Los grupos pueden cotizar desde el instante 0 y durante toda la ventana. Histórico: la ventana fue de 3 min (sql/217) → 15 (sql/366) → 60 (sql/368) → 180 (sql/456).
 3. **Push inmediata (1–5 segundos)** vía trigger + Expo Push, con cron de respaldo cada 60 s (sin duplicados).
 4. Si el canal express no alcanzó a ningún grupo → fallback automático: notificación por olas (`notify_wave_1`) a grupos del género en un radio de 50 km.
 5. Un cron libera los locks express vencidos **cada minuto**.
@@ -51,7 +51,7 @@ También existe **reserva directa de paquete** (BookingScreen): el cliente compr
 ### Express — IncomingExpressScreen
 - Pantalla completa con **sonido y vibración**: mapa oscuro con la ruta desde su posición GPS hasta la **zona aproximada** del evento.
 - **Privacidad**: el pin del destino lleva un desplazamiento aleatorio — la dirección exacta NUNCA se muestra antes del pago.
-- Countdown de 3 minutos (tiembla cuando es crítico). Datos: tipo de evento, género, hora, horas, invitados, ciudad/municipio, techado, sonido, comentarios.
+- Countdown hasta `express_dispatches.expires_at`, o sea **hasta 3 horas** (tiembla cuando es crítico: se pone naranja bajo 60 s y rojo bajo 20 s). Lo único que dura minutos es el **lock de cotización**: 2 minutos desde `lock_express_dispatch`, extensible por heartbeat hasta `locked_at + 8 min`, y solo un grupo puede tenerlo a la vez (índice único `idx_one_active_lock_per_request`). Datos: tipo de evento, género, hora, horas, invitados, ciudad/municipio, techado, sonido, comentarios.
 - En Realtime: si otro grupo cotizó y el cliente ya aceptó → pantalla "Ya fue tomado" (muestra a cuántos grupos llegó). Si su cotización salió bien → animación de éxito.
 
 ### Programadas — OpenRequestsScreen (grupo)
@@ -189,11 +189,16 @@ condición) para no cambiar producto en un release de seguridad.
 
 Dos detalles medidos que hay que tener presentes al decidirlo:
 
-- La ventana real es de **180 minutos**, no de 3 minutos:
-  `dispatch_express_request` usa `v_window_minutes int := 180`, y ese mismo valor va a
-  `express_dispatches.expires_at` y a `event_requests.express_window_until`. Los textos
-  de la app que dicen "Tienes 3 minutos para recibir cotizaciones"
-  (`OpenRequestScreen`) y varios comentarios del código siguen diciendo 3 minutos.
+- La ventana es de **180 minutos** y así se decidió: 3 (sql/217) → 15 (sql/366) → 60 (sql/368) →
+  180 (sql/456, "deja TODO el flujo exprés en 3 h"). **Decisión de producto confirmada el
+  2026-09-28: los 180 minutos se quedan.** Los textos de la app que prometían "3 minutos"
+  eran residuo de la era de sql/217 y ya se corrigieron (`OpenRequestScreen`, y las líneas 42
+  y 54 de este documento). No existe —ni existió nunca— una exclusividad de 3 minutos por
+  grupo ni por ola: el despacho crea los hasta 10 dispatches en el mismo instante y con el
+  mismo `expires_at` (verificado en transacción revertida: 1 solo valor distinto de
+  `expires_at` entre ellos, y ninguno nace con lock). La única exclusividad real es el lock
+  de cotización de 2 minutos. En toda la base, la única función con `interval '3 minutes'` es
+  `notify_break_transitions`, que es el temporizador de descansos del evento.
 - `express_window_until` solo se escribe **si el dispatch alcanzó a ≥ 1 grupo**
   (`IF v_dispatched > 0`), así que "tiene ventana" ⟺ "existe al menos un
   `express_dispatches` de esa solicitud". Ese es hoy el **único** marcador real del
