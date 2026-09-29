@@ -15,7 +15,7 @@
  * Compartida entre role='admin' (ve todos los países) y role='admin_ops'
  * (solo su país) — los RPCs ya filtran, la pantalla no necesita saberlo.
  */
-import { ArrowLeft, Phone, DollarSign, Calendar, MapPin, Clock, Copy, Check } from 'lucide-react-native';
+import { ArrowLeft, Phone, DollarSign, Calendar, MapPin, Clock, Copy, Check, MessageCircle } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
@@ -40,6 +40,11 @@ import {
 } from '../../components/quote/QuoteFormShared';
 import { useAdminClaims } from '../../hooks/useAdminClaims';
 import { ClaimBar } from '../../components/ui/ClaimBar';
+import {
+  normalizeWhatsAppPhone,
+  buildQuoteWhatsAppMessage,
+  buildWhatsAppUrl,
+} from '../../utils/whatsapp';
 
 const call = (phone?: string | null) => { if (phone) Linking.openURL(`tel:${phone}`); };
 const openInMaps = (addr: string) => Linking.openURL(`https://maps.google.com/maps?q=${encodeURIComponent(addr)}`);
@@ -49,6 +54,68 @@ const hora = (t?: string | null) => {
   if (!t) return null;
   const [h, m] = String(t).split(':').map(Number);
   return `${h % 12 || 12}:${String(m ?? 0).padStart(2, '0')} ${h >= 12 ? 'pm' : 'am'}`;
+};
+
+// ── WhatsApp al proveedor en conserjeria ───────────────────────────────────
+// Solo lo necesario para que cotice: servicio, fecha, hora, duracion,
+// municipio/estado, invitados y requerimientos. NUNCA la direccion exacta, ni
+// el nombre, ni el telefono del cliente (misma politica que el carril expres:
+// la direccion no se revela antes del pago). Los datos salen de lo que
+// admin_get_concierge_quotes ya devuelve: no hay otra fuente.
+const openWhatsApp = (item: QuoteItem) => {
+  const phone = normalizeWhatsAppPhone(item.group_phone, item.country);
+  if (!phone) {
+    Alert.alert(
+      'Sin WhatsApp',
+      'Este proveedor no tiene un telefono valido registrado. Editalo en su perfil o llamalo por telefono.',
+    );
+    return;
+  }
+
+  const requerimientos: string[] = [];
+  if (item.needs_sound) {
+    requerimientos.push(`sonido: ${SOUND_LABELS[item.needs_sound] ?? item.needs_sound}`);
+  }
+  if (item.needs_lighting && item.needs_lighting !== 'no') {
+    requerimientos.push(`iluminacion: ${LIGHTING_LABELS[item.needs_lighting] ?? item.needs_lighting}`);
+  }
+  if (item.needs_stage && item.needs_stage !== 'no') {
+    requerimientos.push(`tarima: ${STAGE_LABELS[item.needs_stage] ?? item.needs_stage}`);
+  }
+  if (item.needs_led && item.needs_led !== 'no') {
+    requerimientos.push(`pantalla LED: ${LED_LABELS[item.needs_led] ?? item.needs_led}`);
+  }
+
+  const lugar = [
+    item.venue_size ? VENUE_LABELS[item.venue_size] ?? item.venue_size : null,
+    item.venue_covered ? COVERED_LABELS[item.venue_covered] ?? item.venue_covered : null,
+  ].filter(Boolean).join(' · ');
+
+  const detalles = item.category_details && Object.keys(item.category_details).length > 0
+    ? Object.entries(item.category_details)
+        .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : v}`)
+        .join(' · ')
+    : null;
+
+  const mensaje = buildQuoteWhatsAppMessage({
+    groupName:     item.group_name,
+    servicio:      item.group_genre,
+    eventType:     EVENT_TYPE_LABELS[item.event_type ?? ''] ?? item.event_type,
+    fecha:         fecha(item.event_date),
+    hora:          hora(item.event_time),
+    duracionHoras: item.duration_hours,
+    // Zona = municipio/estado. La direccion exacta NO se comparte.
+    zona:          [item.event_municipio, item.event_estado].filter(Boolean).join(', ') || null,
+    invitados:     item.num_personas,
+    lugar:         lugar || null,
+    requerimientos,
+    detalles,
+    comentarios:   item.comments,
+  });
+
+  Linking.openURL(buildWhatsAppUrl(phone, mensaje)).catch(() => {
+    Alert.alert('No se pudo abrir WhatsApp', 'Verifica que WhatsApp este instalado en este dispositivo.');
+  });
 };
 
 interface QuoteItem {
@@ -323,6 +390,14 @@ export default function AdminManagedQuotesScreen({ navigation }: any) {
                   <Pressable style={s.callRow} onPress={() => call(item.client_phone)} disabled={!item.client_phone}>
                     <Phone size={13} color={COLORS.gold} />
                     <Text style={s.callText}>{item.client_name ?? 'Cliente'}: {item.client_phone ?? 'sin teléfono'}</Text>
+                  </Pressable>
+
+                  {/* Abre WhatsApp con el mensaje ya armado para pedirle su
+                      precio. Solo datos para cotizar; sin direccion exacta ni
+                      datos de contacto del cliente. */}
+                  <Pressable style={s.waBtn} onPress={() => openWhatsApp(item)}>
+                    <MessageCircle size={14} color={COLORS.green} />
+                    <Text style={s.waBtnText}>Contactar por WhatsApp</Text>
                   </Pressable>
 
                   <View style={s.infoRow}>
@@ -687,6 +762,13 @@ const s = StyleSheet.create({
   },
   priceBtnText: { fontFamily: FONTS.bodySemiBold, fontSize: 14, color: COLORS.bg },
   priceBtnDisabled: { opacity: 0.4 },
+
+  waBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    borderWidth: 1, borderColor: COLORS.green, borderRadius: RADIUS.md,
+    paddingVertical: 9, marginTop: 6,
+  },
+  waBtnText: { fontFamily: FONTS.bodySemiBold, fontSize: 13, color: COLORS.green },
 
   hoursRow: { flexDirection: 'row', gap: 8, marginBottom: 14 },
   hourChip: {
