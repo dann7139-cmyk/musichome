@@ -30,6 +30,16 @@ import { supabase } from '../../config/supabase';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import { useAuth } from '../../context/AuthContext';
 import { PROVIDER_CATEGORIES, splitGenres } from '../../constants/providerCategories';
+import {
+  CatalogFieldKey,
+  catalogFieldLabel,
+  catalogFieldPlaceholder,
+  catalogFieldsFor,
+  catalogWarning,
+  parseCatalogInput,
+  sanitizeCatalogInput,
+  validateCatalog,
+} from '../../constants/commercialCatalog';
 import { STATES_BY_COUNTRY } from '../../utils/locationUtils';
 import { exportProviderAgreementPdf } from '../../utils/exportProviderAgreementPdf';
 import { useAdminClaims } from '../../hooks/useAdminClaims';
@@ -63,6 +73,10 @@ interface AppItem {
   category: string;
   years_experience: number | null;
   min_hours: number | null;
+  // Catalogo comercial declarado al registrarse (sql/720).
+  included_hours: number | null;
+  extra_hour_price: number | null;
+  capacity_max: number | null;
   country: string | null;
   state: string | null;
   city: string | null;
@@ -104,12 +118,24 @@ export default function AdminProviderApplicationsScreen({ navigation }: any) {
   const [addPhone, setAddPhone] = useState('');
   const [addCategory, setAddCategory] = useState<string | null>(null);
   const [addYears, setAddYears] = useState('');
-  const [addMinHours, setAddMinHours] = useState('');
+  // Catalogo comercial (sql/720): solo se piden los campos que su categoria usa.
+  const [addCatalog, setAddCatalog] = useState<Record<CatalogFieldKey, string>>({
+    min_hours: '', included_hours: '', extra_hour_price: '', capacity_max: '',
+  });
   const [addCountry, setAddCountry] = useState('México');
   const [addState, setAddState] = useState('');
   const [addCity, setAddCity] = useState('');
   const [addNotes, setAddNotes] = useState('');
   const [adding, setAdding] = useState(false);
+  // Derivados del catálogo: qué se pregunta, qué se manda y qué se advierte.
+  const addCatalogFields = catalogFieldsFor(addCategory);
+  const addCatalogValues = {
+    min_hours:        addCatalogFields.includes('min_hours')        ? parseCatalogInput('min_hours', addCatalog.min_hours)               : null,
+    included_hours:   addCatalogFields.includes('included_hours')   ? parseCatalogInput('included_hours', addCatalog.included_hours)     : null,
+    extra_hour_price: addCatalogFields.includes('extra_hour_price') ? parseCatalogInput('extra_hour_price', addCatalog.extra_hour_price) : null,
+    capacity_max:     addCatalogFields.includes('capacity_max')     ? parseCatalogInput('capacity_max', addCatalog.capacity_max)         : null,
+  };
+  const addCatalogAviso = catalogWarning(addCatalogValues);
   const [downloadingAgreement, setDownloadingAgreement] = useState(false);
 
   // sql/660 (2026-09-16) — "en trabajo": solo tiene sentido en Pendientes,
@@ -132,7 +158,8 @@ export default function AdminProviderApplicationsScreen({ navigation }: any) {
   const openAdd = () => {
     setAddModal(true);
     setAddName(''); setAddPhone(''); setAddCategory(null);
-    setAddYears(''); setAddMinHours('');
+    setAddYears('');
+    setAddCatalog({ min_hours: '', included_hours: '', extra_hour_price: '', capacity_max: '' });
     setAddCountry(scopedCountry ?? 'México'); setAddState(''); setAddCity(''); setAddNotes('');
   };
 
@@ -141,17 +168,22 @@ export default function AdminProviderApplicationsScreen({ navigation }: any) {
       Alert.alert('Faltan datos', 'Escribe el nombre, teléfono y elige la categoría.');
       return;
     }
+    const invalido = validateCatalog(addCatalogValues);
+    if (invalido) { Alert.alert('Revisa los datos', invalido); return; }
     setAdding(true);
     const { data, error } = await supabase.rpc('submit_provider_application', {
       p_full_name: addName.trim(),
       p_phone: addPhone.trim(),
       p_category: addCategory,
       p_years_experience: addYears ? parseInt(addYears, 10) : null,
-      p_min_hours: addMinHours ? parseFloat(addMinHours) : null,
+      p_min_hours: addCatalogValues.min_hours,
       p_country: addCountry,
       p_state: addState.trim() || null,
       p_city: addCity.trim() || null,
       p_notes: addNotes.trim() || null,
+      p_included_hours: addCatalogValues.included_hours,
+      p_extra_hour_price: addCatalogValues.extra_hour_price,
+      p_capacity_max: addCatalogValues.capacity_max,
     });
     setAdding(false);
     if (error || !data?.ok) {
@@ -167,7 +199,10 @@ export default function AdminProviderApplicationsScreen({ navigation }: any) {
       phone: addPhone.trim(),
       category: addCategory,
       years_experience: addYears ? parseInt(addYears, 10) : null,
-      min_hours: addMinHours ? parseFloat(addMinHours) : null,
+      min_hours: addCatalogValues.min_hours,
+      included_hours: addCatalogValues.included_hours,
+      extra_hour_price: addCatalogValues.extra_hour_price,
+      capacity_max: addCatalogValues.capacity_max,
       country: addCountry,
       state: addState.trim() || null,
       city: addCity.trim() || null,
@@ -323,6 +358,19 @@ export default function AdminProviderApplicationsScreen({ navigation }: any) {
                   <View style={s.infoRow}>
                     <Clock size={13} color={COLORS.muted2} />
                     <Text style={s.infoText}>Mínimo {item.min_hours}h de contratación</Text>
+                  </View>
+                )}
+                {/* Resto del catálogo comercial (sql/720) — solo lo que declaró. */}
+                {(item.included_hours != null || item.extra_hour_price != null || item.capacity_max != null) && (
+                  <View style={s.infoRow}>
+                    <Clock size={13} color={COLORS.muted2} />
+                    <Text style={s.infoText}>
+                      {[
+                        item.included_hours   != null ? `incluye ${item.included_hours}h` : null,
+                        item.extra_hour_price != null ? `hora extra $${item.extra_hour_price}` : null,
+                        item.capacity_max     != null ? `hasta ${item.capacity_max} personas` : null,
+                      ].filter(Boolean).join(' · ')}
+                    </Text>
                   </View>
                 )}
                 {(item.city || item.state || item.country) && (
@@ -494,11 +542,31 @@ export default function AdminProviderApplicationsScreen({ navigation }: any) {
                 <Text style={s.label}>Años de trayectoria</Text>
                 <TextInput style={s.input} value={addYears} onChangeText={t => setAddYears(t.replace(/[^0-9]/g, ''))} placeholder="Ej. 5" placeholderTextColor={COLORS.muted} keyboardType="numeric" />
               </View>
-              <View style={{ flex: 1 }}>
-                <Text style={s.label}>Horas mínimas</Text>
-                <TextInput style={s.input} value={addMinHours} onChangeText={t => setAddMinHours(t.replace(/[^0-9.]/g, ''))} placeholder="Ej. 3" placeholderTextColor={COLORS.muted} keyboardType="numeric" />
-              </View>
             </View>
+
+            {/* Catálogo comercial (sql/720). Antes se le pedían "horas mínimas" a
+                toda categoría, hasta a comida y renta, que no se venden por hora.
+                Ahora cada categoría ve solo lo que le aplica, y el número se
+                guarda estructurado en groups al aprobar en vez de quedar nada más
+                en la descripción. */}
+            {addCatalogFields.length > 0 && (
+              <>
+                {addCatalogFields.map(field => (
+                  <View key={field}>
+                    <Text style={s.label}>{catalogFieldLabel(field, addCategory)}</Text>
+                    <TextInput
+                      style={s.input}
+                      value={addCatalog[field]}
+                      onChangeText={v => setAddCatalog(f => ({ ...f, [field]: sanitizeCatalogInput(field, v) }))}
+                      placeholder={catalogFieldPlaceholder(field, addCategory)}
+                      placeholderTextColor={COLORS.muted}
+                      keyboardType="numeric"
+                    />
+                  </View>
+                ))}
+                {!!addCatalogAviso && <Text style={s.catalogAviso}>⚠️ {addCatalogAviso}</Text>}
+              </>
+            )}
 
             <Text style={s.label}>País{scopedCountry ? ` — tu cuenta solo da de alta en ${scopedCountry}` : ''}</Text>
             <View style={s.genreGrid}>
@@ -623,6 +691,7 @@ const s = StyleSheet.create({
   sheetTitle: { fontFamily: FONTS.title, fontSize: 18, color: COLORS.text, marginBottom: 6 },
   sheetHint: { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2, marginBottom: 16, lineHeight: 17 },
   label: { fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.muted2, marginBottom: 6 },
+  catalogAviso: { fontFamily: FONTS.body, fontSize: 12, color: COLORS.gold, marginBottom: 10, lineHeight: 16 },
   input: {
     backgroundColor: COLORS.bg, borderRadius: RADIUS.md,
     borderWidth: 1, borderColor: COLORS.border,

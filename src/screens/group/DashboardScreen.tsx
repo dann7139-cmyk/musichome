@@ -55,6 +55,16 @@ import { normalizeCity } from '../../utils/cityUtils';
 import { stateToCountry } from '../../utils/locationUtils';
 import { validatePublicText } from '../../utils/textValidation';
 import {
+  catalogErrorMessage,
+  catalogFieldLabel,
+  catalogFieldPlaceholder,
+  catalogFieldsFor,
+  catalogWarning,
+  parseCatalogInput,
+  sanitizeCatalogInput,
+  validateCatalog,
+} from '../../constants/commercialCatalog';
+import {
   categoryKeyForGenre,
   EQUIPMENT_CATEGORIES,
   SOUND_ONLY_CATEGORIES,
@@ -104,6 +114,11 @@ interface Group {
   setup_minutes?:         number | null;
   includes_text?:         string | null;
   category_details?:      Record<string, any> | null;
+  // Catálogo comercial (sql/720) — referencia para cotizar, NO precio final.
+  min_hours?:             number | null;
+  included_hours?:        number | null;
+  extra_hour_price?:      number | null;
+  capacity_max?:          number | null;
 }
 
 interface FinancialStats {
@@ -193,6 +208,9 @@ export default function GroupDashboardScreen({ navigation }: any) {
     has_led_screen: false, led_sizes_available: [] as string[],
     power_amps: '', needs_parking: false, setup_minutes: '', includes_text: '',
     category_details: {} as Record<string, any>,
+    // Catálogo comercial (sql/720). Se guarda por RPC aparte, no en el UPDATE
+    // directo, porque esa RPC es la que valida y la que también usa Admin.
+    min_hours: '', included_hours: '', extra_hour_price: '', capacity_max: '',
   });
   // 2026-09-05 — valores que otros proveedores de la MISMA categoría ya
   // usaron en sus propios perfiles (sql/624 get_category_field_values,
@@ -911,6 +929,10 @@ export default function GroupDashboardScreen({ navigation }: any) {
       setup_minutes:         String(group.setup_minutes ?? ''),
       includes_text:         group.includes_text ?? '',
       category_details:      group.category_details ?? {},
+      min_hours:             group.min_hours        != null ? String(group.min_hours)        : '',
+      included_hours:        group.included_hours   != null ? String(group.included_hours)   : '',
+      extra_hour_price:      group.extra_hour_price != null ? String(group.extra_hour_price) : '',
+      capacity_max:          group.capacity_max     != null ? String(group.capacity_max)     : '',
     });
     setEditVisible(true);
   };
@@ -935,6 +957,9 @@ export default function GroupDashboardScreen({ navigation }: any) {
       const v = validatePublicText(editForm.category_details[field.key]);
       if (!v.valid) { Alert.alert('Texto no permitido', v.error); return; }
     }
+
+    const catalogInvalido = validateCatalog(catalogValues);
+    if (catalogInvalido) { Alert.alert('Revisa tu servicio', catalogInvalido); return; }
 
     // País se deriva del estado automáticamente; conservar country existente como fallback
     const country = stateToCountry(state) || group.country || 'México';
@@ -974,10 +999,26 @@ export default function GroupDashboardScreen({ navigation }: any) {
     if (!ue) {
       await supabase.rpc('update_my_location', { p_state: state, p_country: country });
     }
+    // El catálogo comercial va por su propia RPC (sql/720): valida, avisa y es
+    // la MISMA que usa Admin, así proveedor y Admin escriben la misma fuente.
+    let catalogErr: string | null = null;
+    if (!ue && catalogFields.length > 0) {
+      const { data: cat, error: ce } = await supabase.rpc('set_group_commercial_catalog', {
+        p_group_id:         group.id,
+        p_min_hours:        catalogValues.min_hours,
+        p_included_hours:   catalogValues.included_hours,
+        p_extra_hour_price: catalogValues.extra_hour_price,
+        p_capacity_max:     catalogValues.capacity_max,
+      });
+      if (ce || !cat?.ok) catalogErr = ce?.message ?? catalogErrorMessage(cat?.error);
+    }
+
     setEditSaving(false);
     if (ue) { Alert.alert('Error', 'No se pudieron guardar los cambios.'); return; }
-    setGroup(p => p ? { ...p, ...updatePayload, state, country } : p);
+    setGroup(p => p ? { ...p, ...updatePayload, ...catalogValues, state, country } : p);
     setEditVisible(false);
+    // El resto del perfil sí se guardó: se avisa sin perder los otros cambios.
+    if (catalogErr) Alert.alert('Tu servicio no se guardó', catalogErr);
   };
 
   // ── Photo ────────────────────────────────────────────────────────────────────
@@ -1158,6 +1199,15 @@ export default function GroupDashboardScreen({ navigation }: any) {
   const showEquipmentSection  = editCategoryKey != null && EQUIPMENT_CATEGORIES.has(editCategoryKey);
   const showSoundOnlySection  = editCategoryKey != null && SOUND_ONLY_CATEGORIES.has(editCategoryKey);
   const editCategoryFields    = editCategoryKey != null ? (CATEGORY_DETAIL_FIELDS[editCategoryKey] ?? null) : null;
+  // Catálogo comercial: solo los campos que su categoría usa de verdad.
+  const catalogFields  = catalogFieldsFor(editCategoryKey);
+  const catalogValues  = {
+    min_hours:        catalogFields.includes('min_hours')        ? parseCatalogInput('min_hours', editForm.min_hours)               : null,
+    included_hours:   catalogFields.includes('included_hours')   ? parseCatalogInput('included_hours', editForm.included_hours)     : null,
+    extra_hour_price: catalogFields.includes('extra_hour_price') ? parseCatalogInput('extra_hour_price', editForm.extra_hour_price) : null,
+    capacity_max:     catalogFields.includes('capacity_max')     ? parseCatalogInput('capacity_max', editForm.capacity_max)         : null,
+  };
+  const catalogAviso   = catalogWarning(catalogValues);
 
   return (
     <View style={s.container}>
@@ -2018,6 +2068,28 @@ export default function GroupDashboardScreen({ navigation }: any) {
                   onChangeText={v => setEditForm(f => ({ ...f, sound_capacity_max: v.replace(/[^0-9]/g, '') }))}
                 />
               )}
+              </>)}
+
+              {/* Catálogo comercial (sql/720) — lo que decide si el cliente
+                  te encuentra al filtrar y qué estimación inicial ve. NO es un
+                  precio final: cada evento se cotiza aparte. Cada categoría ve
+                  solo lo que le aplica (una taquiza no se vende por hora). */}
+              {catalogFields.length > 0 && (<>
+              <Text style={s.equipSectionTitle}>Mi servicio</Text>
+              {catalogFields.map(field => (
+                <View key={field}>
+                  <Text style={s.label}>{catalogFieldLabel(field, editCategoryKey)}</Text>
+                  <TextInput
+                    style={s.input}
+                    placeholder={catalogFieldPlaceholder(field, editCategoryKey)}
+                    placeholderTextColor={COLORS.muted}
+                    value={editForm[field]}
+                    onChangeText={v => setEditForm(f => ({ ...f, [field]: sanitizeCatalogInput(field, v) }))}
+                    keyboardType="numeric"
+                  />
+                </View>
+              ))}
+              {!!catalogAviso && <Text style={s.catalogAviso}>⚠️ {catalogAviso}</Text>}
               </>)}
 
               {/* Preguntas propias de la categoría — Comida/Renta/Payasos/
@@ -3711,6 +3783,7 @@ const s = StyleSheet.create({
   errorText:  { fontFamily: FONTS.body, fontSize: 12, color: '#EF5350', marginTop: -10, marginBottom: 12 },
 
   // ── Mi Equipo (modal edit) ────────────────────────────────────────────────────
+  catalogAviso: { fontFamily: FONTS.body, fontSize: 12, color: COLORS.gold, marginBottom: 10, lineHeight: 16 },
   equipSectionTitle: {
     fontFamily: FONTS.bodySemiBold, fontSize: 12, color: COLORS.muted2,
     textTransform: 'uppercase', letterSpacing: 0.6,

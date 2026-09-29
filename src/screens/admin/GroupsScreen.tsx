@@ -44,6 +44,19 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../../config/supabase';
+import {
+  CatalogFieldKey,
+  catalogErrorMessage,
+  catalogFieldLabel,
+  catalogFieldPlaceholder,
+  catalogFieldsFor,
+  catalogFormFrom,
+  catalogWarning,
+  EMPTY_CATALOG_FORM,
+  parseCatalogInput,
+  sanitizeCatalogInput,
+  validateCatalog,
+} from '../../constants/commercialCatalog';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../config/theme';
 import Particles from '../../components/ui/Particles';
 import VerifiedBadge from '../../components/ui/VerifiedBadge';
@@ -77,12 +90,67 @@ export default function AdminGroupsScreen({ navigation }: any) {
   const [videoLoading,   setVideoLoading]   = useState(false);
   const [groupVideos,    setGroupVideos]    = useState<{ id: string; url: string; status: string }[]>([]);
 
+  // Catálogo comercial del proveedor (sql/720). Admin lo completa por el mismo
+  // grupo y con la MISMA RPC que usa el dueño — no hay catálogo aparte para
+  // Admin, es la misma fuente de verdad (groups.id).
+  // Se guarda { a qué grupo pertenece lo tecleado, y lo tecleado }. Así el
+  // formulario se DERIVA en render del grupo abierto y no hace falta un
+  // useEffect que lo siembre (eso dispara renders en cascada).
+  const [catalogEdits,   setCatalogEdits]   = useState<{ id: string | null; form: Record<CatalogFieldKey, string> }>({
+    id: null, form: EMPTY_CATALOG_FORM,
+  });
+  const [catalogSaving,  setCatalogSaving]  = useState(false);
+
   // Moderate view
   const [moderateNote,        setModerateNote]        = useState('');
   const [actionLoading,       setActionLoading]       = useState(false);
   const [verificationHistory, setVerificationHistory] = useState<any[]>([]);
 
   useEffect(() => { fetchGroups(); }, []);
+
+  // Mientras no se haya tecleado nada de ESTE grupo, el formulario muestra lo
+  // que ya está guardado (vacío = NULL, que es un valor legítimo).
+  const catalogForm = catalogEdits.id && catalogEdits.id === selected?.id
+    ? catalogEdits.form
+    : catalogFormFrom(selected);
+  const setCatalogField = (field: CatalogFieldKey, v: string) =>
+    setCatalogEdits({
+      id: selected?.id ?? null,
+      form: { ...catalogForm, [field]: sanitizeCatalogInput(field, v) },
+    });
+
+  const catalogFields = catalogFieldsFor(selected ? categoryKeyForGenre(selected.genre) : null);
+  const catalogValues = {
+    min_hours:        catalogFields.includes('min_hours')        ? parseCatalogInput('min_hours', catalogForm.min_hours)               : null,
+    included_hours:   catalogFields.includes('included_hours')   ? parseCatalogInput('included_hours', catalogForm.included_hours)     : null,
+    extra_hour_price: catalogFields.includes('extra_hour_price') ? parseCatalogInput('extra_hour_price', catalogForm.extra_hour_price) : null,
+    capacity_max:     catalogFields.includes('capacity_max')     ? parseCatalogInput('capacity_max', catalogForm.capacity_max)         : null,
+  };
+  const catalogAviso = catalogWarning(catalogValues);
+
+  const handleSaveCatalog = async () => {
+    if (!selected || catalogSaving) return;
+    const invalido = validateCatalog(catalogValues);
+    if (invalido) { Alert.alert('Revisa los datos', invalido); return; }
+    setCatalogSaving(true);
+    const { data, error } = await supabase.rpc('set_group_commercial_catalog', {
+      p_group_id:         selected.id,
+      p_min_hours:        catalogValues.min_hours,
+      p_included_hours:   catalogValues.included_hours,
+      p_extra_hour_price: catalogValues.extra_hour_price,
+      p_capacity_max:     catalogValues.capacity_max,
+    });
+    setCatalogSaving(false);
+    if (error || !data?.ok) {
+      Alert.alert('No se guardó', error?.message ?? catalogErrorMessage(data?.error));
+      return;
+    }
+    setSelected((prev: any) => (prev ? { ...prev, ...catalogValues } : prev));
+    setGroups(prev => prev.map(g => (g.id === selected.id ? { ...g, ...catalogValues } : g)));
+    // Lo teclado ya es lo guardado: se suelta para volver a derivar del grupo.
+    setCatalogEdits({ id: null, form: EMPTY_CATALOG_FORM });
+    Alert.alert('Guardado', 'El catálogo comercial de este proveedor quedó actualizado.');
+  };
 
   // ── Data ──────────────────────────────────────────────────────────────────
 
@@ -95,6 +163,7 @@ export default function AdminGroupsScreen({ navigation }: any) {
         is_plus_active, plus_expires_at, plus_subscription_id,
         admin_highlight,
         concierge_mode,
+        min_hours, included_hours, extra_hour_price, capacity_max,
         rating, total_reviews, created_at,
         profile_image, owner_id,
         verification_status, strike_count,
@@ -950,6 +1019,47 @@ export default function AdminGroupsScreen({ navigation }: any) {
               </View>
             </View>
 
+            {/* Catálogo comercial (sql/720). Muchos proveedores los administra
+                Daniel, así que Admin necesita poder capturar esto por ellos —
+                pero escribiendo el MISMO groups.id con la MISMA RPC que usa el
+                dueño, no un catálogo aparte. Vacío = NULL, que es válido y no
+                debe bloquear al proveedor. Nada de esto es un precio final: la
+                quote real sigue mandando. */}
+            {catalogFields.length > 0 && (
+              <View style={s.moderateCard}>
+                <Text style={s.moderateCardTitle}>📋 Catálogo comercial</Text>
+                <Text style={s.moderateCardHint}>
+                  Sirve para filtrar, ordenar y dar una estimación inicial. NO es el
+                  precio final: ese sigue siendo la cotización de cada evento.
+                </Text>
+                {catalogFields.map(field => (
+                  <View key={field} style={{ marginTop: 10 }}>
+                    <Text style={s.moderateCardHint}>{catalogFieldLabel(field, categoryKeyForGenre(selected.genre))}</Text>
+                    <TextInput
+                      style={s.catalogInput}
+                      value={catalogForm[field]}
+                      onChangeText={v => setCatalogField(field, v)}
+                      placeholder={catalogFieldPlaceholder(field, categoryKeyForGenre(selected.genre))}
+                      placeholderTextColor={COLORS.muted}
+                      keyboardType="numeric"
+                    />
+                  </View>
+                ))}
+                {!!catalogAviso && (
+                  <Text style={[s.moderateCardHint, { color: COLORS.gold, marginTop: 8 }]}>⚠️ {catalogAviso}</Text>
+                )}
+                <Pressable
+                  style={[s.modActionBtn, s.modActionBtnOutlineGreen, { marginTop: 12 }, catalogSaving && { opacity: 0.6 }]}
+                  onPress={handleSaveCatalog}
+                  disabled={catalogSaving}
+                >
+                  {catalogSaving
+                    ? <ActivityIndicator size="small" color={COLORS.green} />
+                    : <Text style={[s.modActionBtnText, { color: COLORS.green }]}>Guardar catálogo</Text>}
+                </Pressable>
+              </View>
+            )}
+
             {/* Modo conserjería — visible aquí mismo, sin tener que ir a moderar */}
             <View style={s.moderateCard}>
               <Text style={s.moderateCardTitle}>🎯 Modo conserjería</Text>
@@ -1595,6 +1705,12 @@ const s = StyleSheet.create({
     paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: COLORS.border,
   },
   adminVideoName: { fontFamily: FONTS.body, fontSize: 13, color: COLORS.text, flex: 1 },
+  catalogInput: {
+    backgroundColor: COLORS.bg, borderRadius: RADIUS.md,
+    borderWidth: 1, borderColor: COLORS.border,
+    paddingHorizontal: 12, paddingVertical: 10, marginTop: 4,
+    fontFamily: FONTS.body, fontSize: 14, color: COLORS.text,
+  },
   notesInput: {
     backgroundColor: COLORS.bg, borderRadius: RADIUS.md,
     borderWidth: 1, borderColor: COLORS.border,

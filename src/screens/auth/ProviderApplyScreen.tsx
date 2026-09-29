@@ -9,7 +9,7 @@
  * la app), y si se aprueba, se le crea su cuenta ya en modo conserjería
  * (sql/649). No pide contraseña ni crea nada — solo inserta una solicitud.
  */
-import { ArrowLeft, Briefcase, Clock, MapPin, Phone, User } from 'lucide-react-native';
+import { ArrowLeft, Briefcase, Clock, DollarSign, MapPin, Phone, User, Users } from 'lucide-react-native';
 import React, { useState } from 'react';
 import {
   Alert,
@@ -28,15 +28,36 @@ import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
 import Particles from '../../components/ui/Particles';
 import { PROVIDER_CATEGORIES } from '../../constants/providerCategories';
+import {
+  CatalogFieldKey,
+  catalogFieldLabel,
+  catalogFieldPlaceholder,
+  catalogFieldsFor,
+  catalogWarning,
+  parseCatalogInput,
+  sanitizeCatalogInput,
+  validateCatalog,
+} from '../../constants/commercialCatalog';
 
 const COUNTRIES = ['México', 'Estados Unidos', 'Canadá'];
+
+const CATALOG_ICONS: Record<CatalogFieldKey, React.ReactNode> = {
+  min_hours:        <Clock size={18} color={COLORS.muted} />,
+  included_hours:   <Clock size={18} color={COLORS.muted} />,
+  extra_hour_price: <DollarSign size={18} color={COLORS.muted} />,
+  capacity_max:     <Users size={18} color={COLORS.muted} />,
+};
 
 export default function ProviderApplyScreen({ navigation }: any) {
   const [fullName, setFullName]   = useState('');
   const [phone, setPhone]         = useState('');
   const [category, setCategory]   = useState<string | null>(null);
   const [years, setYears]         = useState('');
-  const [minHours, setMinHours]   = useState('');
+  // Catálogo comercial (sql/720). Solo se le preguntan a la categoría los campos
+  // que de verdad le aplican — ver src/constants/commercialCatalog.ts.
+  const [catalog, setCatalog]     = useState<Record<CatalogFieldKey, string>>({
+    min_hours: '', included_hours: '', extra_hour_price: '', capacity_max: '',
+  });
   const [country, setCountry]     = useState('México');
   const [state, setState]         = useState('');
   const [city, setCity]           = useState('');
@@ -46,9 +67,24 @@ export default function ProviderApplyScreen({ navigation }: any) {
 
   const canSend = fullName.trim().length > 1 && phone.trim().length > 6 && !!category;
 
+  // Los campos que su categoría sí usa; los demás no se preguntan ni se mandan.
+  const catalogFields = catalogFieldsFor(category);
+  const catalogValues = {
+    min_hours:        catalogFields.includes('min_hours')        ? parseCatalogInput('min_hours', catalog.min_hours)               : null,
+    included_hours:   catalogFields.includes('included_hours')   ? parseCatalogInput('included_hours', catalog.included_hours)     : null,
+    extra_hour_price: catalogFields.includes('extra_hour_price') ? parseCatalogInput('extra_hour_price', catalog.extra_hour_price) : null,
+    capacity_max:     catalogFields.includes('capacity_max')     ? parseCatalogInput('capacity_max', catalog.capacity_max)         : null,
+  };
+  const catalogAviso = catalogWarning(catalogValues);
+
   const handleSend = async () => {
     if (!canSend) {
       Alert.alert('Faltan datos', 'Escribe tu nombre, teléfono y elige tu categoría.');
+      return;
+    }
+    const invalido = validateCatalog(catalogValues);
+    if (invalido) {
+      Alert.alert('Revisa tus datos', invalido);
       return;
     }
     setLoading(true);
@@ -57,11 +93,14 @@ export default function ProviderApplyScreen({ navigation }: any) {
       p_phone: phone.trim(),
       p_category: category,
       p_years_experience: years ? parseInt(years, 10) : null,
-      p_min_hours: minHours ? parseFloat(minHours) : null,
+      p_min_hours: catalogValues.min_hours,
       p_country: country,
       p_state: state.trim() || null,
       p_city: city.trim() || null,
       p_notes: notes.trim() || null,
+      p_included_hours: catalogValues.included_hours,
+      p_extra_hour_price: catalogValues.extra_hour_price,
+      p_capacity_max: catalogValues.capacity_max,
     });
     setLoading(false);
 
@@ -148,29 +187,42 @@ export default function ProviderApplyScreen({ navigation }: any) {
               ))}
             </View>
 
-            <View style={s.row}>
-              <View style={{ flex: 1 }}>
-                <Input
-                  label="Años de trayectoria"
-                  placeholder="Ej. 5"
-                  value={years}
-                  onChangeText={t => setYears(t.replace(/[^0-9]/g, ''))}
-                  keyboardType="numeric"
-                  icon={<Briefcase size={18} color={COLORS.muted} />}
-                />
-              </View>
-              <View style={{ width: 12 }} />
-              <View style={{ flex: 1 }}>
-                <Input
-                  label="Horas mínimas de contratación"
-                  placeholder="Ej. 3"
-                  value={minHours}
-                  onChangeText={t => setMinHours(t.replace(/[^0-9.]/g, ''))}
-                  keyboardType="numeric"
-                  icon={<Clock size={18} color={COLORS.muted} />}
-                />
-              </View>
-            </View>
+            <Input
+              label="Años de trayectoria"
+              placeholder="Ej. 5"
+              value={years}
+              onChangeText={t => setYears(t.replace(/[^0-9]/g, ''))}
+              keyboardType="numeric"
+              icon={<Briefcase size={18} color={COLORS.muted} />}
+            />
+
+            {/* Catálogo comercial (sql/720). Antes se le preguntaban las horas
+                mínimas a TODAS las categorías, incluidas comida y renta, que no
+                se venden por hora. Ahora cada categoría solo ve lo que le aplica
+                y el número se guarda estructurado en vez de perderse en la
+                descripción. Todo es opcional: lo que se deje vacío queda en NULL
+                para que el proveedor o Admin lo completen después. */}
+            {catalogFields.length > 0 && (
+              <>
+                <Text style={s.label}>Tu servicio</Text>
+                <Text style={s.helpText}>
+                  Opcional, pero nos ayuda a cotizarte más rápido. No es un precio
+                  final: cada evento se cotiza aparte.
+                </Text>
+                {catalogFields.map(field => (
+                  <Input
+                    key={field}
+                    label={catalogFieldLabel(field, category)}
+                    placeholder={catalogFieldPlaceholder(field, category)}
+                    value={catalog[field]}
+                    onChangeText={v => setCatalog(f => ({ ...f, [field]: sanitizeCatalogInput(field, v) }))}
+                    keyboardType="numeric"
+                    icon={CATALOG_ICONS[field]}
+                  />
+                ))}
+                {!!catalogAviso && <Text style={s.avisoText}>⚠️ {catalogAviso}</Text>}
+              </>
+            )}
 
             <Text style={s.label}>País</Text>
             <View style={s.pillRow}>
@@ -241,6 +293,8 @@ const s = StyleSheet.create({
   title: { fontFamily: FONTS.title, fontSize: 22, color: COLORS.text, marginBottom: 6 },
   subtitle: { fontFamily: FONTS.body, fontSize: 13, color: COLORS.muted2, marginBottom: 20, lineHeight: 18 },
   label: { fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.muted2, marginBottom: 8 },
+  helpText: { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted, marginTop: -4, marginBottom: 10, lineHeight: 16 },
+  avisoText: { fontFamily: FONTS.body, fontSize: 12, color: COLORS.gold, marginBottom: 10, lineHeight: 16 },
   row: { flexDirection: 'row' },
 
   categoryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
