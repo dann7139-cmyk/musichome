@@ -56,6 +56,7 @@ import { stateToCountry } from '../../utils/locationUtils';
 import { validatePublicText } from '../../utils/textValidation';
 import {
   catalogErrorMessage,
+  catalogFieldHelp,
   catalogFieldLabel,
   catalogFieldPlaceholder,
   catalogFieldsFor,
@@ -114,7 +115,8 @@ interface Group {
   setup_minutes?:         number | null;
   includes_text?:         string | null;
   category_details?:      Record<string, any> | null;
-  // Catálogo comercial (sql/720) — referencia para cotizar, NO precio final.
+  // Catálogo comercial (sql/720 + sql/722) — referencia, NO precio final.
+  price_from?:            number | null;
   min_hours?:             number | null;
   included_hours?:        number | null;
   extra_hour_price?:      number | null;
@@ -208,9 +210,9 @@ export default function GroupDashboardScreen({ navigation }: any) {
     has_led_screen: false, led_sizes_available: [] as string[],
     power_amps: '', needs_parking: false, setup_minutes: '', includes_text: '',
     category_details: {} as Record<string, any>,
-    // Catálogo comercial (sql/720). Se guarda por RPC aparte, no en el UPDATE
-    // directo, porque esa RPC es la que valida y la que también usa Admin.
-    min_hours: '', included_hours: '', extra_hour_price: '', capacity_max: '',
+    // Catálogo comercial (sql/720 + sql/722). Se guarda por RPC aparte, no en el
+    // UPDATE directo, porque esa RPC es la que valida y la que también usa Admin.
+    price_from: '', min_hours: '', included_hours: '', extra_hour_price: '', capacity_max: '',
   });
   // 2026-09-05 — valores que otros proveedores de la MISMA categoría ya
   // usaron en sus propios perfiles (sql/624 get_category_field_values,
@@ -929,6 +931,7 @@ export default function GroupDashboardScreen({ navigation }: any) {
       setup_minutes:         String(group.setup_minutes ?? ''),
       includes_text:         group.includes_text ?? '',
       category_details:      group.category_details ?? {},
+      price_from:            group.price_from       != null ? String(group.price_from)       : '',
       min_hours:             group.min_hours        != null ? String(group.min_hours)        : '',
       included_hours:        group.included_hours   != null ? String(group.included_hours)   : '',
       extra_hour_price:      group.extra_hour_price != null ? String(group.extra_hour_price) : '',
@@ -1009,6 +1012,7 @@ export default function GroupDashboardScreen({ navigation }: any) {
         p_included_hours:   catalogValues.included_hours,
         p_extra_hour_price: catalogValues.extra_hour_price,
         p_capacity_max:     catalogValues.capacity_max,
+        p_price_from:       catalogValues.price_from,
       });
       if (ce || !cat?.ok) catalogErr = ce?.message ?? catalogErrorMessage(cat?.error);
     }
@@ -1202,6 +1206,7 @@ export default function GroupDashboardScreen({ navigation }: any) {
   // Catálogo comercial: solo los campos que su categoría usa de verdad.
   const catalogFields  = catalogFieldsFor(editCategoryKey);
   const catalogValues  = {
+    price_from:       catalogFields.includes('price_from')       ? parseCatalogInput('price_from', editForm.price_from)             : null,
     min_hours:        catalogFields.includes('min_hours')        ? parseCatalogInput('min_hours', editForm.min_hours)               : null,
     included_hours:   catalogFields.includes('included_hours')   ? parseCatalogInput('included_hours', editForm.included_hours)     : null,
     extra_hour_price: catalogFields.includes('extra_hour_price') ? parseCatalogInput('extra_hour_price', editForm.extra_hour_price) : null,
@@ -2087,6 +2092,9 @@ export default function GroupDashboardScreen({ navigation }: any) {
                     onChangeText={v => setEditForm(f => ({ ...f, [field]: sanitizeCatalogInput(field, v) }))}
                     keyboardType="numeric"
                   />
+                  {!!catalogFieldHelp(field, editCategoryKey) && (
+                    <Text style={s.catalogHelp}>{catalogFieldHelp(field, editCategoryKey)}</Text>
+                  )}
                 </View>
               ))}
               {!!catalogAviso && <Text style={s.catalogAviso}>⚠️ {catalogAviso}</Text>}
@@ -3784,6 +3792,7 @@ const s = StyleSheet.create({
 
   // ── Mi Equipo (modal edit) ────────────────────────────────────────────────────
   catalogAviso: { fontFamily: FONTS.body, fontSize: 12, color: COLORS.gold, marginBottom: 10, lineHeight: 16 },
+  catalogHelp:  { fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted, marginTop: 4, marginBottom: 6, lineHeight: 15 },
   equipSectionTitle: {
     fontFamily: FONTS.bodySemiBold, fontSize: 12, color: COLORS.muted2,
     textTransform: 'uppercase', letterSpacing: 0.6,

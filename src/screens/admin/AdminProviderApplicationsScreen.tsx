@@ -32,10 +32,12 @@ import { useAuth } from '../../context/AuthContext';
 import { PROVIDER_CATEGORIES, splitGenres } from '../../constants/providerCategories';
 import {
   CatalogFieldKey,
+  catalogFieldHelp,
   catalogFieldLabel,
   catalogFieldPlaceholder,
   catalogFieldsFor,
   catalogWarning,
+  EMPTY_CATALOG_FORM,
   parseCatalogInput,
   sanitizeCatalogInput,
   validateCatalog,
@@ -73,7 +75,8 @@ interface AppItem {
   category: string;
   years_experience: number | null;
   min_hours: number | null;
-  // Catalogo comercial declarado al registrarse (sql/720).
+  // Catalogo comercial declarado al registrarse (sql/720 + sql/722).
+  price_from: number | null;
   included_hours: number | null;
   extra_hour_price: number | null;
   capacity_max: number | null;
@@ -119,9 +122,7 @@ export default function AdminProviderApplicationsScreen({ navigation }: any) {
   const [addCategory, setAddCategory] = useState<string | null>(null);
   const [addYears, setAddYears] = useState('');
   // Catalogo comercial (sql/720): solo se piden los campos que su categoria usa.
-  const [addCatalog, setAddCatalog] = useState<Record<CatalogFieldKey, string>>({
-    min_hours: '', included_hours: '', extra_hour_price: '', capacity_max: '',
-  });
+  const [addCatalog, setAddCatalog] = useState<Record<CatalogFieldKey, string>>(EMPTY_CATALOG_FORM);
   const [addCountry, setAddCountry] = useState('México');
   const [addState, setAddState] = useState('');
   const [addCity, setAddCity] = useState('');
@@ -130,6 +131,7 @@ export default function AdminProviderApplicationsScreen({ navigation }: any) {
   // Derivados del catálogo: qué se pregunta, qué se manda y qué se advierte.
   const addCatalogFields = catalogFieldsFor(addCategory);
   const addCatalogValues = {
+    price_from:       addCatalogFields.includes('price_from')       ? parseCatalogInput('price_from', addCatalog.price_from)             : null,
     min_hours:        addCatalogFields.includes('min_hours')        ? parseCatalogInput('min_hours', addCatalog.min_hours)               : null,
     included_hours:   addCatalogFields.includes('included_hours')   ? parseCatalogInput('included_hours', addCatalog.included_hours)     : null,
     extra_hour_price: addCatalogFields.includes('extra_hour_price') ? parseCatalogInput('extra_hour_price', addCatalog.extra_hour_price) : null,
@@ -159,7 +161,7 @@ export default function AdminProviderApplicationsScreen({ navigation }: any) {
     setAddModal(true);
     setAddName(''); setAddPhone(''); setAddCategory(null);
     setAddYears('');
-    setAddCatalog({ min_hours: '', included_hours: '', extra_hour_price: '', capacity_max: '' });
+    setAddCatalog(EMPTY_CATALOG_FORM);
     setAddCountry(scopedCountry ?? 'México'); setAddState(''); setAddCity(''); setAddNotes('');
   };
 
@@ -184,6 +186,7 @@ export default function AdminProviderApplicationsScreen({ navigation }: any) {
       p_included_hours: addCatalogValues.included_hours,
       p_extra_hour_price: addCatalogValues.extra_hour_price,
       p_capacity_max: addCatalogValues.capacity_max,
+      p_price_from: addCatalogValues.price_from,
     });
     setAdding(false);
     if (error || !data?.ok) {
@@ -200,6 +203,7 @@ export default function AdminProviderApplicationsScreen({ navigation }: any) {
       category: addCategory,
       years_experience: addYears ? parseInt(addYears, 10) : null,
       min_hours: addCatalogValues.min_hours,
+      price_from: addCatalogValues.price_from,
       included_hours: addCatalogValues.included_hours,
       extra_hour_price: addCatalogValues.extra_hour_price,
       capacity_max: addCatalogValues.capacity_max,
@@ -361,11 +365,13 @@ export default function AdminProviderApplicationsScreen({ navigation }: any) {
                   </View>
                 )}
                 {/* Resto del catálogo comercial (sql/720) — solo lo que declaró. */}
-                {(item.included_hours != null || item.extra_hour_price != null || item.capacity_max != null) && (
+                {(item.price_from != null || item.included_hours != null
+                  || item.extra_hour_price != null || item.capacity_max != null) && (
                   <View style={s.infoRow}>
                     <Clock size={13} color={COLORS.muted2} />
                     <Text style={s.infoText}>
                       {[
+                        item.price_from       != null ? `desde $${item.price_from}` : null,
                         item.included_hours   != null ? `incluye ${item.included_hours}h` : null,
                         item.extra_hour_price != null ? `hora extra $${item.extra_hour_price}` : null,
                         item.capacity_max     != null ? `hasta ${item.capacity_max} personas` : null,
@@ -562,6 +568,9 @@ export default function AdminProviderApplicationsScreen({ navigation }: any) {
                       placeholderTextColor={COLORS.muted}
                       keyboardType="numeric"
                     />
+                    {!!catalogFieldHelp(field, addCategory) && (
+                      <Text style={s.catalogHelp}>{catalogFieldHelp(field, addCategory)}</Text>
+                    )}
                   </View>
                 ))}
                 {!!addCatalogAviso && <Text style={s.catalogAviso}>⚠️ {addCatalogAviso}</Text>}
@@ -692,6 +701,7 @@ const s = StyleSheet.create({
   sheetHint: { fontFamily: FONTS.body, fontSize: 12, color: COLORS.muted2, marginBottom: 16, lineHeight: 17 },
   label: { fontFamily: FONTS.bodyMedium, fontSize: 13, color: COLORS.muted2, marginBottom: 6 },
   catalogAviso: { fontFamily: FONTS.body, fontSize: 12, color: COLORS.gold, marginBottom: 10, lineHeight: 16 },
+  catalogHelp:  { fontFamily: FONTS.body, fontSize: 11, color: COLORS.muted, marginTop: 4, marginBottom: 4, lineHeight: 15 },
   input: {
     backgroundColor: COLORS.bg, borderRadius: RADIUS.md,
     borderWidth: 1, borderColor: COLORS.border,

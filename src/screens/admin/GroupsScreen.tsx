@@ -47,6 +47,7 @@ import { supabase } from '../../config/supabase';
 import {
   CatalogFieldKey,
   catalogErrorMessage,
+  catalogFieldHelp,
   catalogFieldLabel,
   catalogFieldPlaceholder,
   catalogFieldsFor,
@@ -121,6 +122,7 @@ export default function AdminGroupsScreen({ navigation }: any) {
 
   const catalogFields = catalogFieldsFor(selected ? categoryKeyForGenre(selected.genre) : null);
   const catalogValues = {
+    price_from:       catalogFields.includes('price_from')       ? parseCatalogInput('price_from', catalogForm.price_from)             : null,
     min_hours:        catalogFields.includes('min_hours')        ? parseCatalogInput('min_hours', catalogForm.min_hours)               : null,
     included_hours:   catalogFields.includes('included_hours')   ? parseCatalogInput('included_hours', catalogForm.included_hours)     : null,
     extra_hour_price: catalogFields.includes('extra_hour_price') ? parseCatalogInput('extra_hour_price', catalogForm.extra_hour_price) : null,
@@ -139,6 +141,7 @@ export default function AdminGroupsScreen({ navigation }: any) {
       p_included_hours:   catalogValues.included_hours,
       p_extra_hour_price: catalogValues.extra_hour_price,
       p_capacity_max:     catalogValues.capacity_max,
+      p_price_from:       catalogValues.price_from,
     });
     setCatalogSaving(false);
     if (error || !data?.ok) {
@@ -163,7 +166,7 @@ export default function AdminGroupsScreen({ navigation }: any) {
         is_plus_active, plus_expires_at, plus_subscription_id,
         admin_highlight,
         concierge_mode,
-        min_hours, included_hours, extra_hour_price, capacity_max,
+        min_hours, included_hours, extra_hour_price, capacity_max, price_from,
         rating, total_reviews, created_at,
         profile_image, owner_id,
         verification_status, strike_count,
@@ -1043,6 +1046,11 @@ export default function AdminGroupsScreen({ navigation }: any) {
                       placeholderTextColor={COLORS.muted}
                       keyboardType="numeric"
                     />
+                    {!!catalogFieldHelp(field, categoryKeyForGenre(selected.genre)) && (
+                      <Text style={[s.moderateCardHint, { marginTop: 4 }]}>
+                        {catalogFieldHelp(field, categoryKeyForGenre(selected.genre))}
+                      </Text>
+                    )}
                   </View>
                 ))}
                 {!!catalogAviso && (

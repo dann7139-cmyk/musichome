@@ -30,10 +30,12 @@ import Particles from '../../components/ui/Particles';
 import { PROVIDER_CATEGORIES } from '../../constants/providerCategories';
 import {
   CatalogFieldKey,
+  catalogFieldHelp,
   catalogFieldLabel,
   catalogFieldPlaceholder,
   catalogFieldsFor,
   catalogWarning,
+  EMPTY_CATALOG_FORM,
   parseCatalogInput,
   sanitizeCatalogInput,
   validateCatalog,
@@ -42,6 +44,7 @@ import {
 const COUNTRIES = ['México', 'Estados Unidos', 'Canadá'];
 
 const CATALOG_ICONS: Record<CatalogFieldKey, React.ReactNode> = {
+  price_from:       <DollarSign size={18} color={COLORS.muted} />,
   min_hours:        <Clock size={18} color={COLORS.muted} />,
   included_hours:   <Clock size={18} color={COLORS.muted} />,
   extra_hour_price: <DollarSign size={18} color={COLORS.muted} />,
@@ -55,9 +58,7 @@ export default function ProviderApplyScreen({ navigation }: any) {
   const [years, setYears]         = useState('');
   // Catálogo comercial (sql/720). Solo se le preguntan a la categoría los campos
   // que de verdad le aplican — ver src/constants/commercialCatalog.ts.
-  const [catalog, setCatalog]     = useState<Record<CatalogFieldKey, string>>({
-    min_hours: '', included_hours: '', extra_hour_price: '', capacity_max: '',
-  });
+  const [catalog, setCatalog]     = useState<Record<CatalogFieldKey, string>>(EMPTY_CATALOG_FORM);
   const [country, setCountry]     = useState('México');
   const [state, setState]         = useState('');
   const [city, setCity]           = useState('');
@@ -70,6 +71,7 @@ export default function ProviderApplyScreen({ navigation }: any) {
   // Los campos que su categoría sí usa; los demás no se preguntan ni se mandan.
   const catalogFields = catalogFieldsFor(category);
   const catalogValues = {
+    price_from:       catalogFields.includes('price_from')       ? parseCatalogInput('price_from', catalog.price_from)             : null,
     min_hours:        catalogFields.includes('min_hours')        ? parseCatalogInput('min_hours', catalog.min_hours)               : null,
     included_hours:   catalogFields.includes('included_hours')   ? parseCatalogInput('included_hours', catalog.included_hours)     : null,
     extra_hour_price: catalogFields.includes('extra_hour_price') ? parseCatalogInput('extra_hour_price', catalog.extra_hour_price) : null,
@@ -101,6 +103,7 @@ export default function ProviderApplyScreen({ navigation }: any) {
       p_included_hours: catalogValues.included_hours,
       p_extra_hour_price: catalogValues.extra_hour_price,
       p_capacity_max: catalogValues.capacity_max,
+      p_price_from: catalogValues.price_from,
     });
     setLoading(false);
 
@@ -210,15 +213,19 @@ export default function ProviderApplyScreen({ navigation }: any) {
                   final: cada evento se cotiza aparte.
                 </Text>
                 {catalogFields.map(field => (
-                  <Input
-                    key={field}
-                    label={catalogFieldLabel(field, category)}
-                    placeholder={catalogFieldPlaceholder(field, category)}
-                    value={catalog[field]}
-                    onChangeText={v => setCatalog(f => ({ ...f, [field]: sanitizeCatalogInput(field, v) }))}
-                    keyboardType="numeric"
-                    icon={CATALOG_ICONS[field]}
-                  />
+                  <View key={field}>
+                    <Input
+                      label={catalogFieldLabel(field, category)}
+                      placeholder={catalogFieldPlaceholder(field, category)}
+                      value={catalog[field]}
+                      onChangeText={v => setCatalog(f => ({ ...f, [field]: sanitizeCatalogInput(field, v) }))}
+                      keyboardType="numeric"
+                      icon={CATALOG_ICONS[field]}
+                    />
+                    {!!catalogFieldHelp(field, category) && (
+                      <Text style={s.helpText}>{catalogFieldHelp(field, category)}</Text>
+                    )}
+                  </View>
                 ))}
                 {!!catalogAviso && <Text style={s.avisoText}>⚠️ {catalogAviso}</Text>}
               </>
