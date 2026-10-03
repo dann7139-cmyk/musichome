@@ -67,6 +67,23 @@
 -- CHECK de no-negativo. NO se conecta al cálculo de quotes, comisión, reserva ni
 -- pagos: la quote real sigue mandando. NO se inventa para los 16 grupos sin dato.
 --
+-- ── ORDEN DE APLICACIÓN: 724 VA ANTES QUE ESTA ────────────────────────────
+-- sql/724 (ETAPA 3.6A) cerró los ALTER DEFAULT PRIVILEGES del esquema: una
+-- función nueva ya NO nace con EXECUTE para PUBLIC ni para anon (sí para
+-- authenticated y service_role). Eso cambia dos cosas aquí:
+--   · `submit_provider_application` se recrea con DROP+CREATE, así que su ACL
+--     se reconstruye desde el default. Como el registro es PÚBLICO y sin sesión,
+--     el GRANT a `anon` de más abajo dejó de ser decorativo: AHORA ES LO ÚNICO
+--     que lo mantiene vivo. No quitarlo.
+--   · `set_group_commercial_catalog` con 6 argumentos también es una firma nueva;
+--     su REVOKE/GRANT explícito de más abajo la deja solo para authenticated y
+--     service_role, que es lo correcto.
+-- Las otras tres (`client_accept_quote`, `admin_approve_provider_application`,
+-- `admin_get_provider_applications`) se editan con CREATE OR REPLACE, que
+-- CONSERVA el ACL existente: no hay nada que reponer.
+-- El bloque de verificación final comprueba las tres cosas, para que 722 no
+-- pueda reabrir lo que 724 cerró.
+--
 -- ── CAPACIDAD Y RENTA ─────────────────────────────────────────────────────
 -- No se migra `category_details.capacity` (terraza) en esta migración: hacerlo
 -- exige tocar archivos que son WIP ajeno. La recomendación va en el reporte.
@@ -404,6 +421,36 @@ BEGIN
       WHERE oid = to_regprocedure('public.set_group_commercial_catalog(uuid,numeric,numeric,numeric,integer,numeric)'))
      ~* '(extra_hours|reservation|payment|stripe|conekta|commission|calculate_final_price)' THEN
     RAISE EXCEPTION 'La RPC del catalogo menciona dinero/extra_hours. Abortando.';
+  END IF;
+
+  -- ── ACL: 722 no debe reabrir nada de lo que cerro sql/724 ────────────────
+  -- El registro es publico y sin sesion: tiene que seguir siendo ejecutable por
+  -- anon. Es la UNICA excepcion deliberada.
+  IF NOT has_function_privilege('anon', 'public.submit_provider_application(text,text,text,integer,numeric,text,text,text,text,numeric,numeric,integer,numeric)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'submit_provider_application quedo sin anon: romperia el registro publico. Abortando.';
+  END IF;
+  -- El catalogo es para usuarios con sesion, nunca para anon.
+  IF has_function_privilege('anon', 'public.set_group_commercial_catalog(uuid,numeric,numeric,numeric,integer,numeric)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'set_group_commercial_catalog quedo abierta a anon. Abortando.';
+  END IF;
+  IF NOT has_function_privilege('authenticated', 'public.set_group_commercial_catalog(uuid,numeric,numeric,numeric,integer,numeric)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'set_group_commercial_catalog quedo sin authenticated: el dueño no podria editar. Abortando.';
+  END IF;
+  -- Y las 8 funciones de webhook que cerro 724 deben seguir cerradas.
+  IF EXISTS (
+    SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+    WHERE n.nspname='public' AND p.proname IN
+      ('confirm_gift_payment','confirm_bid_payment','confirm_recommendation_payment',
+       'mark_ad_payment','renew_recommendation_subscription','renew_sponsored_subscription',
+       'activate_plus','deactivate_plus')
+      AND (has_function_privilege('anon', p.oid, 'EXECUTE')
+        OR has_function_privilege('authenticated', p.oid, 'EXECUTE'))
+  ) THEN
+    RAISE EXCEPTION '722 reabrio alguna funcion de webhook que sql/724 habia cerrado. Abortando.';
+  END IF;
+  -- Y la cola de Admin tampoco debe abrirse a anon.
+  IF has_function_privilege('anon', 'public.admin_get_provider_applications(text)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'admin_get_provider_applications quedo abierta a anon. Abortando.';
   END IF;
 END
 $verify$;
